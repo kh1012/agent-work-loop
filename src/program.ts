@@ -33,6 +33,16 @@ export function buildProgram(): Command {
       await runInit({ yes: opts.yes === true });
     });
 
+  // 사람이 치는 명령: status (지금 어디까지 왔는지 한눈에)
+  program
+    .command('status')
+    .description('지금 어디까지 왔는지 한눈에 봅니다')
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .action(async (opts: { json?: boolean }) => {
+      const { runStatus } = await import('./commands/status.js');
+      runStatus({ json: opts.json === true });
+    });
+
   // 사람이 치는 명령: doctor (아무것도 설치·수리하지 않고 점검만 한다)
   program
     .command('doctor')
