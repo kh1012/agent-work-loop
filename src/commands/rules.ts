@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { rulesDir } from '../core/paths.js';
 import { type Caps, caps, makeColors } from '../core/tty.js';
-import { type Delta, acquireLock, loadDeltaList, releaseLock } from './evolve.js';
+import { type Gotcha, acquireLock, loadGotchaList, releaseLock } from './evolve.js';
 
 /**
  * awl rules — ~/.awl/rules/active/*.md 를 읽어 이 프로젝트에 적용되는 규칙을 반환한다.
@@ -221,7 +221,7 @@ export function validatePromoteOpts(opts: { applies?: string; counter?: string }
 /** 규칙 파일 내용(frontmatter + 본문)을 만든다. 쓰기는 안 한다. 순수 함수. */
 export function buildRuleFile(
   ruleId: string,
-  delta: Delta,
+  gotcha: Gotcha,
   createdAt: string,
   opts: { applies: string; counter: string; scope?: string },
 ): string {
@@ -233,10 +233,10 @@ export function buildRuleFile(
     `counter: ${opts.counter}`,
     'violations: 0',
     `createdAt: ${createdAt}`,
-    `source: ${delta.id}`,
+    `source: ${gotcha.id}`,
     '---',
     '',
-    delta.lesson,
+    gotcha.lesson,
     '',
   ].join('\n');
 }
@@ -250,12 +250,12 @@ export function checkRuleLoadLimit(loadedCount: number): string | null {
 }
 
 export function runRulesPromote(
-  deltaId: string,
+  gotchaId: string,
   opts: { applies?: string; counter?: string; scope?: string },
 ): void {
-  const delta = loadDeltaList().find((d) => d.id === deltaId);
-  if (!delta) {
-    process.stderr.write(`\n  교훈 ${deltaId} 을(를) 찾을 수 없습니다.\n`);
+  const gotcha = loadGotchaList().find((g) => g.id === gotchaId);
+  if (!gotcha) {
+    process.stderr.write(`\n  교훈 ${gotchaId} 을(를) 찾을 수 없습니다.\n`);
     process.exit(1);
   }
   // applies/counter 는 필수. 없으면 거부한다(적용 조건 없는 규칙은 다른 프로젝트로 잘못 끌려가고,
@@ -284,17 +284,17 @@ export function runRulesPromote(
   try {
     const ruleId = nextRuleId();
     const createdAt = new Date().toISOString().slice(0, 10);
-    const front = buildRuleFile(ruleId, delta, createdAt, {
+    const front = buildRuleFile(ruleId, gotcha, createdAt, {
       applies: opts.applies as string,
       counter: opts.counter as string,
       scope: opts.scope,
     });
     fs.mkdirSync(activeRulesDir(), { recursive: true });
     fs.writeFileSync(path.join(activeRulesDir(), `${ruleId}.md`), front);
-    process.stdout.write(`\n  ${color.green('승격됨')}: ${ruleId}  "${delta.lesson}"\n`);
+    process.stdout.write(`\n  ${color.green('승격됨')}: ${ruleId}  "${gotcha.lesson}"\n`);
 
     // 검사기로 만들 수 있으면 안내(졸업이 룰 비대화 방지의 8할이다).
-    const linter = suggestLinter(delta.lesson);
+    const linter = suggestLinter(gotcha.lesson);
     if (linter) {
       process.stdout.write('\n  이 규칙은 검사기로 만들 수 있어 보입니다.\n');
       process.stdout.write(

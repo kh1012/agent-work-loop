@@ -32,8 +32,13 @@ export function recordsDir(): string {
   return path.join(globalRoot(), 'records');
 }
 
-/** ~/.awl/deltas — 변화(델타) */
-export function deltasDir(): string {
+/** ~/.awl/gotchas — 아직 규칙이 되지 않은 교훈(WI-O — 예전 이름 delta 를 개명함). */
+export function gotchasDir(): string {
+  return path.join(globalRoot(), 'gotchas');
+}
+
+/** ~/.awl/deltas — gotchas 로 개명되기 전 옛 위치(WI-O 마이그레이션 대상, 읽기 전용으로만 참조). */
+export function legacyDeltasDir(): string {
   return path.join(globalRoot(), 'deltas');
 }
 

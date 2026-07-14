@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   acquireLock,
   collectEvolve,
-  loadDeltaList,
-  recordDelta,
+  loadGotchaList,
+  recordGotcha,
   releaseLock,
   writeGeneration,
 } from '../../src/commands/evolve.js';
@@ -95,48 +95,48 @@ describe('collectEvolve — 모으기만 (판단하지 않음)', () => {
     expect(col.metrics.reviewRejects).toBe(1);
   });
 
-  it('existingDeltas 를 함께 준다', () => {
+  it('existingGotchas 를 함께 준다', () => {
     seedRecords([]);
-    recordDelta(
+    recordGotcha(
       { lesson: '축을 파라미터로 빼기 전에 좌표계 의존을 확인한다', source: { workitem: 'WI-4' } },
       '2026-07-14T00:00:00Z',
     );
     const col = collectEvolve('p', 'WI-6', { criteria: [] });
-    expect(col.existingDeltas).toHaveLength(1);
-    expect(col.existingDeltas[0]?.count).toBe(1);
-    expect(col.existingDeltas[0]?.lesson).toContain('좌표계');
+    expect(col.existingGotchas).toHaveLength(1);
+    expect(col.existingGotchas[0]?.count).toBe(1);
+    expect(col.existingGotchas[0]?.lesson).toContain('좌표계');
   });
 });
 
-describe('recordDelta — 쓰고 세기만 (승격 안 함)', () => {
-  it('새 교훈을 D-001 로 만든다', () => {
-    const r = recordDelta(
+describe('recordGotcha — 쓰고 세기만 (승격 안 함)', () => {
+  it('새 교훈을 G-001 로 만든다', () => {
+    const r = recordGotcha(
       { lesson: '테스트 먼저 작성한다', source: { workitem: 'WI-6', project: 'p' } },
       'now',
     );
     expect(r.created).toBe(true);
     expect(r.repeated).toBe(false);
-    expect(r.delta.id).toBe('D-001');
-    expect(r.delta.count).toBe(1);
+    expect(r.gotcha.id).toBe('G-001');
+    expect(r.gotcha.count).toBe(1);
   });
 
   it('sameAs 로 같은 교훈을 다시 기록하면 count 가 2 가 되고 repeated=true', () => {
-    const first = recordDelta(
+    const first = recordGotcha(
       { lesson: '좌표계 의존 먼저 확인', source: { workitem: 'WI-4', project: 'p' } },
       't1',
     );
-    const second = recordDelta(
-      { lesson: '(중복)', sameAs: first.delta.id, source: { workitem: 'WI-6', project: 'p' } },
+    const second = recordGotcha(
+      { lesson: '(중복)', sameAs: first.gotcha.id, source: { workitem: 'WI-6', project: 'p' } },
       't2',
     );
     expect(second.created).toBe(false);
     expect(second.repeated).toBe(true);
-    expect(second.delta.count).toBe(2);
+    expect(second.gotcha.count).toBe(2);
     // 자동 승격하지 않는다: 규칙 파일이 생기지 않는다.
     const rulesActive = path.join(process.env.AWL_HOME as string, 'rules', 'active');
     expect(fs.existsSync(rulesActive)).toBe(false);
     // history 에 처음/이번이 남는다
-    expect(loadDeltaList()[0]?.history).toHaveLength(2);
+    expect(loadGotchaList()[0]?.history).toHaveLength(2);
   });
 });
 

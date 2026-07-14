@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -51,6 +51,15 @@ describe('awl 프로그램 구성', () => {
     const rulesCmd = program.commands.find((c) => c.name() === 'rules');
     expect(rulesCmd?.helpInformation()).toContain('promote');
   });
+
+  it('gotchas 는 도움말에 보이고 deltas 는 폐기 예정이라 숨겨진다 (WI-O AC-01/03)', () => {
+    const program = buildProgram();
+    expect(program.helpInformation()).toContain('gotchas');
+    // deltas 는 등록은 돼 있지만(하위호환) hidden:true 라 최상위 도움말엔 안 보인다.
+    expect(program.helpInformation()).not.toContain('deltas');
+    const deltasCmd = program.commands.find((c) => c.name() === 'deltas');
+    expect(deltasCmd).toBeDefined();
+  });
 });
 
 describe('versionString — engine 버전 표시', () => {
@@ -86,5 +95,21 @@ describe.runIf(existsSync(distCli))('빌드된 CLI 실행', () => {
     const out = execFileSync('node', [distCli, '--help']).toString();
     expect(out).toContain('Agent Work Loop');
     expect(out).toContain('같은 실패를 두 번 하지 않게');
+  });
+
+  it('deltas 는 경고를 찍고 gotchas 와 동일한 내용을 보여준다 (WI-O AC-03, 하위호환)', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-deltas-alias-'));
+    fs.mkdirSync(path.join(home, 'gotchas'), { recursive: true });
+    fs.writeFileSync(
+      path.join(home, 'gotchas', 'G-001.json'),
+      JSON.stringify({ id: 'G-001', lesson: '테스트 교훈', count: 1 }),
+    );
+    const result = spawnSync('node', [distCli, 'deltas', '--json'], {
+      env: { ...process.env, AWL_HOME: home },
+      encoding: 'utf8',
+    });
+    expect(result.stderr).toContain('폐기 예정');
+    expect(result.stderr).toContain('awl gotchas');
+    expect(JSON.parse(result.stdout)[0].lesson).toBe('테스트 교훈');
   });
 });

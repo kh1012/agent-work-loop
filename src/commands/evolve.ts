@@ -1,17 +1,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { deltasDir, generationsDir, lockFile } from '../core/paths.js';
+import { generationsDir, gotchasDir, lockFile } from '../core/paths.js';
 import { type Caps, caps, makeColors } from '../core/tty.js';
 import { requireConfig } from './config.js';
 import { readRecords } from './record.js';
 import { loadState } from './state.js';
 
 /**
- * awl evolve — 기록을 교훈으로, 교훈을 규칙으로 잇는다.
+ * awl evolve — 기록을 교훈(gotcha)으로, 교훈을 규칙으로 잇는다.
  *
  * awl 은 판단하지 않는다. LLM 을 호출하지 않는다.
  * - `--collect`: 기록을 모아 에이전트에게 넘길 자료를 낸다(판단하지 않음).
- * - `--record`: 에이전트가 뽑은 교훈을 deltas 에 쓰고, 반복 횟수를 센다(만들어내지 않음).
+ * - `--record`: 에이전트가 뽑은 교훈을 gotchas 에 쓰고, 반복 횟수를 센다(만들어내지 않음).
  * 교훈 추출(판단)은 그 사이에서 에이전트가 스킬로 한다.
  */
 
@@ -44,10 +44,10 @@ export function releaseLock(): void {
 }
 
 // ---------------------------------------------------------------------------
-// deltas 저장/로드
+// gotchas 저장/로드 (WI-O — 예전 이름 delta 를 개명함)
 // ---------------------------------------------------------------------------
 
-export interface Delta {
+export interface Gotcha {
   id: string;
   lesson: string;
   context?: string;
@@ -58,17 +58,17 @@ export interface Delta {
   history?: Record<string, unknown>[];
 }
 
-export function loadDeltaList(): Delta[] {
+export function loadGotchaList(): Gotcha[] {
   let files: string[];
   try {
-    files = fs.readdirSync(deltasDir()).filter((f) => f.endsWith('.json'));
+    files = fs.readdirSync(gotchasDir()).filter((f) => f.endsWith('.json'));
   } catch {
     return [];
   }
-  const out: Delta[] = [];
+  const out: Gotcha[] = [];
   for (const f of files.sort()) {
     try {
-      out.push(JSON.parse(fs.readFileSync(path.join(deltasDir(), f), 'utf8')) as Delta);
+      out.push(JSON.parse(fs.readFileSync(path.join(gotchasDir(), f), 'utf8')) as Gotcha);
     } catch {
       // 깨진 파일은 건너뛴다.
     }
@@ -76,20 +76,20 @@ export function loadDeltaList(): Delta[] {
   return out;
 }
 
-function writeDelta(d: Delta): void {
-  fs.mkdirSync(deltasDir(), { recursive: true });
-  fs.writeFileSync(path.join(deltasDir(), `${d.id}.json`), `${JSON.stringify(d, null, 2)}\n`);
+function writeGotcha(g: Gotcha): void {
+  fs.mkdirSync(gotchasDir(), { recursive: true });
+  fs.writeFileSync(path.join(gotchasDir(), `${g.id}.json`), `${JSON.stringify(g, null, 2)}\n`);
 }
 
-function nextDeltaId(deltas: Delta[]): string {
+function nextGotchaId(gotchas: Gotcha[]): string {
   let max = 0;
-  for (const d of deltas) {
-    const m = /^D-(\d+)$/.exec(d.id);
+  for (const g of gotchas) {
+    const m = /^G-(\d+)$/.exec(g.id);
     if (m?.[1]) {
       max = Math.max(max, Number(m[1]));
     }
   }
-  return `D-${String(max + 1).padStart(3, '0')}`;
+  return `G-${String(max + 1).padStart(3, '0')}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -110,7 +110,7 @@ export interface EvolveCollection {
   blocked: Record<string, unknown>[];
   reviews: Record<string, unknown>[];
   retried: Record<string, unknown>[];
-  existingDeltas: { id: string; lesson: string; count: number }[];
+  existingGotchas: { id: string; lesson: string; count: number }[];
   metrics: EvolveMetrics;
 }
 
@@ -136,10 +136,10 @@ export function collectEvolve(
   const blockedCount = criteria.filter((c) => c.status === 'blocked').length;
   const proceduralErrors = criteria.reduce((s, c) => s + num(c.proceduralErrors), 0);
 
-  const existingDeltas = loadDeltaList().map((d) => ({
-    id: d.id,
-    lesson: d.lesson,
-    count: d.count,
+  const existingGotchas = loadGotchaList().map((g) => ({
+    id: g.id,
+    lesson: g.lesson,
+    count: g.count,
   }));
 
   const metrics: EvolveMetrics = {
@@ -150,7 +150,7 @@ export function collectEvolve(
     proceduralErrors,
   };
 
-  return { workitem, project, blocked, reviews, retried, existingDeltas, metrics };
+  return { workitem, project, blocked, reviews, retried, existingGotchas, metrics };
 }
 
 /** 세대 지표를 프로젝트별 디렉토리에 기록한다. */
@@ -172,36 +172,36 @@ export function writeGeneration(
 // record (교훈 쓰기 + 반복 세기)
 // ---------------------------------------------------------------------------
 
-export interface RecordDeltaInput {
+export interface RecordGotchaInput {
   lesson: string;
   context?: string;
   source?: Record<string, unknown>;
   sameAs?: string;
 }
 
-export interface RecordDeltaResult {
-  delta: Delta;
+export interface RecordGotchaResult {
+  gotcha: Gotcha;
   repeated: boolean; // count >= 2 가 됐는가
   created: boolean; // 새로 만들었는가
 }
 
-/** 교훈을 deltas 에 쓴다. sameAs 가 있으면 기존 교훈의 count 를 올린다. */
-export function recordDelta(input: RecordDeltaInput, at: string): RecordDeltaResult {
-  const deltas = loadDeltaList();
+/** 교훈을 gotchas 에 쓴다. sameAs 가 있으면 기존 교훈의 count 를 올린다. */
+export function recordGotcha(input: RecordGotchaInput, at: string): RecordGotchaResult {
+  const gotchas = loadGotchaList();
 
   if (input.sameAs) {
-    const existing = deltas.find((d) => d.id === input.sameAs);
+    const existing = gotchas.find((g) => g.id === input.sameAs);
     if (existing) {
       existing.count += 1;
       existing.history = [...(existing.history ?? []), { at, source: input.source }];
-      writeDelta(existing);
-      return { delta: existing, repeated: existing.count >= 2, created: false };
+      writeGotcha(existing);
+      return { gotcha: existing, repeated: existing.count >= 2, created: false };
     }
     // sameAs 가 가리키는 교훈이 없으면 새로 만든다(잘못된 참조 방어).
   }
 
-  const id = nextDeltaId(deltas);
-  const delta: Delta = {
+  const id = nextGotchaId(gotchas);
+  const gotcha: Gotcha = {
     id,
     lesson: input.lesson,
     context: input.context,
@@ -211,32 +211,32 @@ export function recordDelta(input: RecordDeltaInput, at: string): RecordDeltaRes
     createdAt: at,
     history: [{ at, source: input.source }],
   };
-  writeDelta(delta);
-  return { delta, repeated: false, created: true };
+  writeGotcha(gotcha);
+  return { gotcha, repeated: false, created: true };
 }
 
 // ---------------------------------------------------------------------------
 // 명령 진입점
 // ---------------------------------------------------------------------------
 
-function renderRepeatNotice(delta: Delta, c: Caps): string {
+function renderRepeatNotice(gotcha: Gotcha, c: Caps): string {
   const color = makeColors(c.color);
-  const first = delta.history?.[0]?.source as Record<string, unknown> | undefined;
-  const last = delta.history?.[delta.history.length - 1]?.source as
+  const first = gotcha.history?.[0]?.source as Record<string, unknown> | undefined;
+  const last = gotcha.history?.[gotcha.history.length - 1]?.source as
     | Record<string, unknown>
     | undefined;
   const fmt = (s: Record<string, unknown> | undefined): string =>
     s ? `${s.workitem ?? '?'} (${s.project ?? '?'})` : '?';
   return [
     '',
-    `  교훈 ${color.bold(delta.id)} 이 ${delta.count}회 반복됐습니다.`,
+    `  gotcha ${color.bold(gotcha.id)} 이 ${gotcha.count}회 반복됐습니다.`,
     '',
-    `    "${delta.lesson}"`,
+    `    "${gotcha.lesson}"`,
     '',
     `    처음: ${fmt(first)}`,
     `    이번: ${fmt(last)}`,
     '',
-    `  ${color.dim(`awl rules promote ${delta.id} 으로 규칙을 만들 수 있습니다.`)}`,
+    `  ${color.dim(`awl rules promote ${gotcha.id} 으로 규칙을 만들 수 있습니다.`)}`,
     '  (자동 승격하지 않습니다. 사람이 확인합니다.)',
   ].join('\n');
 }
@@ -287,20 +287,20 @@ export function runEvolveRecord(jsonInput: string): void {
     process.exit(1);
   }
   try {
-    const input: RecordDeltaInput = {
+    const input: RecordGotchaInput = {
       lesson: data.lesson,
       context: typeof data.context === 'string' ? data.context : undefined,
       source: (data.source as Record<string, unknown>) ?? undefined,
       sameAs: typeof data.sameAs === 'string' ? data.sameAs : undefined,
     };
-    const result = recordDelta(input, new Date().toISOString());
+    const result = recordGotcha(input, new Date().toISOString());
     if (result.repeated) {
-      process.stdout.write(`${renderRepeatNotice(result.delta, caps())}\n`);
+      process.stdout.write(`${renderRepeatNotice(result.gotcha, caps())}\n`);
     } else if (result.created) {
-      process.stdout.write(`\n  교훈 ${result.delta.id} 을 기록했습니다.\n`);
+      process.stdout.write(`\n  교훈 ${result.gotcha.id} 을 기록했습니다.\n`);
     } else {
       process.stdout.write(
-        `\n  교훈 ${result.delta.id} 의 반복을 기록했습니다(${result.delta.count}회).\n`,
+        `\n  교훈 ${result.gotcha.id} 의 반복을 기록했습니다(${result.gotcha.count}회).\n`,
       );
     }
   } finally {

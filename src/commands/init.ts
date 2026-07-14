@@ -394,7 +394,7 @@ export function scaffoldGlobal(): { created: boolean; engineVersion: string } {
 
   for (const dir of [
     'records',
-    'deltas',
+    'gotchas',
     'rules',
     path.join('rules', 'active'),
     'templates',

@@ -172,15 +172,18 @@ export function buildProgram(): Command {
   // (부모 --scope 와 이름이 겹쳐 조용히 유실됨 — 실측 확인, docs/decisions.md 참조). 그래서 새로 추가하는
   // 이 플래그만 이름을 달리한다. rules.ts 의 내부 필드명(scope)·frontmatter(scope:)는 그대로 둔다.
   rules
-    .command('promote <deltaId>')
+    .command('promote <gotchaId>')
     .description('교훈을 규칙으로 승격합니다 (applies/counter 필수, 사람이 실행)')
     .option('--applies <cond>', '적용 조건 (필수)')
     .option('--counter <cond>', '반증 조건 (필수)')
     .option('--rule-scope <scope>', '로드 단계 (audit/criteria/implement/commit/review)')
     .action(
-      async (deltaId: string, opts: { applies?: string; counter?: string; ruleScope?: string }) => {
+      async (
+        gotchaId: string,
+        opts: { applies?: string; counter?: string; ruleScope?: string },
+      ) => {
         const { runRulesPromote } = await import('./commands/rules.js');
-        runRulesPromote(deltaId, {
+        runRulesPromote(gotchaId, {
           applies: opts.applies,
           counter: opts.counter,
           scope: opts.ruleScope,
@@ -188,14 +191,27 @@ export function buildProgram(): Command {
       },
     );
 
-  // 사람이 치는 명령: deltas (아직 규칙이 되지 않은 교훈)
+  // 사람이 치는 명령: gotchas (아직 규칙이 되지 않은 교훈, WI-O — 예전 이름 deltas 를 개명함)
   program
-    .command('deltas')
+    .command('gotchas')
     .description('아직 규칙이 되지 않은 교훈을 봅니다')
     .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
     .action(async (opts: { json?: boolean }) => {
-      const { runDeltas } = await import('./commands/deltas.js');
-      runDeltas({ json: opts.json === true });
+      const { runGotchas } = await import('./commands/gotchas.js');
+      runGotchas({ json: opts.json === true });
+    });
+
+  // 폐기 예정(0.4.0 까지 유지): deltas 는 gotchas 의 옛 이름이다.
+  program
+    .command('deltas', { hidden: true })
+    .description('(폐기 예정 — awl gotchas 를 쓰세요) 아직 규칙이 되지 않은 교훈을 봅니다')
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .action(async (opts: { json?: boolean }) => {
+      process.stderr.write(
+        '\n  경고: awl deltas 는 폐기 예정입니다(0.4.0 에서 제거). awl gotchas 를 쓰세요.\n',
+      );
+      const { runGotchas } = await import('./commands/gotchas.js');
+      runGotchas({ json: opts.json === true });
     });
 
   // 사람이 치는 명령: commit (격리 커밋 — 남의 미커밋 변경을 잃지 않는다)

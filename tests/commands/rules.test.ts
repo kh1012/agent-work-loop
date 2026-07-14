@@ -136,12 +136,12 @@ describe('validatePromoteOpts — applies/counter 필수 (WI-7)', () => {
 
 describe('buildRuleFile — 규칙 파일 내용 생성 (WI-7)', () => {
   it('applies/counter/source/scope 를 frontmatter 에 담고 lesson 을 본문에 넣는다', () => {
-    const delta = {
-      id: 'D-003',
+    const gotcha = {
+      id: 'G-003',
       lesson: '축을 파라미터로 빼기 전에 좌표계 의존을 확인한다',
       count: 2,
     };
-    const text = buildRuleFile('R-001', delta, '2026-07-14', {
+    const text = buildRuleFile('R-001', gotcha, '2026-07-14', {
       applies: 'generic-spread 아키텍처, 오버레이 기반 리사이즈',
       counter: '오버레이가 축에 의존하지 않는 경우',
       scope: 'implement',
@@ -153,12 +153,12 @@ describe('buildRuleFile — 규칙 파일 내용 생성 (WI-7)', () => {
     expect(rule?.applies).toContain('generic-spread');
     expect(rule?.counter).toContain('오버레이가 축에 의존하지 않는');
     expect(rule?.body).toContain('축을 파라미터로 빼기 전에');
-    expect(text).toContain('source: D-003');
+    expect(text).toContain('source: G-003');
   });
 
   it('scope 가 없으면 frontmatter 에서 생략한다(무태그=항상 적용)', () => {
-    const delta = { id: 'D-001', lesson: 'l', count: 1 };
-    const text = buildRuleFile('R-002', delta, '2026-07-14', { applies: 'a', counter: 'c' });
+    const gotcha = { id: 'G-001', lesson: 'l', count: 1 };
+    const text = buildRuleFile('R-002', gotcha, '2026-07-14', { applies: 'a', counter: 'c' });
     expect(text).not.toContain('scope:');
   });
 });

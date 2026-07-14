@@ -3,11 +3,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  deltasDir,
   engineDir,
   findProjectRoot,
   generationsDir,
   globalRoot,
+  gotchasDir,
+  legacyDeltasDir,
   lockFile,
   projectConfigPath,
   projectStatePath,
@@ -66,7 +67,8 @@ describe('전역 하위 경로 조합', () => {
     const root = globalRoot();
     expect(engineDir()).toBe(path.join(root, 'engine'));
     expect(recordsDir()).toBe(path.join(root, 'records'));
-    expect(deltasDir()).toBe(path.join(root, 'deltas'));
+    expect(gotchasDir()).toBe(path.join(root, 'gotchas'));
+    expect(legacyDeltasDir()).toBe(path.join(root, 'deltas'));
     expect(rulesDir()).toBe(path.join(root, 'rules'));
     expect(templatesDir()).toBe(path.join(root, 'templates'));
     expect(projectsFile()).toBe(path.join(root, 'projects.json'));
