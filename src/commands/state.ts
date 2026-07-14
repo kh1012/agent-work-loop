@@ -28,6 +28,38 @@ export function mergeState(
   return { ...current, ...patch };
 }
 
+/** state.criteria 에서 id 로 완료 조건을 찾는다. */
+export function getCriterion(
+  state: Record<string, unknown>,
+  id: string,
+): Record<string, unknown> | undefined {
+  const criteria = Array.isArray(state.criteria)
+    ? (state.criteria as Record<string, unknown>[])
+    : [];
+  return criteria.find((c) => c.id === id);
+}
+
+/**
+ * 완료 조건 하나를 갱신한다(없으면 추가). criteria 배열만 바꾸고 나머지는 보존한다.
+ * baseline/attempts/proceduralErrors 같은 필드를 여기로 병합한다.
+ */
+export function setCriterion(
+  state: Record<string, unknown>,
+  id: string,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const criteria = Array.isArray(state.criteria)
+    ? [...(state.criteria as Record<string, unknown>[])]
+    : [];
+  const idx = criteria.findIndex((c) => c.id === id);
+  if (idx >= 0) {
+    criteria[idx] = { ...criteria[idx], ...patch };
+  } else {
+    criteria.push({ id, ...patch });
+  }
+  return { ...state, criteria };
+}
+
 export function writeState(projectRoot: string, state: Record<string, unknown>): void {
   const p = statePath(projectRoot);
   fs.mkdirSync(path.dirname(p), { recursive: true });
