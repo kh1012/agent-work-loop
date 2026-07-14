@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createWorkitem, summarizeWorkitems } from '../../src/commands/work.js';
+import { createWorkitem, restoreWorkitem, summarizeWorkitems } from '../../src/commands/work.js';
 
 describe('summarizeWorkitems (WI-D AC-02)', () => {
   it('현재 워크아이템 + 레지스트리를 하나의 목록으로 합친다', () => {
@@ -160,5 +160,76 @@ describe('createWorkitem (WI-D AC-03, awl work new)', () => {
   it('빈 ID 는 거부한다', () => {
     const result = createWorkitem({}, '   ', 't', null);
     expect(result.error).toBeDefined();
+  });
+});
+
+describe('restoreWorkitem (WI-D AC-04, awl work switch)', () => {
+  it('왕복 무손실: A -> new B -> switch A 하면 A 의 criteria/phase/currentFocus 가 그대로 복원된다', () => {
+    const start = {
+      workitem: 'WI-A',
+      phase: 'loop',
+      loop: null,
+      currentFocus: 'AC-02',
+      workitemCreatedAt: '2026-07-13T00:00:00.000Z',
+      workitemBranch: 'main',
+      criteria: [
+        { id: 'AC-01', status: 'passed' },
+        { id: 'AC-02', status: 'in_progress' },
+      ],
+      workitems: {},
+    };
+    const afterNew = createWorkitem(start, 'WI-B', '2026-07-14T00:00:00.000Z', 'main');
+    expect(afterNew.error).toBeUndefined();
+
+    const afterSwitch = restoreWorkitem(afterNew.state, 'WI-A', '2026-07-14T01:00:00.000Z', 'main');
+    expect(afterSwitch.error).toBeUndefined();
+    expect(afterSwitch.state.workitem).toBe('WI-A');
+    expect(afterSwitch.state.phase).toBe('loop');
+    expect(afterSwitch.state.currentFocus).toBe('AC-02');
+    expect(afterSwitch.state.criteria).toEqual(start.criteria);
+    // WI-B 는 이제 레지스트리에 보관돼 있고(paused), WI-A 는 레지스트리에서 빠졌다(현재이므로).
+    const registry = afterSwitch.state.workitems as Record<string, { status: string }>;
+    expect(registry['WI-B']?.status).toBe('paused');
+    expect(registry['WI-A']).toBeUndefined();
+  });
+
+  it('없는 ID 로 switch 하면 거부하고 new 를 안내한다', () => {
+    const result = restoreWorkitem(
+      { workitem: 'WI-D', criteria: [], workitems: {} },
+      'WI-Z',
+      't',
+      null,
+    );
+    expect(result.error).toContain('new');
+  });
+
+  it('이미 현재 워크아이템인 ID 로 switch 하면 거부한다', () => {
+    const result = restoreWorkitem({ workitem: 'WI-D', criteria: [] }, 'WI-D', 't', null);
+    expect(result.error).toContain('WI-D');
+  });
+
+  it('저장된 브랜치와 지금 브랜치가 다르면 경고하되 전환은 막지 않는다', () => {
+    const before = {
+      workitem: 'WI-D',
+      criteria: [],
+      workitems: {
+        'WI-C': { status: 'paused', createdAt: 't', branch: 'feature/x', criteria: [] },
+      },
+    };
+    const result = restoreWorkitem(before, 'WI-C', 't2', 'main');
+    expect(result.error).toBeUndefined();
+    expect(result.state.workitem).toBe('WI-C');
+    expect(result.warning).toContain('feature/x');
+    expect(result.warning).toContain('main');
+  });
+
+  it('브랜치가 같으면(또는 기록이 없으면) 경고하지 않는다', () => {
+    const before = {
+      workitem: 'WI-D',
+      criteria: [],
+      workitems: { 'WI-C': { status: 'paused', createdAt: 't', branch: 'main', criteria: [] } },
+    };
+    const result = restoreWorkitem(before, 'WI-C', 't2', 'main');
+    expect(result.warning).toBeUndefined();
   });
 });

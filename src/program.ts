@@ -112,6 +112,13 @@ export function buildProgram(): Command {
       const { runWorkNew } = await import('./commands/work.js');
       await runWorkNew(id, description);
     });
+  work
+    .command('switch <id>')
+    .description('다른 워크아이템으로 전환합니다 (현재 워크아이템은 보관됩니다)')
+    .action(async (id: string) => {
+      const { runWorkSwitch } = await import('./commands/work.js');
+      await runWorkSwitch(id);
+    });
 
   // 사람이 치는 명령: records (기록 조회, 사람이 읽는 목록)
   program

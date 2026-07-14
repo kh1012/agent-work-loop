@@ -209,6 +209,55 @@ export function createWorkitem(
   };
 }
 
+/** awl work switch <id> — 현재를 보관하고 지정 워크아이템을 복원한다. */
+export function restoreWorkitem(
+  state: Record<string, unknown>,
+  id: string,
+  now: string,
+  branch: string | null,
+): WorkActionResult {
+  const trimmed = id.trim();
+  const migrated = migrateState(state);
+  const registry = registryOf(migrated);
+  const key = Object.keys(registry).find((k) => k.toLowerCase() === trimmed.toLowerCase());
+
+  const currentId = typeof migrated.workitem === 'string' ? migrated.workitem : null;
+  if (currentId && trimmed.toLowerCase() === currentId.toLowerCase()) {
+    return { state, error: `이미 현재 워크아이템입니다: ${currentId}` };
+  }
+  if (!key) {
+    return {
+      state,
+      error: `그런 워크아이템이 없습니다: ${trimmed} (awl work new ${trimmed} 로 새로 만드세요)`,
+    };
+  }
+
+  const entry = registry[key] as WorkitemEntry;
+  const archived = archiveCurrent(migrated, 'paused', now);
+  const remainingRegistry = { ...registryOf(archived) };
+  delete remainingRegistry[key];
+
+  const nextState: Record<string, unknown> = {
+    ...archived,
+    workitem: key,
+    phase: entry.phase ?? null,
+    loop: entry.loop ?? null,
+    criteria: entry.criteria,
+    workitemCreatedAt: entry.createdAt,
+    ...(entry.branch ? { workitemBranch: entry.branch } : {}),
+    ...(entry.description ? { workitemDescription: entry.description } : {}),
+    ...(entry.currentFocus ? { currentFocus: entry.currentFocus } : {}),
+    workitems: remainingRegistry,
+  };
+
+  const warning =
+    entry.branch && branch && entry.branch !== branch
+      ? `경고: ${key} 는 브랜치 ${entry.branch} 에서 만들어졌는데 지금은 ${branch} 브랜치입니다.`
+      : undefined;
+
+  return { state: nextState, warning };
+}
+
 function requireRoot(): string {
   const root = resolveProjectRoot();
   if (!root) {
@@ -240,4 +289,20 @@ export async function runWorkNew(id: string, description: string | undefined): P
   writeState(root, result.state);
   process.stdout.write(`\n  워크아이템을 만들었습니다: ${id}\n`);
   process.stdout.write('  awl-loop 를 시작하세요.\n');
+}
+
+export async function runWorkSwitch(id: string): Promise<void> {
+  const root = requireRoot();
+  const now = new Date().toISOString();
+  const branch = await gitBranch(root);
+  const result = restoreWorkitem(loadState(root), id, now, branch);
+  if (result.error) {
+    process.stderr.write(`\n  ${result.error}\n`);
+    process.exit(1);
+  }
+  writeState(root, result.state);
+  process.stdout.write(`\n  전환했습니다: ${id}\n`);
+  if (result.warning) {
+    process.stderr.write(`  ${result.warning}\n`);
+  }
 }
