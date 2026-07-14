@@ -192,6 +192,24 @@
 - **재발 방지**: 부모/자식 명령이 옵션 이름을 공유해야 할 것 같으면, commander 로 실제로 최소 재현해 자식 opts 에 값이 들어오는지 먼저 확인한다. 이 문제는 타입체커도 린터도 못 잡는다(둘 다 `string | undefined` 타입은 맞고, 런타임에 값이 `undefined` 로 빠질 뿐이다) — **빌드된 CLI 를 실제로 실행하는 것만이 오라클이다.**
 - **검증**: 회귀 격리 홈에서 `awl rules promote <id> --rule-scope implement --applies x --counter y` → frontmatter 에 `scope: implement` 확인. 부모 `awl rules --scope implement` 필터도 그대로 동작(무태그 규칙 + `implement` 태그 규칙만 노출) 확인 — 리네임이 부모 쪽을 깨지 않았다.
 
+## D-23. readline 인터랙티브 루프를 테스트할 때: PTY 대신 question() 스크립팅
+
+- **배경**: `awl config`(0.1.1, D-24)의 인터랙티브 메뉴를 검증하려고 실제 pty(`script` 명령, macOS)로 구동을 시도했다. 입력 전달이 들쭉날쭉했고(한 번은 cwd 를 지정하지 않아 이 저장소 자신의 커밋된 `.awl/config.json` 을 잘못 겨냥하기도 했다 — 실제 반영 전에 발견해 피해는 없었다), 신뢰할 수 없어 포기했다.
+- **원인 규명(최소 재현)**: `readline.createInterface({input, output})` 에서, `question()` 이 걸려 있지 않은 시점에 도착한 줄은 그냥 버려진다. `input.write('a\nb\n')` 처럼 답을 미리 다 써 두면, `question()` 을 아직 한 번도 안 부른 시점에 두 줄 다 소비되어 사라진다(1회용 프롬프트-응답 대화가 전제라서다). 그래서 두 번째 `question()` 은 응답을 영원히 못 받고 멈춘다.
+- **결정**: `rl.question` 을 감싸서, **호출될 때마다** 다음 답 하나를 `process.nextTick` 으로 그 직후에 흘려보낸다(질문이 실제로 걸린 뒤에만 답이 도착하도록 보장). PTY 없이, in-memory `PassThrough` 스트림만으로 결정적이고 빠르게(전체 스위트에서 밀리초 단위) 인터랙티브 루프를 끝까지 구동할 수 있다.
+- **대안**: (1) 실제 pty(`node-pty`, `script`) — 의존성이 늘고 CI/로컬 간 재현성이 떨어진다(이번에 실측). (2) init.ts 처럼 인터랙티브 진입점 자체는 테스트하지 않고 순수 함수(`buildScreens` 등)만 테스트 — 안전하지만 실제 메뉴 분기(어떤 입력이 어떤 편집으로 이어지는가)는 미검증으로 남는다. 이번엔 새 인터랙티브 메뉴(`interactiveEditMenu`)가 이 워크아이템의 핵심 산출물이라 분기까지 검증하는 이 방식을 택했다.
+- **재사용**: 앞으로 readline 기반 인터랙티브 루프(WI-D 의 `awl work switch` 등)를 테스트할 때 이 패턴(`question` 래핑 + nextTick 스크립팅)을 그대로 쓴다.
+
+## D-24. `awl config set` 전체 키 지원 + 인터랙티브 편집 (0.1.1)
+
+- **배경**: 실사용(maxflow 모노레포) 첫날, `awl config set mainLanguage typescript` 가 "지원하지 않는 키"로 거부됐다. init 의 언어 자동 감지가 TS 모노레포를 JS 로 오판했는데, 고칠 CLI 경로가 없어 `.awl/config.json` 을 손으로 고쳐야 했다. `awl config` 도 조회만 하고 안내 문구가 파일 직접 편집을 가리켰다.
+- **결정**: `verify.*` 뿐 아니라 `project`/`mainLanguage`/`character`/`verify.*.cmd`/`verify.*.cwd`/`verify.*.env` 전부를 `config set` 이 다룬다. 키마다 검증 규칙이 다르다: `cmd` 는 실제로 실행해보고(기존 동작 유지), `cwd` 는 디렉토리 존재를 확인(상대경로는 프로젝트 루트 기준, 절대경로는 허용하되 경고), `mainLanguage` 는 알려진 값(`typescript`/`javascript`/`python`) 이 아니면 경고만 하고 저장은 허용, `character`/`project` 는 자유 텍스트(각각 검증 없음/빈 값만 거부).
+- **`verify.<name>` (접미사 없음)은 하위 호환으로 `.cmd` 취급한다.** 기존 문서(renderConfig 의 안내 문구, WI-5 당시 예시)가 이 형태를 썼기 때문에, 형식을 통일하면서도 기존 사용자를 안 깨뜨렸다.
+- **인터랙티브 편집은 init 의 `buildScreens` 를 재사용한다(새 화면 컴포넌트를 만들지 않는다).** 다만 "주 언어" 화면의 **기본 선택**은 `buildScreens` 가 만드는 auto-detect 결과가 아니라 **현재 config 값**으로 오버라이드한다 — 그렇지 않으면 오판을 고치러 온 사용자가 Enter 만 쳐서 같은 오판으로 되돌아가는 순환이 생긴다. 화면(시각적 표현)은 재사용하되, 실제 프롬프트의 기본값 파라미터는 호출자가 분리해서 넘긴다.
+- **`config set [key] [value]` 로 둘 다 선택적**: 키 생략 시 설정 가능한 키 전체와 현재 값을 보여준다(스크립트 실수 방지 + 발견성). 키는 있는데 값이 없으면 같은 목록 + "값을 주세요" 안내.
+- **`core/engine.ts` 로 `installedEngineVersion` 중복 제거**: doctor.ts 와 init.ts 가 각자 같은 함수를 갖고 있었다(WI-3, WI-4 에서 서로 모르고 중복 구현). `awl --version` 에도 필요해져 3번째 중복이 생기기 전에 공유 모듈로 뺐다.
+- **검증**: `applyConfigValue` 단위 테스트 20개(키별 통과/거부/경고/보존), `interactiveEditMenu` 단위 테스트 5개(D-23 패턴), 실제 CLI로 "지원하지 않는 키" 오판 시나리오 재현 후 `config set mainLanguage typescript` 로 고쳐지는 것 확인.
+
 # Windows 리스크 목록 (macOS에서만 검증함 — Windows 검증 시 체크리스트로 사용)
 
 이 프로젝트는 현재 macOS에서만 검증한다. 아래는 Windows에서 깨질 수 있는 지점과 대비다. 나중에 Windows에서 사람이 검증할 때 이 목록을 하나씩 확인한다.
