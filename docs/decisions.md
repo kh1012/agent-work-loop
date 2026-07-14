@@ -225,6 +225,17 @@
   - 리뷰 결과에 첨부된 `verify` 블록이 `command_not_found`(lint/test)로 나온 것은 코드 결함이 아니라 그 리뷰 자료를 조립한 셸에 `node_modules/.bin` 이 PATH 에 없었던 것(이 세션에서 반복적으로 마주친 이슈). 별도로 PATH 를 잡고 `awl verify` 를 직접 돌려 `passed: true` 를 확인했다.
 - **알려진 한계(후속 조사 필요)**: 같은 파일(`docs/decisions.md`)을 baseline 갱신 시점 전후로 두 번 손댔더니 `awl commit` 이 "hunk 가 남의 변경과 겹칠 수 있다"며 거부했다. `git status`/`git diff` 로 실제로는 그 파일 하나뿐이고 순수 추가 diff임을 직접 확인한 뒤 수동으로 `git add`+`git commit` 했다 — 도구가 "확신할 수 없으면 사람에게 알린다"고 정확히 설계된 대로 동작한 것이라 안전 원칙 위반은 아니지만, **연속된 자기 자신의 편집이 이렇게 자주 걸리면 실사용에서 마찰이 크다.** `awl commit --start` 를 매번 다시 부르지 않고 "같은 워크아이템 내에서 baseline 을 유지한 채 여러 파일을 여러 차례 고치는" 흐름을 더 부드럽게 만들 여지가 있는지는 별도 워크아이템에서 조사한다.
 
+## D-26. WI-B: 검증 명령에 cwd 지원 (모노레포)
+
+- **핵심 전제를 스파이크로 실증**: `cross-spawn`(및 기저 OS exec 의미론)은 `cmd` 안의 **상대경로 실행파일**도 `spawn` 옵션의 `cwd` 기준으로 정확히 찾는다. 임시 디렉토리에 `packages/app` 와 `node_modules/.bin/fake-tool` 을 만들고 `run({cmd:"../../node_modules/.bin/fake-tool", cwd:.../packages/app})` 를 실제로 실행해 exitCode 0 을 확인했다 — maxflow 재현 시나리오(`cd packages/page-harness && ../../node_modules/.bin/tsc ...`) 그대로다. 이 덕분에 별도의 경로 재작성 로직 없이 `runner.ts` 의 기존 `RunSpec.cwd`(WI-2 부터 있었음)를 그대로 verify.ts 에서 쓰기만 하면 됐다.
+- **cwd 스키마 자체는 Part 0/D-24 에서 이미 추가돼 있었다.** WI-B 는 그걸 실제로 **쓰는** 쪽(verify.ts/doctor.ts/init.ts)만 배선했다 — 그때 남겨둔 "런타임 배선은 WI-B 몫" 결정을 실행에 옮긴 것.
+- **`AwlConfig`/`VerifyEntry` 타입이 config.ts/init.ts/doctor.ts 세 곳에 독립적으로 존재한다(3중 중복, 예전부터 있던 부채).** WI-B 는 이 통합을 시도하지 않고, 세 곳 각각의 로컬 타입에 `cwd?: string` 만 추가하는 최소 변경으로 갔다 — 타입 통합은 그 자체로 별도 워크아이템감이다.
+- **doctor 의 검증-명령-존재-확인은 이제 cwd 존재도 먼저 확인한다.** cwd 가 없으면 `--version` 실행 자체를 시도하지 않고 `missing` + 어느 경로가 없는지 hint 로 알린다.
+- **init 의 모노레포 감지는 WI-A 의 `workspaceGlobs`/`expandSimpleGlob` 을 그대로 재사용했다.** 언어 감지용으로 만든 워크스페이스 멤버 탐색이 검증 위치 찾기에도 동일하게 쓰인다 — 같은 개념(워크스페이스 멤버 디렉토리 목록)을 두 번 구현하지 않았다.
+- **"판단이 어려우면 묻는다" 규칙**: 루트에 이미 검증 명령이 있으면(판단 쉬움) 묻지 않고 안내만 하고 루트를 유지한다. 루트에 신호가 전혀 없으면(판단 애매) 워크스페이스 패키지 목록을 보여주고 물어본다. `--yes`(비대화형)는 항상 루트를 유지한다 — 자동화 경로에서 "판단 어려우면 루트 기준"을 그대로 실현한다.
+- **`interactiveInputs` 전체를 export 하는 대신, 모노레포 판단/질문 로직만 `promptVerifyLocation` 으로 분리해 export 했다.** D-23 의 readline 스크립팅 패턴으로 이 함수만 직접 테스트한다 — `interactiveInputs` 전체(언어·검증·규칙·성격·스킬 6단계)를 스크립팅하는 것보다 훨씬 가볍고 유지보수하기 쉽다.
+- **알려진 한계(WI-D 로 미룸)**: `state.json` 의 `criteria` 배열이 워크아이템 경계 없이 flat 하다. WI-A 와 WI-B 가 같은 ID(AC-01~05)를 재사용하면서, id 기준 병합([[D-16]])이 겹치는 ID는 덮어쓰지만 안 겹치는 이전 워크아이템의 ID(WI-A 의 AC-06/07)는 그대로 남아 `awl status` 가 "5/5" 대신 "7/7" 처럼 잘못된 합계를 보여줬다. 지금은 `state.json`(gitignore 대상, 영구 기록 아님)을 손으로 정리했다. **이게 정확히 WI-D 가 고치려는 문제 그 자체다** — 이 워크아이템을 진행하며 실제로 겪은 것이라 WI-D 의 설계 근거로 남긴다.
+
 # Windows 리스크 목록 (macOS에서만 검증함 — Windows 검증 시 체크리스트로 사용)
 
 이 프로젝트는 현재 macOS에서만 검증한다. 아래는 Windows에서 깨질 수 있는 지점과 대비다. 나중에 Windows에서 사람이 검증할 때 이 목록을 하나씩 확인한다.
