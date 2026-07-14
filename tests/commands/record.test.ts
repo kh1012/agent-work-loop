@@ -167,6 +167,61 @@ describe('buildRecord — 구조 강제', () => {
     );
     expect(r2.missing).toEqual([]);
   });
+
+  it('gotcha-applied 는 gotchaId/what 이 필수다 (WI-P AC-01)', () => {
+    const r = buildRecord('gotcha-applied', { what: 'x' }, DEFAULTS);
+    expect(r.record).toBeUndefined();
+    expect(r.missing).toContain('gotchaId');
+  });
+
+  it('gotcha-applied 필수 필드가 다 있으면 통과한다', () => {
+    const r = buildRecord('gotcha-applied', { gotchaId: 'G-006', what: '적용함' }, DEFAULTS);
+    expect(r.missing).toEqual([]);
+    expect(r.record).toMatchObject({ type: 'gotcha-applied', gotchaId: 'G-006' });
+  });
+
+  it('gotcha-missed 는 gotchaId/what/why 가 필수다 (WI-P AC-01)', () => {
+    const r = buildRecord('gotcha-missed', { gotchaId: 'G-006', what: 'x' }, DEFAULTS);
+    expect(r.record).toBeUndefined();
+    expect(r.missing).toContain('why');
+  });
+
+  it('gotcha-missed 필수 필드가 다 있으면 통과한다', () => {
+    const r = buildRecord(
+      'gotcha-missed',
+      { gotchaId: 'G-006', what: '또 새어들어감', why: '확인을 안 함' },
+      DEFAULTS,
+    );
+    expect(r.missing).toEqual([]);
+  });
+
+  it('narrative 는 kind/counterfactual 이 필수다 (WI-P AC-02)', () => {
+    const r = buildRecord('narrative', { kind: 'gate-caught' }, DEFAULTS);
+    expect(r.record).toBeUndefined();
+    expect(r.missing).toContain('counterfactual');
+  });
+
+  it('narrative 의 kind 가 허용된 4값이 아니면 거부한다', () => {
+    const r = buildRecord(
+      'narrative',
+      { kind: 'something-else', counterfactual: 'x' },
+      DEFAULTS,
+    );
+    expect(r.record).toBeUndefined();
+    expect(r.missing.some((m) => m.startsWith('kind'))).toBe(true);
+  });
+
+  it('narrative 의 kind 가 4값 중 하나이고 counterfactual 이 있으면 통과한다', () => {
+    for (const kind of [
+      'gate-caught',
+      'reviewer-caught',
+      'spike-prevented',
+      'blocked-discarded',
+    ]) {
+      const r = buildRecord('narrative', { kind, counterfactual: 'x' }, DEFAULTS);
+      expect(r.missing).toEqual([]);
+    }
+  });
 });
 
 describe('record 저장 — append only', () => {

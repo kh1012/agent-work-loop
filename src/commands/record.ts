@@ -22,7 +22,18 @@ export type RecordType =
   | 'attempt'
   | 'blocked'
   | 'review'
-  | 'decision';
+  | 'decision'
+  | 'gotcha-applied'
+  | 'gotcha-missed'
+  | 'narrative';
+
+/** narrative.kind 로 허용되는 값 (WI-P AC-02). */
+export const NARRATIVE_KINDS = [
+  'gate-caught',
+  'reviewer-caught',
+  'spike-prevented',
+  'blocked-discarded',
+] as const;
 
 interface Schema {
   required: string[];
@@ -42,6 +53,9 @@ export const SCHEMAS: Record<RecordType, Schema> = {
   blocked: { required: ['what', 'why', 'tried', 'lesson'], arrays: ['tried'] },
   review: { required: ['target', 'verdict'] },
   decision: { required: ['question', 'decision', 'rationale'] },
+  'gotcha-applied': { required: ['gotchaId', 'what'] },
+  'gotcha-missed': { required: ['gotchaId', 'what', 'why'] },
+  narrative: { required: ['kind', 'counterfactual'] },
 };
 
 export const RECORD_TYPES = Object.keys(SCHEMAS) as RecordType[];
@@ -111,6 +125,14 @@ export function buildRecord(
       missing.push(
         'alternatives (비어있지 않은 배열이어야 함 — performanceSensitive:true 인 결정은 대안을 남겨야 합니다)',
       );
+    }
+  }
+
+  // narrative.kind 는 정해진 4값 중 하나여야 한다 (WI-P AC-02). required 체크를 통과해
+  // 값이 있는 경우에만 형식을 본다 — 없는 경우는 위에서 이미 'kind' 로 missing 처리됨.
+  if (type === 'narrative' && typeof data.kind === 'string' && data.kind !== '') {
+    if (!(NARRATIVE_KINDS as readonly string[]).includes(data.kind)) {
+      missing.push(`kind (다음 중 하나여야 함: ${NARRATIVE_KINDS.join(', ')})`);
     }
   }
 
