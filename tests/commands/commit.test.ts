@@ -1,0 +1,110 @@
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { checkBaseDrift, isolatedCommit, startBaseline } from '../../src/commands/commit.js';
+
+function makeRepo(): { dir: string; g: (args: string[]) => string } {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-commit-'));
+  const g = (args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
+  g(['init', '-q']);
+  g(['config', 'user.email', 'x@x.com']);
+  g(['config', 'user.name', 'x']);
+  g(['config', 'commit.gpgsign', 'false']);
+  return { dir, g };
+}
+
+describe('isolatedCommit — 남의 작업을 잃지 않는다 (핵심)', () => {
+  it('남의 미커밋 변경이 섞여도 내 변경만 커밋하고 남의 것은 워킹트리에 보존', async () => {
+    const { dir, g } = makeRepo();
+    const f = path.join(dir, 'f.txt');
+    fs.writeFileSync(f, `${Array.from({ length: 10 }, (_, i) => `line${i + 1}`).join('\n')}\n`);
+    g(['add', '.']);
+    g(['commit', '-q', '-m', 'base']);
+
+    // 남의 미커밋 변경(line1), 그 상태에서 베이스라인.
+    fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('line1\n', 'OTHER\n'));
+    const { snapshot } = await startBaseline(dir, 'AC-01');
+
+    // 내 변경(line10).
+    fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('line10', 'MINE'));
+
+    const outcome = await isolatedCommit(dir, 'AC-01', '레이어 패널 이동', snapshot);
+
+    expect(outcome.committed).toBe(true);
+    expect(outcome.selfCheckOk).toBe(true);
+    expect(outcome.stagedFiles).toContain('f.txt');
+
+    const show = g(['show', 'HEAD']);
+    expect(show).not.toContain('OTHER'); // 남의 변경이 커밋에 안 들어감
+    expect(show).toContain('MINE');
+    expect(show).toContain('[AC-01]'); // 완료 조건 ID 포함
+
+    // 워킹트리에 남의 변경이 그대로 남아있다.
+    expect(fs.readFileSync(f, 'utf8')).toContain('OTHER');
+  });
+
+  it('내 변경과 남의 변경이 인접해 hunk 가 겹치면 커밋하지 않고 알린다', async () => {
+    const { dir, g } = makeRepo();
+    const f = path.join(dir, 'f.txt');
+    fs.writeFileSync(f, 'a\nb\nc\nd\ne\n');
+    g(['add', '.']);
+    g(['commit', '-q', '-m', 'base']);
+
+    fs.writeFileSync(f, 'a\nBOTHER\nc\nd\ne\n'); // 남: line2
+    const { snapshot } = await startBaseline(dir, 'AC-02');
+    fs.writeFileSync(f, 'a\nBOTHER\nCMINE\nd\ne\n'); // 나: line3 (인접)
+
+    const outcome = await isolatedCommit(dir, 'AC-02', 'my', snapshot);
+
+    expect(outcome.committed).toBe(false);
+    expect(outcome.reason).toContain('안전하게 분리할 수 없');
+    // 워킹트리는 그대로(남의 것도 내 것도 유실 없음).
+    expect(fs.readFileSync(f, 'utf8')).toBe('a\nBOTHER\nCMINE\nd\ne\n');
+  });
+
+  it('커밋할 내 변경이 없으면 커밋하지 않는다', async () => {
+    const { dir, g } = makeRepo();
+    fs.writeFileSync(path.join(dir, 'f.txt'), 'x\n');
+    g(['add', '.']);
+    g(['commit', '-q', '-m', 'base']);
+    const { snapshot } = await startBaseline(dir, 'AC-03');
+    const outcome = await isolatedCommit(dir, 'AC-03', 'nothing', snapshot);
+    expect(outcome.committed).toBe(false);
+    expect(outcome.reason).toContain('내 변경이 없습니다');
+  });
+});
+
+describe('checkBaseDrift', () => {
+  it('원본이 전진하고 파일이 겹치면 경고 정보를 준다', async () => {
+    const { dir, g } = makeRepo();
+    fs.writeFileSync(path.join(dir, 'f.txt'), 'base\n');
+    g(['add', '.']);
+    g(['commit', '-q', '-m', 'base']);
+    g(['branch', '-M', 'main']);
+
+    g(['checkout', '-q', '-b', 'feature']);
+    fs.writeFileSync(path.join(dir, 'f.txt'), 'feature change\n');
+    g(['commit', '-q', '-am', 'feat']);
+
+    g(['checkout', '-q', 'main']);
+    fs.writeFileSync(path.join(dir, 'f.txt'), 'main advance\n');
+    g(['commit', '-q', '-am', 'adv']);
+
+    g(['checkout', '-q', 'feature']);
+    const drift = await checkBaseDrift(dir, 'main', ['f.txt']);
+    expect(drift?.ahead).toBe(1);
+    expect(drift?.overlap).toContain('f.txt');
+  });
+
+  it('기준 브랜치를 알 수 없으면 null(경고 생략)', async () => {
+    const { dir, g } = makeRepo();
+    fs.writeFileSync(path.join(dir, 'f.txt'), 'x\n');
+    g(['add', '.']);
+    g(['commit', '-q', '-m', 'base']);
+    // upstream 없음
+    const drift = await checkBaseDrift(dir, undefined, ['f.txt']);
+    expect(drift).toBeNull();
+  });
+});
