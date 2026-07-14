@@ -101,18 +101,29 @@ export async function gitDirtyFiles(projectRoot: string): Promise<string[] | nul
   try {
     const r = await run({
       cmd: 'git',
-      args: ['status', '--porcelain'],
+      args: ['status', '--porcelain', '-z'],
       cwd: projectRoot,
       timeoutMs: 5000,
     });
     if (r.exitCode !== 0) {
       return null;
     }
-    return r.stdout
-      .split('\n')
-      .map((l) => l.trim())
-      .filter(Boolean)
-      .map((l) => l.replace(/^\S+\s+/, ''));
+    // -z(NUL 구분)로 읽어 core.quotePath 설정과 무관하게 한글 등 비ASCII 경로가
+    // 그대로 나온다(commit.ts 의 namesZ 와 같은 이유, 리뷰 지적 AC-07). rename/copy
+    // 레코드는 "XY new\0orig\0" 두 토큰이라 orig 토큰을 소비해 건너뛴다.
+    const tokens = r.stdout.split('\0').filter((t) => t !== '');
+    const files: string[] = [];
+    let skipNext = false;
+    for (const token of tokens) {
+      if (skipNext) {
+        skipNext = false; // rename/copy 의 원래 경로 — 파일 목록에 안 넣는다.
+        continue;
+      }
+      const status = token.slice(0, 2);
+      files.push(token.slice(3));
+      skipNext = status.includes('R') || status.includes('C');
+    }
+    return files;
   } catch {
     return null;
   }

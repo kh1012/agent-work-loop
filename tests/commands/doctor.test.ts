@@ -355,6 +355,31 @@ describe('collectChecks — 워킹트리 더러움 점검 (WI-F, 환경이 준 g
     const check = find(report.checks, '워킹트리');
     expect(check?.status).toBe('info');
   });
+
+  it('한글 등 비ASCII 파일명이 이스케이프 없이 그대로 힌트에 나온다 (AC-07, 리뷰 지적)', async () => {
+    const proj = realGitProject();
+    fs.writeFileSync(path.join(proj, '새파일.txt'), '새 파일\n');
+    process.chdir(proj);
+
+    const report = await collectChecks();
+    const check = find(report.checks, '워킹트리');
+    expect(check?.status).toBe('warn');
+    expect(check?.hint).toContain('새파일.txt');
+    expect(check?.hint).not.toContain('\\');
+  });
+
+  it('rename 된 파일도 원래 경로가 끼어들지 않고 새 경로만 하나로 잡힌다 (AC-07, -z 포맷의 두-경로 레코드)', async () => {
+    const proj = realGitProject();
+    execFileSync('git', ['mv', 'f.txt', 'renamed.txt'], { cwd: proj });
+    process.chdir(proj);
+
+    const report = await collectChecks();
+    const check = find(report.checks, '워킹트리');
+    expect(check?.status).toBe('warn');
+    expect(check?.value).toContain('1');
+    expect(check?.hint).toContain('renamed.txt');
+    expect(check?.hint).not.toContain('f.txt');
+  });
 });
 
 describe('--json 출력', () => {
