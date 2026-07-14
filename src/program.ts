@@ -105,6 +105,13 @@ export function buildProgram(): Command {
       const { runWorkList } = await import('./commands/work.js');
       runWorkList({ json: opts.json === true });
     });
+  work
+    .command('new <id> [description]')
+    .description('새 워크아이템을 만들고 전환합니다 (현재 워크아이템은 보관됩니다)')
+    .action(async (id: string, description: string | undefined) => {
+      const { runWorkNew } = await import('./commands/work.js');
+      await runWorkNew(id, description);
+    });
 
   // 사람이 치는 명령: records (기록 조회, 사람이 읽는 목록)
   program

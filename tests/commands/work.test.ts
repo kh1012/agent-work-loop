@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { summarizeWorkitems } from '../../src/commands/work.js';
+import { createWorkitem, summarizeWorkitems } from '../../src/commands/work.js';
 
 describe('summarizeWorkitems (WI-D AC-02)', () => {
   it('현재 워크아이템 + 레지스트리를 하나의 목록으로 합친다', () => {
@@ -66,5 +66,65 @@ describe('summarizeWorkitems (WI-D AC-02)', () => {
       workitems: {},
     });
     expect(list).toEqual([{ id: 'WI-D', status: 'active', passed: 0, total: 1, current: true }]);
+  });
+});
+
+describe('createWorkitem (WI-D AC-03, awl work new)', () => {
+  it('현재 워크아이템이 없으면 그냥 새로 만든다', () => {
+    const result = createWorkitem({}, 'WI-E', '2026-07-14T00:00:00.000Z', 'main');
+    expect(result.error).toBeUndefined();
+    expect(result.state.workitem).toBe('WI-E');
+    expect(result.state.phase).toBe('awaiting-gate1');
+    expect(result.state.loop).toBeNull();
+    expect(result.state.criteria).toEqual([]);
+    expect(result.state.workitemCreatedAt).toBe('2026-07-14T00:00:00.000Z');
+    expect(result.state.workitemBranch).toBe('main');
+    expect(result.state.workitems).toEqual({});
+  });
+
+  it('현재 워크아이템이 있으면 레지스트리에 보관(status: paused)한 뒤 새로 전환한다', () => {
+    const before = {
+      workitem: 'WI-D',
+      phase: 'loop',
+      loop: null,
+      workitemCreatedAt: '2026-07-13T00:00:00.000Z',
+      workitemBranch: 'main',
+      criteria: [{ id: 'AC-01', status: 'passed' }],
+      workitems: {},
+    };
+    const result = createWorkitem(before, 'WI-E', '2026-07-14T00:00:00.000Z', 'main');
+    expect(result.error).toBeUndefined();
+    expect(result.state.workitem).toBe('WI-E');
+    expect(result.state.criteria).toEqual([]);
+    const registry = result.state.workitems as Record<string, unknown>;
+    expect(registry['WI-D']).toEqual({
+      status: 'paused',
+      createdAt: '2026-07-13T00:00:00.000Z',
+      branch: 'main',
+      phase: 'loop',
+      loop: null,
+      criteria: [{ id: 'AC-01', status: 'passed' }],
+    });
+  });
+
+  it('이미 현재 워크아이템인 ID 로 다시 new 하면 거부한다', () => {
+    const result = createWorkitem({ workitem: 'WI-D', criteria: [] }, 'WI-D', 't', null);
+    expect(result.error).toContain('WI-D');
+    expect(result.state.workitem).toBe('WI-D'); // 안 바뀜
+  });
+
+  it('레지스트리에 이미 있는 ID 로 new 하면 거부한다(switch 를 쓰라고 안내)', () => {
+    const before = {
+      workitem: 'WI-D',
+      criteria: [],
+      workitems: { 'WI-C': { status: 'paused', createdAt: 't', criteria: [] } },
+    };
+    const result = createWorkitem(before, 'WI-C', 't2', null);
+    expect(result.error).toContain('switch');
+  });
+
+  it('빈 ID 는 거부한다', () => {
+    const result = createWorkitem({}, '   ', 't', null);
+    expect(result.error).toBeDefined();
   });
 });

@@ -72,7 +72,7 @@ function countEntries(dir: string): number {
  * git 이 아닌 프로젝트가 정상적으로 존재한다 — 크래시도, missing/fail 판정도
  * 하지 않는다).
  */
-async function gitBranch(projectRoot: string): Promise<string | null> {
+export async function gitBranch(projectRoot: string): Promise<string | null> {
   try {
     const r = await run({
       cmd: 'git',

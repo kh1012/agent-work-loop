@@ -1,6 +1,7 @@
 import { type Caps, caps, makeColors } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
-import { loadState } from './state.js';
+import { gitBranch } from './doctor.js';
+import { loadState, migrateState, writeState } from './state.js';
 
 /**
  * awl work — 워크아이템 여러 개를 오간다 (WI-D).
@@ -89,6 +90,113 @@ function renderWorkList(list: WorkSummary[], c: Caps): string {
   return out.join('\n');
 }
 
+export interface WorkitemEntry {
+  status: string;
+  createdAt: string;
+  branch?: string;
+  description?: string;
+  phase?: unknown;
+  loop?: unknown;
+  criteria: Record<string, unknown>[];
+}
+
+function registryOf(state: Record<string, unknown>): Record<string, WorkitemEntry> {
+  return state.workitems && typeof state.workitems === 'object'
+    ? (state.workitems as Record<string, WorkitemEntry>)
+    : {};
+}
+
+/**
+ * 현재(top-level) 워크아이템이 있으면 workitems 레지스트리에 보관하고 최상위를
+ * 비운다. 현재 워크아이템이 없으면 그대로 돌려준다(archive 할 게 없다).
+ */
+function archiveCurrent(
+  state: Record<string, unknown>,
+  status: 'paused' | 'abandoned',
+  now: string,
+): Record<string, unknown> {
+  const migrated = migrateState(state);
+  const currentId = typeof migrated.workitem === 'string' ? migrated.workitem : null;
+  if (!currentId) {
+    return migrated;
+  }
+  const entry: WorkitemEntry = {
+    status,
+    createdAt: typeof migrated.workitemCreatedAt === 'string' ? migrated.workitemCreatedAt : now,
+    ...(typeof migrated.workitemBranch === 'string' ? { branch: migrated.workitemBranch } : {}),
+    ...(typeof migrated.workitemDescription === 'string'
+      ? { description: migrated.workitemDescription }
+      : {}),
+    phase: migrated.phase ?? null,
+    loop: migrated.loop ?? null,
+    criteria: Array.isArray(migrated.criteria)
+      ? (migrated.criteria as Record<string, unknown>[])
+      : [],
+  };
+  const {
+    workitem: _w,
+    phase: _p,
+    loop: _l,
+    criteria: _c,
+    workitemBranch: _b,
+    workitemCreatedAt: _ca,
+    workitemDescription: _d,
+    ...rest
+  } = migrated;
+  return {
+    ...rest,
+    workitem: null,
+    phase: null,
+    loop: null,
+    criteria: [],
+    workitems: { ...registryOf(migrated), [currentId]: entry },
+  };
+}
+
+export interface WorkActionResult {
+  state: Record<string, unknown>;
+  error?: string;
+  warning?: string;
+}
+
+/** awl work new <id> — 현재를 보관하고 새 워크아이템으로 전환한다. */
+export function createWorkitem(
+  state: Record<string, unknown>,
+  id: string,
+  now: string,
+  branch: string | null,
+  description?: string,
+): WorkActionResult {
+  const trimmed = id.trim();
+  if (!trimmed) {
+    return { state, error: '워크아이템 ID 를 입력하세요.' };
+  }
+  const currentId = typeof state.workitem === 'string' ? state.workitem : null;
+  if (trimmed === currentId) {
+    return { state, error: `이미 현재 워크아이템입니다: ${trimmed}` };
+  }
+  if (trimmed in registryOf(state)) {
+    return {
+      state,
+      error: `이미 존재하는 워크아이템입니다: ${trimmed} (awl work switch ${trimmed} 를 쓰세요)`,
+    };
+  }
+
+  const archived = archiveCurrent(state, 'paused', now);
+  return {
+    state: {
+      ...archived,
+      workitem: trimmed,
+      phase: 'awaiting-gate1',
+      loop: null,
+      criteria: [],
+      workitemCreatedAt: now,
+      ...(branch ? { workitemBranch: branch } : {}),
+      ...(description ? { workitemDescription: description } : {}),
+    },
+  };
+}
+
 function requireRoot(): string {
   const root = resolveProjectRoot();
   if (!root) {
@@ -106,4 +214,18 @@ export function runWorkList(opts: { json: boolean }): void {
   } else {
     process.stdout.write(`${renderWorkList(list, caps())}\n`);
   }
+}
+
+export async function runWorkNew(id: string, description: string | undefined): Promise<void> {
+  const root = requireRoot();
+  const now = new Date().toISOString();
+  const branch = await gitBranch(root);
+  const result = createWorkitem(loadState(root), id, now, branch, description);
+  if (result.error) {
+    process.stderr.write(`\n  ${result.error}\n`);
+    process.exit(1);
+  }
+  writeState(root, result.state);
+  process.stdout.write(`\n  워크아이템을 만들었습니다: ${id}\n`);
+  process.stdout.write('  awl-loop 를 시작하세요.\n');
 }
