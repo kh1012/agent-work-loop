@@ -76,12 +76,34 @@ async function listUntracked(cwd: string): Promise<string[]> {
   return namesZ(['ls-files', '--others', '--exclude-standard'], cwd);
 }
 
+/** git ref 이름에 안전한 문자만 남긴다(공백 등 잘못된 문자는 _ 로 치환). */
+function sanitizeRefComponent(s: string): string {
+  return s.replace(/[^A-Za-z0-9._-]/g, '_');
+}
+
+/**
+ * baseline 스냅샷을 고정하는 git ref 경로. 현재 워크아이템으로 네임스페이스한다
+ * (WI-D AC-06) — 서로 다른 워크아이템이 같은 AC-ID 를 재사용해도(관행상 흔하다)
+ * 이 ref 가 서로 덮어쓰지 않는다. 그래야 보관(archive)된 워크아이템의 dangling
+ * 커밋(git stash create 산물)이 참조를 잃어 git gc 대상이 되는 걸 막는다.
+ * 현재 워크아이템이 없으면(레거시 state 등) 예전처럼 AC-ID 만 쓴다.
+ * startBaseline/isolatedCommit 의 공개 시그니처는 바꾸지 않는다 — 여기서
+ * loadState 로 직접 판단한다.
+ */
+function baselineRefPath(cwd: string, ac: string): string {
+  const state = loadState(cwd);
+  const workitem = typeof state.workitem === 'string' ? state.workitem : null;
+  return workitem
+    ? `refs/awl/baseline/${sanitizeRefComponent(workitem)}/${ac}`
+    : `refs/awl/baseline/${ac}`;
+}
+
 /** 완료 조건 작업의 베이스라인을 잡는다. 시작 시점 스냅샷을 refs/awl 로 고정한다. */
 export async function startBaseline(cwd: string, ac: string): Promise<Baseline> {
   const head = (await git(['rev-parse', 'HEAD'], cwd)).stdout.trim();
   const snapshot = await captureSnapshot(cwd);
   const untracked = await listUntracked(cwd);
-  await git(['update-ref', `refs/awl/baseline/${ac}`, snapshot], cwd);
+  await git(['update-ref', baselineRefPath(cwd, ac), snapshot], cwd);
   return { snapshot, head, untracked };
 }
 
@@ -331,7 +353,7 @@ export async function runCommit(
   // 다음 격리 커밋을 위해 베이스라인을 이번 커밋 시점으로 갱신한다.
   const newSnap = await captureSnapshot(root);
   const newUntracked = await listUntracked(root);
-  await git(['update-ref', `refs/awl/baseline/${ac}`, newSnap], root);
+  await git(['update-ref', baselineRefPath(root, ac), newSnap], root);
   writeState(
     root,
     setCriterion(loadState(root), ac, {

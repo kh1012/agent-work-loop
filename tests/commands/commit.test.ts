@@ -169,3 +169,41 @@ describe('isolatedCommit — 새 파일(untracked) 처리 (dogfooding 이 잡은
     expect(committed).toContain('한글파일.ts');
   });
 });
+
+describe('baseline git ref 네임스페이스 (WI-D AC-06 — 워크아이템이 같은 AC-ID 를 재사용해도 안 겹친다)', () => {
+  function setWorkitem(dir: string, workitem: string | undefined): void {
+    fs.mkdirSync(path.join(dir, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, '.awl', 'state.json'),
+      JSON.stringify(workitem ? { workitem } : {}),
+    );
+  }
+
+  it('서로 다른 workitem 이면 같은 AC-ID 라도 서로 다른 ref 경로를 쓴다', async () => {
+    const { dir, g } = makeRepo();
+    fs.writeFileSync(path.join(dir, 'f.txt'), 'a\n');
+    g(['add', '.']);
+    g(['commit', '-q', '-m', 'base']);
+
+    setWorkitem(dir, 'WI-A');
+    await startBaseline(dir, 'AC-01');
+    setWorkitem(dir, 'WI-B');
+    await startBaseline(dir, 'AC-01');
+
+    const refs = g(['for-each-ref', '--format=%(refname)', 'refs/awl/baseline/']);
+    expect(refs).toContain('refs/awl/baseline/WI-A/AC-01');
+    expect(refs).toContain('refs/awl/baseline/WI-B/AC-01');
+  });
+
+  it('workitem 이 없으면(레거시 state) 예전처럼 AC-ID 만 쓴다(회귀 없음)', async () => {
+    const { dir, g } = makeRepo();
+    fs.writeFileSync(path.join(dir, 'f.txt'), 'a\n');
+    g(['add', '.']);
+    g(['commit', '-q', '-m', 'base']);
+
+    await startBaseline(dir, 'AC-01'); // .awl/state.json 자체가 없다.
+
+    const refs = g(['for-each-ref', '--format=%(refname)', 'refs/awl/baseline/']);
+    expect(refs.trim()).toBe('refs/awl/baseline/AC-01');
+  });
+});
