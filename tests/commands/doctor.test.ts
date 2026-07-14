@@ -111,6 +111,22 @@ describe('collectChecks — 설치됨 흉내', () => {
   });
 });
 
+describe('collectChecks — 프로젝트 루트/브랜치 표시 (WI-C)', () => {
+  beforeEach(() => {
+    process.env.AWL_HOME = makeInstalledHome();
+  });
+
+  it('프로젝트 루트를 찾았을 때 실제 경로를 보여준다 (AC-01, 지금은 못 찾았을 때만 보였다)', async () => {
+    const proj = fs.realpathSync(makeInstalledProject());
+    process.chdir(proj);
+
+    const report = await collectChecks();
+    const check = find(report.checks, '프로젝트 루트');
+    expect(check?.status).toBe('info');
+    expect(check?.value).toBe(proj);
+  });
+});
+
 describe('collectChecks — verify.*.cwd 점검 (WI-B, 모노레포)', () => {
   beforeEach(() => {
     process.env.AWL_HOME = makeInstalledHome();

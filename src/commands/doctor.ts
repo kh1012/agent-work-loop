@@ -206,6 +206,14 @@ async function collectProject(checks: Check[], projectRoot: string | null): Prom
     return;
   }
 
+  // WI-C: 프로젝트를 찾았을 때도 그 경로를 보여준다(예전엔 못 찾았을 때만 보였다).
+  checks.push({
+    group: '이 프로젝트',
+    name: '프로젝트 루트',
+    status: 'info',
+    value: projectRoot,
+  });
+
   const configPath = path.join(projectRoot, '.awl', 'config.json');
   if (!exists(configPath)) {
     checks.push({
