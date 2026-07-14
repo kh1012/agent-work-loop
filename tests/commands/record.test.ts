@@ -222,6 +222,20 @@ describe('buildRecord — 구조 강제', () => {
       expect(r.missing).toEqual([]);
     }
   });
+
+  it('narrative 의 kind 필드 자체가 없으면 missing 에 kind 가 담긴다(counterfactual 과 별개로)', () => {
+    const r = buildRecord('narrative', { counterfactual: 'x' }, DEFAULTS);
+    expect(r.record).toBeUndefined();
+    expect(r.missing).toContain('kind');
+    // enum 불일치 메시지("kind (다음 중...")까지 중복으로 붙지는 않는다.
+    expect(r.missing.filter((m) => m.startsWith('kind')).length).toBe(1);
+  });
+
+  it('narrative 의 kind 가 문자열이 아닌 값(숫자 등)이면 enum 우회 없이 거부한다 (WI-P 리뷰 지적)', () => {
+    const r = buildRecord('narrative', { kind: 123, counterfactual: 'x' }, DEFAULTS);
+    expect(r.record).toBeUndefined();
+    expect(r.missing.some((m) => m.startsWith('kind'))).toBe(true);
+  });
 });
 
 describe('record 저장 — append only', () => {

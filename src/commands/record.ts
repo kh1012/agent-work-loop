@@ -128,10 +128,13 @@ export function buildRecord(
     }
   }
 
-  // narrative.kind 는 정해진 4값 중 하나여야 한다 (WI-P AC-02). required 체크를 통과해
-  // 값이 있는 경우에만 형식을 본다 — 없는 경우는 위에서 이미 'kind' 로 missing 처리됨.
-  if (type === 'narrative' && typeof data.kind === 'string' && data.kind !== '') {
-    if (!(NARRATIVE_KINDS as readonly string[]).includes(data.kind)) {
+  // narrative.kind 는 정해진 4값 중 하나여야 한다 (WI-P AC-02). 값이 아예 없는
+  // 경우는 위 required 루프가 이미 'kind' 로 missing 처리하므로 여기선 건너뛴다.
+  // 문자열 타입만 검사하면 숫자 등 다른 타입의 truthy 값이 두 체크를 모두
+  // 통과해버리므로(리뷰 지적, WI-P 리뷰), 값이 있으면 타입 불문 enum 에 있는지 본다.
+  if (type === 'narrative') {
+    const kindMissing = data.kind === undefined || data.kind === null || data.kind === '';
+    if (!kindMissing && !(NARRATIVE_KINDS as readonly unknown[]).includes(data.kind)) {
       missing.push(`kind (다음 중 하나여야 함: ${NARRATIVE_KINDS.join(', ')})`);
     }
   }
