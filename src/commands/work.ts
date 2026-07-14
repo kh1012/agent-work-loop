@@ -98,6 +98,7 @@ export interface WorkitemEntry {
   phase?: unknown;
   loop?: unknown;
   criteria: Record<string, unknown>[];
+  currentFocus?: string;
 }
 
 function registryOf(state: Record<string, unknown>): Record<string, WorkitemEntry> {
@@ -132,6 +133,7 @@ function archiveCurrent(
     criteria: Array.isArray(migrated.criteria)
       ? (migrated.criteria as Record<string, unknown>[])
       : [],
+    ...(typeof migrated.currentFocus === 'string' ? { currentFocus: migrated.currentFocus } : {}),
   };
   const {
     workitem: _w,
@@ -141,6 +143,10 @@ function archiveCurrent(
     workitemBranch: _b,
     workitemCreatedAt: _ca,
     workitemDescription: _d,
+    // currentFocus 는 워크아이템별 상태다(리뷰 지적 AC-09) — rest 로 흘려보내면
+    // 다음(새) 워크아이템의 최상위로 그대로 새어 들어가 record blocked 의 baseline
+    // 추론이 엉뚱한 AC 를 가리킬 수 있다. entry 스냅샷에만 담고 여기선 제거한다.
+    currentFocus: _cf,
     ...rest
   } = migrated;
   return {

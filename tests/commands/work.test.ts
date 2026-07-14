@@ -107,6 +107,24 @@ describe('createWorkitem (WI-D AC-03, awl work new)', () => {
     });
   });
 
+  it('currentFocus 를 보관 스냅샷에 담고, 새 워크아이템의 최상위엔 새어들지 않는다 (AC-09, 리뷰 지적 — record.ts 의 blocked baseline 추론이 씀)', () => {
+    const before = {
+      workitem: 'WI-D',
+      phase: 'loop',
+      loop: null,
+      currentFocus: 'AC-01',
+      criteria: [{ id: 'AC-01', status: 'in_progress' }],
+      workitems: {},
+    };
+    const result = createWorkitem(before, 'WI-E', '2026-07-14T00:00:00.000Z', null);
+    expect(result.error).toBeUndefined();
+    // 새 워크아이템은 옛 워크아이템의 포커스를 물려받지 않는다.
+    expect(result.state.currentFocus).toBeUndefined();
+    // 보관된 WI-D 는 나중에 switch 로 복원할 수 있게 currentFocus 를 담고 있다.
+    const registry = result.state.workitems as Record<string, { currentFocus?: string }>;
+    expect(registry['WI-D']?.currentFocus).toBe('AC-01');
+  });
+
   it('이미 현재 워크아이템인 ID 로 다시 new 하면 거부한다', () => {
     const result = createWorkitem({ workitem: 'WI-D', criteria: [] }, 'WI-D', 't', null);
     expect(result.error).toContain('WI-D');
