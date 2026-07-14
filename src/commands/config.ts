@@ -362,7 +362,7 @@ export async function applyConfigValue(
       existing.cwd = undefined;
       return { ok: true, message: `verify.${name}.cwd = (없음)` };
     }
-    const abs = path.isAbsolute(v) ? v : path.join(projectRoot, v);
+    const abs = resolveCwd(projectRoot, v) as string;
     const dirExists = fs.existsSync(abs) && fs.statSync(abs).isDirectory();
     let warn = '';
     if (path.isAbsolute(v)) {
