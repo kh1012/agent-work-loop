@@ -156,6 +156,18 @@ describe('collectChecks — 프로젝트 루트/브랜치 표시 (WI-C)', () => 
     expect(check?.status).toBe('info');
     expect(check?.value).toMatch(/알 수 없음/);
   });
+
+  it('브랜치 조회 실패 안내 문구가 특정 원인(git 아님)으로 단정하지 않는다 (AC-03, 리뷰 지적 — detached HEAD 등 다른 원인도 있다)', async () => {
+    const proj = fs.realpathSync(makeInstalledProject());
+    process.chdir(proj);
+
+    const report = await collectChecks();
+    const check = find(report.checks, '브랜치');
+    // "git 저장소가 아니거나" 처럼 하나의 원인으로 단정하지 않는다 — detached HEAD 등도
+    // 같은 경로로 떨어지므로 원인을 특정하지 않는 문구여야 한다.
+    expect(check?.value).not.toMatch(/저장소가 아니거나/);
+    expect(check?.value).toBe('알 수 없음 (확인 실패)');
+  });
 });
 
 describe('collectChecks — verify.*.cwd 점검 (WI-B, 모노레포)', () => {

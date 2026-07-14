@@ -244,7 +244,7 @@ async function collectProject(checks: Check[], projectRoot: string | null): Prom
     group: '이 프로젝트',
     name: '브랜치',
     status: 'info',
-    value: branch ?? '알 수 없음 (git 저장소가 아니거나 확인 실패)',
+    value: branch ?? '알 수 없음 (확인 실패)',
   });
 
   const configPath = path.join(projectRoot, '.awl', 'config.json');
