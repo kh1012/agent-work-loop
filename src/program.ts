@@ -96,6 +96,22 @@ export function buildProgram(): Command {
       const { runRules } = await import('./commands/rules.js');
       runRules({ edit: true });
     });
+  rules
+    .command('promote <deltaId>')
+    .description('교훈을 규칙으로 승격합니다 (applies/counter 필수, 사람이 실행)')
+    .option('--applies <cond>', '적용 조건 (필수)')
+    .option('--counter <cond>', '반증 조건 (필수)')
+    .option('--scope <scope>', '로드 단계 (audit/criteria/implement/commit/review)')
+    .action(
+      async (deltaId: string, opts: { applies?: string; counter?: string; scope?: string }) => {
+        const { runRulesPromote } = await import('./commands/rules.js');
+        runRulesPromote(deltaId, {
+          applies: opts.applies,
+          counter: opts.counter,
+          scope: opts.scope,
+        });
+      },
+    );
 
   // 사람이 치는 명령: deltas (아직 규칙이 되지 않은 교훈)
   program
@@ -171,6 +187,40 @@ export function buildProgram(): Command {
       const { runStateSet } = await import('./commands/state.js');
       runStateSet(opts.json);
     });
+
+  // 스킬이 치는 명령(숨김): evolve (기록 → 교훈 → 규칙. awl 은 모으고 쓰고 셀 뿐 판단하지 않는다)
+  program
+    .command('evolve', { hidden: true })
+    .description('기록을 모아 교훈으로, 교훈을 규칙으로 잇습니다')
+    .option('--collect', '이번 워크아이템의 기록을 모아 JSON으로 출력합니다')
+    .option('--record', '교훈을 deltas 에 기록합니다 (--json 으로 데이터)')
+    .option('--json [data]', 'collect: 출력 플래그 / record: 교훈 데이터(JSON 문자열)')
+    .option('--workitem <wi>', '워크아이템으로 거릅니다 (--collect)')
+    .action(
+      async (opts: {
+        collect?: boolean;
+        record?: boolean;
+        json?: string | boolean;
+        workitem?: string;
+      }) => {
+        const m = await import('./commands/evolve.js');
+        if (opts.collect && opts.record) {
+          process.stderr.write('\n  --collect 와 --record 는 동시에 쓸 수 없습니다.\n');
+          process.exit(1);
+        } else if (opts.record) {
+          if (typeof opts.json !== 'string' || opts.json.trim() === '') {
+            process.stderr.write('\n  --record 는 --json \'<교훈>\' 이 필요합니다.\n');
+            process.exit(1);
+          }
+          m.runEvolveRecord(opts.json);
+        } else if (opts.collect) {
+          m.runEvolveCollect({ workitem: opts.workitem, json: true });
+        } else {
+          process.stderr.write('\n  --collect 또는 --record 를 지정하세요.\n');
+          process.exit(1);
+        }
+      },
+    );
 
   // 인자 없이 `awl`만 실행하면 도움말을 보여준다.
   program.action(() => {
