@@ -3,7 +3,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { type Check, collectChecks, renderText } from '../../src/commands/doctor.js';
+import {
+  type Check,
+  collectChecks,
+  detectNamingConvention,
+  renderText,
+} from '../../src/commands/doctor.js';
 import { stringWidth } from '../../src/core/tty.js';
 
 const ASCII = { unicode: false, color: false, tty: false };
@@ -400,5 +405,58 @@ describe('--json 출력', () => {
       expect(typeof c.name).toBe('string');
       expect(typeof c.status).toBe('string');
     }
+  });
+});
+
+describe('detectNamingConvention (WI-I AC-01) — 세어서 감지, 강제 안 함', () => {
+  it('kebab-case 가 뚜렷한 다수면 감지한다', () => {
+    const r = detectNamingConvention([
+      'foo-bar.ts',
+      'baz-qux.ts',
+      'a-b-c.ts',
+      'single.ts', // ambiguous, decisiveTotal 에 안 들어감
+    ]);
+    expect(r.convention).toBe('kebab-case');
+    expect(r.reason).toBe('detected');
+  });
+
+  it('camelCase 가 뚜렷한 다수면 감지한다', () => {
+    const r = detectNamingConvention(['fooBar.ts', 'bazQux.ts', 'aBC.ts']);
+    expect(r.convention).toBe('camelCase');
+  });
+
+  it('snake_case 가 뚜렷한 다수면 감지한다', () => {
+    const r = detectNamingConvention(['foo_bar.ts', 'baz_qux.py', 'a_b_c.go']);
+    expect(r.convention).toBe('snake_case');
+  });
+
+  it('PascalCase 가 뚜렷한 다수면 감지한다', () => {
+    const r = detectNamingConvention(['FooBar.tsx', 'BazQux.tsx', 'ABC.tsx']);
+    expect(r.convention).toBe('PascalCase');
+  });
+
+  it('컨벤션이 섞여 있으면(뚜렷한 다수 없음) 혼재로 보고하고 강제로 하나를 고르지 않는다', () => {
+    const r = detectNamingConvention(['foo-bar.ts', 'baz_qux.ts', 'fooBar.ts', 'FooBar.ts']);
+    expect(r.convention).toBeNull();
+    expect(r.reason).toBe('mixed');
+  });
+
+  it('판단할 파일이 너무 적으면(단일 단어뿐 등) 판단을 보류한다', () => {
+    const r = detectNamingConvention(['index.ts', 'main.ts']);
+    expect(r.convention).toBeNull();
+    expect(r.reason).toBe('insufficient_data');
+  });
+
+  it('기존 이름이 컨벤션에 맞는지는 검사/거부하지 않는다 — 사실만 센다(lint 중복 금지)', () => {
+    const r = detectNamingConvention([
+      'foo-bar.ts',
+      'baz-qux.ts',
+      'a-b.ts',
+      'c-d.ts',
+      'oops_snake.ts', // 컨벤션에 안 맞는 파일이 하나 섞여 있어도 에러/경고 없음.
+    ]);
+    // 위반이라고 에러/경고를 내지 않는다. 그냥 다수결로 감지만 한다.
+    expect(r.convention).toBe('kebab-case');
+    expect(r).not.toHaveProperty('violations');
   });
 });

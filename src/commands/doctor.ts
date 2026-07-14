@@ -130,6 +130,135 @@ export async function gitDirtyFiles(projectRoot: string): Promise<string[] | nul
 }
 
 // ---------------------------------------------------------------------------
+// 네이밍 컨벤션 감지 (WI-I AC-01) — 세어서 감지만 한다. 강제/거부는 하지 않는다
+// (lint 중복 금지 — 이미 존재하는 이름을 검사/거부하는 건 biome/eslint 의 몫이다).
+// ---------------------------------------------------------------------------
+
+export type NamingConvention = 'kebab-case' | 'camelCase' | 'snake_case' | 'PascalCase';
+
+const MIN_DECISIVE_FILES = 3;
+const MAJORITY_THRESHOLD = 0.8;
+
+function classifyBasename(nameNoExt: string): NamingConvention | 'ambiguous' {
+  if (nameNoExt.includes('-')) {
+    return 'kebab-case';
+  }
+  if (nameNoExt.includes('_')) {
+    return 'snake_case';
+  }
+  if (/^[A-Z]/.test(nameNoExt)) {
+    return 'PascalCase';
+  }
+  if (/[A-Z]/.test(nameNoExt)) {
+    return 'camelCase';
+  }
+  // 구분자도 대문자도 없는 단일 소문자 단어 — 모든 컨벤션과 호환돼 판단 근거가 안 된다.
+  return 'ambiguous';
+}
+
+export interface NamingConventionResult {
+  convention: NamingConvention | null;
+  reason: 'detected' | 'mixed' | 'insufficient_data';
+  counts: Record<string, number>;
+  decisiveTotal: number;
+}
+
+const CODE_EXTENSIONS = new Set([
+  'ts',
+  'tsx',
+  'js',
+  'jsx',
+  'mjs',
+  'cjs',
+  'py',
+  'go',
+  'rs',
+  'java',
+  'rb',
+  'php',
+  'c',
+  'cpp',
+  'h',
+  'hpp',
+  'cs',
+  'kt',
+  'swift',
+]);
+
+const IGNORE_DIRS = new Set([
+  'node_modules',
+  '.git',
+  'dist',
+  'build',
+  '.awl',
+  '.awl-worktrees',
+  '.awl-verify',
+  'coverage',
+]);
+
+/** src/ (없으면 projectRoot) 아래 소스 코드 파일명만 재귀적으로 모은다. */
+function listSourceFilenames(projectRoot: string): string[] {
+  const root = fs.existsSync(path.join(projectRoot, 'src'))
+    ? path.join(projectRoot, 'src')
+    : projectRoot;
+  const out: string[] = [];
+  const walk = (dir: string, depth: number): void => {
+    if (depth > 8) {
+      return;
+    }
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (e.isDirectory()) {
+        if (!IGNORE_DIRS.has(e.name)) {
+          walk(path.join(dir, e.name), depth + 1);
+        }
+      } else if (e.isFile()) {
+        const ext = e.name.split('.').pop() ?? '';
+        if (CODE_EXTENSIONS.has(ext)) {
+          out.push(e.name);
+        }
+      }
+    }
+  };
+  walk(root, 0);
+  return out;
+}
+
+/** 파일명(확장자 포함, 경로 없이)을 세어 뚜렷한 다수 컨벤션이 있는지 판정한다. */
+export function detectNamingConvention(filenames: string[]): NamingConventionResult {
+  const counts: Record<string, number> = {};
+  let decisiveTotal = 0;
+  for (const raw of filenames) {
+    const nameNoExt = raw.replace(/\.[^./]+$/, '');
+    const cls = classifyBasename(nameNoExt);
+    if (cls === 'ambiguous') {
+      continue;
+    }
+    counts[cls] = (counts[cls] ?? 0) + 1;
+    decisiveTotal += 1;
+  }
+  if (decisiveTotal < MIN_DECISIVE_FILES) {
+    return { convention: null, reason: 'insufficient_data', counts, decisiveTotal };
+  }
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  const top = sorted[0];
+  if (top && top[1] / decisiveTotal >= MAJORITY_THRESHOLD) {
+    return {
+      convention: top[0] as NamingConvention,
+      reason: 'detected',
+      counts,
+      decisiveTotal,
+    };
+  }
+  return { convention: null, reason: 'mixed', counts, decisiveTotal };
+}
+
+// ---------------------------------------------------------------------------
 // config 스키마
 // ---------------------------------------------------------------------------
 
@@ -143,6 +272,7 @@ interface AwlConfig {
   engineVersion: string;
   // 설정하지 않은 검증은 null 로 저장된다(예: e2e: null).
   verify?: Record<string, VerifySpec | null>;
+  namingConvention?: string;
 }
 
 function isAwlConfig(c: unknown): c is AwlConfig {
@@ -330,6 +460,40 @@ async function collectProject(checks: Check[], projectRoot: string | null): Prom
     return;
   }
   checks.push({ group: '이 프로젝트', name: 'config.json', status: 'ok', value: '있음' });
+
+  // 네이밍 컨벤션 감지(WI-I AC-01) — 세기만 한다, 강제하지 않는다. doctor 는
+  // 아무것도 고치지 않으므로 config.json 기록은 여기서 안 하고 hint 로 명령만
+  // 안내한다(awl config set 이 실제 기록을 담당).
+  const recordedNaming =
+    typeof raw.namingConvention === 'string' ? raw.namingConvention : undefined;
+  if (recordedNaming) {
+    checks.push({
+      group: '이 프로젝트',
+      name: '네이밍 컨벤션',
+      status: 'info',
+      value: recordedNaming,
+    });
+  } else {
+    const naming = detectNamingConvention(listSourceFilenames(projectRoot));
+    if (naming.reason === 'detected' && naming.convention) {
+      checks.push({
+        group: '이 프로젝트',
+        name: '네이밍 컨벤션',
+        status: 'info',
+        value: `${naming.convention} (${naming.counts[naming.convention]}/${naming.decisiveTotal} 파일, 미기록)`,
+        hint: `config.json 에 기록하려면: awl config set namingConvention ${naming.convention}`,
+      });
+    } else if (naming.reason === 'mixed') {
+      checks.push({ group: '이 프로젝트', name: '네이밍 컨벤션', status: 'info', value: '혼재' });
+    } else {
+      checks.push({
+        group: '이 프로젝트',
+        name: '네이밍 컨벤션',
+        status: 'info',
+        value: '판단 보류 (파일 부족)',
+      });
+    }
+  }
 
   // 엔진 버전 일치
   const installed = installedEngineVersion();

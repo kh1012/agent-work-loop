@@ -29,6 +29,8 @@ export interface AwlConfig {
   character: string;
   engineVersion: string;
   verify: VerifyMap;
+  /** doctor 가 세어서 감지한 파일명 컨벤션(WI-I AC-01) — 정보성, 강제 아님. */
+  namingConvention?: string;
 }
 
 export interface ConfigResult {
@@ -140,6 +142,7 @@ export function loadConfig(projectRoot: string): ConfigResult {
     mainLanguage: typeof raw.mainLanguage === 'string' ? raw.mainLanguage : '',
     character: typeof raw.character === 'string' ? raw.character : '',
     engineVersion: raw.engineVersion as string,
+    ...(typeof raw.namingConvention === 'string' ? { namingConvention: raw.namingConvention } : {}),
     verify: {
       typecheck: (rv.typecheck ?? null) as VerifyEntry,
       lint: (rv.lint ?? null) as VerifyEntry,
@@ -203,6 +206,7 @@ export type ConfigKeyKind =
   | 'project'
   | 'mainLanguage'
   | 'character'
+  | 'namingConvention'
   | 'verify.cmd'
   | 'verify.cwd'
   | 'verify.env';
@@ -215,11 +219,15 @@ export interface ParsedConfigKey {
 /** mainLanguage 로 알려진 값. 자유값도 허용하되 이 목록에 없으면 경고한다. */
 export const KNOWN_LANGUAGES = ['typescript', 'javascript', 'python'];
 
+/** namingConvention 으로 알려진 값(doctor 가 감지하는 값과 일치). 자유값도 허용. */
+export const KNOWN_NAMING_CONVENTIONS = ['kebab-case', 'camelCase', 'snake_case', 'PascalCase'];
+
 /** 사람이 보는 전체 설정 가능 키 목록(순서 고정). */
 export const SETTABLE_KEYS: string[] = [
   'project',
   'mainLanguage',
   'character',
+  'namingConvention',
   ...VERIFY_ORDER.flatMap((n) => [`verify.${n}.cmd`, `verify.${n}.cwd`, `verify.${n}.env`]),
 ];
 
@@ -233,6 +241,9 @@ export function parseConfigKey(key: string): ParsedConfigKey | null {
   }
   if (key === 'character') {
     return { kind: 'character' };
+  }
+  if (key === 'namingConvention') {
+    return { kind: 'namingConvention' };
   }
   const names = VERIFY_ORDER.join('|');
   const cmdMatch = new RegExp(`^verify\\.(${names})(?:\\.cmd)?$`).exec(key);
@@ -327,6 +338,22 @@ export async function applyConfigValue(
   if (parsed.kind === 'character') {
     config.character = rawValue;
     return { ok: true, message: `character = ${rawValue || '(비움)'}` };
+  }
+
+  if (parsed.kind === 'namingConvention') {
+    const v = rawValue.trim();
+    if (v === '') {
+      config.namingConvention = undefined;
+      return { ok: true, message: 'namingConvention = (비움)' };
+    }
+    config.namingConvention = v;
+    if (!KNOWN_NAMING_CONVENTIONS.includes(v)) {
+      return {
+        ok: true,
+        message: `namingConvention = ${v}  (경고: 알려진 값이 아닙니다 — ${KNOWN_NAMING_CONVENTIONS.join('/')})`,
+      };
+    }
+    return { ok: true, message: `namingConvention = ${v}` };
   }
 
   const name = parsed.verifyName as keyof VerifyMap;

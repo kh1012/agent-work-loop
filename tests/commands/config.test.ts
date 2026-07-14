@@ -130,10 +130,11 @@ describe('parseConfigKey — 지원하는 모든 키 (Part 0-4)', () => {
     expect(parseConfigKey('verify.nope.cmd')).toBeNull();
   });
 
-  it('SETTABLE_KEYS 는 12개 verify 키 + project/mainLanguage/character', () => {
+  it('SETTABLE_KEYS 는 12개 verify 키 + project/mainLanguage/character/namingConvention', () => {
     expect(SETTABLE_KEYS).toContain('verify.lint.cwd');
     expect(SETTABLE_KEYS).toContain('verify.e2e.env');
-    expect(SETTABLE_KEYS.length).toBe(3 + 4 * 3);
+    expect(SETTABLE_KEYS).toContain('namingConvention');
+    expect(SETTABLE_KEYS.length).toBe(4 + 4 * 3);
   });
 });
 
@@ -168,6 +169,44 @@ describe('applyConfigValue — 키마다 검증 규칙이 다르다', () => {
     );
     expect(outcome.ok).toBe(true);
     expect(config.character).toBe('디자인 토큰 강제');
+  });
+
+  it('namingConvention: 알려진 값(kebab-case 등)은 경고 없이 저장 (WI-I AC-01)', async () => {
+    const config = freshConfig();
+    const outcome = await applyConfigValue(
+      config,
+      '/tmp',
+      { kind: 'namingConvention' },
+      'kebab-case',
+      { force: false },
+    );
+    expect(outcome.ok).toBe(true);
+    expect(config.namingConvention).toBe('kebab-case');
+    expect(outcome.message).not.toContain('경고');
+  });
+
+  it('namingConvention: 모르는 값도 저장은 하되 경고한다', async () => {
+    const config = freshConfig();
+    const outcome = await applyConfigValue(
+      config,
+      '/tmp',
+      { kind: 'namingConvention' },
+      'Upper_Snake',
+      { force: false },
+    );
+    expect(outcome.ok).toBe(true);
+    expect(config.namingConvention).toBe('Upper_Snake');
+    expect(outcome.message).toContain('경고');
+  });
+
+  it('namingConvention: 빈 값이면 비운다', async () => {
+    const config = freshConfig();
+    config.namingConvention = 'kebab-case';
+    const outcome = await applyConfigValue(config, '/tmp', { kind: 'namingConvention' }, '  ', {
+      force: false,
+    });
+    expect(outcome.ok).toBe(true);
+    expect(config.namingConvention).toBeUndefined();
   });
 
   it('project: 빈 값은 거부', async () => {
