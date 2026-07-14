@@ -81,11 +81,112 @@ function writeFileEnsuringDir(p: string, content: string): void {
 // ---------------------------------------------------------------------------
 
 /** 주 언어를 감지한다. 못 하면 null(=직접 입력). */
+/** package.json 의 dependencies/devDependencies 에 typescript 가 있는가. */
+function hasTypescriptDependency(pkg: unknown): boolean {
+  if (typeof pkg !== 'object' || pkg === null) {
+    return false;
+  }
+  const o = pkg as Record<string, unknown>;
+  for (const field of ['dependencies', 'devDependencies']) {
+    const deps = o[field];
+    if (deps && typeof deps === 'object' && 'typescript' in deps) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** package.json 의 workspaces 필드 또는 pnpm-workspace.yaml 에서 워크스페이스 글롭을 모은다. */
+function workspaceGlobs(cwd: string, pkg: unknown): string[] {
+  const globs: string[] = [];
+  if (pkg && typeof pkg === 'object') {
+    const w = (pkg as Record<string, unknown>).workspaces;
+    if (Array.isArray(w)) {
+      globs.push(...w.filter((x): x is string => typeof x === 'string'));
+    } else if (w && typeof w === 'object') {
+      const packages = (w as Record<string, unknown>).packages;
+      if (Array.isArray(packages)) {
+        globs.push(...packages.filter((x): x is string => typeof x === 'string'));
+      }
+    }
+  }
+  const pnpmWorkspacePath = path.join(cwd, 'pnpm-workspace.yaml');
+  if (exists(pnpmWorkspacePath)) {
+    try {
+      const text = fs.readFileSync(pnpmWorkspacePath, 'utf8');
+      for (const line of text.split('\n')) {
+        const m = /^\s*-\s*['"]?([^'"#]+?)['"]?\s*$/.exec(line);
+        if (m?.[1]) {
+          globs.push(m[1]);
+        }
+      }
+    } catch {
+      // 못 읽으면 워크스페이스 없는 것으로 취급.
+    }
+  }
+  return globs;
+}
+
+/**
+ * `<dir>/*` 형태의 단순 글롭만 펼친다(중첩 `**`/브레이스 확장은 필요 없다 —
+ * 워크스페이스 멤버 디렉토리를 찾는 용도로 이 정도면 충분하다).
+ */
+function expandSimpleGlob(cwd: string, glob: string): string[] {
+  const parts = glob.split('/').filter(Boolean);
+  let dirs = [cwd];
+  for (const part of parts) {
+    if (part === '*' || part === '**') {
+      const next: string[] = [];
+      for (const d of dirs) {
+        try {
+          for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+            if (entry.isDirectory() && !entry.name.startsWith('.')) {
+              next.push(path.join(d, entry.name));
+            }
+          }
+        } catch {
+          // 디렉토리가 없으면 건너뛴다.
+        }
+      }
+      dirs = next;
+    } else {
+      dirs = dirs.map((d) => path.join(d, part)).filter((d) => exists(d));
+    }
+  }
+  return dirs;
+}
+
+/** 워크스페이스 멤버 중 하나라도 tsconfig.json 을 가졌는가. */
+function anyWorkspaceMemberHasTsconfig(cwd: string, pkg: unknown): boolean {
+  for (const glob of workspaceGlobs(cwd, pkg)) {
+    for (const dir of expandSimpleGlob(cwd, glob)) {
+      if (exists(path.join(dir, 'tsconfig.json'))) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * 주 언어를 감지한다. 못 하면 null(=직접 입력, buildScreens 가 index 0(typescript)을
+ * 기본 선택으로 둔다 — "애매하면 TypeScript" 요구사항은 이 null 경로가 이미 만족한다).
+ *
+ * TypeScript 판정 신호는 세 가지다: 루트 tsconfig.json, package.json 의
+ * dependencies/devDependencies 의 typescript, 워크스페이스 멤버의 tsconfig.json.
+ * 모노레포에서 루트에 tsconfig 가 없어도(워크스페이스 멤버에만 있는 구성) TS 로
+ * 오판되지 않게 하기 위해서다(WI-A).
+ */
 export function detectLanguage(cwd: string): string | null {
   if (exists(path.join(cwd, 'tsconfig.json'))) {
     return 'typescript';
   }
-  if (exists(path.join(cwd, 'package.json'))) {
+  const pkgPath = path.join(cwd, 'package.json');
+  if (exists(pkgPath)) {
+    const pkg = readJson(pkgPath);
+    if (hasTypescriptDependency(pkg) || anyWorkspaceMemberHasTsconfig(cwd, pkg)) {
+      return 'typescript';
+    }
     return 'javascript';
   }
   if (

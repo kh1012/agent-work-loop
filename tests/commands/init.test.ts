@@ -37,23 +37,69 @@ afterEach(() => {
 });
 
 describe('detectLanguage', () => {
-  it('tsconfig.json 이 있으면 typescript', () => {
+  it('tsconfig.json 이 있으면 typescript (AC-01)', () => {
     const p = tmp('awl-lang-');
     fs.writeFileSync(path.join(p, 'tsconfig.json'), '{}');
     expect(detectLanguage(p)).toBe('typescript');
   });
-  it('package.json 만 있으면 javascript', () => {
+
+  it('package.json 만 있고 TS 신호가 전혀 없으면 javascript (AC-04, 순수 JS 회귀)', () => {
     const p = tmp('awl-lang-');
     fs.writeFileSync(path.join(p, 'package.json'), '{}');
     expect(detectLanguage(p)).toBe('javascript');
   });
+
   it('pyproject.toml 이 있으면 python', () => {
     const p = tmp('awl-lang-');
     fs.writeFileSync(path.join(p, 'pyproject.toml'), '');
     expect(detectLanguage(p)).toBe('python');
   });
+
   it('아무것도 없으면 null', () => {
     expect(detectLanguage(tmp('awl-lang-'))).toBeNull();
+  });
+
+  it('루트 tsconfig 없어도 devDependencies 에 typescript 있으면 typescript (AC-02)', () => {
+    const p = tmp('awl-lang-');
+    fs.writeFileSync(
+      path.join(p, 'package.json'),
+      JSON.stringify({ devDependencies: { typescript: '^5.0.0' } }),
+    );
+    expect(detectLanguage(p)).toBe('typescript');
+  });
+
+  it('dependencies 에 typescript 있어도 typescript', () => {
+    const p = tmp('awl-lang-');
+    fs.writeFileSync(
+      path.join(p, 'package.json'),
+      JSON.stringify({ dependencies: { typescript: '^5.0.0' } }),
+    );
+    expect(detectLanguage(p)).toBe('typescript');
+  });
+
+  it('npm/yarn workspaces 필드의 멤버 패키지에 tsconfig.json 있으면 typescript (AC-03, 모노레포 핵심 버그)', () => {
+    const p = tmp('awl-lang-');
+    fs.writeFileSync(path.join(p, 'package.json'), JSON.stringify({ workspaces: ['packages/*'] }));
+    fs.mkdirSync(path.join(p, 'packages', 'app'), { recursive: true });
+    fs.writeFileSync(path.join(p, 'packages', 'app', 'tsconfig.json'), '{}');
+    expect(detectLanguage(p)).toBe('typescript');
+  });
+
+  it('pnpm-workspace.yaml 의 멤버 패키지에 tsconfig.json 있으면 typescript (AC-03)', () => {
+    const p = tmp('awl-lang-');
+    fs.writeFileSync(path.join(p, 'package.json'), JSON.stringify({}));
+    fs.writeFileSync(path.join(p, 'pnpm-workspace.yaml'), "packages:\n  - 'packages/*'\n");
+    fs.mkdirSync(path.join(p, 'packages', 'lib'), { recursive: true });
+    fs.writeFileSync(path.join(p, 'packages', 'lib', 'tsconfig.json'), '{}');
+    expect(detectLanguage(p)).toBe('typescript');
+  });
+
+  it('워크스페이스 멤버 중 어느 것도 tsconfig 가 없으면 여전히 javascript', () => {
+    const p = tmp('awl-lang-');
+    fs.writeFileSync(path.join(p, 'package.json'), JSON.stringify({ workspaces: ['packages/*'] }));
+    fs.mkdirSync(path.join(p, 'packages', 'app'), { recursive: true });
+    fs.writeFileSync(path.join(p, 'packages', 'app', 'package.json'), '{}');
+    expect(detectLanguage(p)).toBe('javascript');
   });
 });
 
