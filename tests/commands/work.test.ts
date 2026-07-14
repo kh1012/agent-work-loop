@@ -564,3 +564,92 @@ describe('WI-F 통합: 더러운 워크트리 -> doctor 경고 -> work new --wor
     expect(fs.existsSync(path.join(proj, 'my-work.txt'))).toBe(false);
   });
 });
+
+describe('runWorkNew — 검증 베이스라인 캡처 (WI-G AC-01)', () => {
+  const origCwd = process.cwd();
+  const origHome = process.env.AWL_HOME;
+
+  afterEach(() => {
+    process.chdir(origCwd);
+    if (origHome === undefined) {
+      delete process.env.AWL_HOME;
+    } else {
+      process.env.AWL_HOME = origHome;
+    }
+  });
+
+  function realGitProjectWithConfig(verify: Record<string, unknown>): string {
+    const proj = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-baseline-proj-')));
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: proj });
+    execFileSync('git', ['config', 'user.email', 't@t.com'], { cwd: proj });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: proj });
+    fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(proj, '.awl', 'config.json'),
+      JSON.stringify({
+        project: 'p',
+        mainLanguage: 'typescript',
+        character: '',
+        engineVersion: '0.0.0',
+        verify,
+      }),
+    );
+    execFileSync('git', ['add', '-A'], { cwd: proj });
+    execFileSync('git', ['commit', '-q', '-m', 'base'], { cwd: proj });
+    process.chdir(proj);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-home-'));
+    return proj;
+  }
+
+  it('config.verify 로 실제 검증을 돌려 .awl/verify-baseline.json 에 체크별 pass/fail 을 저장한다', async () => {
+    const proj = realGitProjectWithConfig({
+      typecheck: { cmd: `${process.execPath} --version` },
+      lint: null,
+      test: { cmd: `${process.execPath} -e "process.exit(1)"` },
+      e2e: null,
+    });
+
+    await runWorkNew('WI-BASE', undefined, {});
+
+    const baselinePath = path.join(proj, '.awl', 'verify-baseline.json');
+    expect(fs.existsSync(baselinePath)).toBe(true);
+    const baseline = JSON.parse(fs.readFileSync(baselinePath, 'utf8'));
+    expect(baseline.results).toEqual([
+      { name: 'typecheck', passed: true },
+      { name: 'test', passed: false },
+    ]);
+  });
+
+  it('--skip-baseline 이면 verify-baseline.json 을 안 만들고 나중에 못 쓴다고 알린다', async () => {
+    const proj = realGitProjectWithConfig({
+      typecheck: { cmd: `${process.execPath} --version` },
+      lint: null,
+      test: null,
+      e2e: null,
+    });
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    await runWorkNew('WI-SKIP', undefined, { skipBaseline: true });
+
+    const written = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+    stdoutSpy.mockRestore();
+
+    expect(fs.existsSync(path.join(proj, '.awl', 'verify-baseline.json'))).toBe(false);
+    expect(written).toContain('--since-baseline 을 못 씁니다');
+  });
+
+  it('config 가 없으면(레거시/미설정 프로젝트) 크래시 없이 베이스라인을 건너뛴다', async () => {
+    const proj = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-baseline-noconf-')));
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: proj });
+    execFileSync('git', ['config', 'user.email', 't@t.com'], { cwd: proj });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: proj });
+    fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+    execFileSync('git', ['add', '-A'], { cwd: proj });
+    execFileSync('git', ['commit', '-q', '-m', 'base', '--allow-empty'], { cwd: proj });
+    process.chdir(proj);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-home-'));
+
+    await expect(runWorkNew('WI-NOCONF', undefined, {})).resolves.not.toThrow();
+    expect(fs.existsSync(path.join(proj, '.awl', 'verify-baseline.json'))).toBe(false);
+  });
+});

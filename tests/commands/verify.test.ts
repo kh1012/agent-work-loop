@@ -3,7 +3,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { VerifyMap } from '../../src/commands/config.js';
-import { runVerifyChecks } from '../../src/commands/verify.js';
+import {
+  buildVerifyBaseline,
+  readVerifyBaseline,
+  runVerifyChecks,
+  verifyBaselinePath,
+  writeVerifyBaseline,
+} from '../../src/commands/verify.js';
 
 const NODE = process.execPath;
 
@@ -148,5 +154,60 @@ describe('runVerifyChecks', () => {
       expect(report.results[0]?.error).toBe('cwd_not_found');
       expect(report.passed).toBe(false);
     });
+  });
+});
+
+describe('검증 베이스라인 (WI-G AC-01, --since-baseline 의 기반)', () => {
+  it('buildVerifyBaseline 은 체크별 pass/fail 만 담는다 — output 은 안 담는다(체크 단위 비교, D-30)', async () => {
+    const report = await runVerifyChecks(
+      vmap({
+        typecheck: { cmd: `${NODE} --version` },
+        test: { cmd: `${NODE} -e "process.exit(1)"` },
+      }),
+      process.cwd(),
+      { bail: false },
+    );
+    const baseline = buildVerifyBaseline(report, '2026-07-15T00:00:00.000Z');
+    expect(baseline.capturedAt).toBe('2026-07-15T00:00:00.000Z');
+    expect(baseline.results).toEqual([
+      { name: 'typecheck', passed: true },
+      { name: 'test', passed: false },
+    ]);
+    expect(JSON.stringify(baseline)).not.toContain('output');
+  });
+
+  it('command_not_found/timedOut 인 체크도 실패로 잡는다', async () => {
+    const report = await runVerifyChecks(
+      vmap({ typecheck: { cmd: 'awl_no_such_tool_zzz .' } }),
+      process.cwd(),
+      { bail: false },
+    );
+    const baseline = buildVerifyBaseline(report, '2026-07-15T00:00:00.000Z');
+    expect(baseline.results).toEqual([{ name: 'typecheck', passed: false }]);
+  });
+
+  it('writeVerifyBaseline 으로 저장한 파일을 readVerifyBaseline 이 그대로 읽는다', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-baseline-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    const baseline = {
+      capturedAt: '2026-07-15T00:00:00.000Z',
+      results: [{ name: 'typecheck', passed: true }],
+    };
+    writeVerifyBaseline(root, baseline);
+    expect(fs.existsSync(verifyBaselinePath(root))).toBe(true);
+    expect(readVerifyBaseline(root)).toEqual(baseline);
+  });
+
+  it('writeVerifyBaseline 은 .gitignore 에 .awl/verify-baseline.json 을 추가한다', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-baseline-gi-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    writeVerifyBaseline(root, { capturedAt: '2026-07-15T00:00:00.000Z', results: [] });
+    const gi = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
+    expect(gi).toContain('.awl/verify-baseline.json');
+  });
+
+  it('베이스라인 파일이 없으면 readVerifyBaseline 은 null (크래시하지 않는다)', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-baseline-none-')));
+    expect(readVerifyBaseline(root)).toBeNull();
   });
 });
