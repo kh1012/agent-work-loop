@@ -9,6 +9,7 @@
 
 - `awl work new <id> --worktree [브랜치명]` — 격리된 git worktree 에서 새 워크아이템을 시작한다. `awl doctor` 가 워킹트리 미커밋 변경을 직접 점검(`git status --porcelain`)해 경고하고, 스킬(Claude/Codex 둘 다)이 더러우면 격리 워크트리 생성/그대로 진행/중단 중 판단하도록 안내한다. `awl commit` 이 hunk 충돌로 거부할 때도 이제 구체적인 구출 절차(stash+worktree)를 안내한다.
 - `awl verify --since-baseline` — `awl work new` 시점에 캡처한 검증 베이스라인과 비교해, 새로 생긴 실패(회귀)와 원래부터 있던 사전 결함을 구분한다. 사전 결함이 남아있어도 신규 실패가 없으면 통과로 판정한다. 체크(typecheck/lint/test/e2e) 단위 비교이며, `--skip-baseline` 으로 캡처를 건너뛸 수 있다.
+- **엔지니어링 상식 내장**: `awl doctor` 가 프로젝트의 파일명 컨벤션(kebab-case 등)을 세어 감지·보고하고(`awl config set namingConvention` 으로 기록), 파일 크기 이상치를 IQR 기반으로 warn 한다(하드코딩 임계값 없음, 절대 fail 하지 않음). 리뷰어 임무에 "C. 구조 판정"(불필요한 추상화/일관성/재사용 중복을 숫자 임계값 없이 코드 근거로 지목)이 추가됐다. `awl verify --related` 로 변경 파일에 관련된 테스트만 실행할 수 있다(`relatedCmd` 설정 필요, 없으면 전체 테스트로 안전하게 폴백). `awl record decision` 에 `performanceSensitive:true` 를 붙이면 `alternatives`(대안 검토) 가 필수가 된다.
 
 ### 고침
 
@@ -18,6 +19,7 @@
 - `awl review` 가 이미 닫힌 완료조건이 범위 첫 항목이면 그 조건 자신의 diff 를 빠뜨리던 문제(완료조건에 `firstBaseline` 을 별도로 고정해 다음 격리 커밋의 diff 기준점 갱신과 분리).
 - `awl work new` 의 검증 베이스라인 저장이 실패(디스크/권한 등)하면 워크아이템 생성 전체가 크래시하던 문제.
 - `awl verify --since-baseline` 이 베이스라인 워크아이템 불일치를 알릴 때, 실행하면 항상 실패하는 조치(`awl work new` 재실행)를 권하던 문제.
+- `awl verify --related` 의 `relatedCmd` 치환이 변경 파일 경로에 공백이 있으면 여러 인자로 잘못 쪼개지던 문제.
 
 ## [0.2.1] - 2026-07-14
 
