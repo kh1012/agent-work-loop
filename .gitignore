@@ -1,0 +1,17 @@
+# 의존성 / 빌드 산출물
+node_modules/
+dist/
+coverage/
+
+# npm pack 결과물
+*.tgz
+
+# 로그
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+
+# 별도 참조물 — 이후 워크아이템에서 조사한다. 여기서는 추적하지 않는다.
+ref-knowledge-graph/

@@ -1,0 +1,34 @@
+{
+  "name": "agent-work-loop",
+  "version": "0.0.0",
+  "description": "같은 실패를 두 번 하지 않게 만드는 도구. AI 에이전트의 기록·검증·상태를 파일로 관리합니다.",
+  "type": "module",
+  "bin": {
+    "awl": "dist/cli.js"
+  },
+  "files": ["dist", "engine"],
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "keywords": ["agent", "llm", "claude-code", "codex", "workflow"],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "test": "vitest run",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^22.10.2",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
