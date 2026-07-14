@@ -268,6 +268,14 @@
 - **AC-04(commit 거부 시 대안) 스파이크로 실증**: `git stash push -u`(untracked 포함) → `git worktree add` → 새 워크트리에서 `git stash pop` 순서로 tracked/untracked 변경 전부가 안전하게 이동함을 실제로 확인했다. patch 추출 방식(diff 저장 후 다른 곳에 apply)보다 git 내장 기능만 쓰는 이 방식이 더 안전하다고 판단했다(patch 추출은 그 자체로 `awl commit` 이 겪는 hunk 분리 문제와 같은 종류의 실패를 겪을 수 있다). `awl commit` 이 hunk 충돌로 거부할 때만 이 안내를 붙인다("커밋할 변경 없음" 등 다른 거부 사유엔 안 붙인다 — 관련 없는 안내로 화면을 채우지 않는다).
 - **자율 진행 기록**: 이 워크아이템은 사용자가 "게이트 없이 쭉 진행해달라"고 명시적으로 지시한 뒤(2026-07-14/15, 취침) 진행한다. 게이트 1/2 는 `AskUserQuestion` 호출 없이 이 설계 문서를 근거로 자율 승인 처리한다.
 
+## D-30. WI-G 설계: `awl verify --since-baseline` — 체크 단위 비교, 서브 테스트 단위 아님 (0.2.3)
+
+- **배경**: 실사고 — e2e 검증이 71/74 였는데, 3건이 "무관한 사전 결함"인지 "내가 만든 회귀"인지 에이전트가 자의적으로 판단해야 했다. 판단은 실수를 낳는다. `--since-baseline` 은 이 판단을 기계적으로 만든다.
+- **핵심 설계 제약(중요, AC-04): 이 기능은 체크(typecheck/lint/test/e2e) 단위로만 baseline 을 비교한다. e2e 안의 개별 서브 테스트(74개 케이스) 단위까지는 비교하지 않는다.** `runVerifyChecks` 는 `config.json` 의 `verify.<name>.cmd` 를 완전히 불투명한 셸 명령으로 실행하고 exitCode 로만 pass/fail 을 판정한다(WI-2 부터의 설계 — 특정 언어/러너에 종속되지 않기 위해서). 서브 테스트 단위 비교를 하려면 vitest/jest/playwright/pytest 등 러너마다 다른 출력 형식을 파싱해야 하는데, 이건 "검증 명령을 불투명하게 다룬다"는 이 프로젝트의 핵심 설계와 정면으로 충돌하고 크로스 언어 목표와도 안 맞는다. **기각한 대안**: 출력에서 실패 라인을 정규식으로 긁어모으는 휴리스틱 — 러너마다 형식이 달라 신뢰할 수 없는 "거짓 확신"을 줄 위험이 더 크다고 판단해 기각했다.
+  - 이 제약의 실질적 함의: `verify.e2e.cmd` 하나에 서로 다른 성격의 테스트(예: 안정된 케이스 + 알려진 flaky 케이스)가 섞여 있으면, `--since-baseline` 은 "e2e 전체가 여전히 실패"로만 보고 그 안에서 무엇이 바뀌었는지는 못 알려준다. 더 정밀한 판정이 필요하면 **config 저자가** `verify.e2e-stable`/`verify.e2e-known-flaky` 처럼 검증 항목을 더 잘게 나눠야 한다 — 이건 awl 이 판단할 일이 아니라 프로젝트가 정할 일이다.
+- **baseline 저장 위치**: `.awl/verify-baseline.json` (state.json 과 별도 파일, gitignore 대상). `state.json` 에 합치지 않은 이유: baseline 은 "이 워크아이템을 시작한 시점의 검증 상태"로 워크아이템에 종속된 개념인데, `state.json` 에 넣으면 WI-D 의 `workitems` 레지스트리 스냅샷/복원 로직(`archiveCurrent`/`restoreWorkitem`)에 또 다른 필드를 추가해야 하는 부담이 생긴다(D-006 이 지적한 "보조 필드가 archive/restore 를 오가며 새는" 실수의 재발 위험). 별도 파일로 두면 `awl work new` 때마다 자연히 새로 쓰여서 이 복잡도를 피한다.
+- **캡처 시점**: `awl work new` — 워크아이템 시작 시점 1회. `awl commit --start` 마다는 안 한다(완료 조건마다 전체 verify 를 다시 도는 건 느리고,애초에 "이 워크아이템 전체의 사전 결함"이라는 개념과도 안 맞는다). 느린 프로젝트를 위해 `--skip-baseline` 으로 건너뛸 수 있다 — 건너뛰면 그 자리에서 "나중에 --since-baseline 을 못 쓴다"고 알린다.
+
 # Windows 리스크 목록 (macOS에서만 검증함 — Windows 검증 시 체크리스트로 사용)
 
 이 프로젝트는 현재 macOS에서만 검증한다. 아래는 Windows에서 깨질 수 있는 지점과 대비다. 나중에 Windows에서 사람이 검증할 때 이 목록을 하나씩 확인한다.
