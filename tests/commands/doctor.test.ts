@@ -23,8 +23,8 @@ function makeInstalledHome(): string {
     path.join(home, 'engine', 'version.json'),
     JSON.stringify({ engineVersion: '0.0.0' }),
   );
-  fs.mkdirSync(path.join(home, 'rules'), { recursive: true });
-  fs.writeFileSync(path.join(home, 'rules', 'r1.md'), 'x');
+  fs.mkdirSync(path.join(home, 'rules', 'active'), { recursive: true });
+  fs.writeFileSync(path.join(home, 'rules', 'active', 'r1.md'), 'x');
   fs.writeFileSync(path.join(home, 'projects.json'), JSON.stringify(['a', 'b']));
   return home;
 }
@@ -41,6 +41,8 @@ function makeInstalledProject(): string {
       verify: {
         test: { cmd: 'node --version', env: { NODE_ENV: 'test' } },
         lint: { cmd: 'nonexistent_tool_zzz .' },
+        // 설정하지 않은 검증(null)이 있어도 doctor 는 크래시하지 않아야 한다.
+        e2e: null,
       },
     }),
   );

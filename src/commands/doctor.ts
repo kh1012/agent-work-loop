@@ -78,7 +78,8 @@ interface VerifySpec {
 
 interface AwlConfig {
   engineVersion: string;
-  verify?: Record<string, VerifySpec>;
+  // 설정하지 않은 검증은 null 로 저장된다(예: e2e: null).
+  verify?: Record<string, VerifySpec | null>;
 }
 
 function isAwlConfig(c: unknown): c is AwlConfig {
@@ -168,13 +169,14 @@ function collectGlobal(checks: Check[]): void {
   });
 
   // 규칙 / 교훈 / 프로젝트 수 (없으면 0, 크래시하지 않는다)
+  // 규칙은 rules/active 안의 파일을 센다(rules/ 직속의 index.json·graduated.md 는 메타).
   // 교훈 저장 위치는 아직 확정되지 않았다(다음 워크아이템). ~/.awl/lessons 로 가정한다.
   const lessonsDir = path.join(root, 'lessons');
   checks.push({
     group: '전역 설치',
     name: '규칙',
     status: 'info',
-    value: `${countEntries(rulesDir())}개`,
+    value: `${countEntries(path.join(rulesDir(), 'active'))}개`,
   });
   checks.push({
     group: '전역 설치',
@@ -245,6 +247,10 @@ async function collectProject(checks: Check[], projectRoot: string | null): Prom
 
   // 검증 명령 존재 확인: --version 으로 존재만 확인한다. 전체 실행은 하지 않는다(빨라야 함).
   for (const [vname, spec] of Object.entries(raw.verify ?? {})) {
+    // 설정하지 않은 검증(e2e: null 등)은 건너뛴다.
+    if (!spec || typeof spec.cmd !== 'string') {
+      continue;
+    }
     const first = tokenize(spec.cmd)[0] ?? '';
     if (!first) {
       checks.push({
