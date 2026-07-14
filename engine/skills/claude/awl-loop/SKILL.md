@@ -165,14 +165,14 @@ awl verify --json
 
 ```
 awl evolve --collect --workitem <WI>
-  → 자료(blocked/review/retried/metrics/existingDeltas)를 읽는다
+  → 자료(blocked/review/retried/metrics/existingGotchas)를 읽는다
   → 교훈을 추출한다 (판단):
       - blocked 의 tried/lesson 에서 "무엇이 실패했는가"를 재사용 가능한 문장으로
       - 프로젝트 이름 없이, 완료 조건 ID 없이, 다음에도 쓸 수 있게
       - 나쁜 예: "AC-03에서 ComponentOverlay 수정이 실패했다"
       - 좋은 예: "축을 파라미터로 빼기 전에 오버레이 좌표계가 축에 의존하는지 먼저 확인한다"
-  → 기존 교훈(existingDeltas)과 같으면 sameAs 를 붙인다
-awl evolve --record --json '{"lesson":"...","context":"...","source":{...},"sameAs":"D-003"}'
+  → 기존 gotcha(existingGotchas)와 같으면 sameAs 를 붙인다
+awl evolve --record --json '{"lesson":"...","context":"...","source":{...},"sameAs":"G-003"}'
   → 2회 반복 알림이 뜨면 사용자에게 그대로 전달한다. 자동으로 promote 하지 마라.
 ```
 
