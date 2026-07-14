@@ -1,0 +1,18 @@
+{
+  "project": "agent-work-loop",
+  "mainLanguage": "typescript",
+  "character": "",
+  "engineVersion": "0.0.0",
+  "verify": {
+    "typecheck": {
+      "cmd": "tsc --noEmit"
+    },
+    "lint": {
+      "cmd": "biome check ."
+    },
+    "test": {
+      "cmd": "vitest run"
+    },
+    "e2e": null
+  }
+}

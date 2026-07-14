@@ -108,3 +108,43 @@ describe('checkBaseDrift', () => {
     expect(drift).toBeNull();
   });
 });
+
+describe('isolatedCommit — 새 파일(untracked) 처리 (dogfooding 이 잡은 결함)', () => {
+  it('베이스라인 이후 새로 만든 파일도 커밋한다', async () => {
+    const { dir, g } = makeRepo();
+    fs.writeFileSync(path.join(dir, 'base.txt'), 'base\n');
+    g(['add', '.']);
+    g(['commit', '-q', '-m', 'base']);
+
+    const { snapshot, untracked } = await startBaseline(dir, 'AC-N');
+    expect(untracked).toEqual([]); // 시작 시점 untracked 없음
+    fs.writeFileSync(path.join(dir, 'new.ts'), 'export const x = 1;\n');
+
+    const outcome = await isolatedCommit(dir, 'AC-N', 'add new', snapshot, untracked);
+    expect(outcome.committed).toBe(true);
+    expect(outcome.stagedFiles).toContain('new.ts');
+    expect(g(['show', 'HEAD', '--name-only'])).toContain('new.ts');
+  });
+
+  it('남의 새 파일(시작 시점 untracked)은 커밋하지 않고 보존한다', async () => {
+    const { dir, g } = makeRepo();
+    fs.writeFileSync(path.join(dir, 'base.txt'), 'base\n');
+    g(['add', '.']);
+    g(['commit', '-q', '-m', 'base']);
+
+    // 남의 새 파일이 이미 있는 상태에서 베이스라인.
+    fs.writeFileSync(path.join(dir, 'their.ts'), 'other\n');
+    const { snapshot, untracked } = await startBaseline(dir, 'AC-M');
+    expect(untracked).toContain('their.ts');
+
+    // 내 새 파일.
+    fs.writeFileSync(path.join(dir, 'mine.ts'), 'mine\n');
+    const outcome = await isolatedCommit(dir, 'AC-M', 'add mine', snapshot, untracked);
+
+    expect(outcome.stagedFiles).toContain('mine.ts');
+    expect(outcome.stagedFiles).not.toContain('their.ts');
+    // 남의 새 파일은 워킹트리에 그대로 남고 커밋에 없다.
+    expect(fs.existsSync(path.join(dir, 'their.ts'))).toBe(true);
+    expect(g(['show', 'HEAD', '--name-only'])).not.toContain('their.ts');
+  });
+});

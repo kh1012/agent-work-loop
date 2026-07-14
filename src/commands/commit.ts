@@ -54,14 +54,22 @@ export async function captureSnapshot(cwd: string): Promise<string> {
 export interface Baseline {
   snapshot: string;
   head: string;
+  /** 시작 시점에 이미 있던 untracked 파일들(남의 것으로 취급, 커밋에서 제외한다). */
+  untracked: string[];
+}
+
+/** 시작 시점의 untracked 파일 목록(gitignore 제외). */
+async function listUntracked(cwd: string): Promise<string[]> {
+  return lines((await git(['ls-files', '--others', '--exclude-standard'], cwd)).stdout);
 }
 
 /** 완료 조건 작업의 베이스라인을 잡는다. 시작 시점 스냅샷을 refs/awl 로 고정한다. */
 export async function startBaseline(cwd: string, ac: string): Promise<Baseline> {
   const head = (await git(['rev-parse', 'HEAD'], cwd)).stdout.trim();
   const snapshot = await captureSnapshot(cwd);
+  const untracked = await listUntracked(cwd);
   await git(['update-ref', `refs/awl/baseline/${ac}`, snapshot], cwd);
-  return { snapshot, head };
+  return { snapshot, head, untracked };
 }
 
 export interface CommitOutcome {
@@ -83,35 +91,52 @@ export async function isolatedCommit(
   ac: string,
   message: string,
   snapshot: string,
+  untrackedAtStart: string[] = [],
 ): Promise<CommitOutcome> {
   const empty = { stagedFiles: [], excludedFiles: [], extraFiles: [] };
 
   // 인덱스를 HEAD 로 되돌린다(남의 스테이징을 언스테이징; 워킹트리는 건드리지 않음).
   await git(['reset', '-q'], cwd);
 
-  // 내 변경 = 스냅샷 이후 워킹트리 변경.
+  // 내 변경 = (스냅샷 이후 tracked 변경) + (시작 이후 새로 생긴 untracked 파일).
+  // git diff 는 untracked 를 보지 않으므로 새 파일은 따로 식별한다.
   const diff = (await git(['diff', snapshot], cwd)).stdout;
-  if (diff.trim() === '') {
+  const nowUntracked = await listUntracked(cwd);
+  const newUntracked = nowUntracked.filter((f) => !untrackedAtStart.includes(f));
+
+  if (diff.trim() === '' && newUntracked.length === 0) {
     return { committed: false, reason: '커밋할 내 변경이 없습니다.', selfCheckOk: true, ...empty };
   }
 
-  const patchFile = path.join(os.tmpdir(), `awl-commit-${ac}-${process.pid}.patch`);
-  fs.writeFileSync(patchFile, diff);
-  const applied = await git(['apply', '--cached', '--whitespace=nowarn', patchFile], cwd);
-  fs.rmSync(patchFile, { force: true });
+  // tracked 변경은 patch 로 인덱스에만 적용한다(워킹트리 안 건드림).
+  if (diff.trim() !== '') {
+    const patchFile = path.join(os.tmpdir(), `awl-commit-${ac}-${process.pid}.patch`);
+    fs.writeFileSync(patchFile, diff);
+    const applied = await git(['apply', '--cached', '--whitespace=nowarn', patchFile], cwd);
+    fs.rmSync(patchFile, { force: true });
 
-  if (applied.exitCode !== 0) {
-    await git(['reset', '-q'], cwd);
-    return {
-      committed: false,
-      reason: `내 변경을 안전하게 분리할 수 없습니다(hunk 가 남의 변경과 겹칠 수 있습니다). 커밋하지 않았습니다. 사람이 확인하세요.\n${applied.stderr.trim()}`,
-      selfCheckOk: false,
-      ...empty,
-    };
+    if (applied.exitCode !== 0) {
+      await git(['reset', '-q'], cwd);
+      return {
+        committed: false,
+        reason: `내 변경을 안전하게 분리할 수 없습니다(hunk 가 남의 변경과 겹칠 수 있습니다). 커밋하지 않았습니다. 사람이 확인하세요.\n${applied.stderr.trim()}`,
+        selfCheckOk: false,
+        ...empty,
+      };
+    }
+  }
+
+  // 내가 새로 만든 파일만 스테이징한다(새 파일이라 통째로 내 것; 남의 새 파일은 제외).
+  for (const f of newUntracked) {
+    await git(['add', '--', f], cwd);
   }
 
   const stagedFiles = lines((await git(['diff', '--cached', '--name-only'], cwd)).stdout);
-  const excludedFiles = lines((await git(['diff', '--name-only'], cwd)).stdout);
+  // 제외: tracked 남의 변경(unstaged) + 시작 시점부터 있던 남의 untracked.
+  const excludedFiles = [
+    ...lines((await git(['diff', '--name-only'], cwd)).stdout),
+    ...nowUntracked.filter((f) => untrackedAtStart.includes(f)),
+  ];
 
   const msg = message.includes(ac) ? message : `${message} [${ac}]`;
   const committed = await git(['commit', '-q', '-m', msg], cwd);
@@ -203,11 +228,12 @@ export async function runCommit(
   const now = new Date().toISOString();
 
   if (opts.start) {
-    const { snapshot, head } = await startBaseline(root, ac);
+    const { snapshot, head, untracked } = await startBaseline(root, ac);
     const state = setCriterion(loadState(root), ac, {
       status: 'in_progress',
       baseline: head,
       snapshot,
+      untrackedAtStart: untracked,
       startedAt: now,
     });
     writeState(root, state);
@@ -233,7 +259,10 @@ export async function runCommit(
     process.exit(1);
   }
 
-  const outcome = await isolatedCommit(root, ac, opts.message, snapshot);
+  const untrackedAtStart = Array.isArray(crit?.untrackedAtStart)
+    ? (crit.untrackedAtStart as string[])
+    : [];
+  const outcome = await isolatedCommit(root, ac, opts.message, snapshot, untrackedAtStart);
 
   // 무엇이 커밋될지/제외됐는지 보여준다.
   process.stdout.write('\n');
@@ -280,9 +309,14 @@ export async function runCommit(
 
   // 다음 격리 커밋을 위해 베이스라인을 이번 커밋 시점으로 갱신한다.
   const newSnap = await captureSnapshot(root);
+  const newUntracked = await listUntracked(root);
   await git(['update-ref', `refs/awl/baseline/${ac}`, newSnap], root);
   writeState(
     root,
-    setCriterion(loadState(root), ac, { snapshot: newSnap, baseline: outcome.commit }),
+    setCriterion(loadState(root), ac, {
+      snapshot: newSnap,
+      baseline: outcome.commit,
+      untrackedAtStart: newUntracked,
+    }),
   );
 }
