@@ -351,6 +351,19 @@ export function runEvolveRecord(jsonInput: string): void {
     process.exit(1);
   }
 
+  // source 를 안 주면 현재 프로젝트/워크아이템으로 자동 채운다 — 호출부가
+  // 매번 적어 넣어야만 채워지면 조용히 샌다(D-34, record.ts 의 workitem
+  // 자동 태깅과 같은 이유).
+  let source = data.source as Record<string, unknown> | undefined;
+  if (source === undefined) {
+    const { projectRoot, config } = requireConfig();
+    const state = loadState(projectRoot);
+    source = {
+      project: config.project,
+      ...(typeof state.workitem === 'string' ? { workitem: state.workitem } : {}),
+    };
+  }
+
   if (!acquireLock()) {
     process.stderr.write('\n  다른 evolve 가 실행 중입니다(~/.awl/.lock).\n');
     process.exit(1);
@@ -359,7 +372,7 @@ export function runEvolveRecord(jsonInput: string): void {
     const input: RecordGotchaInput = {
       lesson: data.lesson,
       context: typeof data.context === 'string' ? data.context : undefined,
-      source: (data.source as Record<string, unknown>) ?? undefined,
+      source,
       sameAs: typeof data.sameAs === 'string' ? data.sameAs : undefined,
     };
     const result = recordGotcha(input, new Date().toISOString());

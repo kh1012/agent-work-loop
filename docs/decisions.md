@@ -320,6 +320,7 @@
 - **왜 지금 고치나**: WI-P(계측/metrics)의 P-1(`gotcha-applied`/`gotcha-missed`/`narrative` 기록, 워크아이템별 auto-metrics)이 정확히 이 워크아이템 태그에 의존한다. 태그가 새는 채로 WI-P 를 시작하면 계측 기능 자체가 처음부터 조용히 틀린 숫자를 낸다 — 그래서 WI-P 의 완료조건이 아니라 그 이전 선행 수정으로 분리했다.
 - **고친 내용**: `project` 필드와 같은 패턴으로, `buildRecord` 가 `data.workitem` 이 없으면 `defaults.workitem` 을 쓰게 하고, `runRecord` 가 `resolveProjectRoot()` 로 찾은 프로젝트의 `state.json` 을 읽어 현재 `state.workitem` 을 `defaults.workitem` 으로 주입한다. `project` 와 달리 **필수로 강제하지는 않는다** — `work new` 이전 시점(아직 워크아이템이 없는 조사 등)의 기록도 유효해야 하기 때문이다. 워크아이템이 전혀 없으면 필드 자체를 안 만든다(안 쓰는 필드 금지, D-21 과 같은 원칙).
 - **G-006 3회째 반복**: 이 버그의 근본 패턴 — "여러 호출부가 채워야 하는 보조 필드를 각자에게 맡기면 조용히 샌다" — 은 WI-D/WI-G 에서 이미 두 번 나온 G-006 과 본질적으로 같다. `sameAs: G-006` 으로 묶었다(3회째 반복 — 규칙 승격은 사람이 판단할 몫이라 자동 승격하지 않았고, 여기 기록해 사용자에게 전달한다).
+- **같은 패턴이 `evolve --record` 의 `source` 에도 있었다**: `runEvolveRecord` 도 `source` 를 호출부가 안 넣으면 빈 채로 gotcha 의 `history` 에 쌓여(`renderRepeatNotice` 가 "이번: ?" 로 보여줌 — 실제로 이 세션에서 G-006 의 세 번째 반복 기록 직후 재현되어 발견) 위 record.ts 버그와 동일한 근본 원인이다. `requireConfig()`/`loadState()` 로 현재 project/workitem 을 자동으로 채우도록 같이 고쳤다(호출부가 명시하면 그게 우선). G-006 이 이걸로 4 회째 반복될 뻔했으나, 스모크 테스트로 만든 임시 항목이라 `~/.awl/gotchas/G-006.json` 에서 직접 되돌렸다(gotchas 파일은 record 로그와 달리 `count`/`history` 를 제자리에서 갱신하는 가변 상태라 append-only 원칙이 적용되지 않는다).
 - **범위**: `src/commands/record.ts` 만 수정(`RecordDefaults.workitem` 추가, `buildRecord`/`runRecord`). WI-O/WI-P 완료조건 목록 어디에도 속하지 않는 독립 수정이라 `awl commit` (AC 단위 격리 커밋)이 아니라 일반 git 커밋으로 남긴다.
 
 # Windows 리스크 목록 (macOS에서만 검증함 — Windows 검증 시 체크리스트로 사용)
