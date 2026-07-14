@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { loadState, mergeState, writeState } from '../../src/commands/state.js';
+import { loadState, mergeState, migrateState, writeState } from '../../src/commands/state.js';
 
 function tmp(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'awl-state-'));
@@ -53,14 +53,52 @@ describe('mergeState — 부분 갱신 병합', () => {
 });
 
 describe('loadState / writeState 왕복', () => {
-  it('쓰고 읽으면 같다. 없으면 빈 객체', () => {
+  it('쓰고 읽으면 같다(단, loadState 는 항상 workitems 레지스트리를 붙인다 — WI-D). 없으면 빈 객체', () => {
     const root = tmp();
     expect(loadState(root)).toEqual({});
     writeState(root, { phase: 'loop', workitem: 'WI-5' });
-    expect(loadState(root)).toEqual({ phase: 'loop', workitem: 'WI-5' });
+    expect(loadState(root)).toEqual({ phase: 'loop', workitem: 'WI-5', workitems: {} });
     // 이어서 부분 갱신 병합
     const merged = mergeState(loadState(root), { currentFocus: 'AC-01' });
     writeState(root, merged);
-    expect(loadState(root)).toEqual({ phase: 'loop', workitem: 'WI-5', currentFocus: 'AC-01' });
+    expect(loadState(root)).toEqual({
+      phase: 'loop',
+      workitem: 'WI-5',
+      currentFocus: 'AC-01',
+      workitems: {},
+    });
+  });
+});
+
+describe('migrateState — 워크아이템 레지스트리 편입 (WI-D, 순수 함수)', () => {
+  it('workitems 필드가 없으면 빈 객체로 추가한다', () => {
+    expect(migrateState({ phase: 'loop', workitem: 'WI-5' })).toEqual({
+      phase: 'loop',
+      workitem: 'WI-5',
+      workitems: {},
+    });
+  });
+
+  it('이미 workitems 필드가 있으면 그대로 둔다 (멱등)', () => {
+    const state = {
+      workitem: 'WI-5',
+      workitems: { 'WI-3': { status: 'done', createdAt: 't1', criteria: [{ id: 'AC-01' }] } },
+    };
+    expect(migrateState(state)).toEqual(state);
+  });
+
+  it('workitem/criteria 필드가 아예 없는 갓 init 된 state 도 크래시 없이 처리한다', () => {
+    expect(migrateState({ generation: 1, createdAt: 't0', loop: null })).toEqual({
+      generation: 1,
+      createdAt: 't0',
+      loop: null,
+      workitems: {},
+    });
+  });
+
+  it('두 번 적용해도 결과가 같다 (멱등성 직접 확인)', () => {
+    const once = migrateState({ phase: 'loop', workitem: 'WI-5' });
+    const twice = migrateState(once);
+    expect(twice).toEqual(once);
   });
 });

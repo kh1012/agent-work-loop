@@ -12,9 +12,29 @@ export function statePath(projectRoot: string): string {
   return path.join(projectRoot, '.awl', 'state.json');
 }
 
+/**
+ * 워크아이템 레지스트리(workitems) 필드가 있는지 보장한다(WI-D).
+ *
+ * 최상위 workitem/phase/loop/criteria 는 건드리지 않는다 — 계속 "현재 워크아이템의
+ * 실시간 뷰"다(status.ts/commit.ts/review.ts/evolve.ts/record.ts 가 그대로 읽는다).
+ * "현재 워크아이템을 레지스트리에 보관"하는 일은 이 함수가 아니라 work.ts 의
+ * new/switch 가 전환 시점에 한다 — 그래서 이 함수는 workitems 필드가 없을 때
+ * 빈 객체로 채우기만 하면 된다. 순수 함수, 멱등(이미 있으면 그대로 반환).
+ */
+export function migrateState(raw: Record<string, unknown>): Record<string, unknown> {
+  if ('workitems' in raw) {
+    return raw;
+  }
+  return { ...raw, workitems: {} };
+}
+
 export function loadState(projectRoot: string): Record<string, unknown> {
   try {
-    return JSON.parse(fs.readFileSync(statePath(projectRoot), 'utf8')) as Record<string, unknown>;
+    const raw = JSON.parse(fs.readFileSync(statePath(projectRoot), 'utf8')) as Record<
+      string,
+      unknown
+    >;
+    return migrateState(raw);
   } catch {
     return {};
   }
