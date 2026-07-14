@@ -288,6 +288,7 @@
 - **비용**: (b) 52.4k 토큰(최저, confidence 3/5 최저) < (a) 69.7k 토큰(confidence 4/5) < (c) 100.9k 토큰(confidence 4/5, 가장 실질적인 버그 발견). (c) 가 (a) 의 약 1.4배 비싸지만, awl 이 diff 를 조립하는 것 이상(전체 파일 임베딩, 컨텍스트 폭 조정)을 구현할 필요가 없다 — 스킬 프롬프트에 한 문장 추가하는 구현 비용은 0에 가깝다.
 - **결정**: `review.ts` 의 번들 조립 로직(diff 컨텍스트 폭, 파일 임베딙)은 그대로 둔다. `awl-loop` 스킬(Claude/Codex 둘 다)의 리뷰어 절에 "diff 컨텍스트만으로 판단이 안 서면 주저하지 말고 프로젝트 파일을 직접 읽으라"는 지시를 추가한다(AC-02). **기각한 대안**: (a) 전체 파일 자동 임베딩 — 구현 비용(git show 로 각 변경 파일의 최신 내용을 가져와야 함)이 있고, 실측 결과 데이터가 있어도 능동적 검증을 안 하면 소용없었다. (b) 컨텍스트 폭 확대 — 가장 저렴하지만 가장 얕았다(confidence 최저).
 - **부수 성과**: 이 스파이크 자체가 실제 결함 3건을 찾았다(AC-03: `writeVerifyBaseline` 이 try/catch 없이 실패하면 `awl work new` 전체가 크래시함. AC-04: `--since-baseline` 의 workitem_mismatch 폴백 메시지가 실행하면 항상 실패하는 조치를 안내함 — `createWorkitem` 은 이미 존재하는 ID 를 항상 거부하는데 메시지는 "다시 `awl work new`" 를 권함. AC-05: 체크 pass/fail 판정 로직이 `verify.ts`/`work.ts` 에 4곳 중복 구현됨). 이 발견 자체가 "적극적 검증이 실제 결함을 잡는다"는 결정의 근거를 강화한다.
+- **2차 리뷰가 잡은 운영 사고(코드 결함 아님)**: `dist/cli.js` 를 AC-01(firstBaseline 수정) 이후 재빌드하지 않은 채 AC-02~05 를 전부 `node dist/cli.js` 로 진행해, `.awl/state.json` 에 `firstBaseline` 이 한 번도 실제로 기록되지 않았다 — AC-01 이 고치려던 바로 그 버그가 review 번들 조립에서 재현됐다(리뷰어가 `state.json`/`git diff` 를 직접 대조해 발견). 소스 코드 자체는 1차 리뷰에서 이미 정확함이 검증됐고, 유닛 테스트(vitest, TS 소스를 직접 실행)는 항상 정상 통과했다 — 실제 CLI 명령만 낡은 빌드로 실행된 것. 즉시 재빌드하고 `npm run dev`(tsup --watch)를 백그라운드로 띄워 재발을 막았고, git 커밋 체인으로 각 완료조건의 진짜 `firstBaseline` 값을 역산해 `state.json` 을 소급 복구했다. 재검증 결과 review 번들이 AC-01 자신의 변경 파일(`commit.ts`/`review.ts`)까지 정확히 포함함을 확인했다.
 
 # Windows 리스크 목록 (macOS에서만 검증함 — Windows 검증 시 체크리스트로 사용)
 
