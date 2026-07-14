@@ -251,13 +251,18 @@ export function parseConfigKey(key: string): ParsedConfigKey | null {
 }
 
 /** 명령이 실제로 존재하고 기동하는지 확인한다(--version 으로, 짧게). */
-async function verifyCommandExists(entry: {
-  cmd: string;
-  env?: Record<string, string>;
-}): Promise<{ ok: boolean; note: string }> {
+/**
+ * cwd 를 반영해 명령을 확인한다(WI-B 리뷰 지적: 예전엔 cwd 를 아예 안 써서, 이미
+ * cwd 가 설정된 상대경로 명령 — 예: ../../node_modules/.bin/tsc — 이 거짓으로
+ * "명령을 찾을 수 없습니다"가 됐다). cwd 는 이미 resolve 된 절대/상대경로다.
+ */
+async function verifyCommandExists(
+  entry: { cmd: string; env?: Record<string, string> },
+  cwd?: string,
+): Promise<{ ok: boolean; note: string }> {
   const first = entry.cmd.split(/\s+/)[0] ?? '';
   try {
-    const r = await run({ cmd: first, args: ['--version'], env: entry.env, timeoutMs: 5000 });
+    const r = await run({ cmd: first, args: ['--version'], env: entry.env, cwd, timeoutMs: 5000 });
     return { ok: true, note: `종료 코드 ${r.exitCode}` };
   } catch (e) {
     return {
@@ -268,6 +273,14 @@ async function verifyCommandExists(entry: {
           : `실행 오류: ${String(e)}`,
     };
   }
+}
+
+/** cwd 를 projectRoot 기준으로 resolve 한다(상대경로는 join, 절대경로는 그대로). */
+function resolveCwd(projectRoot: string, cwd: string | undefined): string | undefined {
+  if (!cwd) {
+    return undefined;
+  }
+  return path.isAbsolute(cwd) ? cwd : path.join(projectRoot, cwd);
 }
 
 export interface ApplyKeyOutcome {
@@ -320,8 +333,10 @@ export async function applyConfigValue(
 
   if (parsed.kind === 'verify.cmd') {
     const entry = parseVerifyValue(rawValue);
+    // cmd 만 바꿀 때는 이미 설정된 cwd 를 보존한다 — 그리고 존재 확인도 그 cwd 로 한다.
+    const prevCwd = config.verify[name]?.cwd;
     if (entry) {
-      const check = await verifyCommandExists(entry);
+      const check = await verifyCommandExists(entry, resolveCwd(projectRoot, prevCwd));
       if (!check.ok && !opts.force) {
         return {
           ok: false,
@@ -329,8 +344,6 @@ export async function applyConfigValue(
         };
       }
     }
-    // cmd 만 바꿀 때는 이미 설정된 cwd 를 보존한다.
-    const prevCwd = config.verify[name]?.cwd;
     config.verify[name] = entry ? { ...entry, ...(prevCwd ? { cwd: prevCwd } : {}) } : null;
     return { ok: true, message: `verify.${name}.cmd = ${entry ? entry.cmd : 'null'}` };
   }

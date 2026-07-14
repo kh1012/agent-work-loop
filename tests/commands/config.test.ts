@@ -300,17 +300,45 @@ describe('applyConfigValue — 키마다 검증 규칙이 다르다', () => {
   });
 
   it('verify.cmd 만 바꿀 때 기존 cwd 를 보존한다', async () => {
+    // AC-08: 존재 확인도 그 cwd 로 하므로, 실제로 존재하는 디렉토리여야 한다.
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-cfg-preserve-')));
+    fs.mkdirSync(path.join(root, 'packages', 'app'), { recursive: true });
     const config = freshConfig();
     config.verify.typecheck = { cmd: 'tsc --noEmit', cwd: 'packages/app' };
     const outcome = await applyConfigValue(
       config,
-      '/tmp',
+      root,
       { kind: 'verify.cmd', verifyName: 'typecheck' },
       NODE,
       { force: false },
     );
     expect(outcome.ok).toBe(true);
     expect(config.verify.typecheck).toEqual({ cmd: NODE, cwd: 'packages/app' });
+  });
+
+  it('verify.cmd: 존재 확인도 기존 cwd 기준으로 한다 (AC-08, maxflow 재현 — cwd 없이 확인하면 실패했을 명령)', async () => {
+    // packages/app 안에서만 풀리는 상대경로 실행파일 — cwd 를 안 쓰고 확인하면 실패한다.
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-cfg-cwd-')));
+    fs.mkdirSync(path.join(root, 'packages', 'app'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'node_modules', '.bin'), { recursive: true });
+    const toolPath = path.join(root, 'node_modules', '.bin', 'fake-tool');
+    fs.writeFileSync(toolPath, `#!/usr/bin/env node\nprocess.stdout.write('ok');\n`);
+    fs.chmodSync(toolPath, 0o755);
+
+    const config = freshConfig();
+    config.verify.typecheck = { cmd: 'old-placeholder', cwd: 'packages/app' };
+    const outcome = await applyConfigValue(
+      config,
+      root,
+      { kind: 'verify.cmd', verifyName: 'typecheck' },
+      '../../node_modules/.bin/fake-tool',
+      { force: false },
+    );
+    expect(outcome.ok).toBe(true);
+    expect(config.verify.typecheck).toEqual({
+      cmd: '../../node_modules/.bin/fake-tool',
+      cwd: 'packages/app',
+    });
   });
 });
 
