@@ -111,6 +111,50 @@ describe('collectChecks — 설치됨 흉내', () => {
   });
 });
 
+describe('collectChecks — verify.*.cwd 점검 (WI-B, 모노레포)', () => {
+  beforeEach(() => {
+    process.env.AWL_HOME = makeInstalledHome();
+  });
+
+  it('cwd 디렉토리가 실제로 있으면 ok', async () => {
+    const proj = tmp('awl-proj-');
+    fs.mkdirSync(path.join(proj, '.git'), { recursive: true });
+    fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+    fs.mkdirSync(path.join(proj, 'packages', 'app'), { recursive: true });
+    fs.writeFileSync(
+      path.join(proj, '.awl', 'config.json'),
+      JSON.stringify({
+        engineVersion: '0.0.0',
+        verify: { test: { cmd: 'node --version', cwd: 'packages/app' }, lint: null, e2e: null },
+      }),
+    );
+    process.chdir(proj);
+
+    const report = await collectChecks();
+    expect(find(report.checks, '검증: test')?.status).toBe('ok');
+  });
+
+  it('cwd 디렉토리가 없으면 missing 으로 표시하고 안내한다', async () => {
+    const proj = tmp('awl-proj-');
+    fs.mkdirSync(path.join(proj, '.git'), { recursive: true });
+    fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(proj, '.awl', 'config.json'),
+      JSON.stringify({
+        engineVersion: '0.0.0',
+        verify: { test: { cmd: 'node --version', cwd: 'no/such/dir' }, lint: null, e2e: null },
+      }),
+    );
+    process.chdir(proj);
+
+    const report = await collectChecks();
+    const check = find(report.checks, '검증: test');
+    expect(check?.status).toBe('missing');
+    expect(check?.hint).toContain('no/such/dir');
+    expect(report.ok).toBe(false);
+  });
+});
+
 describe('renderText — 정렬과 출력', () => {
   beforeEach(() => {
     process.env.AWL_HOME = makeInstalledHome();

@@ -62,6 +62,7 @@ function countEntries(dir: string): number {
 
 interface VerifySpec {
   cmd: string;
+  cwd?: string;
   env?: Record<string, string>;
 }
 
@@ -250,8 +251,26 @@ async function collectProject(checks: Check[], projectRoot: string | null): Prom
       });
       continue;
     }
+
+    // WI-B: cwd 가 지정됐으면 그 디렉토리가 실제로 있는지 먼저 확인한다.
+    const cwd = spec.cwd
+      ? path.isAbsolute(spec.cwd)
+        ? spec.cwd
+        : path.join(projectRoot, spec.cwd)
+      : undefined;
+    if (cwd && !exists(cwd)) {
+      checks.push({
+        group: '이 프로젝트',
+        name: `검증: ${vname}`,
+        status: 'missing',
+        value: 'cwd 없음',
+        hint: `cwd 디렉토리가 없습니다: ${spec.cwd}`,
+      });
+      continue;
+    }
+
     try {
-      await run({ cmd: first, args: ['--version'], timeoutMs: 3000 });
+      await run({ cmd: first, args: ['--version'], cwd, timeoutMs: 3000 });
       // exitCode 가 0이 아니어도 실행은 됐으므로 "존재함"으로 본다(--version 미지원 도구 대비).
       checks.push({
         group: '이 프로젝트',
