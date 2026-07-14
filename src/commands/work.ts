@@ -366,6 +366,38 @@ async function createGitWorktree(
   return { ok: true };
 }
 
+/**
+ * createGitWorktree 로 만든 워크트리/브랜치를 되돌린다(WI-F AC-09, 2차 리뷰 지적).
+ * precheck 통과 후 실제 createWorkitem 호출 사이(동시 awl 프로세스가 state.json 을
+ * 바꾸는 좁은 레이스 창)에 검증이 실패하면 이미 만든 git 자원이 orphan 으로 남는다 —
+ * 이걸 되돌린다. 정리 자체가 실패해도 무음으로 삼키지 않는다(D-26 의 교훈과 같은 원칙).
+ */
+async function removeGitWorktree(
+  root: string,
+  targetPath: string,
+  branchName: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const rm = await run({
+    cmd: 'git',
+    args: ['worktree', 'remove', '--force', targetPath],
+    cwd: root,
+    timeoutMs: 30_000,
+  });
+  if (rm.exitCode !== 0) {
+    return { ok: false, error: (rm.stderr || rm.stdout).trim() };
+  }
+  const br = await run({
+    cmd: 'git',
+    args: ['branch', '-D', branchName],
+    cwd: root,
+    timeoutMs: 10_000,
+  });
+  if (br.exitCode !== 0) {
+    return { ok: false, error: (br.stderr || br.stdout).trim() };
+  }
+  return { ok: true };
+}
+
 /** .awl-worktrees/ 를 .gitignore 에 추가한다(없으면). init.ts 의 ensureGitignore 와 같은 패턴. */
 function ensureWorktreesGitignored(root: string): void {
   const gi = path.join(root, '.gitignore');
@@ -398,9 +430,9 @@ export async function runWorkNew(
   }
 
   let worktreePath: string | undefined;
+  let branchName: string | undefined;
   if (opts.worktree) {
-    const branchName =
-      typeof opts.worktree === 'string' ? opts.worktree : `work/${sanitizeForGit(id)}`;
+    branchName = typeof opts.worktree === 'string' ? opts.worktree : `work/${sanitizeForGit(id)}`;
     worktreePath = path.join(root, '.awl-worktrees', sanitizeForGit(id));
     const created = await createGitWorktree(root, worktreePath, branchName);
     if (!created.ok) {
@@ -413,7 +445,17 @@ export async function runWorkNew(
   const result = createWorkitem(loadState(root), id, now, branch, description, worktreePath);
   if (result.error) {
     // precheck 를 이미 통과했으므로 여기서 다시 에러가 나는 건 예외적인 경우(예:
-    // precheck 와 이 호출 사이에 state.json 이 바뀜)뿐이다 — 방어적으로 유지한다.
+    // precheck 와 이 호출 사이에 다른 awl 프로세스가 state.json 을 바꿈)뿐이지만,
+    // 그 좁은 창에서 이미 만든 git worktree/브랜치가 orphan 으로 남을 수 있다
+    // (AC-09, 2차 리뷰 지적) — 정리한다.
+    if (worktreePath && branchName) {
+      const cleaned = await removeGitWorktree(root, worktreePath, branchName);
+      if (!cleaned.ok) {
+        process.stderr.write(
+          `\n  워크트리 정리에도 실패했습니다 — 수동으로 확인하세요: ${cleaned.error}\n`,
+        );
+      }
+    }
     process.stderr.write(`\n  ${result.error}\n`);
     process.exit(1);
   }
