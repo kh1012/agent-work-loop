@@ -250,12 +250,19 @@ export function restoreWorkitem(
     workitems: remainingRegistry,
   };
 
-  const warning =
-    entry.branch && branch && entry.branch !== branch
-      ? `경고: ${key} 는 브랜치 ${entry.branch} 에서 만들어졌는데 지금은 ${branch} 브랜치입니다.`
-      : undefined;
+  // 삭제가 아니므로 abandoned 워크아이템으로도 switch 할 수 있게 허용한다(리뷰
+  // 지적 AC-11) — 다만 의도치 않게 되살리는 걸 막기 위해 경고는 한다.
+  const warnings: string[] = [];
+  if (entry.branch && branch && entry.branch !== branch) {
+    warnings.push(
+      `경고: ${key} 는 브랜치 ${entry.branch} 에서 만들어졌는데 지금은 ${branch} 브랜치입니다.`,
+    );
+  }
+  if (entry.status === 'abandoned') {
+    warnings.push(`경고: ${key} 는 중단(abandoned) 처리된 워크아이템입니다.`);
+  }
 
-  return { state: nextState, warning };
+  return { state: nextState, warning: warnings.length > 0 ? warnings.join(' ') : undefined };
 }
 
 /**

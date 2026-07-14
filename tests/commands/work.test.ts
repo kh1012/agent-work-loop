@@ -237,6 +237,30 @@ describe('restoreWorkitem (WI-D AC-04, awl work switch)', () => {
     const result = restoreWorkitem(before, 'WI-C', 't2', 'main');
     expect(result.warning).toBeUndefined();
   });
+
+  it('abandoned 워크아이템으로 switch 하면 부활은 허용하되 경고한다 (AC-11, 리뷰 지적 — 사양 공백)', () => {
+    const before = {
+      workitem: 'WI-D',
+      criteria: [],
+      workitems: {
+        'WI-C': { status: 'abandoned', createdAt: 't', criteria: [{ id: 'AC-01' }] },
+      },
+    };
+    const result = restoreWorkitem(before, 'WI-C', 't2', null);
+    expect(result.error).toBeUndefined(); // 삭제가 아니므로 막지 않는다.
+    expect(result.state.workitem).toBe('WI-C');
+    expect(result.warning).toContain('중단');
+  });
+
+  it('paused 워크아이템으로 switch 하면 경고하지 않는다(정상 경로)', () => {
+    const before = {
+      workitem: 'WI-D',
+      criteria: [],
+      workitems: { 'WI-C': { status: 'paused', createdAt: 't', criteria: [] } },
+    };
+    const result = restoreWorkitem(before, 'WI-C', 't2', null);
+    expect(result.warning).toBeUndefined();
+  });
 });
 
 describe('abandonWorkitem (WI-D AC-05, awl work abandon)', () => {
