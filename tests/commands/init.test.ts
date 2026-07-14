@@ -3,13 +3,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  type InitInputs,
   applyInit,
   buildConfig,
   buildScreens,
   detectLanguage,
   detectVerify,
   ensureGitignore,
-  type InitInputs,
   nonInteractiveInputs,
   registerProject,
   splitEnv,
@@ -187,9 +187,9 @@ describe('applyInit — 전체 산출물', () => {
     expect(readJson(path.join(home, 'rules', 'index.json'))).toEqual([]);
     // engine 복사 (version.json + 스킬 자리표시자)
     expect(fs.existsSync(path.join(home, 'engine', 'version.json'))).toBe(true);
-    expect(fs.existsSync(path.join(home, 'engine', 'skills', 'claude', 'awl-loop', 'SKILL.md'))).toBe(
-      true,
-    );
+    expect(
+      fs.existsSync(path.join(home, 'engine', 'skills', 'claude', 'awl-loop', 'SKILL.md')),
+    ).toBe(true);
 
     // config
     const config = readJson(result.configPath) as Record<string, unknown>;
