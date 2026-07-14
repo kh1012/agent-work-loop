@@ -620,6 +620,35 @@ describe('runWorkNew — 검증 베이스라인 캡처 (WI-G AC-01)', () => {
     ]);
   });
 
+  it('--worktree 사용 시 config 가 새 워크트리에서 실제로 로드되고 그 워크트리 루트에 베이스라인이 저장된다 (AC-08, 리뷰 지적 — 성공 경로 커버리지 0 이었음)', async () => {
+    const proj = realGitProjectWithConfig({
+      typecheck: { cmd: `${process.execPath} --version` },
+      lint: null,
+      test: { cmd: `${process.execPath} -e "process.exit(1)"` },
+      e2e: null,
+    });
+
+    await runWorkNew('WI-WT-BASE', undefined, { worktree: true });
+
+    const wtPath = path.join(proj, '.awl-worktrees', 'WI-WT-BASE');
+    expect(fs.existsSync(wtPath)).toBe(true);
+    // config.json 이 git-tracked 라 워크트리 체크아웃에 실제로 따라온다.
+    expect(fs.existsSync(path.join(wtPath, '.awl', 'config.json'))).toBe(true);
+
+    // 베이스라인은 원래 루트가 아니라 새 워크트리 루트에 저장돼야 한다(원래 루트에
+    // 저장하면 gitignore 대상이라 이 워크트리에 안 따라온다).
+    const wtBaselinePath = path.join(wtPath, '.awl', 'verify-baseline.json');
+    expect(fs.existsSync(wtBaselinePath)).toBe(true);
+    expect(fs.existsSync(path.join(proj, '.awl', 'verify-baseline.json'))).toBe(false);
+
+    const baseline = JSON.parse(fs.readFileSync(wtBaselinePath, 'utf8'));
+    expect(baseline.workitem).toBe('WI-WT-BASE');
+    expect(baseline.results).toEqual([
+      { name: 'typecheck', passed: true },
+      { name: 'test', passed: false },
+    ]);
+  });
+
   it('--skip-baseline 이면 verify-baseline.json 을 안 만들고 나중에 못 쓴다고 알린다', async () => {
     const proj = realGitProjectWithConfig({
       typecheck: { cmd: `${process.execPath} --version` },
