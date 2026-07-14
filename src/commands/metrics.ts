@@ -66,7 +66,8 @@ export function loadGenerations(project: string): Generation[] {
   return generations;
 }
 
-function renderMetrics(generations: Generation[], c: Caps): string {
+/** 사람용 세대 표 렌더링. export 해 리뷰/테스트가 직접 볼 수 있게 한다 (WI-P 리뷰 지적). */
+export function renderMetrics(generations: Generation[], c: Caps): string {
   const color = makeColors(c.color);
   const caveat = color.dim(renderMetricsCaveat());
   if (generations.length === 0) {
@@ -75,11 +76,11 @@ function renderMetrics(generations: Generation[], c: Caps): string {
   const idWidth = Math.max(...generations.map((g) => g.workitem.length), 9) + 2;
   const out: string[] = ['', `  세대 ${generations.length}개 (시간순)`, ''];
   out.push(
-    `  ${'워크아이템'.padEnd(idWidth, ' ')}시도평균  막힘비율  리뷰지적  절차실수  gotcha적용  gotcha누락`,
+    `  ${'워크아이템'.padEnd(idWidth, ' ')}완료조건  시도평균  막힘비율  리뷰지적  절차실수  gotcha적용  gotcha누락`,
   );
   for (const g of generations) {
     out.push(
-      `  ${g.workitem.padEnd(idWidth, ' ')}${String(g.avgAttempts).padEnd(10, ' ')}${String(g.blockedRatio).padEnd(10, ' ')}${String(g.reviewRejects).padEnd(10, ' ')}${String(g.proceduralErrors).padEnd(10, ' ')}${String(g.gotchaApplied).padEnd(12, ' ')}${g.gotchaMissed}`,
+      `  ${g.workitem.padEnd(idWidth, ' ')}${String(g.criteriaTotal).padEnd(10, ' ')}${String(g.avgAttempts).padEnd(10, ' ')}${String(g.blockedRatio).padEnd(10, ' ')}${String(g.reviewRejects).padEnd(10, ' ')}${String(g.proceduralErrors).padEnd(10, ' ')}${String(g.gotchaApplied).padEnd(12, ' ')}${g.gotchaMissed}`,
     );
   }
   out.push('');

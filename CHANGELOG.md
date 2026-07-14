@@ -11,6 +11,7 @@
 - `awl verify --since-baseline` — `awl work new` 시점에 캡처한 검증 베이스라인과 비교해, 새로 생긴 실패(회귀)와 원래부터 있던 사전 결함을 구분한다. 사전 결함이 남아있어도 신규 실패가 없으면 통과로 판정한다. 체크(typecheck/lint/test/e2e) 단위 비교이며, `--skip-baseline` 으로 캡처를 건너뛸 수 있다.
 - **엔지니어링 상식 내장**: `awl doctor` 가 프로젝트의 파일명 컨벤션(kebab-case 등)을 세어 감지·보고하고(`awl config set namingConvention` 으로 기록), 파일 크기 이상치를 IQR 기반으로 warn 한다(하드코딩 임계값 없음, 절대 fail 하지 않음). 리뷰어 임무에 "C. 구조 판정"(불필요한 추상화/일관성/재사용 중복을 숫자 임계값 없이 코드 근거로 지목)이 추가됐다. `awl verify --related` 로 변경 파일에 관련된 테스트만 실행할 수 있다(`relatedCmd` 설정 필요, 없으면 전체 테스트로 안전하게 폴백). `awl record decision` 에 `performanceSensitive:true` 를 붙이면 `alternatives`(대안 검토) 가 필수가 된다.
 - **MINOR — `delta` 를 `gotcha` 로 개명.** `awl gotchas`(옛 `awl deltas`), `awl rules promote <gotchaId>`(옛 `<deltaId>`), 교훈 ID 체계도 `D-00x` 대신 `G-00x`. 기존 `~/.awl/deltas/*.json` 은 처음 접근하는 시점에 자동으로(무손실, 멱등) `~/.awl/gotchas/` 로 마이그레이션되고 백업도 남는다. `awl deltas` 는 0.4.0 까지 폐기 경고와 함께 그대로 동작한다(하위호환).
+- **계측(프록시 지표).** `awl record gotcha-applied`/`gotcha-missed` 로 기존 gotcha 가 실제로 적용됐는지/놓쳤는지를 남긴다. `awl record narrative` 로 게이트/리뷰/스파이크/막힘 처리의 순간을 그때그때 기록한다(`kind`: gate-caught/reviewer-caught/spike-prevented/blocked-discarded, `counterfactual` 필수). `awl evolve --collect` 가 워크아이템별 gotcha 적용/누락 개수를 세어 세대 스냅샷에 포함한다. 신설 `awl metrics` 로 워크아이템(세대)별 시도 횟수/막힘 비율/리뷰 지적/절차 실수/gotcha 적용·누락 추세를 볼 수 있다(옛 스냅샷과 하위호환, "워크아이템마다 난이도가 다르다"는 캐비트 항상 포함). awl 은 LLM 토큰을 직접 측정하지 않는다 — 전부 프록시 지표다.
 
 ### 고침
 

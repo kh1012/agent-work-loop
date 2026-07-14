@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { loadGenerations, renderMetricsCaveat } from '../../src/commands/metrics.js';
+import { caps } from '../../src/core/tty.js';
+import { loadGenerations, renderMetrics, renderMetricsCaveat } from '../../src/commands/metrics.js';
 
 const origHome = process.env.AWL_HOME;
 
@@ -25,20 +26,11 @@ afterEach(() => {
 });
 
 describe('loadGenerations (WI-P AC-04)', () => {
-  it('세대 스냅샷을 시간순(at)으로 정렬해 돌려준다', () => {
-    seedGeneration('p', 'WI-2', {
-      workitem: 'WI-2',
-      at: '2026-07-14T10:00:00Z',
-      criteriaTotal: 3,
-      avgAttempts: 1,
-      blockedRatio: 0,
-      reviewRejects: 0,
-      proceduralErrors: 0,
-      gotchaApplied: 1,
-      gotchaMissed: 0,
-    });
-    seedGeneration('p', 'WI-1', {
-      workitem: 'WI-1',
+  it('세대 스냅샷을 시간순(at)으로 정렬해 돌려준다 — 알파벳순과 반대로 섞어 진짜 정렬을 검증한다 (WI-P 리뷰 지적)', () => {
+    // WI-Z 가 알파벳으로는 뒤지만 at 은 더 이르다. 이 fixture 는 알파벳순 우연 일치로
+    // 통과할 수 없다 — sort() 를 지워보면 반드시 실패해야 진짜 회귀 테스트다.
+    seedGeneration('p', 'WI-Z', {
+      workitem: 'WI-Z',
       at: '2026-07-14T09:00:00Z',
       criteriaTotal: 2,
       avgAttempts: 0,
@@ -48,8 +40,19 @@ describe('loadGenerations (WI-P AC-04)', () => {
       gotchaApplied: 0,
       gotchaMissed: 0,
     });
+    seedGeneration('p', 'WI-A', {
+      workitem: 'WI-A',
+      at: '2026-07-14T10:00:00Z',
+      criteriaTotal: 3,
+      avgAttempts: 1,
+      blockedRatio: 0,
+      reviewRejects: 0,
+      proceduralErrors: 0,
+      gotchaApplied: 1,
+      gotchaMissed: 0,
+    });
     const gens = loadGenerations('p');
-    expect(gens.map((g) => g.workitem)).toEqual(['WI-1', 'WI-2']);
+    expect(gens.map((g) => g.workitem)).toEqual(['WI-Z', 'WI-A']);
   });
 
   it('gotchaApplied/gotchaMissed 필드가 없는 옛 스냅샷도 크래시 없이 0으로 읽는다 (하위호환)', () => {
@@ -96,5 +99,41 @@ describe('loadGenerations (WI-P AC-04)', () => {
 describe('renderMetricsCaveat — 난이도 경고 문구', () => {
   it('워크아이템마다 난이도가 다르다는 캐비트를 담는다', () => {
     expect(renderMetricsCaveat()).toContain('난이도');
+  });
+});
+
+describe('renderMetrics — 사람용 표 (WI-P 리뷰 지적: criteriaTotal 누락 수정)', () => {
+  it('criteriaTotal 을 포함한 모든 지표 값을 표에 담는다', () => {
+    const out = renderMetrics(
+      [
+        {
+          workitem: 'WI-1',
+          at: '2026-07-14T09:00:00Z',
+          criteriaTotal: 7,
+          avgAttempts: 1.5,
+          blockedRatio: 0.2,
+          reviewRejects: 3,
+          proceduralErrors: 4,
+          gotchaApplied: 5,
+          gotchaMissed: 6,
+        },
+      ],
+      caps(),
+    );
+    expect(out).toContain('WI-1');
+    expect(out).toContain('7'); // criteriaTotal — 리뷰가 지적한 누락 필드
+    expect(out).toContain('1.5');
+    expect(out).toContain('0.2');
+    expect(out).toContain('3');
+    expect(out).toContain('4');
+    expect(out).toContain('5');
+    expect(out).toContain('6');
+    expect(out).toContain('난이도'); // 캐비트
+  });
+
+  it('세대가 없으면 캐비트를 포함한 안내만 보여준다', () => {
+    const out = renderMetrics([], caps());
+    expect(out).toContain('세대 기록이 없습니다');
+    expect(out).toContain('난이도');
   });
 });
