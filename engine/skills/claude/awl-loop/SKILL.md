@@ -156,6 +156,7 @@ awl verify --json
 - `awl review AC-xx..AC-yy --json` 으로 자료를 조립한다.
 - **리뷰어를 서브에이전트로 호출한다. 구현자의 대화 맥락을 넘기지 마라.** (아래 "리뷰어" 참고)
 - 리뷰어의 지적은 **새 완료 조건으로 편입**한다. 리뷰어는 코드를 고치지 않는다.
+- **판정을 받으면 바로 기록한다**: `awl record review --json '{"target":"AC-xx..AC-yy","verdict":"pass 또는 needs-work"}'`. 이걸 빼먹으면 `awl evolve`/`awl metrics` 의 `reviewRejects` 지표가 조용히 0으로 샌다(WI-P 소급 발견 — 리뷰를 실제로 돌리고도 이 한 줄을 빼먹은 채 워크아이템을 닫을 뻔했다).
 
 ---
 

@@ -59,7 +59,7 @@ awl verify --json
 
 **막힘 처리**(3회 실패): `awl record blocked --diff` 로 `tried` 배열(3가지 접근과 각각의 실패 양상)과 `lesson` 을 남긴다. `git checkout -- .` 로 코드를 버리고 다음 조건으로. 완료 조건은 수정하지 않는다.
 
-**완료 조건 3개마다**: `awl review AC-xx..AC-yy --json` 으로 자료를 조립하고, **리뷰어를 서브에이전트로 호출한다(구현자 맥락 전달 금지).** 지적은 새 완료 조건으로 편입한다.
+**완료 조건 3개마다**: `awl review AC-xx..AC-yy --json` 으로 자료를 조립하고, **리뷰어를 서브에이전트로 호출한다(구현자 맥락 전달 금지).** 지적은 새 완료 조건으로 편입한다. 판정을 받으면 바로 `awl record review --json '{"target":"AC-xx..AC-yy","verdict":"pass 또는 needs-work"}'` 로 기록한다 — 빼먹으면 `awl evolve`/`awl metrics` 의 `reviewRejects` 가 조용히 0으로 샌다.
 
 ### 게이트 2 — 완료 (반드시 멈춘다)
 
