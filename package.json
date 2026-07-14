@@ -12,6 +12,7 @@
   },
   "license": "MIT",
   "keywords": ["agent", "llm", "claude-code", "codex", "workflow"],
+  "packageManager": "pnpm@10.33.4",
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
@@ -19,7 +20,7 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "test": "vitest run",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
     "commander": "^12.1.0",

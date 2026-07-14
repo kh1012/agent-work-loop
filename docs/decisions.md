@@ -84,6 +84,13 @@
 - **가정 2 (state 루프 위치)**: `state.json`의 스키마가 아직 없어, doctor는 `phase` / `step` / `position` 중 먼저 있는 문자열 필드를 "루프 위치"로 보여주고, 없으면 "있음"으로 표시한다. 스키마가 정해지면 이 판독을 맞춘다.
 - **결정(status 분류)**: 문제로 세는 것은 `missing`(없어서 init 필요)과 `fail`(치명적 오류)뿐이다. `warn`(예: awl 스킬 미설치)과 `info`(예: Codex 없음)는 안내만 하고 종료 코드에 넣지 않는다. 명세 예시의 "문제 2개"(~/.awl 없음 + config 없음)와 일치한다.
 
+## D-12. 패키지 매니저는 pnpm
+
+- **결정**: 개발 패키지 매니저를 npm에서 pnpm으로 바꾼다. `package.json`에 `packageManager: "pnpm@10.33.4"`를 고정하고, lock 파일은 `pnpm-lock.yaml`을 쓴다(`package-lock.json`은 제거). README와 `prepublishOnly` 스크립트도 pnpm 기준으로 맞춘다.
+- **근거**: 사용자 요청. pnpm은 디스크 효율(콘텐츠 주소 저장소·하드링크)과 엄격한 의존성 격리(유령 의존성 차단)가 장점이다. `packageManager` 필드로 corepack이 버전을 고정해 팀원 간 재현성이 좋아진다.
+- **확인**: 전환 후 `pnpm install` → `pnpm run build` / `pnpm test`(57개) / `pnpm run typecheck` / `pnpm run lint` 모두 통과. 배포는 여전히 npm 레지스트리(`agent-work-loop`)를 대상으로 한다.
+- **주의**: 앞으로 의존성 설치·스크립트 실행은 `npm` 대신 `pnpm`을 쓴다. `pnpm-lock.yaml`을 커밋하고 `package-lock.json`은 만들지 않는다.
+
 # Windows 리스크 목록 (macOS에서만 검증함 — Windows 검증 시 체크리스트로 사용)
 
 이 프로젝트는 현재 macOS에서만 검증한다. 아래는 Windows에서 깨질 수 있는 지점과 대비다. 나중에 Windows에서 사람이 검증할 때 이 목록을 하나씩 확인한다.
