@@ -240,6 +240,24 @@
 - **검증**: `pnpm run typecheck`/`lint`/`test` 전부 통과(200/200). AC-08 은 maxflow 재현 테스트(`../../node_modules/.bin/fake-tool`, cwd 기준 상대경로)로 수정 전 실패 → 수정 후 통과를 직접 확인했고, 기존 "cwd 보존" 테스트가 `/tmp` 를 프로젝트 루트로 쓰던 것도 실제 존재하는 임시 디렉토리로 고쳤다(수정 전엔 cwd 를 확인에 안 써서 우연히 통과하던 테스트였다).
 - **발견(WI-B 범위 밖, `awl record audit` 로 기록 — WI-H 로 넘김): `awl review <range>` 가 이미 닫힌 완료 조건의 diff 를 통째로 빠뜨릴 수 있다.** `awl commit <AC> -m` 은 성공 후 그 AC 의 `baseline` 필드를 "시작 시점 커밋"에서 "그 AC 의 마지막 커밋"으로 덮어쓴다(다음 격리 커밋을 위한 정상 동작). 그런데 `review.ts` 의 `assembleReview` 는 범위의 **첫 완료 조건의 `baseline`** 을 diff 시작점으로 그대로 쓴다(`firstBaseline`). 범위의 첫 AC 가 이미 `-m` 으로 닫혀 있으면 그 `baseline` 은 더 이상 "범위 시작점"이 아니라 "그 AC 자신의 마지막 커밋"이라, `git diff <그 커밋>..HEAD` 가 그 AC 자신의 변경분을 제외해버린다. AC-09..AC-11 리뷰에서 실제로 재현했다 — AC-09 커밋(`a296c5c`)이 diff 시작점으로 쓰여 AC-09 자신의 diff 가 통째로 빠졌고, 서브에이전트 리뷰어가 저장소를 직접 열어 우회 확인했다. **이미 닫힌 AC 가 섞인 범위 리뷰에서 항상 재현되는 흔한 경로다(코너케이스 아님).** WI-H(review 자료 충분성)의 전제 자체가 이 버그로 최소 부분 설명될 수 있어, WI-H 착수 시 이 버그를 먼저 고치고 (a)/(b)/(c) 실측을 다시 해야 결과가 유효하다.
 
+## D-27. WI-C: doctor 가 프로젝트 경로/브랜치를 안 보여주던 문제 (0.1.4)
+
+- **배경**: 실사용에서 여러 프로젝트를 오가며 `awl doctor` 를 볼 때 지금 뭘 보고 있는지 헷갈렸다. 조사해보니 `collectProject` 는 `projectRoot` 를 **못 찾았을 때만** "프로젝트 루트" 체크를 push 했다 — 정상적으로 찾은 경우엔 그 체크 자체가 없었다(찾았을 때 안 보이고 못 찾았을 때만 보이는, 뒤바뀐 동작).
+- **완료 조건 4개**: AC-01(프로젝트 루트를 찾았을 때도 항상 보여줌) + AC-02(브랜치 체크 추가 — `git symbolic-ref --short HEAD`, 실패는 전부 하나의 `try/catch` 로 흡수해 `null` 반환, git 아닌 프로젝트도 크래시 안 함) + 리뷰 지적 2건(AC-03: 실패 문구가 "git 저장소가 아니거나"로 원인을 단정해서 detached HEAD 등 다른 원인과 안 맞음 → "알 수 없음 (확인 실패)"로 일반화, AC-04: `projectRoot` 는 찾았지만 `config.json` 은 없는 조합의 전용 회귀 테스트 부재 → 코드 변경 없이 테스트만 추가, 첫 실행부터 green이라 기존 코드가 이미 안전했음을 확인).
+- **리뷰 자료 조립 시 D-26 에서 발견한 `awl review` 의 baseline 오판정 버그가 그대로 재현됐다** — `--base` 를 명시적으로 지정해 우회했다(예: `awl review AC-01..AC-02 --base <WI-C 시작 커밋>`).
+- **검증**: `pnpm run typecheck`/`lint`/`test` 전부 통과(208/208, doctor.test.ts 15개). AC-04 는 코드 변경 없이 테스트만 추가하는 케이스라 TDD red 단계가 없었다 — 리뷰가 지적한 "위험은 낮지만 테스트가 없다"는 지점을 정확히 커버하는 픽스처를 추가해 처음부터 green 으로 확인했다.
+- 이번엔 D-26 이 남긴 교훈(완료 조건을 안 닫고 연속 편집하지 않기)을 지켜 `proceduralErrors` 0건으로 마쳤다.
+
+## D-28. WI-D 설계: 워크아이템 동시성 — state.json 스키마 (0.2.0, MINOR)
+
+- **배경**: `state.json` 의 `criteria` 배열이 워크아이템 경계 없이 flat 하다(D-26 이 실제로 겪은 문제 — WI-A/WI-B 가 같은 완료조건 ID 를 재사용하면서 안 겹치는 이전 항목이 남아 `awl status` 가 잘못된 합계를 보여줌). 지금까지는 매번 사람이 `state.json` 을 손으로 초기화해서 넘어갔다.
+- **선택한 설계(부가형 — 기존 소비자 무변경)**: `state.json` 최상위의 `workitem`/`phase`/`loop`/`criteria` 필드는 그대로 두고 "**현재 워크아이템의 실시간 뷰**"라는 의미를 명시적으로 부여한다. 새 최상위 필드 `workitems: Record<WI-ID, {status, createdAt, branch?, criteria}>` 를 레지스트리로 추가한다. `awl work switch/new` 가 "현재 워크아이템을 레지스트리에 보관 → 대상 워크아이템을 최상위로 복원"을 수행한다.
+  - **기각한 대안**: `criteria` 를 처음부터 `workitems[id].criteria` 아래로 완전히 옮기는 구조. `status.ts`/`commit.ts`/`review.ts`/`evolve.ts`/`record.ts` 5개 파일이 전부 `state.criteria`/`state.workitem` 을 직접 읽는데, 이 구조를 쓰면 5개 파일 전부를 고쳐야 한다. 부가형은 이 5개 파일을 **한 줄도 안 건드리고** 같은 결과(현재 워크아이템 기준 동작)를 낸다 — "현재 워크아이템이 무엇인지 알아내는 방법"이 바뀌는 게 아니라 "최상위 필드 자체가 항상 현재 워크아이템"이라는 불변식을 `work.ts` 가 유지하는 쪽으로 갔다. 리스크와 diff 크기가 훨씬 작다.
+- **`migrateState(raw)` 는 순수 함수, `loadState()` 가 파싱 직후 항상 적용한다(파일에 즉시 다시 쓰지는 않는다 — 다음 `writeState()` 호출 때 자연히 반영).** 레거시 state(`workitems` 필드 없음)를 레지스트리에 편입하고, 이미 새 스키마면 그대로 통과시킨다(멱등). `awl init` 직후처럼 `workitem` 필드 자체가 없는 state 도 크래시 없이 빈 레지스트리로 처리해야 한다.
+- **격리 커밋 baseline git ref(`refs/awl/baseline/<AC-ID>`)가 워크아이템으로 네임스페이스돼 있지 않다는 것도 조사에서 발견했다.** 이 ref 는 코드 어디서도 다시 안 읽는다(`git stash create` 가 만드는 dangling 커밋을 `git gc` 로부터 보호하는 용도로 추정 — 진짜 baseline 출처는 `state.criteria[].snapshot` 의 SHA 문자열이다). 서로 다른 워크아이템이 같은 AC-ID(관행상 AC-01, AC-02... 순번이라 흔히 겹친다)를 쓰면 이 ref 가 덮어써져, 보관된 워크아이템 쪽 dangling 커밋이 참조를 잃고 이론상 `git gc` 대상이 될 수 있다 — WI-D 가 만드는 시나리오(한 저장소에 여러 워크아이템 공존)에서 처음 생기는 위험이라 이번에 같이 고친다(`refs/awl/baseline/<workitem>/<AC-ID>`). `startBaseline`/`isolatedCommit` 의 **공개 시그니처는 바꾸지 않는다** — 내부에서 `loadState` 로 현재 워크아이템을 읽어 판단한다. 시그니처를 바꾸면 `commit.test.ts` 의 기존 호출부 다수가 깨진다(조사에서 확인).
+- **스파이크는 생략했다**: git ref 경로에 `/` 를 여러 단계 넣는 것(`refs/awl/baseline/WI-D/AC-01`)은 `refs/heads/feature/x/y` 와 동일한 표준 git 동작이라 별도 실증이 불필요하다고 판단했다(WI-C 와 같은 이유로 스파이크를 생략 — 이 판단 자체가 근거).
+- **완료 조건 8개**: AC-01(스키마+마이그레이션) → AC-02~05(`awl work list/new/switch/abandon`) → AC-06(baseline ref 네임스페이스) → AC-07(이 프로젝트 자신의 state.json 실제 마이그레이션 + 전체 회귀) → AC-08(CHANGELOG).
+
 # Windows 리스크 목록 (macOS에서만 검증함 — Windows 검증 시 체크리스트로 사용)
 
 이 프로젝트는 현재 macOS에서만 검증한다. 아래는 Windows에서 깨질 수 있는 지점과 대비다. 나중에 Windows에서 사람이 검증할 때 이 목록을 하나씩 확인한다.
