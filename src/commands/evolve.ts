@@ -171,6 +171,8 @@ export interface EvolveMetrics {
   blockedRatio: number;
   reviewRejects: number;
   proceduralErrors: number;
+  gotchaApplied: number;
+  gotchaMissed: number;
 }
 
 export interface EvolveCollection {
@@ -195,6 +197,8 @@ export function collectEvolve(
   const retried = records.filter(
     (r) => r.type === 'attempt' && typeof r.attempt === 'number' && r.attempt >= 2,
   );
+  const gotchaApplied = records.filter((r) => r.type === 'gotcha-applied').length;
+  const gotchaMissed = records.filter((r) => r.type === 'gotcha-missed').length;
 
   const criteria = Array.isArray(state.criteria)
     ? (state.criteria as Record<string, unknown>[])
@@ -217,6 +221,8 @@ export function collectEvolve(
     blockedRatio: criteriaTotal > 0 ? Math.round((blockedCount / criteriaTotal) * 100) / 100 : 0,
     reviewRejects: reviews.length,
     proceduralErrors,
+    gotchaApplied,
+    gotchaMissed,
   };
 
   return { workitem, project, blocked, reviews, retried, existingGotchas, metrics };

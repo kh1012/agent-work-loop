@@ -97,6 +97,54 @@ describe('collectEvolve — 모으기만 (판단하지 않음)', () => {
     expect(col.metrics.reviewRejects).toBe(1);
   });
 
+  it('gotcha-applied/gotcha-missed 개수를 워크아이템 기준으로 센다 (WI-P AC-03)', () => {
+    seedRecords([
+      {
+        id: '1',
+        at: '2026-07-14T10:00:00Z',
+        type: 'gotcha-applied',
+        workitem: 'WI-6',
+        gotchaId: 'G-006',
+        what: '적용함',
+      },
+      {
+        id: '2',
+        at: '2026-07-14T09:00:00Z',
+        type: 'gotcha-applied',
+        workitem: 'WI-6',
+        gotchaId: 'G-013',
+        what: '적용함',
+      },
+      {
+        id: '3',
+        at: '2026-07-14T08:00:00Z',
+        type: 'gotcha-missed',
+        workitem: 'WI-6',
+        gotchaId: 'G-006',
+        what: '또 새어들어감',
+        why: '확인 안 함',
+      },
+      {
+        id: '4',
+        at: '2026-07-14T07:00:00Z',
+        type: 'gotcha-applied',
+        workitem: 'WI-9', // 다른 워크아이템 — 안 세야 함
+        gotchaId: 'G-001',
+        what: 'x',
+      },
+    ]);
+    const col = collectEvolve('agent-work-loop', 'WI-6', { criteria: [] });
+    expect(col.metrics.gotchaApplied).toBe(2);
+    expect(col.metrics.gotchaMissed).toBe(1);
+  });
+
+  it('gotcha-applied/gotcha-missed 기록이 없으면 0이다', () => {
+    seedRecords([]);
+    const col = collectEvolve('agent-work-loop', 'WI-6', { criteria: [] });
+    expect(col.metrics.gotchaApplied).toBe(0);
+    expect(col.metrics.gotchaMissed).toBe(0);
+  });
+
   it('existingGotchas 를 함께 준다', () => {
     seedRecords([]);
     recordGotcha(
@@ -160,12 +208,16 @@ describe('writeGeneration — 프로젝트별 디렉토리', () => {
       blockedRatio: 0,
       reviewRejects: 1,
       proceduralErrors: 2,
+      gotchaApplied: 3,
+      gotchaMissed: 1,
     };
     const file = writeGeneration('agent-work-loop', 'WI-6', metrics, '2026-07-14T00:00:00Z');
     expect(file).toContain(path.join('generations', 'agent-work-loop', 'WI-6.json'));
     const written = JSON.parse(fs.readFileSync(file, 'utf8'));
     expect(written.criteriaTotal).toBe(5);
     expect(written.workitem).toBe('WI-6');
+    expect(written.gotchaApplied).toBe(3);
+    expect(written.gotchaMissed).toBe(1);
   });
 });
 
