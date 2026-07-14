@@ -89,6 +89,23 @@ export function buildProgram(): Command {
       },
     );
 
+  // 사람이 치는 명령: work (워크아이템 여러 개를 오간다, WI-D)
+  const work = program.command('work').description('이 프로젝트의 워크아이템을 관리합니다');
+  work
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .action(async (opts: { json?: boolean }) => {
+      const { runWorkList } = await import('./commands/work.js');
+      runWorkList({ json: opts.json === true });
+    });
+  work
+    .command('list')
+    .description('등록된 워크아이템 목록과 진행 상황을 봅니다')
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .action(async (opts: { json?: boolean }) => {
+      const { runWorkList } = await import('./commands/work.js');
+      runWorkList({ json: opts.json === true });
+    });
+
   // 사람이 치는 명령: records (기록 조회, 사람이 읽는 목록)
   program
     .command('records')
