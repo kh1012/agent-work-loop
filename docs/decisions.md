@@ -108,6 +108,26 @@
 - **버그 1 (크래시)**: init이 만든 config는 설정하지 않은 검증을 `e2e: null`로 저장한다. doctor가 `verify`를 순회하며 `spec.cmd`에 접근하다 null에서 크래시했다. doctor는 크래시하면 안 된다(원칙). → 순회에서 null 스펙을 건너뛰도록 가드를 넣고, 타입도 `Record<string, VerifySpec | null>`로 고쳤다. 회귀 테스트(e2e: null 포함)를 추가했다.
 - **버그 2 (부정확한 개수)**: doctor가 규칙 개수를 `~/.awl/rules` 직속 항목 수로 셌다. 그 디렉토리엔 `active/`·`index.json`·`graduated.md`가 있어 3으로 나왔고, init이 보고한 규칙 수(0)와 어긋났다. → 실제 규칙 저장소인 `rules/active`의 파일 수를 세도록 고쳤다.
 
+## D-15. record 타입별 구조 (audit/spike/criteria/review/decision 가정)
+
+- **결정**: record 는 타입별 필수 구조를 강제한다. 명세가 상세히 준 것은 attempt/blocked 뿐이라, 나머지는 다음과 같이 정의한다(자유 텍스트 필드 하나로 퉁치지 않는다).
+  - audit: `scope`(무엇을 봤나) + `findings`(비어있지 않은 배열)
+  - spike: `question`(무엇을 알아보려) + `found`(무엇을 알아냈나)
+  - criteria: `items`(비어있지 않은 배열)
+  - review: `target` + `verdict`
+  - decision: `question` + `decision` + `rationale`
+- **근거**: "사람이 못 읽는 기록은 기계(evolve)도 못 읽는다." 배열/명명 필드로 구조를 강제해야 evolve 가 "무엇이 막혔는가"를 찾을 수 있다. 필드가 바뀌어도 이 원칙(줄글 금지, 배열 강제)은 유지한다.
+- **결정(project 자동 주입)**: record 데이터에 `project` 가 없으면 config 의 `project` 로 채운다. config 도 없으면(프로젝트 밖) 거부한다. 스킬이 매번 project 를 안 써도 되게 하되, 태그 없는 기록은 만들지 않는다.
+- **결정(append only)**: 기록은 `~/.awl/records/YYYY-MM.jsonl` 에 append 만 한다. update/삭제 명령을 만들지 않는다. diff 는 `records/diffs/*.patch` 로 저장하고 레코드는 경로만 참조한다.
+
+## D-16. WI-5 스킬용 명령들의 설계 선택
+
+- **rules 필터(0.1.0 단순화)**: `scope` 로만 거른다(rule.scope 가 없거나 일치). "무태그(범용)는 항상 포함"이 지배 원칙이라, `character` 매칭은 규칙이 실제로 쌓이면 정교화한다. 0.1.0 은 규칙 0개이므로 이 단순화가 안전하다([[D-11]]).
+- **config set 의 "실제 실행"**: 저장 전에 명령의 첫 토큰을 `--version` 으로 짧게 실행해(5초 타임아웃) 존재·기동을 확인한다. 테스트 스위트 전체를 돌리지 않는다(빨라야 함). ENOENT 면 경고하고 `--force` 없이는 저장하지 않는다. "파일 편집으로는 못 하는 검증"이라는 명세 취지를 지키면서 부작용을 줄인다.
+- **state set 병합**: top-level 키를 얕게 병합한다(`{...current, ...patch}`). 배열/객체(criteria 등)는 통째로 대체한다. 부분 갱신을 깊게 병합하면 배열 원소 병합 규칙이 모호해지기 때문이다.
+- **verify output**: stdout+stderr 를 전부 캡처해 결과에 담는다(스킬이 파싱). 사람용 렌더는 통과/실패와 소요 시간만 보여준다. 명령이 없으면 `error: "command_not_found"` 로 일반 실패와 구분한다.
+- **config 명령(인자 없음)**: 현재 설정을 표로 보여주고, 수정은 `config set`(실행 검증 포함) 또는 `.awl/config.json` 직접 편집으로 안내한다. init 의 전체 대화형 재수행은 두지 않았다(수정 경로가 둘로 갈리는 혼란 방지).
+
 # Windows 리스크 목록 (macOS에서만 검증함 — Windows 검증 시 체크리스트로 사용)
 
 이 프로젝트는 현재 macOS에서만 검증한다. 아래는 Windows에서 깨질 수 있는 지점과 대비다. 나중에 Windows에서 사람이 검증할 때 이 목록을 하나씩 확인한다.
