@@ -5,6 +5,15 @@
 
 ## [Unreleased]
 
+### 추가
+
+- `awl work new <id> --worktree [브랜치명]` — 격리된 git worktree 에서 새 워크아이템을 시작한다. `awl doctor` 가 워킹트리 미커밋 변경을 직접 점검(`git status --porcelain`)해 경고하고, 스킬(Claude/Codex 둘 다)이 더러우면 격리 워크트리 생성/그대로 진행/중단 중 판단하도록 안내한다. `awl commit` 이 hunk 충돌로 거부할 때도 이제 구체적인 구출 절차(stash+worktree)를 안내한다.
+
+### 고침
+
+- `awl work new --worktree` 로 워크아이템 ID 가 이미 존재하는 등 검증에 실패하면, 이미 만든 git worktree/브랜치가 정리되지 않고 orphan 으로 남던 문제.
+- doctor 의 워킹트리 점검이 줄 단위로 `git status --porcelain` 을 파싱해, 한글 등 비ASCII 파일명이 이스케이프되거나 rename 레코드가 잘못 파싱될 수 있던 문제.
+
 ## [0.2.1] - 2026-07-14
 
 ### 추가

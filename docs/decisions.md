@@ -267,6 +267,7 @@
 - **AC-03(`--worktree`) 스파이크로 실증**: `git worktree add <path> -b <새 브랜치>` 로 격리 디렉토리를 만드는 게 표준 동작임을 실제로 확인했다(같은 브랜치를 두 워크트리에서 동시에 체크아웃할 수 없어 새 브랜치가 필요하다). `WorkitemEntry` 에 `worktreePath` 필드를 추가한다 — WI-D 리뷰가 지적한 "보조 필드가 archive/restore 를 오갈 때 새는" 실수(currentFocus 사고, D-006)를 반복하지 않도록, 왕복 테스트로 직접 보존을 증명한다.
 - **AC-04(commit 거부 시 대안) 스파이크로 실증**: `git stash push -u`(untracked 포함) → `git worktree add` → 새 워크트리에서 `git stash pop` 순서로 tracked/untracked 변경 전부가 안전하게 이동함을 실제로 확인했다. patch 추출 방식(diff 저장 후 다른 곳에 apply)보다 git 내장 기능만 쓰는 이 방식이 더 안전하다고 판단했다(patch 추출은 그 자체로 `awl commit` 이 겪는 hunk 분리 문제와 같은 종류의 실패를 겪을 수 있다). `awl commit` 이 hunk 충돌로 거부할 때만 이 안내를 붙인다("커밋할 변경 없음" 등 다른 거부 사유엔 안 붙인다 — 관련 없는 안내로 화면을 채우지 않는다).
 - **자율 진행 기록**: 이 워크아이템은 사용자가 "게이트 없이 쭉 진행해달라"고 명시적으로 지시한 뒤(2026-07-14/15, 취침) 진행한다. 게이트 1/2 는 `AskUserQuestion` 호출 없이 이 설계 문서를 근거로 자율 승인 처리한다.
+- **완료 — AC-06~09 (2차 리뷰가 잡은 것)**: AC-01~05 리뷰에서 나온 지적 3건(AC-06 orphan worktree 버그, AC-07 한글 파일명 파싱, AC-08 Codex 문서 드리프트)을 고친 뒤 2차 리뷰를 새 서브에이전트로 한 번 더 돌렸다. 2차 리뷰가 AC-06 의 수정에서 또 다른 좁은 레이스(precheck 통과 후 실제 `createGitWorktree` 가 끝나기까지의 구간에 동시 `awl` 프로세스가 state.json 을 바꾸면 orphan 이 다시 남을 수 있음)를 잡아 AC-09 로 편입해 고쳤다(`removeGitWorktree` 로 정리, 실패해도 무음으로 삼키지 않음). 같은 리뷰는 AC-06 의 note 문구("명시적 브랜치명 미sanitize 도 함께 고침")가 실제 커밋 diff 와 어긋난다는 점도 지적했다 — 코드 버그는 아니고 note 가 부정확했던 것이라 note 문구만 정정했다(실험으로 git 이 잘못된 ref 이름을 자체 거부해 기능적 orphan 위험이 없음을 확인). 최종 9/9 완료 조건 통과, 264개 테스트. 게이트 2 도 게이트 1 과 같은 근거로 자율 승인 처리한다.
 
 ## D-30. WI-G 설계: `awl verify --since-baseline` — 체크 단위 비교, 서브 테스트 단위 아님 (0.2.3)
 
