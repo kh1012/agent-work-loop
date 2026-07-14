@@ -91,6 +91,23 @@
 - **확인**: 전환 후 `pnpm install` → `pnpm run build` / `pnpm test`(57개) / `pnpm run typecheck` / `pnpm run lint` 모두 통과. 배포는 여전히 npm 레지스트리(`agent-work-loop`)를 대상으로 한다.
 - **주의**: 앞으로 의존성 설치·스크립트 실행은 `npm` 대신 `pnpm`을 쓴다. `pnpm-lock.yaml`을 커밋하고 `package-lock.json`은 만들지 않는다.
 
+## D-13. init 대화형은 readline 번호 입력 (화살표 raw-mode 아님)
+
+- **결정**: `awl init`의 대화형 입력을 프롬프트 라이브러리(clack/inquirer 등) 없이 `node:readline`으로 직접 구현한다. 선택은 화살표/스페이스 raw-mode 대신 **번호 입력**을 쓴다. 화면 렌더는 tty.ts(sym/stringWidth/box 폴백)를 재사용한다.
+- **근거**:
+  - clack/inquirer 등은 자체 유니코드 기호·이모지·색을 쓴다. 우리의 ASCII 기본·이모지 금지·tty 폴백 정책과 충돌한다.
+  - 화살표 raw-mode(키 이벤트)는 Windows conhost 등에서 깨지기 쉽고 단위 테스트가 불가능하다. 원칙 2(결정적·테스트 가능)·3(크로스 환경)과 배치된다.
+  - 번호 입력은 결정적이고, 어느 터미널에서도 동작한다. 화면 텍스트는 `buildScreens` 순수 함수로 분리해 테스트/시연에서 실제 코드와 같은 화면을 렌더한다.
+- **결정(프로젝트 루트)**: init은 `findProjectRoot`(상위로 .git 탐색)가 아니라 **현재 디렉토리(cwd)** 를 프로젝트 루트로 본다. "awl은 현재 디렉토리에서 실행하는 도구"라는 명세에 맞추고, 상위의 엉뚱한 .git으로 등록되는 것을 막는다. 프로젝트 이름은 디렉토리명.
+- **가정(state 초기값)**: `state.json` 스키마가 아직 없어 `{ generation: 1, createdAt, loop: null }`로 시작한다. 스키마가 정해지면 맞춘다([[D-11]] 참조).
+- **가정(비대화형)**: `--yes`는 감지된 기본값을 쓰고 성격은 빈 문자열. TTY가 아닌데 `--yes`가 없으면 안내 후 종료 코드 1. `stdin`과 `stdout`이 모두 TTY일 때만 대화형으로 본다.
+
+## D-14. 접합(init→doctor)에서 발견해 고친 doctor 버그 2건
+
+- **배경**: 명세의 "init 후 doctor가 정상인지" 검증이 실제 버그 2개를 드러냈다. 접합 테스트의 가치를 보여준 사례라 남긴다.
+- **버그 1 (크래시)**: init이 만든 config는 설정하지 않은 검증을 `e2e: null`로 저장한다. doctor가 `verify`를 순회하며 `spec.cmd`에 접근하다 null에서 크래시했다. doctor는 크래시하면 안 된다(원칙). → 순회에서 null 스펙을 건너뛰도록 가드를 넣고, 타입도 `Record<string, VerifySpec | null>`로 고쳤다. 회귀 테스트(e2e: null 포함)를 추가했다.
+- **버그 2 (부정확한 개수)**: doctor가 규칙 개수를 `~/.awl/rules` 직속 항목 수로 셌다. 그 디렉토리엔 `active/`·`index.json`·`graduated.md`가 있어 3으로 나왔고, init이 보고한 규칙 수(0)와 어긋났다. → 실제 규칙 저장소인 `rules/active`의 파일 수를 세도록 고쳤다.
+
 # Windows 리스크 목록 (macOS에서만 검증함 — Windows 검증 시 체크리스트로 사용)
 
 이 프로젝트는 현재 macOS에서만 검증한다. 아래는 Windows에서 깨질 수 있는 지점과 대비다. 나중에 Windows에서 사람이 검증할 때 이 목록을 하나씩 확인한다.

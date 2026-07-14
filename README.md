@@ -21,7 +21,7 @@ pnpm test         # vitest 실행
 pnpm run lint     # biome 검사
 ```
 
-> 현재 상태: 저장소 골격과 배포 파이프라인을 확인하는 단계입니다. `awl --version`과 `awl --help`만 동작합니다.
+> 현재 상태: `awl init`(처음 설정)과 `awl doctor`(점검)가 동작합니다. 작업 루프 스킬 본문은 이후 단계에서 채웁니다.
 
 ## 라이선스
 
