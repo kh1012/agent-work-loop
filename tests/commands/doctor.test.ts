@@ -168,6 +168,23 @@ describe('collectChecks — 프로젝트 루트/브랜치 표시 (WI-C)', () => 
     expect(check?.value).not.toMatch(/저장소가 아니거나/);
     expect(check?.value).toBe('알 수 없음 (확인 실패)');
   });
+
+  it('projectRoot 는 찾았지만 config.json 은 없을 때(awl init 이전)도 두 체크가 안전하다 (AC-04, 리뷰 지적 — 전용 회귀 테스트 부재)', async () => {
+    const proj = fs.realpathSync(tmp('awl-proj-noconfig-'));
+    fs.mkdirSync(path.join(proj, '.git'), { recursive: true });
+    fs.mkdirSync(path.join(proj, '.awl'), { recursive: true }); // config.json 은 안 만든다
+    process.chdir(proj);
+
+    const report = await collectChecks();
+    expect(find(report.checks, '프로젝트 루트')).toEqual({
+      group: '이 프로젝트',
+      name: '프로젝트 루트',
+      status: 'info',
+      value: proj,
+    });
+    expect(find(report.checks, '브랜치')?.status).toBe('info');
+    expect(find(report.checks, 'config.json')?.status).toBe('missing');
+  });
 });
 
 describe('collectChecks — verify.*.cwd 점검 (WI-B, 모노레포)', () => {
