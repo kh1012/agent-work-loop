@@ -481,7 +481,9 @@ export async function runWorkNew(
     const loaded = loadConfig(verifyRoot);
     if (loaded.config) {
       const report = await runVerifyChecks(loaded.config.verify, verifyRoot, { bail: false });
-      writeVerifyBaseline(verifyRoot, buildVerifyBaseline(report, now));
+      // id.trim() — createWorkitem 이 state.workitem 에 저장하는 값(trimmed)과
+      // 정확히 일치해야 나중에 resolveSinceBaseline 의 workitem 비교가 맞는다.
+      writeVerifyBaseline(verifyRoot, buildVerifyBaseline(report, now, id.trim()));
       process.stdout.write(
         `  검증 베이스라인을 저장했습니다 (${report.results.map((r) => `${r.name}:${r.exitCode === 0 && !r.error && !r.timedOut ? '통과' : '실패'}`).join(', ')}).\n`,
       );

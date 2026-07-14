@@ -8,6 +8,7 @@ import {
   buildVerifyBaseline,
   compareSinceBaseline,
   readVerifyBaseline,
+  resolveSinceBaseline,
   runVerifyChecks,
   verifyBaselinePath,
   writeVerifyBaseline,
@@ -169,8 +170,9 @@ describe('검증 베이스라인 (WI-G AC-01, --since-baseline 의 기반)', () 
       process.cwd(),
       { bail: false },
     );
-    const baseline = buildVerifyBaseline(report, '2026-07-15T00:00:00.000Z');
+    const baseline = buildVerifyBaseline(report, '2026-07-15T00:00:00.000Z', 'WI-X');
     expect(baseline.capturedAt).toBe('2026-07-15T00:00:00.000Z');
+    expect(baseline.workitem).toBe('WI-X');
     expect(baseline.results).toEqual([
       { name: 'typecheck', passed: true },
       { name: 'test', passed: false },
@@ -178,14 +180,23 @@ describe('검증 베이스라인 (WI-G AC-01, --since-baseline 의 기반)', () 
     expect(JSON.stringify(baseline)).not.toContain('output');
   });
 
-  it('command_not_found/timedOut 인 체크도 실패로 잡는다', async () => {
+  it('command_not_found 인 체크도 실패로 잡는다', async () => {
     const report = await runVerifyChecks(
       vmap({ typecheck: { cmd: 'awl_no_such_tool_zzz .' } }),
       process.cwd(),
       { bail: false },
     );
-    const baseline = buildVerifyBaseline(report, '2026-07-15T00:00:00.000Z');
+    const baseline = buildVerifyBaseline(report, '2026-07-15T00:00:00.000Z', 'WI-X');
     expect(baseline.results).toEqual([{ name: 'typecheck', passed: false }]);
+  });
+
+  it('timedOut 인 체크도 실패로 잡는다 (AC-09, 리뷰 지적 — 이전엔 이름만 주장하고 실제로는 미검증)', () => {
+    const report: VerifyReport = {
+      passed: false,
+      results: [{ name: 'e2e', exitCode: null, durationMs: 600_000, output: '', timedOut: true }],
+    };
+    const baseline = buildVerifyBaseline(report, '2026-07-15T00:00:00.000Z', 'WI-X');
+    expect(baseline.results).toEqual([{ name: 'e2e', passed: false }]);
   });
 
   it('writeVerifyBaseline 으로 저장한 파일을 readVerifyBaseline 이 그대로 읽는다', () => {
@@ -193,6 +204,7 @@ describe('검증 베이스라인 (WI-G AC-01, --since-baseline 의 기반)', () 
     fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
     const baseline = {
       capturedAt: '2026-07-15T00:00:00.000Z',
+      workitem: 'WI-X',
       results: [{ name: 'typecheck', passed: true }],
     };
     writeVerifyBaseline(root, baseline);
@@ -203,7 +215,11 @@ describe('검증 베이스라인 (WI-G AC-01, --since-baseline 의 기반)', () 
   it('writeVerifyBaseline 은 .gitignore 에 .awl/verify-baseline.json 을 추가한다', () => {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-baseline-gi-')));
     fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
-    writeVerifyBaseline(root, { capturedAt: '2026-07-15T00:00:00.000Z', results: [] });
+    writeVerifyBaseline(root, {
+      capturedAt: '2026-07-15T00:00:00.000Z',
+      workitem: 'WI-X',
+      results: [],
+    });
     const gi = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
     expect(gi).toContain('.awl/verify-baseline.json');
   });
@@ -230,6 +246,7 @@ describe('compareSinceBaseline (WI-G AC-02/03) — 신규 실패 vs 사전 결�
   function baselineOf(entries: [string, boolean][]) {
     return {
       capturedAt: '2026-07-15T00:00:00.000Z',
+      workitem: 'WI-X',
       results: entries.map(([name, passed]) => ({ name, passed })),
     };
   }
@@ -313,7 +330,10 @@ describe('WI-G AC-05 통합: 베이스라인 캡처 -> 새 실패 발생 -> --si
 
     // 1. 워크아이템 시작 시점 베이스라인 캡처.
     const baselineReport = await runVerifyChecks(verify, root, { bail: false });
-    writeVerifyBaseline(root, buildVerifyBaseline(baselineReport, '2026-07-15T00:00:00.000Z'));
+    writeVerifyBaseline(
+      root,
+      buildVerifyBaseline(baselineReport, '2026-07-15T00:00:00.000Z', 'WI-X'),
+    );
 
     // 2. 작업 중 test 에 회귀가 생긴다(baseline 땐 통과, 지금은 실패). e2e 는 그대로 실패.
     fs.writeFileSync(testFlag, 'fail');
@@ -350,5 +370,41 @@ describe('WI-G AC-05 통합: 베이스라인 캡처 -> 새 실패 발생 -> --si
     const verify = vmap({ typecheck: { cmd: `${NODE} --version` } });
     await runVerifyChecks(verify, root, { bail: false }); // 베이스라인을 캡처하지 않음.
     expect(readVerifyBaseline(root)).toBeNull();
+  });
+});
+
+describe('resolveSinceBaseline (WI-G AC-06/AC-07, 리뷰 지적)', () => {
+  const report: VerifyReport = {
+    passed: true,
+    results: [{ name: 'typecheck', exitCode: 0, durationMs: 1, output: '' }],
+  };
+  const baselineForA = {
+    capturedAt: '2026-07-15T00:00:00.000Z',
+    workitem: 'WI-A',
+    results: [{ name: 'typecheck', passed: true }],
+  };
+
+  it('베이스라인이 없으면 available:false, reason:no_baseline', () => {
+    const r = resolveSinceBaseline(report, null, 'WI-A');
+    expect(r).toEqual({ available: false, reason: 'no_baseline' });
+  });
+
+  it('베이스라인의 워크아이템이 현재 워크아이템과 다르면(work switch 로 남은 낡은 베이스라인) available:false, reason:workitem_mismatch — 무음으로 잘못 비교하지 않는다 (AC-06, 리뷰 지적)', () => {
+    const r = resolveSinceBaseline(report, baselineForA, 'WI-B');
+    expect(r).toEqual({ available: false, reason: 'workitem_mismatch' });
+  });
+
+  it('워크아이템이 일치하면 정상적으로 비교한다', () => {
+    const r = resolveSinceBaseline(report, baselineForA, 'WI-A');
+    expect(r.available).toBe(true);
+    if (r.available) {
+      expect(r.comparison.passed).toBe(true);
+    }
+  });
+
+  it('현재 워크아이템이 null(레거시 state 등) 이어도 베이스라인도 workitem:null 이면 일치로 본다', () => {
+    const legacyBaseline = { ...baselineForA, workitem: null };
+    const r = resolveSinceBaseline(report, legacyBaseline, null);
+    expect(r.available).toBe(true);
   });
 });

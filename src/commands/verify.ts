@@ -3,6 +3,7 @@ import path from 'node:path';
 import { CommandNotFoundError, run } from '../core/runner.js';
 import { type Caps, caps, makeColors } from '../core/tty.js';
 import { VERIFY_ORDER, type VerifyMap, requireConfig } from './config.js';
+import { loadState } from './state.js';
 
 /**
  * awl verify — config 의 검증 명령을 순서대로 실행한다.
@@ -139,6 +140,10 @@ function renderVerify(report: VerifyReport, c: Caps): string {
 
 export interface VerifyBaseline {
   capturedAt: string;
+  /** 캡처 당시 워크아이템 ID. work switch 로 다른 워크아이템의 낡은 베이스라인이
+   * 남아있는 걸 무음으로 잘못 비교하지 않기 위한 태그다(AC-06, 리뷰 지적 — D-28 과
+   * 같은 클래스의 버그: 워크아이템별로 네임스페이스 안 된 자원이 전환 시 새는 문제). */
+  workitem: string | null;
   results: { name: string; passed: boolean }[];
 }
 
@@ -147,9 +152,14 @@ function isCheckPassed(r: VerifyResult): boolean {
 }
 
 /** VerifyReport 를 baseline 저장 형식으로 줄인다 — output 은 안 담는다(체크 단위만). */
-export function buildVerifyBaseline(report: VerifyReport, capturedAt: string): VerifyBaseline {
+export function buildVerifyBaseline(
+  report: VerifyReport,
+  capturedAt: string,
+  workitem: string | null,
+): VerifyBaseline {
   return {
     capturedAt,
+    workitem,
     results: report.results.map((r) => ({ name: r.name, passed: isCheckPassed(r) })),
   };
 }
@@ -251,6 +261,44 @@ function renderSinceBaseline(c: SinceBaselineComparison, caps: Caps): string {
   return out.join('\n');
 }
 
+export type SinceBaselineResolution =
+  | { available: true; comparison: SinceBaselineComparison }
+  | { available: false; reason: 'no_baseline' | 'workitem_mismatch' };
+
+/**
+ * 베이스라인을 실제로 쓸 수 있는지 판정한다(AC-06/AC-07, 리뷰 지적).
+ * - 베이스라인이 없으면 no_baseline.
+ * - 베이스라인의 workitem 이 현재 workitem 과 다르면 workitem_mismatch — work switch
+ *   로 다른 워크아이템의 낡은 베이스라인이 남아있는 걸 무음으로 잘못 비교하지 않는다.
+ * 두 경우 다 "베이스라인 없음"과 똑같이 취급해 안전하게 폴백한다.
+ */
+export function resolveSinceBaseline(
+  report: VerifyReport,
+  baseline: VerifyBaseline | null,
+  currentWorkitem: string | null,
+): SinceBaselineResolution {
+  if (!baseline) {
+    return { available: false, reason: 'no_baseline' };
+  }
+  if (baseline.workitem !== currentWorkitem) {
+    return { available: false, reason: 'workitem_mismatch' };
+  }
+  return { available: true, comparison: compareSinceBaseline(report, baseline) };
+}
+
+function sinceBaselineFallbackMessage(reason: 'no_baseline' | 'workitem_mismatch'): string {
+  if (reason === 'workitem_mismatch') {
+    return (
+      '\n  검증 베이스라인이 다른 워크아이템 것입니다 — --since-baseline 을 못 씁니다. 전체 검증 결과로 폴백합니다.\n' +
+      '  (work switch 로 전환한 뒤 새 베이스라인을 캡처하려면 이 워크아이템을 다시 awl work new 로 시작해야 합니다.)\n'
+    );
+  }
+  return (
+    '\n  검증 베이스라인이 없습니다 — --since-baseline 을 못 씁니다. 전체 검증 결과로 폴백합니다.\n' +
+    '  (awl work new 로 워크아이템을 시작하면 베이스라인이 자동으로 잡힙니다.)\n'
+  );
+}
+
 export async function runVerify(opts: {
   json: boolean;
   bail: boolean;
@@ -261,25 +309,23 @@ export async function runVerify(opts: {
 
   if (opts.sinceBaseline) {
     const baseline = readVerifyBaseline(projectRoot);
-    if (!baseline) {
-      if (!opts.json) {
-        process.stdout.write(
-          '\n  검증 베이스라인이 없습니다 — --since-baseline 을 못 씁니다. 전체 검증 결과로 폴백합니다.\n' +
-            '  (awl work new 로 워크아이템을 시작하면 베이스라인이 자동으로 잡힙니다.)\n',
-        );
-      }
+    const state = loadState(projectRoot);
+    const currentWorkitem = typeof state.workitem === 'string' ? state.workitem : null;
+    const resolution = resolveSinceBaseline(report, baseline, currentWorkitem);
+
+    if (opts.json) {
+      process.stdout.write(
+        `${JSON.stringify({ ...report, sinceBaseline: resolution }, null, 2)}\n`,
+      );
     } else {
-      const comparison = compareSinceBaseline(report, baseline);
-      if (opts.json) {
-        process.stdout.write(
-          `${JSON.stringify({ ...report, sinceBaseline: comparison }, null, 2)}\n`,
-        );
+      process.stdout.write(`${renderVerify(report, caps())}\n`);
+      if (resolution.available) {
+        process.stdout.write(`${renderSinceBaseline(resolution.comparison, caps())}\n`);
       } else {
-        process.stdout.write(`${renderVerify(report, caps())}\n`);
-        process.stdout.write(`${renderSinceBaseline(comparison, caps())}\n`);
+        process.stdout.write(sinceBaselineFallbackMessage(resolution.reason));
       }
-      process.exit(comparison.passed ? 0 : 1);
     }
+    process.exit((resolution.available ? resolution.comparison.passed : report.passed) ? 0 : 1);
   }
 
   if (opts.json) {
