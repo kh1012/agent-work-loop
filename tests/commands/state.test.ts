@@ -10,7 +10,10 @@ function tmp(): string {
 
 describe('mergeState — 부분 갱신 병합', () => {
   it('top-level 키를 병합/교체한다', () => {
-    const merged = mergeState({ phase: 'audit', workitem: 'WI-3' }, { phase: 'loop', currentFocus: 'AC-03' });
+    const merged = mergeState(
+      { phase: 'audit', workitem: 'WI-3' },
+      { phase: 'loop', currentFocus: 'AC-03' },
+    );
     expect(merged).toEqual({ phase: 'loop', workitem: 'WI-3', currentFocus: 'AC-03' });
   });
 

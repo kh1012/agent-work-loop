@@ -213,13 +213,13 @@ export async function runCommit(
     writeState(root, state);
     process.stdout.write(`\n  ${ac} 베이스라인을 잡았습니다: ${head.slice(0, 10)}\n`);
     process.stdout.write(
-      `  ${color.dim('이제 작업한 뒤 awl commit ' + ac + ' -m "..." 로 격리 커밋하세요.')}\n`,
+      `  ${color.dim(`이제 작업한 뒤 awl commit ${ac} -m "..." 로 격리 커밋하세요.`)}\n`,
     );
     return;
   }
 
   if (!opts.message) {
-    process.stderr.write('\n  커밋 메시지가 필요합니다: awl commit ' + ac + ' -m "..."\n');
+    process.stderr.write(`\n  커밋 메시지가 필요합니다: awl commit ${ac} -m "..."\n`);
     process.exit(1);
   }
 

@@ -111,9 +111,7 @@ function renderReview(bundle: ReviewBundle, range: string, c: Caps): string {
   out.push(`    커밋         ${bundle.provenance.commit.slice(0, 10)}`);
   out.push(`    워크트리     ${bundle.provenance.worktree}`);
   out.push('');
-  out.push(
-    `  ${color.dim('리뷰어(서브에이전트)에게는 awl review ' + range + ' --json 을 넘기세요.')}`,
-  );
+  out.push(`  ${color.dim(`리뷰어(서브에이전트)에게는 awl review ${range} --json 을 넘기세요.`)}`);
   return out.join('\n');
 }
 

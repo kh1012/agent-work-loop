@@ -33,11 +33,7 @@ describe('buildRecord — 구조 강제', () => {
   });
 
   it('필수 필드가 다 있으면 레코드를 만든다(id/at/project/type 주입)', () => {
-    const r = buildRecord(
-      'attempt',
-      { what: 'a', why: 'b', how: 'c', result: 'passed' },
-      DEFAULTS,
-    );
+    const r = buildRecord('attempt', { what: 'a', why: 'b', how: 'c', result: 'passed' }, DEFAULTS);
     expect(r.missing).toEqual([]);
     expect(r.record).toMatchObject({
       id: 'rec_test1',
@@ -49,10 +45,14 @@ describe('buildRecord — 구조 강제', () => {
   });
 
   it('project 가 데이터에도 config 에도 없으면 거부한다', () => {
-    const r = buildRecord('attempt', { what: 'a', why: 'b', how: 'c', result: 'passed' }, {
-      id: 'x',
-      at: DEFAULTS.at,
-    });
+    const r = buildRecord(
+      'attempt',
+      { what: 'a', why: 'b', how: 'c', result: 'passed' },
+      {
+        id: 'x',
+        at: DEFAULTS.at,
+      },
+    );
     expect(r.record).toBeUndefined();
     expect(r.missing).toContain('project');
   });
@@ -81,11 +81,15 @@ describe('record 저장 — append only', () => {
 
   it('두 번 써도 기존 기록이 보존된다', () => {
     const a = buildRecord('spike', { question: 'q1', found: 'f1' }, DEFAULTS).record;
-    const b = buildRecord('spike', { question: 'q2', found: 'f2' }, {
-      ...DEFAULTS,
-      id: 'rec_test2',
-      at: '2026-07-14T13:00:00.000Z',
-    }).record;
+    const b = buildRecord(
+      'spike',
+      { question: 'q2', found: 'f2' },
+      {
+        ...DEFAULTS,
+        id: 'rec_test2',
+        at: '2026-07-14T13:00:00.000Z',
+      },
+    ).record;
     if (!a || !b) {
       throw new Error('레코드 생성 실패');
     }
@@ -98,8 +102,26 @@ describe('record 저장 — append only', () => {
   });
 
   it('type/workitem 으로 거른다', () => {
-    appendRecord(buildRecord('attempt', { what: 'a', why: 'b', how: 'c', result: 'passed', workitem: 'WI-3' }, DEFAULTS).record ?? {});
-    appendRecord(buildRecord('blocked', { what: 'x', why: 'y', tried: [{ approach: 'a', failed: 'b' }], lesson: 'l', workitem: 'WI-4' }, { ...DEFAULTS, id: 'r2' }).record ?? {});
+    appendRecord(
+      buildRecord(
+        'attempt',
+        { what: 'a', why: 'b', how: 'c', result: 'passed', workitem: 'WI-3' },
+        DEFAULTS,
+      ).record ?? {},
+    );
+    appendRecord(
+      buildRecord(
+        'blocked',
+        {
+          what: 'x',
+          why: 'y',
+          tried: [{ approach: 'a', failed: 'b' }],
+          lesson: 'l',
+          workitem: 'WI-4',
+        },
+        { ...DEFAULTS, id: 'r2' },
+      ).record ?? {},
+    );
     expect(readRecords({ type: 'blocked' })).toHaveLength(1);
     expect(readRecords({ workitem: 'WI-3' })).toHaveLength(1);
   });
@@ -108,7 +130,13 @@ describe('record 저장 — append only', () => {
 describe('renderRecords — 줄글이 아니라 목록', () => {
   it('what 을 한 줄씩 보여준다(줄글 아님)', () => {
     const records = [
-      { id: '1', at: '2026-07-14T12:00:00Z', type: 'blocked', workitem: 'WI-3', what: '리사이즈 미러링' },
+      {
+        id: '1',
+        at: '2026-07-14T12:00:00Z',
+        type: 'blocked',
+        workitem: 'WI-3',
+        what: '리사이즈 미러링',
+      },
       { id: '2', at: '2026-07-13T12:00:00Z', type: 'attempt', what: '터미널 감지' },
     ];
     const text = renderRecords(records, { unicode: false, color: false, tty: false });
@@ -119,7 +147,9 @@ describe('renderRecords — 줄글이 아니라 목록', () => {
   });
 
   it('기록이 없으면 안내한다', () => {
-    expect(renderRecords([], { unicode: false, color: false, tty: false })).toContain('기록이 없습니다');
+    expect(renderRecords([], { unicode: false, color: false, tty: false })).toContain(
+      '기록이 없습니다',
+    );
   });
 });
 
