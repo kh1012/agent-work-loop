@@ -8,11 +8,13 @@
 ### 추가
 
 - `awl work new <id> --worktree [브랜치명]` — 격리된 git worktree 에서 새 워크아이템을 시작한다. `awl doctor` 가 워킹트리 미커밋 변경을 직접 점검(`git status --porcelain`)해 경고하고, 스킬(Claude/Codex 둘 다)이 더러우면 격리 워크트리 생성/그대로 진행/중단 중 판단하도록 안내한다. `awl commit` 이 hunk 충돌로 거부할 때도 이제 구체적인 구출 절차(stash+worktree)를 안내한다.
+- `awl verify --since-baseline` — `awl work new` 시점에 캡처한 검증 베이스라인과 비교해, 새로 생긴 실패(회귀)와 원래부터 있던 사전 결함을 구분한다. 사전 결함이 남아있어도 신규 실패가 없으면 통과로 판정한다. 체크(typecheck/lint/test/e2e) 단위 비교이며, `--skip-baseline` 으로 캡처를 건너뛸 수 있다.
 
 ### 고침
 
 - `awl work new --worktree` 로 워크아이템 ID 가 이미 존재하는 등 검증에 실패하면, 이미 만든 git worktree/브랜치가 정리되지 않고 orphan 으로 남던 문제.
 - doctor 의 워킹트리 점검이 줄 단위로 `git status --porcelain` 을 파싱해, 한글 등 비ASCII 파일명이 이스케이프되거나 rename 레코드가 잘못 파싱될 수 있던 문제.
+- `awl work switch` 로 워크아이템을 전환해도 검증 베이스라인이 갱신되지 않아, 이전 워크아이템의 낡은 베이스라인과 무음으로 잘못 비교될 수 있던 문제(베이스라인에 캡처 당시 워크아이템을 태깅해 불일치 시 안전하게 폴백).
 
 ## [0.2.1] - 2026-07-14
 
