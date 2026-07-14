@@ -90,6 +90,34 @@ export async function gitBranch(projectRoot: string): Promise<string | null> {
   }
 }
 
+/**
+ * 워킹트리의 미커밋 변경 파일 목록. `git status --porcelain` 을 awl 이 직접
+ * 실행한다(WI-F — 환경/에이전트가 준 git 상태 요약을 못 믿는다. 실사고: 다른
+ * 세션의 미커밋 변경 20개 파일이 있는 걸 몰랐다가 나중에 그 커밋에 섞여
+ * 들어갔다). git 저장소가 아니거나 명령이 없으면 null(크래시하지 않는다 —
+ * gitBranch 와 같은 원칙).
+ */
+export async function gitDirtyFiles(projectRoot: string): Promise<string[] | null> {
+  try {
+    const r = await run({
+      cmd: 'git',
+      args: ['status', '--porcelain'],
+      cwd: projectRoot,
+      timeoutMs: 5000,
+    });
+    if (r.exitCode !== 0) {
+      return null;
+    }
+    return r.stdout
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .map((l) => l.replace(/^\S+\s+/, ''));
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // config 스키마
 // ---------------------------------------------------------------------------
@@ -246,6 +274,26 @@ async function collectProject(checks: Check[], projectRoot: string | null): Prom
     status: 'info',
     value: branch ?? '알 수 없음 (확인 실패)',
   });
+
+  const dirtyFiles = await gitDirtyFiles(projectRoot);
+  if (dirtyFiles === null) {
+    checks.push({
+      group: '이 프로젝트',
+      name: '워킹트리',
+      status: 'info',
+      value: '확인 안 됨 (git 저장소가 아니거나 확인 실패)',
+    });
+  } else if (dirtyFiles.length === 0) {
+    checks.push({ group: '이 프로젝트', name: '워킹트리', status: 'ok', value: '클린' });
+  } else {
+    checks.push({
+      group: '이 프로젝트',
+      name: '워킹트리',
+      status: 'warn',
+      value: `미커밋 변경 ${dirtyFiles.length}개`,
+      hint: `${dirtyFiles.slice(0, 5).join(', ')}${dirtyFiles.length > 5 ? ' 등' : ''} — 새 워크아이템을 시작하기 전에 awl work new --worktree 로 격리하는 걸 고려하세요.`,
+    });
+  }
 
   const configPath = path.join(projectRoot, '.awl', 'config.json');
   if (!exists(configPath)) {

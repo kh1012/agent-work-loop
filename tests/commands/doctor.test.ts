@@ -299,6 +299,64 @@ describe('renderText — 정렬과 출력', () => {
   });
 });
 
+describe('collectChecks — 워킹트리 더러움 점검 (WI-F, 환경이 준 git 요약을 안 믿는다)', () => {
+  beforeEach(() => {
+    process.env.AWL_HOME = makeInstalledHome();
+  });
+
+  function realGitProject(): string {
+    const proj = fs.realpathSync(tmp('awl-proj-git-'));
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: proj });
+    execFileSync('git', ['config', 'user.email', 't@t.com'], { cwd: proj });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: proj });
+    fs.writeFileSync(path.join(proj, 'f.txt'), 'base\n');
+    fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(proj, '.awl', 'config.json'),
+      JSON.stringify({
+        engineVersion: '0.0.0',
+        verify: { typecheck: null, lint: null, test: null, e2e: null },
+      }),
+    );
+    // 실제 awl init 처럼 .awl/config.json 은 커밋 대상, .awl/state.json 은 무시 대상이다.
+    fs.writeFileSync(path.join(proj, '.gitignore'), '.awl/state.json\n');
+    execFileSync('git', ['add', '-A'], { cwd: proj });
+    execFileSync('git', ['commit', '-q', '-m', 'base'], { cwd: proj });
+    return proj;
+  }
+
+  it('클린한 워킹트리는 ok', async () => {
+    const proj = realGitProject();
+    process.chdir(proj);
+
+    const report = await collectChecks();
+    const check = find(report.checks, '워킹트리');
+    expect(check?.status).toBe('ok');
+  });
+
+  it('더러운 워킹트리(수정+untracked)는 warn 으로 파일 수를 알린다', async () => {
+    const proj = realGitProject();
+    fs.appendFileSync(path.join(proj, 'f.txt'), 'dirty\n');
+    fs.writeFileSync(path.join(proj, 'new.txt'), 'new\n');
+    process.chdir(proj);
+
+    const report = await collectChecks();
+    const check = find(report.checks, '워킹트리');
+    expect(check?.status).toBe('warn');
+    expect(check?.value).toContain('2');
+    expect(check?.hint).toContain('f.txt');
+  });
+
+  it('git 저장소가 아니면 크래시 없이 info 로 넘어간다', async () => {
+    const proj = fs.realpathSync(makeInstalledProject()); // .git 이 가짜 빈 디렉토리
+    process.chdir(proj);
+
+    const report = await collectChecks();
+    const check = find(report.checks, '워킹트리');
+    expect(check?.status).toBe('info');
+  });
+});
+
 describe('--json 출력', () => {
   beforeEach(() => {
     process.env.AWL_HOME = makeInstalledHome();
