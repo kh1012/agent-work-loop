@@ -73,6 +73,17 @@ describe('buildRecord — 구조 강제', () => {
     expect(r.missing).toEqual([]);
     expect(Array.isArray((r.record as Record<string, unknown>).tried)).toBe(true);
   });
+
+  it('criteria 의 각 항목에 dependsOn(선행 완료조건 ID 배열)을 넣어도 코드 변경 없이 그대로 보존된다 (WI-E AC-02)', () => {
+    const items = [
+      { id: 'AC-01', 조건: 'x', 범위: 'y', 검증: 'awl verify' },
+      { id: 'AC-02', 조건: 'x', 범위: 'y', 검증: 'awl verify', dependsOn: ['AC-01'] },
+    ];
+    const r = buildRecord('criteria', { items }, DEFAULTS);
+    expect(r.missing).toEqual([]);
+    const record = r.record as Record<string, unknown>;
+    expect(record.items).toEqual(items); // dependsOn 이 사라지거나 바뀌지 않는다.
+  });
 });
 
 describe('record 저장 — append only', () => {

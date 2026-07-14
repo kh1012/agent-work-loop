@@ -72,9 +72,11 @@ awl evolve
   나쁜 예: "기존 회귀 없음" (저장소 전체인가? 관련 파일인가? 모호하다)
   좋은 예: "기존 회귀 없음 — 범위: src/commands/ 아래 테스트 전부 통과"
 - 기계 판정 가능해야 한다. `awl verify` 로 참/거짓이 갈리는 조건으로 쓴다.
+- **순서가 있으면 `dependsOn` 으로 명시한다.** 완료 조건 B 가 A 가 끝나야 시작할 수 있으면 `"dependsOn": ["AC-01"]` 을 붙인다. `awl verify` 로 판정 못 하는 "순서"까지 억지로 `범위`에 우겨넣지 마라 — `dependsOn` 이 그 자리다. 순서가 없으면(서로 독립이면) 비워둔다.
 - 기록하고 상태에 넣는다:
-  - `awl record criteria --json '{"items":[{"id":"AC-01","조건":"...","범위":"...","검증":"awl verify"}]}'`
-  - `awl state set --json '{"phase":"awaiting-gate1","criteria":[{"id":"AC-01","status":"pending","attempts":0,"proceduralErrors":0}]}'`
+  - `awl record criteria --json '{"items":[{"id":"AC-01","조건":"...","범위":"...","검증":"awl verify"},{"id":"AC-02","조건":"...","범위":"...","검증":"awl verify","dependsOn":["AC-01"]}]}'`
+  - `awl state set --json '{"phase":"awaiting-gate1","criteria":[{"id":"AC-01","status":"pending","attempts":0,"proceduralErrors":0},{"id":"AC-02","status":"pending","attempts":0,"proceduralErrors":0,"dependsOn":["AC-01"]}]}'`
+  - `awl status` 가 `dependsOn` 이 아직 안 끝난 완료 조건을 "블록됨"으로 보여준다 — 어느 걸 먼저 할지는 여전히 네가 정한다(awl 은 계산만 한다).
 
 ---
 
