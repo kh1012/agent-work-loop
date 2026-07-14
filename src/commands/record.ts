@@ -143,12 +143,15 @@ export function buildRecord(
     return { missing };
   }
 
+  // workitem 은 spread(...data)로 새어 들어올 수 있으니 먼저 떼어내고,
+  // 계산된 workitem 이 있을 때만 다시 붙인다(delete 대신 — lint/performance/noDelete).
+  const { workitem: _dataWorkitem, ...dataWithoutWorkitem } = data;
   const record: Record<string, unknown> = {
     id: defaults.id,
     at: defaults.at,
     project,
     type,
-    ...data,
+    ...dataWithoutWorkitem,
   };
   record.project = project;
   record.type = type;
@@ -156,8 +159,6 @@ export function buildRecord(
   record.at = defaults.at;
   if (workitem) {
     record.workitem = workitem;
-  } else {
-    delete record.workitem;
   }
   return { record, missing: [] };
 }
