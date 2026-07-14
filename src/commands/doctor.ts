@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { engineDir, findProjectRoot, globalRoot, projectsFile, rulesDir } from '../core/paths.js';
+import { installedEngineVersion } from '../core/engine.js';
+import { findProjectRoot, globalRoot, projectsFile, rulesDir } from '../core/paths.js';
 import { CommandNotFoundError, run, tokenize } from '../core/runner.js';
 import { type Caps, caps, makeColors, stringWidth } from '../core/tty.js';
 
@@ -53,18 +54,6 @@ function countEntries(dir: string): number {
   } catch {
     return 0;
   }
-}
-
-/** ~/.awl/engine/version.json 의 engineVersion. 없으면 null. */
-function installedEngineVersion(): string | null {
-  const j = readJson(path.join(engineDir(), 'version.json'));
-  if (j && typeof j === 'object') {
-    const v = (j as Record<string, unknown>).engineVersion;
-    if (typeof v === 'string') {
-      return v;
-    }
-  }
-  return null;
 }
 
 // ---------------------------------------------------------------------------

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import { installedEngineVersion } from '../core/engine.js';
 import { engineDir, globalRoot, projectsFile } from '../core/paths.js';
 import {
   type Caps,
@@ -178,18 +179,6 @@ export function packageEngineDir(): string {
     }
   }
   return path.join(here, '..', 'engine');
-}
-
-/** 설치된 엔진(~/.awl/engine)의 버전. 없으면 null. */
-export function installedEngineVersion(): string | null {
-  const j = readJson(path.join(engineDir(), 'version.json'));
-  if (j && typeof j === 'object') {
-    const v = (j as Record<string, unknown>).engineVersion;
-    if (typeof v === 'string') {
-      return v;
-    }
-  }
-  return null;
 }
 
 export function isGlobalInstalled(): boolean {
@@ -491,8 +480,8 @@ export function renderResult(result: InitResult, inputs: InitInputs, c: Caps): s
 // 대화형 (readline). 화살표 raw-mode 대신 번호 입력을 쓴다(결정적·크로스 환경).
 // ---------------------------------------------------------------------------
 
-const LANG_OPTIONS = ['TypeScript', 'JavaScript', 'Python', '직접 입력'];
-const LANG_VALUES = ['typescript', 'javascript', 'python', ''];
+export const LANG_OPTIONS = ['TypeScript', 'JavaScript', 'Python', '직접 입력'];
+export const LANG_VALUES = ['typescript', 'javascript', 'python', ''];
 
 export interface InteractiveScreens {
   welcome: string | null;
@@ -602,12 +591,13 @@ export function buildScreens(projectRoot: string, hasGlobal: boolean, c: Caps): 
   };
 }
 
-function ask(rl: readline.Interface, q: string): Promise<string> {
+/** readline 질문 하나를 Promise 로 감싼다. config 등 다른 명령의 대화형 편집도 재사용한다. */
+export function ask(rl: readline.Interface, q: string): Promise<string> {
   return new Promise((resolve) => rl.question(q, (a) => resolve(a)));
 }
 
 /** 번호 입력을 받아 0-based 인덱스로 돌려준다. 빈 입력은 기본값. */
-async function promptNumber(
+export async function promptNumber(
   rl: readline.Interface,
   defaultIndex: number,
   count: number,
