@@ -71,17 +71,18 @@ export async function runVerifyChecks(
         cwd,
         timeoutMs: 600_000,
       });
-      const ok = r.exitCode === 0 && !r.timedOut;
-      if (!ok) {
-        passed = false;
-      }
-      results.push({
+      const result: VerifyResult = {
         name,
         exitCode: r.exitCode,
         durationMs: r.durationMs,
         output: `${r.stdout}${r.stderr}`.trim(),
         timedOut: r.timedOut,
-      });
+      };
+      const ok = isCheckPassed(result);
+      if (!ok) {
+        passed = false;
+      }
+      results.push(result);
       if (!ok && opts.bail) {
         break;
       }
@@ -116,7 +117,7 @@ function renderVerify(report: VerifyReport, c: Caps): string {
         ? color.red('명령 없음')
         : r.error === 'cwd_not_found'
           ? color.red('cwd 없음')
-          : r.exitCode === 0 && !r.timedOut
+          : isCheckPassed(r)
             ? color.green('통과')
             : color.red('실패');
     const dur = r.error ? '' : color.dim(`${r.durationMs}ms`);
@@ -147,7 +148,12 @@ export interface VerifyBaseline {
   results: { name: string; passed: boolean }[];
 }
 
-function isCheckPassed(r: VerifyResult): boolean {
+/**
+ * 체크(typecheck/lint/test/e2e) 하나가 통과했는지 판정한다. (WI-H AC-05, 스파이크
+ * 지적) 이 판정 로직이 runVerifyChecks/renderVerify/runWorkNew 세 곳에 각자
+ * 재구현돼 있었다 — 하나로 통합해 재사용한다.
+ */
+export function isCheckPassed(r: VerifyResult): boolean {
   return !r.error && !r.timedOut && r.exitCode === 0;
 }
 

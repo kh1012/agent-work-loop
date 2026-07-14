@@ -5,7 +5,12 @@ import { type Caps, caps, makeColors } from '../core/tty.js';
 import { loadConfig, resolveProjectRoot } from './config.js';
 import { gitBranch } from './doctor.js';
 import { loadState, migrateState, writeState } from './state.js';
-import { buildVerifyBaseline, runVerifyChecks, writeVerifyBaseline } from './verify.js';
+import {
+  buildVerifyBaseline,
+  isCheckPassed,
+  runVerifyChecks,
+  writeVerifyBaseline,
+} from './verify.js';
 
 /**
  * awl work — 워크아이템 여러 개를 오간다 (WI-D).
@@ -486,7 +491,7 @@ export async function runWorkNew(
         // 정확히 일치해야 나중에 resolveSinceBaseline 의 workitem 비교가 맞는다.
         writeVerifyBaseline(verifyRoot, buildVerifyBaseline(report, now, id.trim()));
         process.stdout.write(
-          `  검증 베이스라인을 저장했습니다 (${report.results.map((r) => `${r.name}:${r.exitCode === 0 && !r.error && !r.timedOut ? '통과' : '실패'}`).join(', ')}).\n`,
+          `  검증 베이스라인을 저장했습니다 (${report.results.map((r) => `${r.name}:${isCheckPassed(r) ? '통과' : '실패'}`).join(', ')}).\n`,
         );
       } catch (e) {
         // 베이스라인은 부가 기능이다 — 저장이 실패해도(디스크/권한 등) 워크아이템

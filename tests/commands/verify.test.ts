@@ -7,6 +7,7 @@ import {
   type VerifyReport,
   buildVerifyBaseline,
   compareSinceBaseline,
+  isCheckPassed,
   readVerifyBaseline,
   resolveSinceBaseline,
   runVerifyChecks,
@@ -437,5 +438,30 @@ describe('sinceBaselineFallbackMessage (WI-H AC-04, 스파이크 지적 — 실�
   it('no_baseline 메시지는 여전히 awl work new 를 정확하게 안내한다(이 경우엔 실제로 유효한 조치다)', () => {
     const msg = sinceBaselineFallbackMessage('no_baseline');
     expect(msg).toContain('awl work new');
+  });
+});
+
+describe('isCheckPassed (WI-H AC-05, 스파이크 지적 — 4곳 중복 통합)', () => {
+  it('exitCode:0 이고 error/timedOut 이 없으면 통과', () => {
+    expect(isCheckPassed({ name: 'x', exitCode: 0, durationMs: 1, output: '' })).toBe(true);
+  });
+  it('exitCode 가 0 이 아니면 실패', () => {
+    expect(isCheckPassed({ name: 'x', exitCode: 1, durationMs: 1, output: '' })).toBe(false);
+  });
+  it('command_not_found 면 exitCode 가 0 이어도(있을 수 없지만) 실패', () => {
+    expect(
+      isCheckPassed({
+        name: 'x',
+        exitCode: 0,
+        durationMs: 1,
+        output: '',
+        error: 'command_not_found',
+      }),
+    ).toBe(false);
+  });
+  it('timedOut 이면 exitCode 가 0 이어도 실패', () => {
+    expect(
+      isCheckPassed({ name: 'x', exitCode: 0, durationMs: 1, output: '', timedOut: true }),
+    ).toBe(false);
   });
 });
