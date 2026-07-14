@@ -1,7 +1,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import readline from 'node:readline';
+import { PassThrough } from 'node:stream';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type InitInputs,
   applyInit,
@@ -9,12 +11,14 @@ import {
   buildScreens,
   detectLanguage,
   detectVerify,
+  detectWorkspacePackages,
   ensureGitignore,
   nonInteractiveInputs,
+  promptVerifyLocation,
   registerProject,
   splitEnv,
 } from '../../src/commands/init.js';
-import { stringWidth } from '../../src/core/tty.js';
+import { type Colors, makeColors, stringWidth } from '../../src/core/tty.js';
 
 const origCwd = process.cwd();
 const origHome = process.env.AWL_HOME;
@@ -169,6 +173,107 @@ describe('detectVerify', () => {
     expect(v.lint).toEqual({ cmd: 'eslint .' });
     expect(v.test).toEqual({ cmd: 'vitest run', env: { NODE_ENV: 'test' } });
     expect(v.e2e).toBeNull();
+  });
+});
+
+describe('detectWorkspacePackages (WI-B, 모노레포 검증 위치)', () => {
+  it('모노레포가 아니면 빈 배열', () => {
+    const p = tmp('awl-ws-');
+    fs.writeFileSync(path.join(p, 'package.json'), JSON.stringify({}));
+    expect(detectWorkspacePackages(p)).toEqual([]);
+  });
+
+  it('workspaces 필드의 멤버(package.json 있는 것만) 를 상대경로로 돌려준다', () => {
+    const p = tmp('awl-ws-');
+    fs.writeFileSync(path.join(p, 'package.json'), JSON.stringify({ workspaces: ['packages/*'] }));
+    fs.mkdirSync(path.join(p, 'packages', 'app'), { recursive: true });
+    fs.writeFileSync(path.join(p, 'packages', 'app', 'package.json'), '{}');
+    fs.mkdirSync(path.join(p, 'packages', 'not-a-package'), { recursive: true }); // package.json 없음
+    expect(detectWorkspacePackages(p)).toEqual([path.join('packages', 'app')]);
+  });
+});
+
+describe('promptVerifyLocation (WI-B, readline 직접 구동 — D-23 패턴)', () => {
+  const COLOR: Colors = makeColors(false);
+
+  function makeScriptedRL(answers: string[]): readline.Interface {
+    const input = new PassThrough();
+    const output = new PassThrough();
+    output.on('data', () => {});
+    const rl = readline.createInterface({ input, output });
+    const queue = [...answers];
+    const originalQuestion = rl.question.bind(rl);
+    rl.question = ((query: string, cb: (answer: string) => void) => {
+      originalQuestion(query, cb);
+      const next = queue.shift() ?? '';
+      process.nextTick(() => input.write(`${next}\n`));
+    }) as typeof rl.question;
+    return rl;
+  }
+
+  it('모노레포가 아니면 묻지 않고 루트 verify 그대로 돌려준다', async () => {
+    const p = tmp('awl-ws-');
+    fs.writeFileSync(path.join(p, 'package.json'), JSON.stringify({}));
+    const rootVerify = detectVerify(p);
+    const rl = makeScriptedRL([]);
+    const result = await promptVerifyLocation(rl, p, rootVerify, COLOR);
+    rl.close();
+    expect(result.cwd).toBeUndefined();
+    expect(result.verify).toEqual(rootVerify);
+  });
+
+  it('모노레포인데 루트에 이미 검증 명령이 있으면 묻지 않고 안내만 한다(판단 쉬움)', async () => {
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const p = tmp('awl-ws-');
+    fs.writeFileSync(
+      path.join(p, 'package.json'),
+      JSON.stringify({ workspaces: ['packages/*'], scripts: { test: 'vitest run' } }),
+    );
+    fs.mkdirSync(path.join(p, 'packages', 'app'), { recursive: true });
+    fs.writeFileSync(path.join(p, 'packages', 'app', 'package.json'), '{}');
+    const rootVerify = detectVerify(p);
+    const rl = makeScriptedRL([]); // 아무 것도 안 물어봐야 함(답 없어도 통과해야 함)
+    const result = await promptVerifyLocation(rl, p, rootVerify, COLOR);
+    rl.close();
+    stdoutSpy.mockRestore();
+    expect(result.cwd).toBeUndefined();
+    expect(result.verify.test).toEqual({ cmd: 'vitest run' });
+  });
+
+  it('모노레포이고 루트에 검증 명령이 없으면 패키지를 물어본다 — "1"(루트) 을 고르면 루트를 유지한다', async () => {
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const p = tmp('awl-ws-');
+    fs.writeFileSync(path.join(p, 'package.json'), JSON.stringify({ workspaces: ['packages/*'] }));
+    fs.mkdirSync(path.join(p, 'packages', 'app'), { recursive: true });
+    fs.writeFileSync(
+      path.join(p, 'packages', 'app', 'package.json'),
+      JSON.stringify({ scripts: { test: 'vitest run' } }),
+    );
+    const rootVerify = detectVerify(p); // 루트엔 아무 신호 없음(전부 null) — 판단 애매함
+    // 옵션 목록: 1=루트(전체), 2=packages/app. "1" 을 고르면 루트를 유지한다.
+    const rl = makeScriptedRL(['1']);
+    const result = await promptVerifyLocation(rl, p, rootVerify, COLOR);
+    rl.close();
+    stdoutSpy.mockRestore();
+    expect(result.cwd).toBeUndefined();
+  });
+
+  it('패키지 번호(2)를 고르면 그 패키지 기준으로 재감지하고 cwd 를 돌려준다', async () => {
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const p = tmp('awl-ws-');
+    fs.writeFileSync(path.join(p, 'package.json'), JSON.stringify({ workspaces: ['packages/*'] }));
+    fs.mkdirSync(path.join(p, 'packages', 'app'), { recursive: true });
+    fs.writeFileSync(
+      path.join(p, 'packages', 'app', 'package.json'),
+      JSON.stringify({ scripts: { test: 'vitest run' } }),
+    );
+    const rootVerify = detectVerify(p);
+    const rl = makeScriptedRL(['2']); // 옵션: 1=루트, 2=packages/app
+    const result = await promptVerifyLocation(rl, p, rootVerify, COLOR);
+    rl.close();
+    stdoutSpy.mockRestore();
+    expect(result.cwd).toBe(path.join('packages', 'app'));
+    expect(result.verify.test).toEqual({ cmd: 'vitest run' });
   });
 });
 

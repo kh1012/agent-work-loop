@@ -6,6 +6,7 @@ import { installedEngineVersion } from '../core/engine.js';
 import { engineDir, globalRoot, projectsFile } from '../core/paths.js';
 import {
   type Caps,
+  type Colors,
   type Symbols,
   caps,
   makeColors,
@@ -26,7 +27,7 @@ import {
 // 타입
 // ---------------------------------------------------------------------------
 
-export type VerifyEntry = { cmd: string; env?: Record<string, string> } | null;
+export type VerifyEntry = { cmd: string; cwd?: string; env?: Record<string, string> } | null;
 
 export interface VerifyMap {
   typecheck: VerifyEntry;
@@ -312,6 +313,33 @@ export function detectVerify(cwd: string): VerifyMap {
     test: pick(['test']),
     e2e: pick(['e2e', 'test:e2e']),
   };
+}
+
+/**
+ * 워크스페이스 멤버 디렉토리 목록(프로젝트 루트 기준 상대경로, package.json 있는
+ * 것만). 모노레포가 아니면 빈 배열. WI-A 의 workspaceGlobs/expandSimpleGlob 을
+ * 재사용한다(언어 감지에 쓰던 것을 검증 명령 위치 찾기에도 그대로 쓴다).
+ */
+export function detectWorkspacePackages(cwd: string): string[] {
+  const pkgPath = path.join(cwd, 'package.json');
+  if (!exists(pkgPath)) {
+    return [];
+  }
+  const pkg = readJson(pkgPath);
+  const dirs = new Set<string>();
+  for (const glob of workspaceGlobs(cwd, pkg)) {
+    for (const dir of expandSimpleGlob(cwd, glob)) {
+      if (exists(path.join(dir, 'package.json'))) {
+        dirs.add(path.relative(cwd, dir));
+      }
+    }
+  }
+  return [...dirs].sort();
+}
+
+/** 4개 검증 항목이 전부 비어있는가(루트에서 아무 신호도 못 찾음 — 판단이 애매한 경우). */
+function isVerifyEmpty(v: VerifyMap): boolean {
+  return !v.typecheck && !v.lint && !v.test && !v.e2e;
 }
 
 // ---------------------------------------------------------------------------
@@ -779,6 +807,48 @@ export async function promptNumber(
   return Number.isInteger(n) && n >= 1 && n <= count ? n - 1 : defaultIndex;
 }
 
+export interface VerifyLocationResult {
+  verify: VerifyMap;
+  /** 패키지를 골랐으면 그 상대경로. verify 각 항목의 cwd 로 쓴다. */
+  cwd?: string;
+}
+
+/**
+ * 모노레포면 워크스페이스 패키지를 보여주고 검증 위치를 물어본다(WI-B).
+ * 판단이 어려우면(루트에서 신호를 하나도 못 찾았으면) 묻는다. 판단이 쉬우면
+ * (루트에 이미 검증 명령이 있으면) 묻지 않고 안내만 하고 루트 기준을 유지한다.
+ */
+export async function promptVerifyLocation(
+  rl: readline.Interface,
+  projectRoot: string,
+  rootVerify: VerifyMap,
+  color: Colors,
+): Promise<VerifyLocationResult> {
+  const packages = detectWorkspacePackages(projectRoot);
+  if (packages.length === 0) {
+    return { verify: rootVerify };
+  }
+  if (!isVerifyEmpty(rootVerify)) {
+    process.stdout.write(
+      `\n  ${color.dim(`모노레포입니다(${packages.length}개 패키지). 특정 패키지만 검증하려면 나중에 awl config set verify.*.cwd 로 지정하세요.`)}\n`,
+    );
+    return { verify: rootVerify };
+  }
+  process.stdout.write(
+    '\n  모노레포로 보이는데 루트에서 검증 명령을 못 찾았습니다. 어느 패키지를 검증할까요?\n\n',
+  );
+  const options = ['루트(전체, 검증 명령 없이 둠)', ...packages];
+  for (let i = 0; i < options.length; i++) {
+    process.stdout.write(`    ${i + 1}  ${options[i]}\n`);
+  }
+  const idx = await promptNumber(rl, 0, options.length);
+  if (idx === 0) {
+    return { verify: rootVerify };
+  }
+  const chosen = packages[idx - 1] as string;
+  return { verify: detectVerify(path.join(projectRoot, chosen)), cwd: chosen };
+}
+
 async function interactiveInputs(
   rl: readline.Interface,
   projectRoot: string,
@@ -801,15 +871,33 @@ async function interactiveInputs(
     mainLanguage = (await ask(rl, '  주 언어를 입력하세요: ')).trim();
   }
 
-  // 3. [2/4] 검증 명령어
-  const verify = detectVerify(projectRoot);
-  process.stdout.write(`\n${screens.verify}\n`);
+  // 3. [2/4] 검증 명령어 (WI-B: 모노레포면 워크스페이스 패키지를 물어볼 수 있다)
+  const rootVerify = detectVerify(projectRoot);
+  const located = await promptVerifyLocation(rl, projectRoot, rootVerify, makeColors(c.color));
+  const verify = located.verify;
+  if (located.cwd) {
+    // 패키지를 새로 골랐으면 그 패키지에서 감지한 값으로 화면도 다시 그린다
+    // (buildScreens 가 만든 screens.verify 는 루트 기준이라 여기선 쓰지 않는다).
+    process.stdout.write(
+      `\n${stepBox('2/4', '검증 명령어', ['package.json 등에서 찾았습니다. 맞으면 Enter, 고치려면 새로 입력.', '', ...verifyLines(verify), '', '이 명령어들이 유일한 심판입니다.', 'AI 가 "다 했습니다"라고 말할 수 없게 만드는 장치입니다.'], makeSymbols(c))}\n`,
+    );
+  } else {
+    process.stdout.write(`\n${screens.verify}\n`);
+  }
   for (const k of Object.keys(VERIFY_LABELS) as (keyof VerifyMap)[]) {
     const cur = verify[k];
     const shown = cur ? cur.cmd : '(없음)';
     const answer = (await ask(rl, `  ${VERIFY_LABELS[k]} [${shown}]: `)).trim();
     if (answer !== '') {
       verify[k] = answer.toLowerCase() === '없음' || answer === '-' ? null : splitEnv(answer);
+    }
+  }
+  if (located.cwd) {
+    for (const k of Object.keys(VERIFY_LABELS) as (keyof VerifyMap)[]) {
+      const entry = verify[k];
+      if (entry) {
+        entry.cwd = located.cwd;
+      }
     }
   }
 
