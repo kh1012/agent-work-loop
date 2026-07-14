@@ -15,3 +15,8 @@ npm-debug.log*
 
 # 별도 참조물 — 이후 워크아이템에서 조사한다. 여기서는 추적하지 않는다.
 ref-knowledge-graph/
+.awl/state.json
+
+# dogfooding 검증 산물 (WI-6 자기 검증용 격리 홈, 설치된 스킬)
+.awl-verify/
+.claude/

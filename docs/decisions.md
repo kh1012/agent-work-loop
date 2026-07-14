@@ -151,7 +151,18 @@
   - Codex: `engine/skills/codex/AGENTS.awl.md` → 설치 시 `<project>/AGENTS.md` 에 마커(`awl-loop:start/end`)로 감싸 추가
   - **근거**: 명세 WI-6 산출물은 `engine/skills/awl-loop/SKILL.md`·`engine/skills/awl-loop.agents.md` 로 표기했지만, WI-4 의 `installClaudeSkill`/`installCodexSkill` 과 그 단위 테스트가 이미 위 경로를 참조·검증한다. "자리표시자를 채운다"는 WI-6 지시에 맞추려면 init 이 실제로 설치하는 경로를 써야 한다. init 코드/테스트를 다시 건드리지 않는다(범위 최소).
 - **게이트는 도구 호출로 못박음**: SKILL.md 는 게이트마다 "AskUserQuestion 도구를 호출한다"를 명시한다(Codex 는 "턴을 끝내고 사용자 입력을 받는다"). "승인을 기다립니다"라고 텍스트로 쓰고 넘어가는 것을 실패로 규정한다. 드라이런 교훈: 멈춤은 의지가 아니라 도구 호출로 구현돼야 실제로 멈춘다.
-- **자기 검증(dogfooding)**: 실제 홈(`~/.awl`)을 건드리지 않도록 검증 세션은 `AWL_HOME` 을 저장소 내 임시 디렉토리로 격리한다. 스킬 설치(`.claude/skills/awl-loop/`)와 프로젝트 설정(`.awl/config.json`)은 이 저장소에 실제로 만든다. 목표 "awl status 추가"로 파이프라인을 돌려 게이트 1에서 `AskUserQuestion` 호출로 멈추는지 확인한다.
+- **자기 검증(dogfooding)**: 실제 홈(`~/.awl`)을 건드리지 않도록 검증 세션은 `AWL_HOME` 을 저장소 내 임시 디렉토리(`.awl-verify/`)로 격리한다. 스킬 설치(`.claude/skills/awl-loop/`)와 프로젝트 설정(`.awl/config.json`)은 이 저장소에 실제로 만든다. 목표 "awl status 추가"로 파이프라인을 돌려 게이트 1에서 `AskUserQuestion` 호출로 멈추는지 확인한다.
+
+## D-20. WI-6 자기 검증 결과 (dogfooding 이 실제 결함 3개를 잡았다)
+
+- **게이트 실증**: 게이트 1·2 모두 `AskUserQuestion` 도구 호출로 실제로 멈췄다. 텍스트로 "승인 대기"라고 쓰고 넘어가지 않았다. 스킬이 Claude Code 에 실제 설치되어 로드됐다.
+- **dogfooding 이 잡은 결함(스킬 루프 안에서)**:
+  1. **lint 위반(useTemplate)** — WI-5.5 커밋 때 놓친 위반. `awl verify` 의 lint 가 잡았다. `useTemplate` 은 unsafe fix 라 `biome check --write` 로 안 고쳐진다(`--unsafe` 필요).
+  2. **commit 이 untracked 새 파일을 커밋 못 함** — `git diff <snapshot>` 은 untracked 를 보지 않는다. `awl commit` 이 `status.ts`(신규 파일)를 빠뜨렸다. → `startBaseline` 이 시작 시점 untracked 목록을 기록하고, `isolatedCommit` 이 "새로 생긴 untracked 만" `git add` 하도록 고침(남의 새 파일은 제외). 회귀 테스트 추가.
+  3. **비ASCII 파일명 무증상 누락** — 리뷰어(서브에이전트) 지적. `git ls-files --others` 가 `core.quotePath=true`(기본)에서 한글 경로를 `"\355..."` 로 인용하면 이후 `git add` 가 매칭 실패한다. → 파일명을 내는 git 호출을 전부 `-z`(NUL 구분)로 통일하고 `git add` 실패를 감지하도록 고침. quotePath=true 를 강제한 회귀 테스트 추가.
+- **리뷰어가 실질적 지적을 냈다**: 부정행위 없음을 확인하면서 위 3번(무증상 누락)을 코드 근거(파일:라인)로 지목했다. 지적을 새 완료 조건 AC-05 로 편입해 고쳤다. 리뷰 → 새 완료 조건 → 루프의 실증.
+- **한계(향후 개선)**: `awl commit` 은 커밋 메시지에 세션 트레일러(`Claude-Session:`)를 붙이지 않는다. dogfooding 으로 만든 커밋(`[AC-xx]`)에는 트레일러가 없다. 필요하면 `awl commit` 에 트레일러 주입 옵션을 검토한다.
+- **dogfooding 산물 처리**: `.awl/config.json` 은 커밋한다(이 저장소도 awl 을 쓰는 설정, 팀 공유 대상). `.claude/`(설치된 스킬 사본, 원본은 `engine/`)와 `.awl-verify/`(격리 홈), `.awl/state.json` 은 gitignore 한다.
 
 # Windows 리스크 목록 (macOS에서만 검증함 — Windows 검증 시 체크리스트로 사용)
 
