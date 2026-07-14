@@ -302,6 +302,16 @@
 - **리뷰가 실질적 결함 1건 발견(AC-07)**: `substituteRelatedCmd` 가 변경 파일 경로를 공백으로만 join 했는데, `run()` 은 `shell:false` + `tokenize()` 로 실행되고 `tokenize` 는 따옴표 없는 공백을 그대로 토큰 분리한다 — 경로에 공백이 있으면 `relatedCmd` 가 조용히 잘못된 인자를 받는 문제였다(셸 인젝션은 아님, 인자 분리만 깨짐). 각 경로를 큰따옴표로 감싸 고쳤다(`tokenize` 가 이미 따옴표 문자열을 한 토큰으로 파싱함). 그 외 지적(AC-06: 주석이 옛 90th percentile 방식을 언급 — 위 I-2 설명과 함께 정정)은 사소함. 부정행위 없음. 최종 7/7 완료 조건, 326개 테스트. 게이트 1/2 는 이전 워크아이템들과 같은 자율 진행 근거(D-29 참고)로 자율 승인한다.
 - **0.2.x 로드맵 완료**: 이로써 WI-F(0.2.2)~WI-I(0.2.5) 가 전부 끝났다. 다음은 0.3.x(WI-O: delta→gotcha 개명+마이그레이션, WI-P: 계측/metrics) — 사용자가 로드맵 전체를 끝까지 진행하라고 명시적으로 지시했으므로 이어서 착수한다. 다만 릴리스(`release:patch`/`minor`, `npm publish`, `git push`)는 이 세션 내내 지켜온 규칙대로 사용자 확인 없이 하지 않는다.
 
+## D-33. WI-O 설계: `delta` → `gotcha` 전면 개명 + 마이그레이션 (0.3.0)
+
+- **범위 확정**: 코드에서 delta/Delta 를 참조하는 파일 9개 — `src/core/paths.ts`(`deltasDir`), `src/commands/evolve.ts`(`Delta` 타입/`loadDeltaList`/`writeDelta`/`nextDeltaId`/`recordDelta`/`RecordDeltaInput`/`RecordDeltaResult`/`existingDeltas`), `src/commands/deltas.ts`(전체, `gotchas.ts` 로 파일명도 바꿈), `src/commands/rules.ts`(`Delta` 타입/`deltaId` 파라미터), `src/commands/init.ts`(`scaffoldGlobal` 의 디렉토리 목록), `src/program.ts`(`promote <deltaId>`, `deltas` 명령), `tests/core/paths.test.ts`, `tests/commands/rules.test.ts`, `tests/commands/evolve.test.ts`, 스킬 문서 둘 다.
+- **번호 체계 혼동 주의**: `docs/decisions.md` 의 `D-1`~`D-32` 는 완전히 다른 번호 체계(설계 결정 문서, 패딩 없음)라 이번 개명과 무관하다. `evolve` 의 `Delta` 는 `D-001` 처럼 3자리 0패딩이라 정규식(`/^D-\d{3}$/`)으로 구분 가능 — 혼동해서 건드리지 않는다.
+- **실제 데이터 규모**: 원문 스펙은 "5건"이라 가정했지만 실제로 `~/.awl/deltas/` 에 15개(D-001~D-015, 이 세션에서 쌓임) 있다. 마이그레이션은 실제 개수를 세어서 처리해야지 하드코딩하면 안 된다.
+- **records 로그는 안 건드림**: `~/.awl/records/*.jsonl`(attempt/review 등)에 "D-006" 같은 언급이 자유 텍스트로 남아있지만, `record.ts` 자체가 "기록은 append only. 수정/삭제하지 않는다"는 원칙을 명시한다(회고적 사실이라 그 시점엔 정확했다). 마이그레이션 대상은 `~/.awl/deltas/*.json` 파일 자체의 구조화된 `id`/`sameAs`/`history` 필드뿐이다.
+- **마이그레이션 방식**: `state.ts` 의 `migrateState()`(레거시 스키마를 자동으로, 무손실·멱등적으로 최신에 맞춤)와 같은 패턴을 그대로 따른다 — `~/.awl/gotchas/` 가 없고 `~/.awl/deltas/` 만 있으면, 로드 시점에 자동으로(1) `~/.awl/deltas.backup-<타임스탬프>/` 로 백업 (2) 각 `D-0XX.json` 을 읽어 `id`/`sameAs` 필드의 `D-`를 `G-`로 바꾸고 `G-0XX.json` 으로 `~/.awl/gotchas/` 에 쓴다 (3) 원본 `~/.awl/deltas/` 는 그대로 둔다(삭제 안 함 — 백업과 별개로 원본도 보존, 완전히 무손실). 이미 `~/.awl/gotchas/` 가 있으면(이미 마이그레이션됨) 아무것도 안 한다(멱등).
+- **하위 호환**: `awl deltas` 명령은 0.4.0 까지 유지하되, 실행 시 "`awl gotchas` 를 대신 쓰세요" 경고를 출력하고 동일한 로직(이제는 gotchas 를 읽음)으로 동작한다.
+- **한국어 표기**: "gotcha" 는 외래어로 번역하지 않고 그대로 쓴다(예: "기존 gotcha(existingGotchas)와 같으면").
+
 # Windows 리스크 목록 (macOS에서만 검증함 — Windows 검증 시 체크리스트로 사용)
 
 이 프로젝트는 현재 macOS에서만 검증한다. 아래는 Windows에서 깨질 수 있는 지점과 대비다. 나중에 Windows에서 사람이 검증할 때 이 목록을 하나씩 확인한다.
