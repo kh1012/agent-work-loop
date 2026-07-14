@@ -50,6 +50,8 @@ awl verify --json
 
 **`awl commit` 이 hunk 충돌로 거부하면 그 자리에서 출력하는 대안 안내를 따른다** — "사람이 확인하세요"로 끝내고 "커밋 없이 계속 진행"하지 마라(실사고 재현). 안내가 제시하는 격리 워크트리로 옮기거나, 판단이 안 서면 사람에게 알린다.
 
+**gotcha 적용/누락 확인(완료조건마다)**: 구현 전에 `awl gotchas --json` 으로 적용 가능한 교훈이 있는지 훑는다. 적용해서 함정을 피했으면 `awl record gotcha-applied --json '{"gotchaId":"G-0xx","what":"..."}'`, 적용 가능했는데도 같은 실패가 재발했으면(구현 중이든 리뷰가 나중에 짚었든) `awl record gotcha-missed --json '{"gotchaId":"G-0xx","what":"...","why":"..."}'`. 해당하는 gotcha 가 없으면 기록하지 않는다 — 이게 `awl evolve`/`awl metrics` 가 학습 여부를 세는 유일한 근거다.
+
 **실패 원인 판별**:
 - **구현 실패**(설계가 틀림): `attempts` +1. 3회 미만이면 다른 접근으로. 3회면 막힘 처리.
 - **절차적 실수**(git 오조작·포트 충돌·인자 전달 실패 등): `proceduralErrors` +1. 고치고 계속. `attempts` 는 올리지 않는다.
@@ -72,6 +74,11 @@ awl verify --json
 - 기존 gotcha(existingGotchas)와 같으면 `sameAs` 를 붙인다.
 - `awl evolve --record --json '{"lesson":"...","source":{...},"sameAs":"G-003"}'` 로 기록한다.
 - 2회 반복 알림이 뜨면 사용자에게 그대로 전달한다. **자동으로 promote 하지 마라**(`awl rules promote` 는 사람이 실행). blocked 가 없으면 억지로 교훈을 만들지 마라.
+- `metrics`(criteriaTotal/avgAttempts/blockedRatio/reviewRejects/proceduralErrors/gotchaApplied/gotchaMissed)는 세대 스냅샷(`~/.awl/generations/<project>/<WI>.json`)으로도 남는다. 세대별 추세는 `awl metrics` 로 사람이 본다 — 워크아이템마다 난이도가 다르니 절대 비교하지 말고 경향만 참고한다.
+
+### narrative — 그 순간에 남긴다 (사후 재구성 아님)
+
+awl 은 토큰을 못 잰다. "이게 없었다면 무슨 일이 있었을지"(counterfactual)는 그 일이 일어나는 순간에만 정확히 남길 수 있다. `kind` 는 넷 중 하나이고 각각 파이프라인의 정해진 자리에서 발생한다 — `gate-caught`(게이트 1/2 에서 발견해 막음), `reviewer-caught`(리뷰어가 실사고 발견), `spike-prevented`(스파이크가 잘못된 설계를 사전에 막음), `blocked-discarded`(막힘 처리로 코드를 버림). `awl record narrative --json '{"kind":"reviewer-caught","counterfactual":"이걸 못 잡았다면 ..."}'`. 해당하는 순간이 없었으면 억지로 기록하지 않는다.
 
 ### 리뷰어
 
