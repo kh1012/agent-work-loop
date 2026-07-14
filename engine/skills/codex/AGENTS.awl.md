@@ -54,7 +54,17 @@ awl verify --json
 
 ### 게이트 2 — 완료 (반드시 멈춘다)
 
-모든 완료 조건이 통과하면 사용자에게 요약을 출력하고 멈춘다. **push는 사람이 한다.** 그 뒤 `awl evolve` 로 넘어간다.
+모든 완료 조건이 통과하면 사용자에게 요약을 출력하고 멈춘다. **push는 사람이 한다.**
+
+### evolve — 배움의 흐름을 닫는다 (워크아이템 단위)
+
+게이트 2 뒤, 이번 워크아이템의 실패에서 교훈을 뽑는다. **awl 은 판단하지 않는다. 교훈 추출은 네가 한다.**
+
+- `awl evolve --collect --workitem <WI>` 로 자료(blocked/review/retried/metrics/existingDeltas)를 읽는다.
+- 교훈을 재사용 가능한 문장으로 추출한다 — 프로젝트 이름 없이, 완료 조건 ID 없이, 다음에도 쓸 수 있게. (나쁜 예: "AC-03에서 X가 실패했다" / 좋은 예: "축을 파라미터로 빼기 전에 오버레이 좌표계가 축에 의존하는지 먼저 확인한다")
+- 기존 교훈(existingDeltas)과 같으면 `sameAs` 를 붙인다.
+- `awl evolve --record --json '{"lesson":"...","source":{...},"sameAs":"D-003"}'` 로 기록한다.
+- 2회 반복 알림이 뜨면 사용자에게 그대로 전달한다. **자동으로 promote 하지 마라**(`awl rules promote` 는 사람이 실행). blocked 가 없으면 억지로 교훈을 만들지 마라.
 
 ### 리뷰어
 
