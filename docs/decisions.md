@@ -210,6 +210,20 @@
 - **`core/engine.ts` 로 `installedEngineVersion` 중복 제거**: doctor.ts 와 init.ts 가 각자 같은 함수를 갖고 있었다(WI-3, WI-4 에서 서로 모르고 중복 구현). `awl --version` 에도 필요해져 3번째 중복이 생기기 전에 공유 모듈로 뺐다.
 - **검증**: `applyConfigValue` 단위 테스트 20개(키별 통과/거부/경고/보존), `interactiveEditMenu` 단위 테스트 5개(D-23 패턴), 실제 CLI로 "지원하지 않는 키" 오판 시나리오 재현 후 `config set mainLanguage typescript` 로 고쳐지는 것 확인.
 
+## D-25. WI-A: `detectLanguage` 워크스페이스 멤버 tsconfig 확인 (0.1.2, awl-loop 로 진행한 첫 워크아이템)
+
+- **배경**: 실사용에서 `awl init` 의 언어 자동 감지가 TypeScript 모노레포를 JavaScript 로 오판했다고 보고됐다. 이 워크아이템은 Part 0(손으로 한 기반 작업) 이후 **처음으로 awl-loop 스킬을 통해 진행한** 워크아이템이다 — 게이트 1(완료 조건 승인) → 자율 반복(TDD) → 게이트 통과 → 리뷰 순으로 실제로 돌았다.
+- **가정(원본 버그 재현 불명확)**: 명세의 maxflow 예시("tsconfig.json 있음, packages/*/tsconfig.json 있음")는 루트에 이미 tsconfig.json 이 있다고 서술돼 있어, 기존 코드의 첫 번째 체크(`exists(cwd/tsconfig.json)`)로 이미 잡혔어야 할 케이스처럼 읽힌다. 정확히 어느 `cwd`/상태에서 오판이 났는지는 명세에 없다. **재현을 정확히 복원하는 대신, 명세가 요구한 4가지 감지 규칙(루트 tsconfig/typescript dep/워크스페이스 멤버 tsconfig/애매하면 TypeScript)을 전부 구현하는 쪽을 택했다** — 어느 경로로 오판이 났든 이 4가지가 커버한다.
+- **"애매하면 TypeScript" 는 이미 구현돼 있었다**: `detectLanguage` 가 `null` 을 반환하면 `buildScreens`(정확히는 `langDefaultIndex`)가 `detected ? LANG_VALUES.indexOf(detected) : 0` 로 index 0(`typescript`)을 기본 선택한다. 그래서 새로 손댈 곳은 **"package.json 은 있는데 TS 신호가 하나도 없을 때"** 뿐이었다 — 이 경우는 여전히 `javascript` 로 판정한다(순수 JS 프로젝트를 잘못 TS로 만들지 않기 위해; "애매함"은 신호가 전무한 경우에 한정되지, 명확한 부정 신호가 있는 경우까지 뒤집는 게 아니라고 해석했다).
+- **워크스페이스 글롭은 새 의존성(glob 라이브러리) 없이 직접 구현했다.** `<dir>/*`(한 단계)와 `<dir>/**`(그 지점 자신 + 모든 깊이의 하위 디렉토리, 최대 6단계)만 지원한다. 브레이스 확장 등 풀 글롭 문법은 지원하지 않는다 — 워크스페이스 멤버의 tsconfig 유무만 확인하면 되는 좁은 용도라 이 정도로 충분하다고 판단했다.
+- **pnpm-workspace.yaml 파싱은 라인 기반이다**(YAML 파서 의존성 없음). block-style 리스트(`- 'a'`)와 flow-style 배열(`packages: ['a']`) 둘 다 인식하고, 따옴표 밖의 `#` 이후는 주석으로 잘라낸다.
+- **리뷰(서브에이전트, `awl review` 조립 자료만 보고 구현자 맥락 없이 진행)가 실제 재현된 결함 3건을 찾았다** — 전부 반영해 고쳤다:
+  1. pnpm-workspace.yaml 항목에 인라인 `# 주석`이 있으면 옛 정규식이 `$` 앵커 매치에 실패해 워크스페이스 전체가 유실됨(높음). → `stripYamlComment` 로 따옴표 밖 `#` 만 잘라내도록 수정.
+  2. flow-style 배열(`packages: ['a']`)을 아예 인식 못 함(중간). → 별도 파싱 분기 추가.
+  3. **`**` 를 `*` 와 동일하게(1단계만) 확장한다고 최초 구현/주석에 적어놨지만, 실제로는 2단계 이상 중첩된 워크스페이스 멤버를 조용히 놓쳤다(높음) — 이 워크아이템이 고치려던 것과 같은 종류의 오탐이 `**` 패턴에서 재발한 것.** → `**` 를 진짜 재귀 확장(자신 + 모든 하위 디렉토리)으로 바꿨다.
+  - 리뷰가 "약한 단언"으로 지적한 테스트 1건("워크스페이스 멤버 중 어느 것도 tsconfig 가 없으면 여전히 javascript")은 새 로직을 지워도 결과가 같아(음성 케이스라 구조적으로 불가피) 유지했다 — 다른 AC-03 테스트들이 이미 새 로직 존재를 판별한다.
+  - 리뷰 결과에 첨부된 `verify` 블록이 `command_not_found`(lint/test)로 나온 것은 코드 결함이 아니라 그 리뷰 자료를 조립한 셸에 `node_modules/.bin` 이 PATH 에 없었던 것(이 세션에서 반복적으로 마주친 이슈). 별도로 PATH 를 잡고 `awl verify` 를 직접 돌려 `passed: true` 를 확인했다.
+
 # Windows 리스크 목록 (macOS에서만 검증함 — Windows 검증 시 체크리스트로 사용)
 
 이 프로젝트는 현재 macOS에서만 검증한다. 아래는 Windows에서 깨질 수 있는 지점과 대비다. 나중에 Windows에서 사람이 검증할 때 이 목록을 하나씩 확인한다.
