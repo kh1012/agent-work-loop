@@ -161,7 +161,8 @@
   2. **commit 이 untracked 새 파일을 커밋 못 함** — `git diff <snapshot>` 은 untracked 를 보지 않는다. `awl commit` 이 `status.ts`(신규 파일)를 빠뜨렸다. → `startBaseline` 이 시작 시점 untracked 목록을 기록하고, `isolatedCommit` 이 "새로 생긴 untracked 만" `git add` 하도록 고침(남의 새 파일은 제외). 회귀 테스트 추가.
   3. **비ASCII 파일명 무증상 누락** — 리뷰어(서브에이전트) 지적. `git ls-files --others` 가 `core.quotePath=true`(기본)에서 한글 경로를 `"\355..."` 로 인용하면 이후 `git add` 가 매칭 실패한다. → 파일명을 내는 git 호출을 전부 `-z`(NUL 구분)로 통일하고 `git add` 실패를 감지하도록 고침. quotePath=true 를 강제한 회귀 테스트 추가.
 - **리뷰어가 실질적 지적을 냈다**: 부정행위 없음을 확인하면서 위 3번(무증상 누락)을 코드 근거(파일:라인)로 지목했다. 지적을 새 완료 조건 AC-05 로 편입해 고쳤다. 리뷰 → 새 완료 조건 → 루프의 실증.
-- **한계(향후 개선)**: `awl commit` 은 커밋 메시지에 세션 트레일러(`Claude-Session:`)를 붙이지 않는다. dogfooding 으로 만든 커밋(`[AC-xx]`)에는 트레일러가 없다. 필요하면 `awl commit` 에 트레일러 주입 옵션을 검토한다.
+- **세션 트레일러는 붙이지 않는 게 맞다(정정)**: `awl commit` 은 커밋 메시지에 `Claude-Session:` 트레일러를 붙이지 않는다. 이건 결함이 아니다. `Claude-Session` 은 Claude Code 하네스가 커밋을 대화 세션에 링크하는 관례로, 사람이 되짚는 용도이지 기계가 읽는 값이 아니다. awl 은 크로스 환경(Claude Code + Codex)이라, 하네스 전용 트레일러를 박으면 Codex 환경에선 무의미하다. **evolve 는 이 트레일러를 읽지 않는다. evolve 가 읽는 것은 `~/.awl/records/*.jsonl` 과 state 다.**
+- **커밋 추적은 SHA 로 한다(별개 사안)**: 커밋 추적이 필요하면 `awl commit` 이 커밋 후 `state.criteria[<AC>].baseline` 에 남기는 커밋 SHA 를 쓴다(`commit.ts` 참조). 다만 record 자체에는 커밋 SHA 필드가 없고, `state set` 으로 criteria 를 통째 교체하면 `baseline` SHA 가 날아간다([[D-16]] 얕은 병합). **record ↔ 커밋 SHA 연결이 필요한지는 WI-7 에서 evolve 가 정확히 무엇을 읽는지 확정한 뒤 정한다.** 미리 만들면 evolve 가 안 쓰는 필드를 넣을 위험이 있다.
 - **dogfooding 산물 처리**: `.awl/config.json` 은 커밋한다(이 저장소도 awl 을 쓰는 설정, 팀 공유 대상). `.claude/`(설치된 스킬 사본, 원본은 `engine/`)와 `.awl-verify/`(격리 홈), `.awl/state.json` 은 gitignore 한다.
 
 # Windows 리스크 목록 (macOS에서만 검증함 — Windows 검증 시 체크리스트로 사용)
