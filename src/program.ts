@@ -119,6 +119,13 @@ export function buildProgram(): Command {
       const { runWorkSwitch } = await import('./commands/work.js');
       await runWorkSwitch(id);
     });
+  work
+    .command('abandon <id>')
+    .description('워크아이템을 중단 처리합니다 (삭제하지 않습니다, 기록은 남습니다)')
+    .action(async (id: string) => {
+      const { runWorkAbandon } = await import('./commands/work.js');
+      runWorkAbandon(id);
+    });
 
   // 사람이 치는 명령: records (기록 조회, 사람이 읽는 목록)
   program

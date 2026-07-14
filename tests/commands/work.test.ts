@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { createWorkitem, restoreWorkitem, summarizeWorkitems } from '../../src/commands/work.js';
+import {
+  abandonWorkitem,
+  createWorkitem,
+  restoreWorkitem,
+  summarizeWorkitems,
+} from '../../src/commands/work.js';
 
 describe('summarizeWorkitems (WI-D AC-02)', () => {
   it('현재 워크아이템 + 레지스트리를 하나의 목록으로 합친다', () => {
@@ -231,5 +236,55 @@ describe('restoreWorkitem (WI-D AC-04, awl work switch)', () => {
     };
     const result = restoreWorkitem(before, 'WI-C', 't2', 'main');
     expect(result.warning).toBeUndefined();
+  });
+});
+
+describe('abandonWorkitem (WI-D AC-05, awl work abandon)', () => {
+  it('현재 워크아이템을 abandon 하면 최상위를 비우고 레지스트리에 abandoned 로 보관한다', () => {
+    const before = {
+      workitem: 'WI-D',
+      phase: 'loop',
+      loop: null,
+      currentFocus: 'AC-01',
+      criteria: [{ id: 'AC-01', status: 'in_progress' }],
+      workitems: {},
+    };
+    const result = abandonWorkitem(before, 'WI-D', '2026-07-14T00:00:00.000Z');
+    expect(result.error).toBeUndefined();
+    expect(result.state.workitem).toBeNull();
+    expect(result.state.currentFocus).toBeUndefined();
+    const registry = result.state.workitems as Record<
+      string,
+      { status: string; criteria: unknown[] }
+    >;
+    expect(registry['WI-D']?.status).toBe('abandoned');
+    expect(registry['WI-D']?.criteria).toEqual([{ id: 'AC-01', status: 'in_progress' }]);
+  });
+
+  it('현재가 아닌(레지스트리) 워크아이템을 abandon 하면 그 항목만 abandoned 로 바뀐다', () => {
+    const before = {
+      workitem: 'WI-D',
+      criteria: [{ id: 'AC-01', status: 'passed' }],
+      workitems: {
+        'WI-C': { status: 'paused', createdAt: 't', criteria: [{ id: 'AC-01', status: 'passed' }] },
+      },
+    };
+    const result = abandonWorkitem(before, 'WI-C', 't2');
+    expect(result.error).toBeUndefined();
+    // 현재 워크아이템은 그대로 유지된다.
+    expect(result.state.workitem).toBe('WI-D');
+    const registry = result.state.workitems as Record<string, { status: string }>;
+    expect(registry['WI-C']?.status).toBe('abandoned');
+  });
+
+  it('없는 ID 를 abandon 하면 거부한다', () => {
+    const result = abandonWorkitem({ workitem: 'WI-D', criteria: [], workitems: {} }, 'WI-Z', 't');
+    expect(result.error).toContain('WI-Z');
+  });
+
+  it('대소문자만 다른 현재 워크아이템 ID 도 abandon 된다', () => {
+    const result = abandonWorkitem({ workitem: 'WI-D', criteria: [] }, 'wi-d', 't');
+    expect(result.error).toBeUndefined();
+    expect(result.state.workitem).toBeNull();
   });
 });

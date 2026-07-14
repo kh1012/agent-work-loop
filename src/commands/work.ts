@@ -258,6 +258,37 @@ export function restoreWorkitem(
   return { state: nextState, warning };
 }
 
+/**
+ * awl work abandon <id> — 삭제하지 않는다, status 만 abandoned 로 바꾼다(기록은
+ * 남는다). 현재 워크아이템을 abandon 하면 최상위를 비운다(다음에 new/switch 필요).
+ */
+export function abandonWorkitem(
+  state: Record<string, unknown>,
+  id: string,
+  now: string,
+): WorkActionResult {
+  const trimmed = id.trim();
+  const migrated = migrateState(state);
+  const currentId = typeof migrated.workitem === 'string' ? migrated.workitem : null;
+
+  if (currentId && trimmed.toLowerCase() === currentId.toLowerCase()) {
+    return { state: archiveCurrent(migrated, 'abandoned', now) };
+  }
+
+  const registry = registryOf(migrated);
+  const key = Object.keys(registry).find((k) => k.toLowerCase() === trimmed.toLowerCase());
+  if (!key) {
+    return { state, error: `그런 워크아이템이 없습니다: ${trimmed}` };
+  }
+  const entry = registry[key] as WorkitemEntry;
+  return {
+    state: {
+      ...migrated,
+      workitems: { ...registry, [key]: { ...entry, status: 'abandoned' } },
+    },
+  };
+}
+
 function requireRoot(): string {
   const root = resolveProjectRoot();
   if (!root) {
@@ -305,4 +336,17 @@ export async function runWorkSwitch(id: string): Promise<void> {
   if (result.warning) {
     process.stderr.write(`  ${result.warning}\n`);
   }
+}
+
+export function runWorkAbandon(id: string): void {
+  const root = requireRoot();
+  const now = new Date().toISOString();
+  const result = abandonWorkitem(loadState(root), id, now);
+  if (result.error) {
+    process.stderr.write(`\n  ${result.error}\n`);
+    process.exit(1);
+  }
+  writeState(root, result.state);
+  process.stdout.write(`\n  중단 처리했습니다: ${id}\n`);
+  process.stdout.write('  기록은 남아 있습니다(삭제되지 않습니다).\n');
 }
