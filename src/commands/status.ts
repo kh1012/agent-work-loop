@@ -39,6 +39,12 @@ export interface StatusReport {
  * 이미 passed 인 완료조건은(dependsOn 이 나중에 붙었더라도) 블록으로 안 본다 —
  * 이미 끝난 일을 다시 막을 이유가 없다. 어느 걸 먼저 할지 정하는 건 여전히
  * 스킬(에이전트) 몫이다 — 여기선 계산만 한다.
+ *
+ * 순환/오타 감지는 하지 않는다(리뷰 지적 AC-04 — 의도적 단순화). dependsOn 이
+ * 자기 자신을 가리키거나(A → A) 존재하지 않는 ID 를 가리키면 그 완료조건은
+ * 영구적으로 블록됨으로 표시된다 — 크래시나 무한루프는 없지만, 이게 진짜
+ * 순환/의존 대기인지 오타인지는 표시만으로 구분 못 한다. 이 표시 자체가
+ * "뭔가 이상하다"는 신호이므로 스킬(에이전트)이 보고 판단한다.
  */
 function computeBlockedByDeps(criteria: Record<string, unknown>[]): BlockedByDeps[] {
   const passedIds = new Set(criteria.filter((c) => c.status === 'passed').map((c) => String(c.id)));

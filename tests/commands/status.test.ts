@@ -101,6 +101,28 @@ describe('buildStatus', () => {
     expect(s.criteria.blockedByDeps).toEqual([]);
   });
 
+  it('dependsOn 이 자기 자신을 가리켜도 크래시하지 않는다(영구 블록으로 표시) (AC-04, 리뷰 지적 — 엣지케이스 무테스트)', () => {
+    const root = tmpProject({
+      phase: 'loop',
+      criteria: [{ id: 'AC-01', status: 'pending', dependsOn: ['AC-01'] }],
+    });
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-home-'));
+
+    const s = buildStatus(root);
+    expect(s.criteria.blockedByDeps).toEqual([{ id: 'AC-01', waitingOn: ['AC-01'] }]);
+  });
+
+  it('dependsOn 이 존재하지 않는 ID 를 가리켜도 크래시하지 않는다(영구 블록으로 표시) (AC-04, 리뷰 지적)', () => {
+    const root = tmpProject({
+      phase: 'loop',
+      criteria: [{ id: 'AC-01', status: 'pending', dependsOn: ['AC-99'] }], // AC-99 는 없다
+    });
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-home-'));
+
+    const s = buildStatus(root);
+    expect(s.criteria.blockedByDeps).toEqual([{ id: 'AC-01', waitingOn: ['AC-99'] }]);
+  });
+
   it('state·기록이 비어도 크래시하지 않는다 (AC-03)', () => {
     const root = tmpProject(undefined); // state.json 없음
     process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-home-')); // records 없음
@@ -134,6 +156,31 @@ describe('renderStatus (AC-01 사람용)', () => {
     const text = renderStatus(buildStatus(root), { unicode: false, color: false, tty: false });
     expect(text).toContain('loop');
     expect(text).toContain('1/2'); // 통과/전체
+  });
+
+  it('블록된 완료조건을 텍스트로 보여준다(대기 중인 선행 ID 포함) (AC-04, 리뷰 지적 — 계산만 테스트하고 출력 텍스트는 안 봤었다)', () => {
+    const root = tmpProject({
+      phase: 'loop',
+      criteria: [
+        { id: 'AC-01', status: 'pending' },
+        { id: 'AC-02', status: 'pending', dependsOn: ['AC-01'] },
+      ],
+    });
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-home-'));
+    const text = renderStatus(buildStatus(root), { unicode: false, color: false, tty: false });
+    expect(text).toContain('AC-02');
+    expect(text).toContain('블록됨');
+    expect(text).toContain('AC-01'); // 무엇을 기다리는지도 나온다
+  });
+
+  it('블록된 완료조건이 없으면 블록됨 줄 자체가 없다(회귀 없음)', () => {
+    const root = tmpProject({
+      phase: 'loop',
+      criteria: [{ id: 'AC-01', status: 'pending' }],
+    });
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-home-'));
+    const text = renderStatus(buildStatus(root), { unicode: false, color: false, tty: false });
+    expect(text).not.toContain('블록됨');
   });
 
   it('아직 시작 전이면 안내한다', () => {
