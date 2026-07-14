@@ -319,12 +319,22 @@ export async function runCommit(
 
   if (opts.start) {
     const { snapshot, head, untracked } = await startBaseline(root, ac);
+    // firstBaseline 은 이 AC 가 "처음" --start 될 때만 기록하고 이후 절대 안 덮어쓴다
+    // (WI-H AC-01, D-26/D-28). baseline/snapshot 은 격리 커밋마다(닫힐 때) 다음
+    // diff 기준점으로 갱신되지만, review 의 범위 시작점은 AC 가 처음 시작된 시점
+    //그대로 고정돼야 한다 — 하나의 필드(baseline)로 두 목적을 겸용한 게 버그의
+    // 근본 원인이었다. setCriterion 은 얕은 병합이라 여기서 안 건드리면(닫는 경로도
+    // 마찬가지) 기존 값이 그대로 보존된다.
+    const existing = getCriterion(loadState(root), ac);
+    const firstBaseline =
+      typeof existing?.firstBaseline === 'string' ? existing.firstBaseline : head;
     const state = setCriterion(loadState(root), ac, {
       status: 'in_progress',
       baseline: head,
       snapshot,
       untrackedAtStart: untracked,
       startedAt: now,
+      firstBaseline,
     });
     writeState(root, state);
     process.stdout.write(`\n  ${ac} 베이스라인을 잡았습니다: ${head.slice(0, 10)}\n`);

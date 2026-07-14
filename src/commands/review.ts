@@ -61,9 +61,19 @@ export async function assembleReview(
 ): Promise<ReviewBundle> {
   const criteria = selectCriteria(state, range);
 
-  // diff 범위: 지정 base 우선, 없으면 첫 완료 조건의 baseline..HEAD, 그것도 없으면 워킹트리.
+  // diff 범위: 지정 base 우선, 없으면 범위 첫 완료 조건의 firstBaseline..HEAD.
+  // firstBaseline 이 없는(마이그레이션 전) 완료조건은 baseline 으로 폴백한다 —
+  // baseline 은 격리 커밋이 닫힐 때마다 그 AC 자신의 최종 커밋으로 덮어써지므로,
+  // 이미 닫힌 AC 가 범위 첫 항목이면 그 AC 자신의 diff 가 빠지는 버그가 있었다
+  // (WI-H AC-01, D-26/D-28). firstBaseline 은 AC 가 처음 시작될 때만 고정된다.
   const firstBaseline = criteria
-    .map((c) => (typeof c.baseline === 'string' ? c.baseline : undefined))
+    .map((c) =>
+      typeof c.firstBaseline === 'string'
+        ? c.firstBaseline
+        : typeof c.baseline === 'string'
+          ? c.baseline
+          : undefined,
+    )
     .find(Boolean);
   const diffArgs = base
     ? ['diff', `${base}..HEAD`]

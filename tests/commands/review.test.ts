@@ -60,3 +60,69 @@ describe('assembleReview — provenance 가 핵심', () => {
     expect(() => JSON.parse(JSON.stringify(bundle))).not.toThrow();
   });
 });
+
+describe('assembleReview — firstBaseline (WI-H AC-01, D-26/D-28 실사고 재현)', () => {
+  function git(dir: string, args: string[]): string {
+    return execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
+  }
+
+  it('범위 첫 AC 가 이미 닫혀 baseline 필드가 자기 자신의 커밋으로 덮어써졌어도, firstBaseline 이 있으면 그 AC 자신의 diff 가 빠지지 않는다', async () => {
+    const dir = makeRepo();
+    const commit0 = git(dir, ['rev-parse', 'HEAD']);
+
+    // AC-01 작업 -> 닫힘. commit.ts 의 실제 동작대로: 닫히면 baseline 필드가
+    // range-start(commit0) 에서 AC-01 자신의 최종 커밋(commit1)으로 덮어써진다.
+    fs.writeFileSync(path.join(dir, 'ac01.txt'), 'ac01 change\n');
+    git(dir, ['add', '.']);
+    git(dir, ['commit', '-q', '-m', 'AC-01 work']);
+    const commit1 = git(dir, ['rev-parse', 'HEAD']);
+
+    const state = {
+      criteria: [{ id: 'AC-01', status: 'passed', baseline: commit1, firstBaseline: commit0 }],
+    };
+    const bundle = await assembleReview(dir, CONFIG, state, 'AC-01', undefined);
+
+    // 버그였다면 baseline(commit1)을 기준으로 diff 를 잡아 ac01.txt 변경이 통째로
+    // 빠졌을 것이다 — firstBaseline(commit0) 을 써야 정상적으로 포함된다.
+    expect(bundle.diff).toContain('ac01.txt');
+  });
+
+  it('firstBaseline 이 없는(마이그레이션 전) 완료조건은 기존처럼 baseline 으로 폴백한다(하위호환)', async () => {
+    const dir = makeRepo();
+    const commit0 = git(dir, ['rev-parse', 'HEAD']);
+    fs.writeFileSync(path.join(dir, 'legacy.txt'), 'legacy change\n');
+    git(dir, ['add', '.']);
+    git(dir, ['commit', '-q', '-m', 'legacy AC work']);
+
+    // firstBaseline 없이 baseline 만 있는(옛 state) 완료조건 — 아직 안 닫힌 상태를
+    // 흉내낸다(baseline 이 곧 range-start 인 유일한 경우).
+    const state = { criteria: [{ id: 'AC-01', status: 'in_progress', baseline: commit0 }] };
+    const bundle = await assembleReview(dir, CONFIG, state, 'AC-01', undefined);
+
+    expect(bundle.diff).toContain('legacy.txt');
+  });
+
+  it('여러 AC 범위에서 두 번째 이후 AC 의 firstBaseline 은 무시하고 범위 첫 AC 것만 쓴다(범위 시작점은 하나)', async () => {
+    const dir = makeRepo();
+    const commit0 = git(dir, ['rev-parse', 'HEAD']);
+    fs.writeFileSync(path.join(dir, 'ac01.txt'), 'ac01\n');
+    git(dir, ['add', '.']);
+    git(dir, ['commit', '-q', '-m', 'AC-01']);
+    const commit1 = git(dir, ['rev-parse', 'HEAD']);
+    fs.writeFileSync(path.join(dir, 'ac02.txt'), 'ac02\n');
+    git(dir, ['add', '.']);
+    git(dir, ['commit', '-q', '-m', 'AC-02']);
+    const commit2 = git(dir, ['rev-parse', 'HEAD']);
+
+    const state = {
+      criteria: [
+        { id: 'AC-01', status: 'passed', baseline: commit1, firstBaseline: commit0 },
+        { id: 'AC-02', status: 'passed', baseline: commit2, firstBaseline: commit1 },
+      ],
+    };
+    const bundle = await assembleReview(dir, CONFIG, state, 'AC-01..AC-02', undefined);
+
+    expect(bundle.diff).toContain('ac01.txt');
+    expect(bundle.diff).toContain('ac02.txt');
+  });
+});
