@@ -20,3 +20,4 @@ ref-knowledge-graph/
 # dogfooding 검증 산물 (WI-6 자기 검증용 격리 홈, 설치된 스킬)
 .awl-verify/
 .claude/
+.awl/verify-baseline.json
