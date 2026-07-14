@@ -130,11 +130,12 @@ describe('parseConfigKey — 지원하는 모든 키 (Part 0-4)', () => {
     expect(parseConfigKey('verify.nope.cmd')).toBeNull();
   });
 
-  it('SETTABLE_KEYS 는 12개 verify 키 + project/mainLanguage/character/namingConvention', () => {
+  it('SETTABLE_KEYS 는 12개 verify 키 + project/mainLanguage/character/namingConvention/relatedCmd', () => {
     expect(SETTABLE_KEYS).toContain('verify.lint.cwd');
     expect(SETTABLE_KEYS).toContain('verify.e2e.env');
     expect(SETTABLE_KEYS).toContain('namingConvention');
-    expect(SETTABLE_KEYS.length).toBe(4 + 4 * 3);
+    expect(SETTABLE_KEYS).toContain('relatedCmd');
+    expect(SETTABLE_KEYS.length).toBe(5 + 4 * 3);
   });
 });
 
@@ -207,6 +208,38 @@ describe('applyConfigValue — 키마다 검증 규칙이 다르다', () => {
     });
     expect(outcome.ok).toBe(true);
     expect(config.namingConvention).toBeUndefined();
+  });
+
+  it('relatedCmd: {files} 자리표시자가 있으면 저장 (WI-I AC-04)', async () => {
+    const config = freshConfig();
+    const outcome = await applyConfigValue(
+      config,
+      '/tmp',
+      { kind: 'relatedCmd' },
+      'vitest related {files} --run',
+      { force: false },
+    );
+    expect(outcome.ok).toBe(true);
+    expect(config.relatedCmd).toBe('vitest related {files} --run');
+  });
+
+  it('relatedCmd: {files} 자리표시자가 없으면 거부한다', async () => {
+    const config = freshConfig();
+    const outcome = await applyConfigValue(config, '/tmp', { kind: 'relatedCmd' }, 'vitest run', {
+      force: false,
+    });
+    expect(outcome.ok).toBe(false);
+    expect(config.relatedCmd).toBeUndefined();
+  });
+
+  it('relatedCmd: 빈 값이면 비운다', async () => {
+    const config = freshConfig();
+    config.relatedCmd = 'vitest related {files}';
+    const outcome = await applyConfigValue(config, '/tmp', { kind: 'relatedCmd' }, '  ', {
+      force: false,
+    });
+    expect(outcome.ok).toBe(true);
+    expect(config.relatedCmd).toBeUndefined();
   });
 
   it('project: 빈 값은 거부', async () => {

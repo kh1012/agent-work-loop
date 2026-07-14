@@ -31,6 +31,8 @@ export interface AwlConfig {
   verify: VerifyMap;
   /** doctor 가 세어서 감지한 파일명 컨벤션(WI-I AC-01) — 정보성, 강제 아님. */
   namingConvention?: string;
+  /** awl verify --related 가 쓸 명령 템플릿(WI-I AC-04). {files} 는 변경 파일 목록으로 치환된다. */
+  relatedCmd?: string;
 }
 
 export interface ConfigResult {
@@ -143,6 +145,7 @@ export function loadConfig(projectRoot: string): ConfigResult {
     character: typeof raw.character === 'string' ? raw.character : '',
     engineVersion: raw.engineVersion as string,
     ...(typeof raw.namingConvention === 'string' ? { namingConvention: raw.namingConvention } : {}),
+    ...(typeof raw.relatedCmd === 'string' ? { relatedCmd: raw.relatedCmd } : {}),
     verify: {
       typecheck: (rv.typecheck ?? null) as VerifyEntry,
       lint: (rv.lint ?? null) as VerifyEntry,
@@ -207,6 +210,7 @@ export type ConfigKeyKind =
   | 'mainLanguage'
   | 'character'
   | 'namingConvention'
+  | 'relatedCmd'
   | 'verify.cmd'
   | 'verify.cwd'
   | 'verify.env';
@@ -228,6 +232,7 @@ export const SETTABLE_KEYS: string[] = [
   'mainLanguage',
   'character',
   'namingConvention',
+  'relatedCmd',
   ...VERIFY_ORDER.flatMap((n) => [`verify.${n}.cmd`, `verify.${n}.cwd`, `verify.${n}.env`]),
 ];
 
@@ -244,6 +249,9 @@ export function parseConfigKey(key: string): ParsedConfigKey | null {
   }
   if (key === 'namingConvention') {
     return { kind: 'namingConvention' };
+  }
+  if (key === 'relatedCmd') {
+    return { kind: 'relatedCmd' };
   }
   const names = VERIFY_ORDER.join('|');
   const cmdMatch = new RegExp(`^verify\\.(${names})(?:\\.cmd)?$`).exec(key);
@@ -354,6 +362,23 @@ export async function applyConfigValue(
       };
     }
     return { ok: true, message: `namingConvention = ${v}` };
+  }
+
+  if (parsed.kind === 'relatedCmd') {
+    const v = rawValue.trim();
+    if (v === '') {
+      config.relatedCmd = undefined;
+      return { ok: true, message: 'relatedCmd = (비움)' };
+    }
+    if (!v.includes('{files}')) {
+      return {
+        ok: false,
+        message:
+          'relatedCmd 에는 {files} 자리표시자가 있어야 합니다(변경 파일 목록으로 치환됩니다).',
+      };
+    }
+    config.relatedCmd = v;
+    return { ok: true, message: `relatedCmd = ${v}` };
   }
 
   const name = parsed.verifyName as keyof VerifyMap;

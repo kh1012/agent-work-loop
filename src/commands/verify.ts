@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { CommandNotFoundError, run } from '../core/runner.js';
 import { type Caps, caps, makeColors } from '../core/tty.js';
-import { VERIFY_ORDER, type VerifyMap, requireConfig } from './config.js';
+import { type AwlConfig, VERIFY_ORDER, type VerifyMap, requireConfig } from './config.js';
+import { gitDirtyFiles } from './doctor.js';
 import { loadState } from './state.js';
 
 /**
@@ -309,12 +310,116 @@ export function sinceBaselineFallbackMessage(reason: 'no_baseline' | 'workitem_m
   );
 }
 
+// ---------------------------------------------------------------------------
+// --related (WI-I AC-04): 변경된 파일에 관련된 테스트만 실행한다. relatedCmd
+// 가 없으면 무음으로 건너뛰지 않고 전체 test 체크로 폴백한다(안전한 쪽).
+// ---------------------------------------------------------------------------
+
+/** relatedCmd 템플릿의 {files} 를 변경 파일 목록(공백 구분)으로 치환한다. */
+export function substituteRelatedCmd(template: string, changedFiles: string[]): string {
+  return template.replaceAll('{files}', changedFiles.join(' '));
+}
+
+export interface RelatedTestOutcome {
+  usedRelatedCmd: boolean;
+  changedFiles: string[];
+  result: VerifyResult;
+}
+
+async function runOneCommand(
+  name: string,
+  cmd: string,
+  env: Record<string, string> | undefined,
+  cwd: string,
+): Promise<VerifyResult> {
+  try {
+    const r = await run({ cmd, env, cwd, timeoutMs: 600_000 });
+    return {
+      name,
+      exitCode: r.exitCode,
+      durationMs: r.durationMs,
+      output: `${r.stdout}${r.stderr}`.trim(),
+      timedOut: r.timedOut,
+    };
+  } catch (e) {
+    return {
+      name,
+      exitCode: null,
+      durationMs: 0,
+      output: '',
+      error: e instanceof CommandNotFoundError ? 'command_not_found' : undefined,
+    };
+  }
+}
+
+/**
+ * relatedCmd 가 설정돼 있으면 변경 파일로 치환해 실행한다. 없으면 전체 test
+ * 체크로 폴백한다(관련 테스트만 실행하는 게 목적이라도, 아무것도 안 도는 것보다
+ * 전체를 도는 게 안전하다 — 무음 스킵 금지).
+ */
+export async function runRelatedTests(
+  config: AwlConfig,
+  projectRoot: string,
+  changedFiles: string[],
+): Promise<RelatedTestOutcome> {
+  if (config.relatedCmd) {
+    const cmd = substituteRelatedCmd(config.relatedCmd, changedFiles);
+    return {
+      usedRelatedCmd: true,
+      changedFiles,
+      result: await runOneCommand('related', cmd, undefined, projectRoot),
+    };
+  }
+
+  const testEntry = config.verify.test;
+  if (!testEntry) {
+    return {
+      usedRelatedCmd: false,
+      changedFiles,
+      result: {
+        name: 'test',
+        exitCode: null,
+        durationMs: 0,
+        output: '',
+        error: 'command_not_found',
+      },
+    };
+  }
+  return {
+    usedRelatedCmd: false,
+    changedFiles,
+    result: await runOneCommand('test', testEntry.cmd, testEntry.env, projectRoot),
+  };
+}
+
 export async function runVerify(opts: {
   json: boolean;
   bail: boolean;
   sinceBaseline?: boolean;
+  related?: boolean;
 }): Promise<void> {
   const { projectRoot, config } = requireConfig();
+
+  if (opts.related) {
+    // 전체 검증을 다시 돌지 않는다 — --related 의 목적 자체가 빠른 부분 실행이다.
+    const changedFiles = (await gitDirtyFiles(projectRoot)) ?? [];
+    const outcome = await runRelatedTests(config, projectRoot, changedFiles);
+    if (opts.json) {
+      process.stdout.write(`${JSON.stringify(outcome, null, 2)}\n`);
+    } else {
+      if (!outcome.usedRelatedCmd) {
+        process.stdout.write(
+          '\n  relatedCmd 가 설정돼 있지 않습니다 — 전체 테스트로 폴백합니다.\n' +
+            '  (config.json 에 relatedCmd 를 설정하면 변경 파일에 관련된 테스트만 실행합니다. 예시: engine/templates/related-cmd-examples.md)\n',
+        );
+      }
+      process.stdout.write(
+        `${renderVerify({ passed: isCheckPassed(outcome.result), results: [outcome.result] }, caps())}\n`,
+      );
+    }
+    process.exit(isCheckPassed(outcome.result) ? 0 : 1);
+  }
+
   const report = await runVerifyChecks(config.verify, projectRoot, { bail: opts.bail });
 
   if (opts.sinceBaseline) {

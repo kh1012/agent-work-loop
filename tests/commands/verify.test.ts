@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { VerifyMap } from '../../src/commands/config.js';
+import type { AwlConfig, VerifyMap } from '../../src/commands/config.js';
 import {
   type VerifyReport,
   buildVerifyBaseline,
@@ -10,8 +10,10 @@ import {
   isCheckPassed,
   readVerifyBaseline,
   resolveSinceBaseline,
+  runRelatedTests,
   runVerifyChecks,
   sinceBaselineFallbackMessage,
+  substituteRelatedCmd,
   verifyBaselinePath,
   writeVerifyBaseline,
 } from '../../src/commands/verify.js';
@@ -463,5 +465,55 @@ describe('isCheckPassed (WI-H AC-05, 스파이크 지적 — 4곳 중복 통합)
     expect(
       isCheckPassed({ name: 'x', exitCode: 0, durationMs: 1, output: '', timedOut: true }),
     ).toBe(false);
+  });
+});
+
+describe('substituteRelatedCmd (WI-I AC-04)', () => {
+  it('{files} 를 변경 파일 목록(공백 구분)으로 치환한다', () => {
+    expect(substituteRelatedCmd('vitest related {files} --run', ['a.ts', 'b.ts'])).toBe(
+      'vitest related a.ts b.ts --run',
+    );
+  });
+
+  it('{files} 가 여러 번 있어도 전부 치환한다', () => {
+    expect(substituteRelatedCmd('echo {files} {files}', ['a.ts'])).toBe('echo a.ts a.ts');
+  });
+});
+
+describe('runRelatedTests (WI-I AC-04) — relatedCmd 있으면 그것만, 없으면 전체 test 로 폴백', () => {
+  function baseConfig(overrides: Partial<AwlConfig> = {}): AwlConfig {
+    return {
+      project: 'p',
+      mainLanguage: 'typescript',
+      character: '',
+      engineVersion: '0.0.0',
+      verify: { typecheck: null, lint: null, test: null, e2e: null },
+      ...overrides,
+    };
+  }
+
+  it('relatedCmd 가 있으면 {files} 를 치환해 실행하고 usedRelatedCmd:true 를 표시한다', async () => {
+    const config = baseConfig({
+      relatedCmd: `${NODE} -e "process.exit(process.argv[1]==='a.ts'?0:1)" {files}`,
+    });
+    const outcome = await runRelatedTests(config, process.cwd(), ['a.ts']);
+    expect(outcome.usedRelatedCmd).toBe(true);
+    expect(outcome.changedFiles).toEqual(['a.ts']);
+    expect(outcome.result.exitCode).toBe(0);
+  });
+
+  it('relatedCmd 가 없으면 전체 test 체크로 폴백한다(무음 스킵 금지)', async () => {
+    const config = baseConfig({ verify: vmap({ test: { cmd: `${NODE} --version` } }) });
+    const outcome = await runRelatedTests(config, process.cwd(), ['a.ts']);
+    expect(outcome.usedRelatedCmd).toBe(false);
+    expect(outcome.result.name).toBe('test');
+    expect(outcome.result.exitCode).toBe(0);
+  });
+
+  it('relatedCmd 도 없고 test 도 설정 안 됐으면 command_not_found 로 표시한다(크래시 안 함)', async () => {
+    const config = baseConfig();
+    const outcome = await runRelatedTests(config, process.cwd(), ['a.ts']);
+    expect(outcome.usedRelatedCmd).toBe(false);
+    expect(outcome.result.error).toBe('command_not_found');
   });
 });

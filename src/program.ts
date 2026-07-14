@@ -242,14 +242,26 @@ export function buildProgram(): Command {
     .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
     .option('--bail', '첫 실패에서 멈춥니다')
     .option('--since-baseline', '베이스라인 대비 신규 실패만 회귀로 판정합니다')
-    .action(async (opts: { json?: boolean; bail?: boolean; sinceBaseline?: boolean }) => {
-      const { runVerify } = await import('./commands/verify.js');
-      await runVerify({
-        json: opts.json === true,
-        bail: opts.bail === true,
-        sinceBaseline: opts.sinceBaseline === true,
-      });
-    });
+    .option(
+      '--related',
+      '변경된 파일에 관련된 테스트만 실행합니다(relatedCmd 필요, 없으면 전체 테스트로 폴백)',
+    )
+    .action(
+      async (opts: {
+        json?: boolean;
+        bail?: boolean;
+        sinceBaseline?: boolean;
+        related?: boolean;
+      }) => {
+        const { runVerify } = await import('./commands/verify.js');
+        await runVerify({
+          json: opts.json === true,
+          bail: opts.bail === true,
+          sinceBaseline: opts.sinceBaseline === true,
+          related: opts.related === true,
+        });
+      },
+    );
 
   // 스킬이 치는 명령(숨김): state get / set
   const state = program.command('state', { hidden: true }).description('루프 상태를 읽고 씁니다');
