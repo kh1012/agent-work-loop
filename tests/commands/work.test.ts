@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isolatedCommit, startBaseline } from '../../src/commands/commit.js';
 import { collectChecks } from '../../src/commands/doctor.js';
 import {
@@ -426,6 +426,39 @@ describe('runWorkNew --worktree (WI-F AC-03, 실제 git 저장소로 통합 확�
     expect(fs.existsSync(path.join(proj, '.awl-worktrees'))).toBe(false);
     const state = JSON.parse(fs.readFileSync(path.join(proj, '.awl', 'state.json'), 'utf8'));
     expect(state.workitemWorktreePath).toBeUndefined();
+  });
+
+  it('중복 ID 로 --worktree 시도가 실패하면 orphan worktree/브랜치를 안 남긴다 (AC-06, 리뷰 지적 — 실제 버그 재현)', async () => {
+    const proj = realGitProject();
+    await runWorkNew('WI-DUP', undefined, {}); // 워크트리 없이 먼저 현재 워크아이템으로 만든다.
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('exit');
+    }) as unknown as typeof process.exit);
+
+    await expect(runWorkNew('WI-DUP', undefined, { worktree: true })).rejects.toThrow('exit');
+
+    exitSpy.mockRestore();
+    stderrSpy.mockRestore();
+
+    // 실패했으니 git worktree/브랜치가 전혀 안 만들어져야 한다(orphan 없음).
+    expect(fs.existsSync(path.join(proj, '.awl-worktrees', 'WI-DUP'))).toBe(false);
+    const worktrees = execFileSync('git', ['worktree', 'list'], { cwd: proj, encoding: 'utf8' });
+    expect(worktrees).not.toContain('WI-DUP');
+    const branches = execFileSync('git', ['branch', '--list'], { cwd: proj, encoding: 'utf8' });
+    expect(branches).not.toContain('work/WI-DUP');
+  });
+
+  it('워크아이템 ID 에 공백/슬래시가 있어도 git worktree/브랜치 이름이 안전하게 만들어진다 (AC-06, 리뷰 지적 — 테스트 공백)', async () => {
+    const proj = realGitProject();
+
+    await runWorkNew('WI TEST/danger', undefined, { worktree: true });
+
+    const wtPath = path.join(proj, '.awl-worktrees', 'WI_TEST_danger');
+    expect(fs.existsSync(wtPath)).toBe(true); // 경로 자체가 sanitize 된 이름으로 만들어짐
+    const branches = execFileSync('git', ['branch', '--list'], { cwd: proj, encoding: 'utf8' });
+    expect(branches).toContain('work/WI_TEST_danger');
   });
 });
 

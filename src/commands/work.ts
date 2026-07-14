@@ -387,6 +387,16 @@ export async function runWorkNew(
   const now = new Date().toISOString();
   const branch = await gitBranch(root);
 
+  // 먼저 검증한다(리뷰 지적 AC-06 — 실제 버그였다). git worktree/브랜치를 실제로
+  // 만들기 전에 ID 가 유효한지(중복 아님 등) 확인해야, 검증에 실패했을 때
+  // orphan 워크트리/브랜치가 안 남는다. createWorkitem 은 순수 함수라 이 사전
+  // 검증 호출은 아무 부작용도 없다.
+  const precheck = createWorkitem(loadState(root), id, now, branch, description);
+  if (precheck.error) {
+    process.stderr.write(`\n  ${precheck.error}\n`);
+    process.exit(1);
+  }
+
   let worktreePath: string | undefined;
   if (opts.worktree) {
     const branchName =
@@ -402,6 +412,8 @@ export async function runWorkNew(
 
   const result = createWorkitem(loadState(root), id, now, branch, description, worktreePath);
   if (result.error) {
+    // precheck 를 이미 통과했으므로 여기서 다시 에러가 나는 건 예외적인 경우(예:
+    // precheck 와 이 호출 사이에 state.json 이 바뀜)뿐이다 — 방어적으로 유지한다.
     process.stderr.write(`\n  ${result.error}\n`);
     process.exit(1);
   }
