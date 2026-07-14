@@ -5,6 +5,7 @@ import { recordsDir } from '../core/paths.js';
 import { run } from '../core/runner.js';
 import { type Caps, caps, makeColors } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
+import { getCriterion, loadState } from './state.js';
 
 /**
  * awl record — 구조를 강제하는 기록.
@@ -258,6 +259,21 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
     const rel = await captureDiff(id, at, projectRoot);
     if (rel) {
       data.diff = rel;
+    }
+  }
+
+  // blocked 에만 baseline SHA 를 붙인다(막힌 코드를 버리므로 출발점 복원에 필요).
+  // 나머지 타입에는 넣지 않는다 — 안 쓰는 필드를 만들지 않는다(WI-7 D-21).
+  if (type === 'blocked' && projectRoot && data.baseline === undefined) {
+    const state = loadState(projectRoot);
+    const focus =
+      (typeof data.criterion === 'string' && data.criterion) ||
+      (typeof state.currentFocus === 'string' ? state.currentFocus : undefined);
+    if (focus) {
+      const crit = getCriterion(state, focus);
+      if (crit && typeof crit.baseline === 'string') {
+        data.baseline = crit.baseline;
+      }
     }
   }
 
