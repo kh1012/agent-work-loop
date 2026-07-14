@@ -10,6 +10,7 @@ import {
   readVerifyBaseline,
   resolveSinceBaseline,
   runVerifyChecks,
+  sinceBaselineFallbackMessage,
   verifyBaselinePath,
   writeVerifyBaseline,
 } from '../../src/commands/verify.js';
@@ -424,5 +425,17 @@ describe('resolveSinceBaseline (WI-G AC-06/AC-07, 리뷰 지적)', () => {
     expect(legacyBaseline).not.toBeNull();
     const r = resolveSinceBaseline(report, legacyBaseline, 'WI-A');
     expect(r).toEqual({ available: false, reason: 'workitem_mismatch' });
+  });
+});
+
+describe('sinceBaselineFallbackMessage (WI-H AC-04, 스파이크 지적 — 실행 불가능한 조치 안내)', () => {
+  it('workitem_mismatch 메시지는 awl work new 재실행을 권하지 않는다 — 그 명령은 이미 존재하는 워크아이템 ID 에 대해 항상 실패한다', () => {
+    const msg = sinceBaselineFallbackMessage('workitem_mismatch');
+    expect(msg).not.toContain('awl work new');
+  });
+
+  it('no_baseline 메시지는 여전히 awl work new 를 정확하게 안내한다(이 경우엔 실제로 유효한 조치다)', () => {
+    const msg = sinceBaselineFallbackMessage('no_baseline');
+    expect(msg).toContain('awl work new');
   });
 });

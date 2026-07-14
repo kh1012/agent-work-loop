@@ -286,11 +286,15 @@ export function resolveSinceBaseline(
   return { available: true, comparison: compareSinceBaseline(report, baseline) };
 }
 
-function sinceBaselineFallbackMessage(reason: 'no_baseline' | 'workitem_mismatch'): string {
+export function sinceBaselineFallbackMessage(reason: 'no_baseline' | 'workitem_mismatch'): string {
   if (reason === 'workitem_mismatch') {
     return (
       '\n  검증 베이스라인이 다른 워크아이템 것입니다 — --since-baseline 을 못 씁니다. 전체 검증 결과로 폴백합니다.\n' +
-      '  (work switch 로 전환한 뒤 새 베이스라인을 캡처하려면 이 워크아이템을 다시 awl work new 로 시작해야 합니다.)\n'
+      // (WI-H AC-04, 스파이크 지적) "awl work new 로 다시 시작하라"는 예전 안내는
+      // 실행하면 항상 실패했다 — createWorkitem 이 이미 존재하는 ID 를 무조건
+      // 거부하기 때문이다(work switch 를 쓰라고 안내할 뿐). 현재 이 워크아이템의
+      // 베이스라인을 다시 캡처하는 수단은 없다 — 없는 척하지 않고 정직하게 알린다.
+      '  (이 워크아이템의 베이스라인을 다시 캡처하는 기능은 아직 없습니다 — 지금은 위 전체 검증 결과로 판단하세요.)\n'
     );
   }
   return (
