@@ -23,6 +23,16 @@ export function buildProgram(): Command {
     .addHelpText('beforeAll', `${BANNER}\n`)
     .showHelpAfterError();
 
+  // 사람이 치는 명령: init (처음 설정)
+  program
+    .command('init')
+    .description('이 프로젝트에 Agent Work Loop 를 설정합니다')
+    .option('--yes', '질문 없이 자동 감지된 값으로 진행합니다 (비대화형)')
+    .action(async (opts: { yes?: boolean }) => {
+      const { runInit } = await import('./commands/init.js');
+      await runInit({ yes: opts.yes === true });
+    });
+
   // 사람이 치는 명령: doctor (아무것도 설치·수리하지 않고 점검만 한다)
   program
     .command('doctor')
