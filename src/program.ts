@@ -81,7 +81,11 @@ export function buildProgram(): Command {
     });
 
   // 사람이 치는 명령: rules (적용되는 규칙 보기, rules edit 으로 편집)
-  const rules = program.command('rules').description('이 프로젝트에 적용되는 규칙을 봅니다');
+  // enablePositionalOptions: 하위 명령(promote 등) 앞뒤로 옵션 경계를 분명히 한다(commander 권장 관행).
+  const rules = program
+    .command('rules')
+    .description('이 프로젝트에 적용되는 규칙을 봅니다')
+    .enablePositionalOptions();
   rules
     .option('--scope <scope>', '범위로 거릅니다 (implement 등)')
     .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
@@ -96,19 +100,23 @@ export function buildProgram(): Command {
       const { runRules } = await import('./commands/rules.js');
       runRules({ edit: true });
     });
+  // --rule-scope(부모 rules 의 --scope 필터와 다른 이름): commander(v12.1.0 실증)는 부모/자식이 같은
+  // 플래그 이름을 쓰면 enablePositionalOptions 를 켜도 자식 액션의 opts 에서 그 값이 통째로 빠진다
+  // (부모 --scope 와 이름이 겹쳐 조용히 유실됨 — 실측 확인, docs/decisions.md 참조). 그래서 새로 추가하는
+  // 이 플래그만 이름을 달리한다. rules.ts 의 내부 필드명(scope)·frontmatter(scope:)는 그대로 둔다.
   rules
     .command('promote <deltaId>')
     .description('교훈을 규칙으로 승격합니다 (applies/counter 필수, 사람이 실행)')
     .option('--applies <cond>', '적용 조건 (필수)')
     .option('--counter <cond>', '반증 조건 (필수)')
-    .option('--scope <scope>', '로드 단계 (audit/criteria/implement/commit/review)')
+    .option('--rule-scope <scope>', '로드 단계 (audit/criteria/implement/commit/review)')
     .action(
-      async (deltaId: string, opts: { applies?: string; counter?: string; scope?: string }) => {
+      async (deltaId: string, opts: { applies?: string; counter?: string; ruleScope?: string }) => {
         const { runRulesPromote } = await import('./commands/rules.js');
         runRulesPromote(deltaId, {
           applies: opts.applies,
           counter: opts.counter,
-          scope: opts.scope,
+          scope: opts.ruleScope,
         });
       },
     );

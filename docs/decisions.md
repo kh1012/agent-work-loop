@@ -175,6 +175,23 @@
 - **promote 는 applies/counter 를 강제**: 둘 중 하나라도 없으면 거부한다. 적용 조건 없는 규칙은 다른 프로젝트로 잘못 끌려가고, 반증 조건 없는 규칙은 검증 불가능한 신념이 된다. 정적 검사로 만들 수 있으면 검사기를 안내한다(졸업). 상한 15는 전역이 아니라 **이 프로젝트에 로드되는 규칙** 기준.
 - **세대 지표는 프로젝트별**: `~/.awl/generations/<project>/<workitem>.json`. 0.1.0 은 기록만, 대시보드 없음. blockedRatio 가 세대를 거쳐 안 내려가면 델타를 쌓는 게 아니라 모으고만 있는 것이다.
 
+## D-22. `rules promote --scope` 가 부모 `rules --scope` 와 충돌 — 빌드된 CLI 실증이 잡은 결함
+
+- **배경**: WI-7 유닛 테스트(`buildRuleFile`/`validatePromoteOpts`/`checkRuleLoadLimit` 등 순수 함수)는 전부 통과하고 0.1.0 릴리스 커밋까지 나간 뒤, [[D-19]]와 같은 방식으로(WI-6 dogfooding 기록으로) `dist/cli.js` 를 격리 홈에서 직접 실행해 전체 파이프라인(collect→record→2회 반복 알림→promote→상한 경고→state set 병합)을 실증하는 과정에서 발견했다. 유닛 테스트는 `runRulesPromote`/CLI 파싱 계층을 거치지 않아 이 결함을 못 잡았다 — **CLI 인자 파싱 계층의 버그는 CLI 를 실제로 실행해야만 드러난다**는 사례.
+- **증상**: `awl rules promote D-001 --scope implement --applies "..." --counter "..."` 를 실행하면 규칙은 만들어지지만 생성된 `.md` 의 frontmatter 에 `scope:` 줄이 아예 없다. `--scope` 값이 조용히 사라진다(에러 없음, 경고 없음).
+- **원인(commander 12.1.0 최소 재현으로 확정)**: 부모 명령(`rules`, `--scope <scope>` 필터 옵션 보유)과 자식 명령(`rules promote`, 별도로 `--scope <scope>` 옵션 선언)이 **같은 플래그 이름**을 쓰면, 자식 액션의 `opts` 에서 그 값이 통째로 빠진다. `.enablePositionalOptions()` 를 부모에 걸어도(공식 문서가 이런 부모/자식 옵션 경계 문제의 해법으로 안내하는 방법) 이 특정 충돌은 안 풀린다 — 별개의 옵션 파싱 경로 문제로 보인다. 최소 재현:
+  ```js
+  const rules = program.command('rules').enablePositionalOptions();
+  rules.option('--scope <scope>', 'parent').action((opts) => {});
+  const promote = rules.command('promote <id>');
+  promote.option('--scope <scope>', 'child').option('--applies <a>').action((id, opts) => {
+    console.log(opts); // { applies: 'x' } — scope 없음. 이름을 --rule-scope 로 바꾸면 정상.
+  });
+  ```
+- **결정**: `promote` 의 플래그만 `--rule-scope <scope>` 로 이름을 바꾼다(부모 `rules --scope` 필터는 [[D-16]] 이후 이미 쓰이고 스킬 문서([조사] 단계 `awl rules --scope audit --json`)에도 나와 있어, 바꾸면 파급이 더 크다 — 새로 추가하는 쪽만 바꾸는 게 최소 변경). `rules.ts` 내부 필드명(`scope`)과 규칙 파일 frontmatter(`scope:`)는 그대로 둔다 — CLI 플래그 문자열만 갈랐다.
+- **재발 방지**: 부모/자식 명령이 옵션 이름을 공유해야 할 것 같으면, commander 로 실제로 최소 재현해 자식 opts 에 값이 들어오는지 먼저 확인한다. 이 문제는 타입체커도 린터도 못 잡는다(둘 다 `string | undefined` 타입은 맞고, 런타임에 값이 `undefined` 로 빠질 뿐이다) — **빌드된 CLI 를 실제로 실행하는 것만이 오라클이다.**
+- **검증**: 회귀 격리 홈에서 `awl rules promote <id> --rule-scope implement --applies x --counter y` → frontmatter 에 `scope: implement` 확인. 부모 `awl rules --scope implement` 필터도 그대로 동작(무태그 규칙 + `implement` 태그 규칙만 노출) 확인 — 리네임이 부모 쪽을 깨지 않았다.
+
 # Windows 리스크 목록 (macOS에서만 검증함 — Windows 검증 시 체크리스트로 사용)
 
 이 프로젝트는 현재 macOS에서만 검증한다. 아래는 Windows에서 깨질 수 있는 지점과 대비다. 나중에 Windows에서 사람이 검증할 때 이 목록을 하나씩 확인한다.
