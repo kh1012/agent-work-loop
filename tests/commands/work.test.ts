@@ -141,6 +141,22 @@ describe('createWorkitem (WI-D AC-03, awl work new)', () => {
     expect(result.error).toContain('switch');
   });
 
+  it('현재 워크아이템과 대소문자만 다른 ID 로 new 하면 거부한다 (AC-10, 리뷰 지적)', () => {
+    const result = createWorkitem({ workitem: 'WI-D', criteria: [] }, 'wi-d', 't', null);
+    expect(result.error).toContain('WI-D');
+    expect(result.state.workitem).toBe('WI-D');
+  });
+
+  it('레지스트리 항목과 대소문자만 다른 ID 로 new 하면 거부한다 (AC-10, 리뷰 지적)', () => {
+    const before = {
+      workitem: 'WI-D',
+      criteria: [],
+      workitems: { 'WI-C': { status: 'paused', createdAt: 't', criteria: [] } },
+    };
+    const result = createWorkitem(before, 'wi-c', 't2', null);
+    expect(result.error).toContain('switch');
+  });
+
   it('빈 ID 는 거부한다', () => {
     const result = createWorkitem({}, '   ', 't', null);
     expect(result.error).toBeDefined();

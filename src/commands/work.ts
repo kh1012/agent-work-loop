@@ -177,14 +177,20 @@ export function createWorkitem(
   if (!trimmed) {
     return { state, error: '워크아이템 ID 를 입력하세요.' };
   }
+  // ID 비교는 대소문자를 구분하지 않는다(리뷰 지적 AC-10) — 'WI-D' 와 'wi-d' 를
+  // 사람 눈엔 같지만 시스템은 다른 워크아이템으로 갈라놓는 사고를 막는다. 에러
+  // 메시지는 실제로 존재하는(원래 표기의) ID 를 보여준다.
   const currentId = typeof state.workitem === 'string' ? state.workitem : null;
-  if (trimmed === currentId) {
-    return { state, error: `이미 현재 워크아이템입니다: ${trimmed}` };
+  if (currentId && trimmed.toLowerCase() === currentId.toLowerCase()) {
+    return { state, error: `이미 현재 워크아이템입니다: ${currentId}` };
   }
-  if (trimmed in registryOf(state)) {
+  const existingKey = Object.keys(registryOf(state)).find(
+    (k) => k.toLowerCase() === trimmed.toLowerCase(),
+  );
+  if (existingKey) {
     return {
       state,
-      error: `이미 존재하는 워크아이템입니다: ${trimmed} (awl work switch ${trimmed} 를 쓰세요)`,
+      error: `이미 존재하는 워크아이템입니다: ${existingKey} (awl work switch ${existingKey} 를 쓰세요)`,
     };
   }
 
