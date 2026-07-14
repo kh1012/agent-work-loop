@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isolatedCommit, startBaseline } from '../../src/commands/commit.js';
 import { collectChecks } from '../../src/commands/doctor.js';
 import * as stateModule from '../../src/commands/state.js';
+import * as verifyModule from '../../src/commands/verify.js';
 import { readVerifyBaseline } from '../../src/commands/verify.js';
 import {
   abandonWorkitem,
@@ -667,6 +668,31 @@ describe('runWorkNew — 검증 베이스라인 캡처 (WI-G AC-01)', () => {
 
     expect(fs.existsSync(path.join(proj, '.awl', 'verify-baseline.json'))).toBe(false);
     expect(written).toContain('--since-baseline 을 못 씁니다');
+  });
+
+  it('writeVerifyBaseline 이 실패해도(디스크/권한 등) 워크아이템 생성 자체는 크래시하지 않는다 (AC-03, WI-H 스파이크 지적)', async () => {
+    realGitProjectWithConfig({
+      typecheck: { cmd: `${process.execPath} --version` },
+      lint: null,
+      test: null,
+      e2e: null,
+    });
+    const writeSpy = vi.spyOn(verifyModule, 'writeVerifyBaseline').mockImplementation(() => {
+      throw new Error('ENOSPC: no space left on device');
+    });
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    await expect(runWorkNew('WI-DISKFULL', undefined, {})).resolves.not.toThrow();
+
+    const state = JSON.parse(
+      fs.readFileSync(path.join(process.cwd(), '.awl', 'state.json'), 'utf8'),
+    );
+    expect(state.workitem).toBe('WI-DISKFULL'); // 워크아이템 생성은 성공.
+    const warned = stderrSpy.mock.calls.map((c) => String(c[0])).join('');
+    expect(warned).toContain('베이스라인');
+
+    writeSpy.mockRestore();
+    stderrSpy.mockRestore();
   });
 
   it('config 가 없으면(레거시/미설정 프로젝트) 크래시 없이 베이스라인을 건너뛴다', async () => {

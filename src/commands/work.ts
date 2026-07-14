@@ -481,12 +481,20 @@ export async function runWorkNew(
     const loaded = loadConfig(verifyRoot);
     if (loaded.config) {
       const report = await runVerifyChecks(loaded.config.verify, verifyRoot, { bail: false });
-      // id.trim() — createWorkitem 이 state.workitem 에 저장하는 값(trimmed)과
-      // 정확히 일치해야 나중에 resolveSinceBaseline 의 workitem 비교가 맞는다.
-      writeVerifyBaseline(verifyRoot, buildVerifyBaseline(report, now, id.trim()));
-      process.stdout.write(
-        `  검증 베이스라인을 저장했습니다 (${report.results.map((r) => `${r.name}:${r.exitCode === 0 && !r.error && !r.timedOut ? '통과' : '실패'}`).join(', ')}).\n`,
-      );
+      try {
+        // id.trim() — createWorkitem 이 state.workitem 에 저장하는 값(trimmed)과
+        // 정확히 일치해야 나중에 resolveSinceBaseline 의 workitem 비교가 맞는다.
+        writeVerifyBaseline(verifyRoot, buildVerifyBaseline(report, now, id.trim()));
+        process.stdout.write(
+          `  검증 베이스라인을 저장했습니다 (${report.results.map((r) => `${r.name}:${r.exitCode === 0 && !r.error && !r.timedOut ? '통과' : '실패'}`).join(', ')}).\n`,
+        );
+      } catch (e) {
+        // 베이스라인은 부가 기능이다 — 저장이 실패해도(디스크/권한 등) 워크아이템
+        // 생성 자체는 이미 끝났으니 크래시시키지 않는다(WI-H 스파이크 지적, AC-03).
+        process.stderr.write(
+          `\n  검증 베이스라인 저장에 실패했습니다: ${String(e)}\n  나중에 awl verify --since-baseline 을 못 씁니다.\n`,
+        );
+      }
     } else {
       process.stdout.write(
         '  config 를 못 읽어 검증 베이스라인을 건너뛰었습니다. 나중에 awl verify --since-baseline 을 못 씁니다.\n',
