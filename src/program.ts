@@ -301,7 +301,7 @@ export function buildProgram(): Command {
     .command('evolve', { hidden: true })
     .description('기록을 모아 교훈으로, 교훈을 규칙으로 잇습니다')
     .option('--collect', '이번 워크아이템의 기록을 모아 JSON으로 출력합니다')
-    .option('--record', '교훈을 deltas 에 기록합니다 (--json 으로 데이터)')
+    .option('--record', '교훈을 gotchas 에 기록합니다 (--json 으로 데이터)')
     .option('--json [data]', 'collect: 출력 플래그 / record: 교훈 데이터(JSON 문자열)')
     .option('--workitem <wi>', '워크아이템으로 거릅니다 (--collect)')
     .action(
