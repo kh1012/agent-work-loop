@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+### 추가
+
+- **MINOR — `delta` 를 `gotcha` 로 개명.** `awl gotchas`(옛 `awl deltas`), `awl rules promote <gotchaId>`(옛 `<deltaId>`), 교훈 ID 체계도 `D-00x` 대신 `G-00x`. 기존 `~/.awl/deltas/*.json` 은 처음 접근하는 시점에 자동으로(무손실, 멱등) `~/.awl/gotchas/` 로 마이그레이션되고 백업도 남는다. `awl deltas` 는 0.4.0 까지 폐기 경고와 함께 그대로 동작한다(하위호환).
+
 ## [0.2.5] - 2026-07-14
 
 ### 추가
