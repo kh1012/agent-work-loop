@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { run } from '../core/runner.js';
 import { type Caps, caps, makeColors } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
 import { gitBranch } from './doctor.js';
@@ -20,6 +23,7 @@ export interface WorkSummary {
   current: boolean;
   branch?: string;
   createdAt?: string;
+  worktreePath?: string;
 }
 
 function countCriteria(criteria: unknown): { passed: number; total: number } {
@@ -42,6 +46,8 @@ export function summarizeWorkitems(state: Record<string, unknown>): WorkSummary[
       current: true,
       branch: typeof state.workitemBranch === 'string' ? state.workitemBranch : undefined,
       createdAt: typeof state.workitemCreatedAt === 'string' ? state.workitemCreatedAt : undefined,
+      worktreePath:
+        typeof state.workitemWorktreePath === 'string' ? state.workitemWorktreePath : undefined,
     });
   }
 
@@ -63,6 +69,7 @@ export function summarizeWorkitems(state: Record<string, unknown>): WorkSummary[
       current: false,
       branch: typeof entry.branch === 'string' ? entry.branch : undefined,
       createdAt: typeof entry.createdAt === 'string' ? entry.createdAt : undefined,
+      worktreePath: typeof entry.worktreePath === 'string' ? entry.worktreePath : undefined,
     });
   }
 
@@ -84,8 +91,14 @@ function renderWorkList(list: WorkSummary[], c: Caps): string {
   const out: string[] = ['', `  ${color.bold('워크아이템')}`, ''];
   for (const w of list) {
     const marker = w.current ? color.green('*') : ' ';
-    const line = `  ${marker} ${w.id.padEnd(idWidth, ' ')}${w.status.padEnd(statusWidth, ' ')}${w.passed}/${w.total} 통과`;
-    out.push(w.branch ? `${line}  ${color.dim(w.branch)}` : line);
+    let line = `  ${marker} ${w.id.padEnd(idWidth, ' ')}${w.status.padEnd(statusWidth, ' ')}${w.passed}/${w.total} 통과`;
+    if (w.branch) {
+      line += `  ${color.dim(w.branch)}`;
+    }
+    if (w.worktreePath) {
+      line += `  ${color.dim(`(worktree: ${w.worktreePath})`)}`;
+    }
+    out.push(line);
   }
   return out.join('\n');
 }
@@ -99,6 +112,7 @@ export interface WorkitemEntry {
   loop?: unknown;
   criteria: Record<string, unknown>[];
   currentFocus?: string;
+  worktreePath?: string;
 }
 
 function registryOf(state: Record<string, unknown>): Record<string, WorkitemEntry> {
@@ -134,6 +148,9 @@ function archiveCurrent(
       ? (migrated.criteria as Record<string, unknown>[])
       : [],
     ...(typeof migrated.currentFocus === 'string' ? { currentFocus: migrated.currentFocus } : {}),
+    ...(typeof migrated.workitemWorktreePath === 'string'
+      ? { worktreePath: migrated.workitemWorktreePath }
+      : {}),
   };
   const {
     workitem: _w,
@@ -143,10 +160,11 @@ function archiveCurrent(
     workitemBranch: _b,
     workitemCreatedAt: _ca,
     workitemDescription: _d,
-    // currentFocus 는 워크아이템별 상태다(리뷰 지적 AC-09) — rest 로 흘려보내면
-    // 다음(새) 워크아이템의 최상위로 그대로 새어 들어가 record blocked 의 baseline
-    // 추론이 엉뚱한 AC 를 가리킬 수 있다. entry 스냅샷에만 담고 여기선 제거한다.
+    // currentFocus/worktreePath 는 워크아이템별 상태다(리뷰 지적 AC-09, 같은 실수를
+    // worktreePath 에서 반복하지 않는다) — rest 로 흘려보내면 다음(새) 워크아이템의
+    // 최상위로 그대로 새어 들어간다. entry 스냅샷에만 담고 여기선 제거한다.
     currentFocus: _cf,
+    workitemWorktreePath: _wtp,
     ...rest
   } = migrated;
   return {
@@ -172,6 +190,7 @@ export function createWorkitem(
   now: string,
   branch: string | null,
   description?: string,
+  worktreePath?: string,
 ): WorkActionResult {
   const trimmed = id.trim();
   if (!trimmed) {
@@ -205,6 +224,7 @@ export function createWorkitem(
       workitemCreatedAt: now,
       ...(branch ? { workitemBranch: branch } : {}),
       ...(description ? { workitemDescription: description } : {}),
+      ...(worktreePath ? { workitemWorktreePath: worktreePath } : {}),
     },
   };
 }
@@ -247,6 +267,7 @@ export function restoreWorkitem(
     ...(entry.branch ? { workitemBranch: entry.branch } : {}),
     ...(entry.description ? { workitemDescription: entry.description } : {}),
     ...(entry.currentFocus ? { currentFocus: entry.currentFocus } : {}),
+    ...(entry.worktreePath ? { workitemWorktreePath: entry.worktreePath } : {}),
     workitems: remainingRegistry,
   };
 
@@ -315,18 +336,83 @@ export function runWorkList(opts: { json: boolean }): void {
   }
 }
 
-export async function runWorkNew(id: string, description: string | undefined): Promise<void> {
+/** git ref/디렉토리 이름에 안전한 문자만 남긴다(commit.ts 의 sanitizeRefComponent 와 같은 이유 — 공백 등 잘못된 문자를 _ 로). */
+function sanitizeForGit(s: string): string {
+  return s
+    .trim()
+    .replace(/[^A-Za-z0-9._-]/g, '_')
+    .replace(/\.{2,}/g, '_');
+}
+
+/**
+ * git worktree add 로 격리 디렉토리를 만든다(WI-F). 같은 브랜치를 두 워크트리에서
+ * 동시에 체크아웃할 수 없어 새 브랜치가 필요하다(스파이크로 실증, D-29).
+ * 실패해도 크래시하지 않는다 — 호출자가 이유를 보여주고 중단할지 정한다.
+ */
+async function createGitWorktree(
+  root: string,
+  targetPath: string,
+  branchName: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const r = await run({
+    cmd: 'git',
+    args: ['worktree', 'add', targetPath, '-b', branchName],
+    cwd: root,
+    timeoutMs: 30_000,
+  });
+  if (r.exitCode !== 0) {
+    return { ok: false, error: (r.stderr || r.stdout).trim() };
+  }
+  return { ok: true };
+}
+
+/** .awl-worktrees/ 를 .gitignore 에 추가한다(없으면). init.ts 의 ensureGitignore 와 같은 패턴. */
+function ensureWorktreesGitignored(root: string): void {
+  const gi = path.join(root, '.gitignore');
+  const target = '.awl-worktrees/';
+  const content = fs.existsSync(gi) ? fs.readFileSync(gi, 'utf8') : '';
+  if (content.split(/\r?\n/).some((line) => line.trim() === target)) {
+    return;
+  }
+  const prefix = content.length > 0 && !content.endsWith('\n') ? '\n' : '';
+  fs.writeFileSync(gi, `${content}${prefix}${target}\n`);
+}
+
+export async function runWorkNew(
+  id: string,
+  description: string | undefined,
+  opts: { worktree?: string | boolean } = {},
+): Promise<void> {
   const root = requireRoot();
   const now = new Date().toISOString();
   const branch = await gitBranch(root);
-  const result = createWorkitem(loadState(root), id, now, branch, description);
+
+  let worktreePath: string | undefined;
+  if (opts.worktree) {
+    const branchName =
+      typeof opts.worktree === 'string' ? opts.worktree : `work/${sanitizeForGit(id)}`;
+    worktreePath = path.join(root, '.awl-worktrees', sanitizeForGit(id));
+    const created = await createGitWorktree(root, worktreePath, branchName);
+    if (!created.ok) {
+      process.stderr.write(`\n  워크트리를 만들지 못했습니다: ${created.error}\n`);
+      process.exit(1);
+    }
+    ensureWorktreesGitignored(root);
+  }
+
+  const result = createWorkitem(loadState(root), id, now, branch, description, worktreePath);
   if (result.error) {
     process.stderr.write(`\n  ${result.error}\n`);
     process.exit(1);
   }
   writeState(root, result.state);
   process.stdout.write(`\n  워크아이템을 만들었습니다: ${id}\n`);
-  process.stdout.write('  awl-loop 를 시작하세요.\n');
+  if (worktreePath) {
+    process.stdout.write(`  워크트리: ${worktreePath}\n`);
+    process.stdout.write(`  cd ${worktreePath} 로 이동해 거기서 awl-loop 를 시작하세요.\n`);
+  } else {
+    process.stdout.write('  awl-loop 를 시작하세요.\n');
+  }
 }
 
 export async function runWorkSwitch(id: string): Promise<void> {

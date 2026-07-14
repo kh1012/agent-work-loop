@@ -108,10 +108,17 @@ export function buildProgram(): Command {
   work
     .command('new <id> [description]')
     .description('새 워크아이템을 만들고 전환합니다 (현재 워크아이템은 보관됩니다)')
-    .action(async (id: string, description: string | undefined) => {
-      const { runWorkNew } = await import('./commands/work.js');
-      await runWorkNew(id, description);
-    });
+    .option('--worktree [branch]', '격리된 git worktree 를 만들어 그 안에서 시작합니다')
+    .action(
+      async (
+        id: string,
+        description: string | undefined,
+        opts: { worktree?: string | boolean },
+      ) => {
+        const { runWorkNew } = await import('./commands/work.js');
+        await runWorkNew(id, description, opts);
+      },
+    );
   work
     .command('switch <id>')
     .description('다른 워크아이템으로 전환합니다 (현재 워크아이템은 보관됩니다)')

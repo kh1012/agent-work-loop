@@ -1,8 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   abandonWorkitem,
   createWorkitem,
   restoreWorkitem,
+  runWorkNew,
   summarizeWorkitems,
 } from '../../src/commands/work.js';
 
@@ -310,5 +315,114 @@ describe('abandonWorkitem (WI-D AC-05, awl work abandon)', () => {
     const result = abandonWorkitem({ workitem: 'WI-D', criteria: [] }, 'wi-d', 't');
     expect(result.error).toBeUndefined();
     expect(result.state.workitem).toBeNull();
+  });
+});
+
+describe('worktreePath 가 archive/restore 를 오가도 새지 않는다 (WI-F AC-03, D-006 교훈 적용)', () => {
+  it('createWorkitem 에 worktreePath 를 넘기면 최상위 상태에 담긴다', () => {
+    const result = createWorkitem({}, 'WI-F', 't', 'main', undefined, '/repo/.awl-worktrees/WI-F');
+    expect(result.error).toBeUndefined();
+    expect(result.state.workitemWorktreePath).toBe('/repo/.awl-worktrees/WI-F');
+  });
+
+  it('worktreePath 없이 new 하면 그 필드 자체가 안 생긴다(불필요한 null 오염 없음)', () => {
+    const result = createWorkitem({}, 'WI-G', 't', 'main');
+    expect(result.state.workitemWorktreePath).toBeUndefined();
+  });
+
+  it('왕복 무손실: worktree 로 만든 워크아이템을 new 로 다른 것에 넘겼다가 switch 로 되돌리면 worktreePath 가 그대로 복원된다', () => {
+    const start = createWorkitem(
+      {},
+      'WI-F',
+      't0',
+      'main',
+      undefined,
+      '/repo/.awl-worktrees/WI-F',
+    ).state;
+    const afterNew = createWorkitem(start, 'WI-G', 't1', 'main');
+    expect(afterNew.error).toBeUndefined();
+    // 새 워크아이템(WI-G)은 WI-F 의 worktreePath 를 물려받지 않는다.
+    expect(afterNew.state.workitemWorktreePath).toBeUndefined();
+
+    const afterSwitch = restoreWorkitem(afterNew.state, 'WI-F', 't2', 'main');
+    expect(afterSwitch.error).toBeUndefined();
+    expect(afterSwitch.state.workitemWorktreePath).toBe('/repo/.awl-worktrees/WI-F');
+  });
+
+  it('summarizeWorkitems 가 worktreePath 를 포함해 목록에 보여준다', () => {
+    const list = summarizeWorkitems({
+      workitem: 'WI-F',
+      workitemWorktreePath: '/repo/.awl-worktrees/WI-F',
+      criteria: [],
+      workitems: {},
+    });
+    expect(list[0]?.worktreePath).toBe('/repo/.awl-worktrees/WI-F');
+  });
+});
+
+describe('runWorkNew --worktree (WI-F AC-03, 실제 git 저장소로 통합 확인)', () => {
+  const origCwd = process.cwd();
+  const origHome = process.env.AWL_HOME;
+
+  afterEach(() => {
+    process.chdir(origCwd);
+    if (origHome === undefined) {
+      delete process.env.AWL_HOME;
+    } else {
+      process.env.AWL_HOME = origHome;
+    }
+  });
+
+  function realGitProject(): string {
+    const proj = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-wt-')));
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: proj });
+    execFileSync('git', ['config', 'user.email', 't@t.com'], { cwd: proj });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: proj });
+    fs.writeFileSync(path.join(proj, 'f.txt'), 'base\n');
+    fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+    execFileSync('git', ['add', '-A'], { cwd: proj });
+    execFileSync('git', ['commit', '-q', '-m', 'base'], { cwd: proj });
+    process.chdir(proj);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-home-'));
+    return proj;
+  }
+
+  it('--worktree 로 실제 git worktree 를 만들고 workitemWorktreePath 를 state.json 에 기록한다', async () => {
+    const proj = realGitProject();
+
+    await runWorkNew('WI-TEST', undefined, { worktree: true });
+
+    const wtPath = path.join(proj, '.awl-worktrees', 'WI-TEST');
+    expect(fs.existsSync(wtPath)).toBe(true);
+    expect(fs.existsSync(path.join(wtPath, 'f.txt'))).toBe(true); // 기존 파일이 그 워크트리에도 체크아웃됨
+
+    const branches = execFileSync('git', ['branch', '--list'], { cwd: proj, encoding: 'utf8' });
+    expect(branches).toContain('work/WI-TEST');
+
+    const state = JSON.parse(fs.readFileSync(path.join(proj, '.awl', 'state.json'), 'utf8'));
+    expect(state.workitemWorktreePath).toBe(wtPath);
+    expect(fs.readFileSync(path.join(proj, '.gitignore'), 'utf8')).toContain('.awl-worktrees/');
+  });
+
+  it('--worktree <브랜치명> 을 명시하면 그 이름을 그대로 쓴다', async () => {
+    realGitProject();
+
+    await runWorkNew('WI-TEST2', undefined, { worktree: 'feature/custom' });
+
+    const branches = execFileSync('git', ['branch', '--list'], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+    });
+    expect(branches).toContain('feature/custom');
+  });
+
+  it('--worktree 없이 new 하면 워크트리를 안 만든다(회귀 없음)', async () => {
+    const proj = realGitProject();
+
+    await runWorkNew('WI-TEST3', undefined, {});
+
+    expect(fs.existsSync(path.join(proj, '.awl-worktrees'))).toBe(false);
+    const state = JSON.parse(fs.readFileSync(path.join(proj, '.awl', 'state.json'), 'utf8'));
+    expect(state.workitemWorktreePath).toBeUndefined();
   });
 });
