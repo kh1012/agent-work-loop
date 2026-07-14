@@ -60,6 +60,11 @@ describe('awl 프로그램 구성', () => {
     const deltasCmd = program.commands.find((c) => c.name() === 'deltas');
     expect(deltasCmd).toBeDefined();
   });
+
+  it('metrics 는 사람이 치는 명령이라 도움말에 보인다 (WI-P AC-04)', () => {
+    const program = buildProgram();
+    expect(program.helpInformation()).toContain('metrics');
+  });
 });
 
 describe('versionString — engine 버전 표시', () => {

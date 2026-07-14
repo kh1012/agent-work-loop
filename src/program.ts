@@ -201,6 +201,16 @@ export function buildProgram(): Command {
       runGotchas({ json: opts.json === true });
     });
 
+  // 사람이 치는 명령: metrics (세대별 프록시 지표 추세, WI-P)
+  program
+    .command('metrics')
+    .description('워크아이템(세대)별 프록시 지표 추세를 봅니다 (토큰 직접 측정 아님)')
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .action(async (opts: { json?: boolean }) => {
+      const { runMetrics } = await import('./commands/metrics.js');
+      runMetrics({ json: opts.json === true });
+    });
+
   // 폐기 예정(0.4.0 까지 유지): deltas 는 gotchas 의 옛 이름이다.
   program
     .command('deltas', { hidden: true })
