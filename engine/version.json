@@ -1,4 +1,4 @@
 {
-  "engineVersion": "0.2.3",
+  "engineVersion": "0.2.4",
   "note": "~/.awl/engine 으로 복사되는 스킬·검사기·템플릿·마이그레이션. skills/ 에 awl-loop 스킬이 들어있습니다."
 }
