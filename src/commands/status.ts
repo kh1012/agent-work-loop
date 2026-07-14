@@ -12,6 +12,12 @@ import { loadState } from './state.js';
  * 기존 loadState/readRecords 를 조합할 뿐, 새 저장소를 만들지 않는다.
  */
 
+/** dependsOn 이 아직 안 끝난(passed 아닌) 완료 조건. 순수 계산이지 판단이 아니다(WI-E). */
+export interface BlockedByDeps {
+  id: string;
+  waitingOn: string[];
+}
+
 export interface StatusReport {
   generation: number;
   phase: string | null;
@@ -22,9 +28,32 @@ export interface StatusReport {
     blocked: number;
     inProgress: number;
     pending: number;
+    blockedByDeps: BlockedByDeps[];
   };
   records: { total: number; byType: Record<string, number> };
   lastAttempt: string | null;
+}
+
+/**
+ * dependsOn 그래프를 순회해 아직 안 끝난 선행 완료조건이 있는 것만 뽑는다.
+ * 이미 passed 인 완료조건은(dependsOn 이 나중에 붙었더라도) 블록으로 안 본다 —
+ * 이미 끝난 일을 다시 막을 이유가 없다. 어느 걸 먼저 할지 정하는 건 여전히
+ * 스킬(에이전트) 몫이다 — 여기선 계산만 한다.
+ */
+function computeBlockedByDeps(criteria: Record<string, unknown>[]): BlockedByDeps[] {
+  const passedIds = new Set(criteria.filter((c) => c.status === 'passed').map((c) => String(c.id)));
+  const blocked: BlockedByDeps[] = [];
+  for (const c of criteria) {
+    if (c.status === 'passed') {
+      continue;
+    }
+    const dependsOn = Array.isArray(c.dependsOn) ? (c.dependsOn as unknown[]) : [];
+    const waitingOn = dependsOn.map(String).filter((d) => !passedIds.has(d));
+    if (waitingOn.length > 0) {
+      blocked.push({ id: String(c.id), waitingOn });
+    }
+  }
+  return blocked;
 }
 
 export function buildStatus(projectRoot: string): StatusReport {
@@ -55,6 +84,7 @@ export function buildStatus(projectRoot: string): StatusReport {
       blocked: count('blocked'),
       inProgress: count('in_progress'),
       pending: count('pending'),
+      blockedByDeps: computeBlockedByDeps(criteria),
     },
     records: { total: records.length, byType },
     lastAttempt,
@@ -86,6 +116,11 @@ export function renderStatus(report: StatusReport, c: Caps): string {
   out.push(
     `  완료 조건   ${color.bold(`${cr.passed}/${cr.total}`)} 통과  ${color.dim(`(막힘 ${cr.blocked}, 진행 ${cr.inProgress}, 대기 ${cr.pending})`)}`,
   );
+  for (const b of cr.blockedByDeps) {
+    out.push(
+      `    ${color.yellow(b.id)}  블록됨  ${color.dim(`(대기: ${b.waitingOn.join(', ')})`)}`,
+    );
+  }
   out.push(
     `  기록        ${report.records.total}개  ${color.dim(typeSummary ? `(${typeSummary})` : '')}`,
   );
