@@ -84,6 +84,66 @@ describe('buildRecord — 구조 강제', () => {
     const record = r.record as Record<string, unknown>;
     expect(record.items).toEqual(items); // dependsOn 이 사라지거나 바뀌지 않는다.
   });
+
+  it('decision: performanceSensitive:true 인데 alternatives 가 없으면 거부한다 (WI-I AC-05)', () => {
+    const r = buildRecord(
+      'decision',
+      {
+        question: 'q',
+        decision: 'd',
+        rationale: 'r',
+        performanceSensitive: true,
+      },
+      DEFAULTS,
+    );
+    expect(r.record).toBeUndefined();
+    expect(r.missing.some((m) => m.startsWith('alternatives'))).toBe(true);
+  });
+
+  it('decision: performanceSensitive:true 인데 alternatives 가 빈 배열이면 거부한다', () => {
+    const r = buildRecord(
+      'decision',
+      {
+        question: 'q',
+        decision: 'd',
+        rationale: 'r',
+        performanceSensitive: true,
+        alternatives: [],
+      },
+      DEFAULTS,
+    );
+    expect(r.record).toBeUndefined();
+    expect(r.missing.some((m) => m.startsWith('alternatives'))).toBe(true);
+  });
+
+  it('decision: performanceSensitive:true 이고 alternatives 가 채워지면 통과한다', () => {
+    const r = buildRecord(
+      'decision',
+      {
+        question: 'q',
+        decision: 'd',
+        rationale: 'r',
+        performanceSensitive: true,
+        alternatives: ['다른 방법 A: 이런 이유로 기각'],
+      },
+      DEFAULTS,
+    );
+    expect(r.missing).toEqual([]);
+    expect((r.record as Record<string, unknown>).alternatives).toEqual([
+      '다른 방법 A: 이런 이유로 기각',
+    ]);
+  });
+
+  it('decision: performanceSensitive 가 없거나 false 면 alternatives 없어도 기존처럼 통과(하위호환)', () => {
+    const r1 = buildRecord('decision', { question: 'q', decision: 'd', rationale: 'r' }, DEFAULTS);
+    expect(r1.missing).toEqual([]);
+    const r2 = buildRecord(
+      'decision',
+      { question: 'q', decision: 'd', rationale: 'r', performanceSensitive: false },
+      DEFAULTS,
+    );
+    expect(r2.missing).toEqual([]);
+  });
 });
 
 describe('record 저장 — append only', () => {

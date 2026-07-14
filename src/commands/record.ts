@@ -91,6 +91,19 @@ export function buildRecord(
     }
   }
 
+  // 성능 재검토(WI-I AC-05): performanceSensitive:true 인 decision 은 alternatives
+  // (비어있지 않은 배열)를 필수로 요구한다 — 성능 트레이드오프가 걸린 결정은 대안을
+  // 최소 하나는 검토했다는 근거를 남긴다. performanceSensitive 가 없거나 false 면
+  // 기존과 동일(하위호환).
+  if (type === 'decision' && data.performanceSensitive === true) {
+    const alt = data.alternatives;
+    if (!Array.isArray(alt) || alt.length === 0) {
+      missing.push(
+        'alternatives (비어있지 않은 배열이어야 함 — performanceSensitive:true 인 결정은 대안을 남겨야 합니다)',
+      );
+    }
+  }
+
   if (missing.length > 0) {
     return { missing };
   }
