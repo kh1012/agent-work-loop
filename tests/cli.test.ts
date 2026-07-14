@@ -16,6 +16,18 @@ describe('awl 프로그램 구성', () => {
     expect(BANNER).toContain('awl 자체는 판단하지 않습니다');
     expect(BANNER).toContain('판단은 Claude Code 나 Codex 가 합니다');
   });
+
+  it('evolve 는 스킬 전용(숨김)이라 최상위 도움말에 안 보인다', () => {
+    const program = buildProgram();
+    // 'evolve' 를 부분 문자열로 포함하는 다른 명령이 없어 안전하게 단독 검사할 수 있다.
+    expect(program.helpInformation()).not.toContain('evolve');
+  });
+
+  it('rules promote 는 사람이 치는 명령이라 rules 도움말에 보인다', () => {
+    const program = buildProgram();
+    const rulesCmd = program.commands.find((c) => c.name() === 'rules');
+    expect(rulesCmd?.helpInformation()).toContain('promote');
+  });
 });
 
 // 빌드 산출물이 있을 때만 실제 CLI를 실행해 확인한다.

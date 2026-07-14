@@ -9,6 +9,7 @@ import {
   newRecordId,
   readRecords,
   renderRecords,
+  resolveBlockedBaseline,
 } from '../../src/commands/record.js';
 
 const origHome = process.env.AWL_HOME;
@@ -156,5 +157,31 @@ describe('renderRecords — 줄글이 아니라 목록', () => {
 describe('newRecordId', () => {
   it('rec_ 접두사와 hex', () => {
     expect(newRecordId()).toMatch(/^rec_[0-9a-f]+$/);
+  });
+});
+
+describe('resolveBlockedBaseline — blocked 기록의 baseline SHA 추론 (WI-7 D-21)', () => {
+  const state = {
+    criteria: [
+      { id: 'AC-01', status: 'in_progress', baseline: 'abc1234' },
+      { id: 'AC-02', status: 'pending' }, // baseline 없음(commit --start 안 함)
+    ],
+    currentFocus: 'AC-01',
+  };
+
+  it('data.criterion 이 명시되면 그걸로 완료 조건을 찾는다', () => {
+    expect(resolveBlockedBaseline({ criterion: 'AC-01' }, state)).toBe('abc1234');
+  });
+
+  it('data.criterion 이 없으면 state.currentFocus 로 추론한다', () => {
+    expect(resolveBlockedBaseline({}, state)).toBe('abc1234');
+  });
+
+  it('완료 조건에 baseline 이 없으면 undefined', () => {
+    expect(resolveBlockedBaseline({ criterion: 'AC-02' }, state)).toBeUndefined();
+  });
+
+  it('focus 를 전혀 알 수 없으면 undefined(크래시하지 않음)', () => {
+    expect(resolveBlockedBaseline({}, {})).toBeUndefined();
   });
 });

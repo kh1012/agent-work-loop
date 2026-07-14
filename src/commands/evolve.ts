@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { deltasDir, generationsDir, lockFile } from '../core/paths.js';
 import { type Caps, caps, makeColors } from '../core/tty.js';
-import { requireConfig, resolveProjectRoot } from './config.js';
+import { requireConfig } from './config.js';
 import { readRecords } from './record.js';
 import { loadState } from './state.js';
 
@@ -243,7 +243,7 @@ function renderRepeatNotice(delta: Delta, c: Caps): string {
 
 /** awl evolve --collect */
 export function runEvolveCollect(opts: { workitem?: string; json: boolean }): void {
-  const { config } = requireConfig();
+  const { projectRoot, config } = requireConfig();
   if (!acquireLock()) {
     process.stderr.write(
       '\n  다른 evolve 가 실행 중입니다(~/.awl/.lock). 끝난 뒤 다시 시도하세요.\n',
@@ -252,7 +252,7 @@ export function runEvolveCollect(opts: { workitem?: string; json: boolean }): vo
   }
   try {
     const workitem = opts.workitem ?? null;
-    const state = loadState(resolveProjectRoot() ?? process.cwd());
+    const state = loadState(projectRoot);
     const collection = collectEvolve(config.project, workitem, state);
     const at = new Date().toISOString();
     writeGeneration(config.project, workitem, collection.metrics, at);

@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { rulesDir } from '../core/paths.js';
 import { type Caps, caps, makeColors } from '../core/tty.js';
-import { acquireLock, loadDeltaList, releaseLock } from './evolve.js';
+import { type Delta, acquireLock, loadDeltaList, releaseLock } from './evolve.js';
 
 /**
  * awl rules — ~/.awl/rules/active/*.md 를 읽어 이 프로젝트에 적용되는 규칙을 반환한다.
@@ -204,7 +204,50 @@ export function suggestLinter(lesson: string): { rule: string; hint: string } | 
   return null;
 }
 
-const RULE_LOAD_LIMIT = 15;
+export const RULE_LOAD_LIMIT = 15;
+
+/** applies/counter 필수 검증. 빠진 필드 이름 배열을 돌려준다(빈 배열=통과). 순수 함수. */
+export function validatePromoteOpts(opts: { applies?: string; counter?: string }): string[] {
+  const missing: string[] = [];
+  if (!opts.applies || opts.applies.trim() === '') {
+    missing.push('applies');
+  }
+  if (!opts.counter || opts.counter.trim() === '') {
+    missing.push('counter');
+  }
+  return missing;
+}
+
+/** 규칙 파일 내용(frontmatter + 본문)을 만든다. 쓰기는 안 한다. 순수 함수. */
+export function buildRuleFile(
+  ruleId: string,
+  delta: Delta,
+  createdAt: string,
+  opts: { applies: string; counter: string; scope?: string },
+): string {
+  return [
+    '---',
+    `id: ${ruleId}`,
+    ...(opts.scope ? [`scope: ${opts.scope}`] : []),
+    `applies: ${opts.applies}`,
+    `counter: ${opts.counter}`,
+    'violations: 0',
+    `createdAt: ${createdAt}`,
+    `source: ${delta.id}`,
+    '---',
+    '',
+    delta.lesson,
+    '',
+  ].join('\n');
+}
+
+/** 이 프로젝트에 로드되는 규칙이 상한을 넘으면 경고 문구, 아니면 null. 순수 함수. */
+export function checkRuleLoadLimit(loadedCount: number): string | null {
+  if (loadedCount <= RULE_LOAD_LIMIT) {
+    return null;
+  }
+  return `이 프로젝트에 로드되는 규칙이 ${loadedCount}개입니다(${RULE_LOAD_LIMIT}개 권장). 검사기로 졸업시킬 규칙이 없는지 보세요.`;
+}
 
 export function runRulesPromote(
   deltaId: string,
@@ -215,14 +258,16 @@ export function runRulesPromote(
     process.stderr.write(`\n  교훈 ${deltaId} 을(를) 찾을 수 없습니다.\n`);
     process.exit(1);
   }
-  // applies/counter 는 필수. 없으면 거부한다.
-  if (!opts.applies || opts.applies.trim() === '') {
+  // applies/counter 는 필수. 없으면 거부한다(적용 조건 없는 규칙은 다른 프로젝트로 잘못 끌려가고,
+  // 반증 조건 없는 규칙은 검증 불가능한 신념이 된다).
+  const missing = validatePromoteOpts(opts);
+  if (missing.includes('applies')) {
     process.stderr.write(
       '\n  applies(적용 조건)가 필요합니다. --applies "..." 로 주세요.\n  적용 조건 없는 규칙은 다른 프로젝트로 잘못 끌려갑니다.\n',
     );
     process.exit(1);
   }
-  if (!opts.counter || opts.counter.trim() === '') {
+  if (missing.includes('counter')) {
     process.stderr.write(
       '\n  counter(반증 조건)가 필요합니다. --counter "..." 로 주세요.\n  반증 조건 없는 규칙은 검증 불가능한 신념이 됩니다.\n',
     );
@@ -239,20 +284,11 @@ export function runRulesPromote(
   try {
     const ruleId = nextRuleId();
     const createdAt = new Date().toISOString().slice(0, 10);
-    const front = [
-      '---',
-      `id: ${ruleId}`,
-      ...(opts.scope ? [`scope: ${opts.scope}`] : []),
-      `applies: ${opts.applies}`,
-      `counter: ${opts.counter}`,
-      'violations: 0',
-      `createdAt: ${createdAt}`,
-      `source: ${deltaId}`,
-      '---',
-      '',
-      delta.lesson,
-      '',
-    ].join('\n');
+    const front = buildRuleFile(ruleId, delta, createdAt, {
+      applies: opts.applies as string,
+      counter: opts.counter as string,
+      scope: opts.scope,
+    });
     fs.mkdirSync(activeRulesDir(), { recursive: true });
     fs.writeFileSync(path.join(activeRulesDir(), `${ruleId}.md`), front);
     process.stdout.write(`\n  ${color.green('승격됨')}: ${ruleId}  "${delta.lesson}"\n`);
@@ -262,17 +298,16 @@ export function runRulesPromote(
     if (linter) {
       process.stdout.write('\n  이 규칙은 검사기로 만들 수 있어 보입니다.\n');
       process.stdout.write(
-        `  검사기로 만들면 규칙 목록에서 빠지고, awl verify 가 대신 잡아줍니다.\n`,
+        '  검사기로 만들면 규칙 목록에서 빠지고, awl verify 가 대신 잡아줍니다.\n',
       );
       process.stdout.write(`  ${color.dim(`안내: ${linter.hint}`)}\n`);
     }
 
     // 이 프로젝트에 로드되는 규칙 수 상한 경고.
     const loaded = filterRules(loadRules().rules, {});
-    if (loaded.length > RULE_LOAD_LIMIT) {
-      process.stdout.write(
-        `\n  ${color.yellow('경고')}: 이 프로젝트에 로드되는 규칙이 ${loaded.length}개입니다(${RULE_LOAD_LIMIT}개 권장). 검사기로 졸업시킬 규칙이 없는지 보세요.\n`,
-      );
+    const warning = checkRuleLoadLimit(loaded.length);
+    if (warning) {
+      process.stdout.write(`\n  ${color.yellow('경고')}: ${warning}\n`);
     }
   } finally {
     releaseLock();

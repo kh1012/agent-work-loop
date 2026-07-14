@@ -209,7 +209,7 @@ export function buildProgram(): Command {
           process.exit(1);
         } else if (opts.record) {
           if (typeof opts.json !== 'string' || opts.json.trim() === '') {
-            process.stderr.write('\n  --record 는 --json \'<교훈>\' 이 필요합니다.\n');
+            process.stderr.write("\n  --record 는 --json '<교훈>' 이 필요합니다.\n");
             process.exit(1);
           }
           m.runEvolveRecord(opts.json);

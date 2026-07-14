@@ -109,6 +109,25 @@ export function buildRecord(
   return { record, missing: [] };
 }
 
+/**
+ * blocked 기록에 붙일 baseline(커밋 SHA)을 찾는다. 순수 함수(테스트 가능).
+ * data.criterion 이 명시되면 그걸 쓰고, 없으면 state.currentFocus 로 추론한다.
+ * 그 완료 조건에 baseline 이 없으면(예: commit --start 를 안 한 경우) undefined.
+ */
+export function resolveBlockedBaseline(
+  data: Record<string, unknown>,
+  state: Record<string, unknown>,
+): string | undefined {
+  const focus =
+    (typeof data.criterion === 'string' && data.criterion) ||
+    (typeof state.currentFocus === 'string' ? state.currentFocus : undefined);
+  if (!focus) {
+    return undefined;
+  }
+  const crit = getCriterion(state, focus);
+  return crit && typeof crit.baseline === 'string' ? crit.baseline : undefined;
+}
+
 /** at(ISO) 에서 YYYY-MM 월 파일 이름을 만든다. */
 export function monthFile(at: string): string {
   const month = at.slice(0, 7); // YYYY-MM
@@ -265,15 +284,9 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
   // blocked 에만 baseline SHA 를 붙인다(막힌 코드를 버리므로 출발점 복원에 필요).
   // 나머지 타입에는 넣지 않는다 — 안 쓰는 필드를 만들지 않는다(WI-7 D-21).
   if (type === 'blocked' && projectRoot && data.baseline === undefined) {
-    const state = loadState(projectRoot);
-    const focus =
-      (typeof data.criterion === 'string' && data.criterion) ||
-      (typeof state.currentFocus === 'string' ? state.currentFocus : undefined);
-    if (focus) {
-      const crit = getCriterion(state, focus);
-      if (crit && typeof crit.baseline === 'string') {
-        data.baseline = crit.baseline;
-      }
+    const baseline = resolveBlockedBaseline(data, loadState(projectRoot));
+    if (baseline) {
+      data.baseline = baseline;
     }
   }
 
