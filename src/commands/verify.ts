@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { CommandNotFoundError, run } from '../core/runner.js';
 import { type Caps, caps, makeColors } from '../core/tty.js';
 import { VERIFY_ORDER, type VerifyMap, requireConfig } from './config.js';
@@ -6,6 +8,10 @@ import { VERIFY_ORDER, type VerifyMap, requireConfig } from './config.js';
  * awl verify — config 의 검증 명령을 순서대로 실행한다.
  * 스킬이 결과 JSON 을 파싱하므로 출력 형식이 안정적이어야 한다.
  * null 인 항목은 건너뛴다(WI-4 에서 잡은 버그). env 는 runner 가 spawn 에 주입한다.
+ *
+ * WI-B: entry.cwd 가 있으면 그 디렉토리에서 실행한다(모노레포 지원). 상대경로는
+ * projectRoot 기준으로 푼다. cross-spawn 은 cmd 안의 상대경로 실행파일도 이
+ * cwd 기준으로 정확히 찾는다(스파이크로 실증 — docs/decisions.md 참고).
  */
 
 export interface VerifyResult {
@@ -13,7 +19,7 @@ export interface VerifyResult {
   exitCode: number | null;
   durationMs: number;
   output: string;
-  error?: 'command_not_found';
+  error?: 'command_not_found' | 'cwd_not_found';
   timedOut?: boolean;
 }
 
@@ -35,11 +41,33 @@ export async function runVerifyChecks(
     if (!entry) {
       continue; // null 은 건너뛴다.
     }
+
+    const cwd = entry.cwd
+      ? path.isAbsolute(entry.cwd)
+        ? entry.cwd
+        : path.join(projectRoot, entry.cwd)
+      : projectRoot;
+
+    if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {
+      passed = false;
+      results.push({
+        name,
+        exitCode: null,
+        durationMs: 0,
+        output: '',
+        error: 'cwd_not_found',
+      });
+      if (opts.bail) {
+        break;
+      }
+      continue;
+    }
+
     try {
       const r = await run({
         cmd: entry.cmd,
         env: entry.env,
-        cwd: projectRoot,
+        cwd,
         timeoutMs: 600_000,
       });
       const ok = r.exitCode === 0 && !r.timedOut;
@@ -85,9 +113,11 @@ function renderVerify(report: VerifyReport, c: Caps): string {
     const mark =
       r.error === 'command_not_found'
         ? color.red('명령 없음')
-        : r.exitCode === 0 && !r.timedOut
-          ? color.green('통과')
-          : color.red('실패');
+        : r.error === 'cwd_not_found'
+          ? color.red('cwd 없음')
+          : r.exitCode === 0 && !r.timedOut
+            ? color.green('통과')
+            : color.red('실패');
     const dur = r.error ? '' : color.dim(`${r.durationMs}ms`);
     out.push(`    ${r.name.padEnd(10, ' ')}${mark}  ${dur}`);
   }
