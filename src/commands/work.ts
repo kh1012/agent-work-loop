@@ -2,9 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { run } from '../core/runner.js';
 import { type Caps, caps, makeColors } from '../core/tty.js';
-import { resolveProjectRoot } from './config.js';
+import { loadConfig, resolveProjectRoot } from './config.js';
 import { gitBranch } from './doctor.js';
 import { loadState, migrateState, writeState } from './state.js';
+import { buildVerifyBaseline, runVerifyChecks, writeVerifyBaseline } from './verify.js';
 
 /**
  * awl work — 워크아이템 여러 개를 오간다 (WI-D).
@@ -413,7 +414,7 @@ function ensureWorktreesGitignored(root: string): void {
 export async function runWorkNew(
   id: string,
   description: string | undefined,
-  opts: { worktree?: string | boolean } = {},
+  opts: { worktree?: string | boolean; skipBaseline?: boolean } = {},
 ): Promise<void> {
   const root = requireRoot();
   const now = new Date().toISOString();
@@ -463,6 +464,35 @@ export async function runWorkNew(
   process.stdout.write(`\n  워크아이템을 만들었습니다: ${id}\n`);
   if (worktreePath) {
     process.stdout.write(`  워크트리: ${worktreePath}\n`);
+  }
+
+  // 검증 베이스라인 캡처(WI-G AC-01) — 이 워크아이템을 시작하는 시점의 체크별
+  // pass/fail 을 저장해두면, 나중에 `awl verify --since-baseline` 이 "새로 생긴
+  // 실패"와 "원래부터 있던 실패(사전 결함)"를 기계적으로 구분할 수 있다.
+  // --worktree 를 썼으면 실제 작업이 일어날 그 워크트리 기준으로 캡처한다(원래
+  // 루트에 캡처하면 새 워크트리에서 나중에 못 찾는다 — verify-baseline.json 은
+  // gitignore 대상이라 워크트리 체크아웃에 따라오지 않는다).
+  const verifyRoot = worktreePath ?? root;
+  if (opts.skipBaseline) {
+    process.stdout.write(
+      '  --skip-baseline: 검증 베이스라인을 건너뛰었습니다. 나중에 awl verify --since-baseline 을 못 씁니다.\n',
+    );
+  } else {
+    const loaded = loadConfig(verifyRoot);
+    if (loaded.config) {
+      const report = await runVerifyChecks(loaded.config.verify, verifyRoot, { bail: false });
+      writeVerifyBaseline(verifyRoot, buildVerifyBaseline(report, now));
+      process.stdout.write(
+        `  검증 베이스라인을 저장했습니다 (${report.results.map((r) => `${r.name}:${r.exitCode === 0 && !r.error && !r.timedOut ? '통과' : '실패'}`).join(', ')}).\n`,
+      );
+    } else {
+      process.stdout.write(
+        '  config 를 못 읽어 검증 베이스라인을 건너뛰었습니다. 나중에 awl verify --since-baseline 을 못 씁니다.\n',
+      );
+    }
+  }
+
+  if (worktreePath) {
     process.stdout.write(`  cd ${worktreePath} 로 이동해 거기서 awl-loop 를 시작하세요.\n`);
   } else {
     process.stdout.write('  awl-loop 를 시작하세요.\n');

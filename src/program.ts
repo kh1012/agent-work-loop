@@ -109,11 +109,12 @@ export function buildProgram(): Command {
     .command('new <id> [description]')
     .description('새 워크아이템을 만들고 전환합니다 (현재 워크아이템은 보관됩니다)')
     .option('--worktree [branch]', '격리된 git worktree 를 만들어 그 안에서 시작합니다')
+    .option('--skip-baseline', '검증 베이스라인 캡처를 건너뜁니다 (느린 프로젝트용)')
     .action(
       async (
         id: string,
         description: string | undefined,
-        opts: { worktree?: string | boolean },
+        opts: { worktree?: string | boolean; skipBaseline?: boolean },
       ) => {
         const { runWorkNew } = await import('./commands/work.js');
         await runWorkNew(id, description, opts);

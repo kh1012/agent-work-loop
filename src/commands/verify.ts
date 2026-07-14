@@ -130,6 +130,65 @@ function renderVerify(report: VerifyReport, c: Caps): string {
   return out.join('\n');
 }
 
+// ---------------------------------------------------------------------------
+// --since-baseline (WI-G): 워크아이템 시작 시점의 체크별 pass/fail 을 저장해두고,
+// 나중에 "새로 생긴 실패"와 "원래부터 있던 실패(사전 결함, 회귀 아님)"를 기계적으로
+// 구분한다. 체크(typecheck/lint/test/e2e) 단위 비교만 한다 — 서브 테스트 단위까지는
+// 안 본다(docs/decisions.md D-30, awl 은 검증 명령을 불투명한 셸 명령으로 다룬다).
+// ---------------------------------------------------------------------------
+
+export interface VerifyBaseline {
+  capturedAt: string;
+  results: { name: string; passed: boolean }[];
+}
+
+function isCheckPassed(r: VerifyResult): boolean {
+  return !r.error && !r.timedOut && r.exitCode === 0;
+}
+
+/** VerifyReport 를 baseline 저장 형식으로 줄인다 — output 은 안 담는다(체크 단위만). */
+export function buildVerifyBaseline(report: VerifyReport, capturedAt: string): VerifyBaseline {
+  return {
+    capturedAt,
+    results: report.results.map((r) => ({ name: r.name, passed: isCheckPassed(r) })),
+  };
+}
+
+export function verifyBaselinePath(projectRoot: string): string {
+  return path.join(projectRoot, '.awl', 'verify-baseline.json');
+}
+
+/** .gitignore 에 .awl/verify-baseline.json 을 추가한다(없으면). init.ts 의 ensureGitignore, work.ts 의 ensureWorktreesGitignored 와 같은 패턴. */
+function ensureVerifyBaselineGitignored(projectRoot: string): void {
+  const gi = path.join(projectRoot, '.gitignore');
+  const target = '.awl/verify-baseline.json';
+  const content = fs.existsSync(gi) ? fs.readFileSync(gi, 'utf8') : '';
+  if (content.split(/\r?\n/).some((line) => line.trim() === target)) {
+    return;
+  }
+  const prefix = content.length > 0 && !content.endsWith('\n') ? '\n' : '';
+  fs.writeFileSync(gi, `${content}${prefix}${target}\n`);
+}
+
+export function writeVerifyBaseline(projectRoot: string, baseline: VerifyBaseline): void {
+  const p = verifyBaselinePath(projectRoot);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, `${JSON.stringify(baseline, null, 2)}\n`);
+  ensureVerifyBaselineGitignored(projectRoot);
+}
+
+export function readVerifyBaseline(projectRoot: string): VerifyBaseline | null {
+  try {
+    const raw = JSON.parse(fs.readFileSync(verifyBaselinePath(projectRoot), 'utf8'));
+    if (!raw || !Array.isArray(raw.results)) {
+      return null;
+    }
+    return raw as VerifyBaseline;
+  } catch {
+    return null;
+  }
+}
+
 export async function runVerify(opts: { json: boolean; bail: boolean }): Promise<void> {
   const { projectRoot, config } = requireConfig();
   const report = await runVerifyChecks(config.verify, projectRoot, { bail: opts.bail });
