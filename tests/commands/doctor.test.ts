@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -124,6 +125,36 @@ describe('collectChecks — 프로젝트 루트/브랜치 표시 (WI-C)', () => 
     const check = find(report.checks, '프로젝트 루트');
     expect(check?.status).toBe('info');
     expect(check?.value).toBe(proj);
+  });
+
+  it('실제 git 저장소면 현재 브랜치명을 보여준다 (AC-02)', async () => {
+    const proj = fs.realpathSync(tmp('awl-proj-git-'));
+    execFileSync('git', ['init', '-q', '-b', 'feature/wi-c-test'], { cwd: proj });
+    fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(proj, '.awl', 'config.json'),
+      JSON.stringify({
+        engineVersion: '0.0.0',
+        verify: { typecheck: null, lint: null, test: null, e2e: null },
+      }),
+    );
+    process.chdir(proj);
+
+    const report = await collectChecks();
+    const check = find(report.checks, '브랜치');
+    expect(check?.status).toBe('info');
+    expect(check?.value).toBe('feature/wi-c-test');
+  });
+
+  it('git 저장소가 아니면(.awl 만 있는 프로젝트) 크래시 없이 안내한다 (AC-02)', async () => {
+    // makeInstalledProject 의 .git 은 findProjectRoot 용 가짜 빈 디렉토리라 실제 git 저장소가 아니다.
+    const proj = fs.realpathSync(makeInstalledProject());
+    process.chdir(proj);
+
+    const report = await collectChecks();
+    const check = find(report.checks, '브랜치');
+    expect(check?.status).toBe('info');
+    expect(check?.value).toMatch(/알 수 없음/);
   });
 });
 

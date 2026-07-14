@@ -65,6 +65,31 @@ function countEntries(dir: string): number {
   }
 }
 
+/**
+ * 현재 브랜치명. git 저장소가 아니거나(예: .awl 만 있는 프로젝트), git 명령이
+ * 없거나, 커밋 하나 없는 unborn 상태 등 어떤 이유로도 못 가져오면 null 이다
+ * (WI-C: findProjectRoot 는 .git 또는 .awl 둘 중 하나만 있어도 루트로 인정하므로
+ * git 이 아닌 프로젝트가 정상적으로 존재한다 — 크래시도, missing/fail 판정도
+ * 하지 않는다).
+ */
+async function gitBranch(projectRoot: string): Promise<string | null> {
+  try {
+    const r = await run({
+      cmd: 'git',
+      args: ['symbolic-ref', '--short', 'HEAD'],
+      cwd: projectRoot,
+      timeoutMs: 5000,
+    });
+    if (r.exitCode !== 0) {
+      return null;
+    }
+    const branch = r.stdout.trim();
+    return branch || null;
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // config 스키마
 // ---------------------------------------------------------------------------
@@ -212,6 +237,14 @@ async function collectProject(checks: Check[], projectRoot: string | null): Prom
     name: '프로젝트 루트',
     status: 'info',
     value: projectRoot,
+  });
+
+  const branch = await gitBranch(projectRoot);
+  checks.push({
+    group: '이 프로젝트',
+    name: '브랜치',
+    status: 'info',
+    value: branch ?? '알 수 없음 (git 저장소가 아니거나 확인 실패)',
   });
 
   const configPath = path.join(projectRoot, '.awl', 'config.json');
