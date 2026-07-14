@@ -2,7 +2,16 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { filterRules, loadRules, parseRuleFile, suggestLinter } from '../../src/commands/rules.js';
+import {
+  RULE_LOAD_LIMIT,
+  buildRuleFile,
+  checkRuleLoadLimit,
+  filterRules,
+  loadRules,
+  parseRuleFile,
+  suggestLinter,
+  validatePromoteOpts,
+} from '../../src/commands/rules.js';
 
 const origHome = process.env.AWL_HOME;
 
@@ -100,5 +109,68 @@ describe('suggestLinter — 검사기 승격 안내', () => {
   });
   it('정적 검사로 못 만드는 교훈은 null', () => {
     expect(suggestLinter('오버레이 좌표계가 축에 의존하는지 먼저 확인한다')).toBeNull();
+  });
+});
+
+describe('validatePromoteOpts — applies/counter 필수 (WI-7)', () => {
+  it('둘 다 없으면 둘 다 거부한다', () => {
+    expect(validatePromoteOpts({})).toEqual(['applies', 'counter']);
+  });
+
+  it('applies 만 없으면 applies 만 거부한다', () => {
+    expect(validatePromoteOpts({ counter: '반증' })).toEqual(['applies']);
+  });
+
+  it('counter 만 없으면 counter 만 거부한다', () => {
+    expect(validatePromoteOpts({ applies: '적용' })).toEqual(['counter']);
+  });
+
+  it('공백만 있는 값도 없는 것으로 취급한다', () => {
+    expect(validatePromoteOpts({ applies: '   ', counter: '   ' })).toEqual(['applies', 'counter']);
+  });
+
+  it('둘 다 있으면 통과(빈 배열)', () => {
+    expect(validatePromoteOpts({ applies: '적용', counter: '반증' })).toEqual([]);
+  });
+});
+
+describe('buildRuleFile — 규칙 파일 내용 생성 (WI-7)', () => {
+  it('applies/counter/source/scope 를 frontmatter 에 담고 lesson 을 본문에 넣는다', () => {
+    const delta = {
+      id: 'D-003',
+      lesson: '축을 파라미터로 빼기 전에 좌표계 의존을 확인한다',
+      count: 2,
+    };
+    const text = buildRuleFile('R-001', delta, '2026-07-14', {
+      applies: 'generic-spread 아키텍처, 오버레이 기반 리사이즈',
+      counter: '오버레이가 축에 의존하지 않는 경우',
+      scope: 'implement',
+    });
+    const { rule, warnings } = parseRuleFile(text, 'R-001.md');
+    expect(warnings).toEqual([]);
+    expect(rule?.id).toBe('R-001');
+    expect(rule?.scope).toBe('implement');
+    expect(rule?.applies).toContain('generic-spread');
+    expect(rule?.counter).toContain('오버레이가 축에 의존하지 않는');
+    expect(rule?.body).toContain('축을 파라미터로 빼기 전에');
+    expect(text).toContain('source: D-003');
+  });
+
+  it('scope 가 없으면 frontmatter 에서 생략한다(무태그=항상 적용)', () => {
+    const delta = { id: 'D-001', lesson: 'l', count: 1 };
+    const text = buildRuleFile('R-002', delta, '2026-07-14', { applies: 'a', counter: 'c' });
+    expect(text).not.toContain('scope:');
+  });
+});
+
+describe('checkRuleLoadLimit — 로드 규칙 상한 경고 (WI-7)', () => {
+  it(`${RULE_LOAD_LIMIT}개 이하면 경고 없음`, () => {
+    expect(checkRuleLoadLimit(RULE_LOAD_LIMIT)).toBeNull();
+  });
+
+  it(`${RULE_LOAD_LIMIT}개 초과면 경고 문구를 돌려준다`, () => {
+    const warning = checkRuleLoadLimit(RULE_LOAD_LIMIT + 1);
+    expect(warning).toContain(String(RULE_LOAD_LIMIT + 1));
+    expect(warning).toContain('졸업');
   });
 });
