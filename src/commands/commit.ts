@@ -40,6 +40,15 @@ function lines(s: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * 파일명을 내는 git 명령을 -z(NUL 구분)로 실행해 원본 파일명 목록을 얻는다.
+ * core.quotePath 설정과 무관하게 한글 등 비ASCII 경로가 그대로 나온다.
+ */
+async function namesZ(args: string[], cwd: string): Promise<string[]> {
+  const out = (await git([...args, '-z'], cwd)).stdout;
+  return out.split('\0').filter((f) => f !== '');
+}
+
 /** 현재 워킹트리 상태를 스냅샷 커밋으로 만든다(워킹트리는 건드리지 않는다). */
 export async function captureSnapshot(cwd: string): Promise<string> {
   const created = await git(['stash', 'create'], cwd);
@@ -58,9 +67,13 @@ export interface Baseline {
   untracked: string[];
 }
 
-/** 시작 시점의 untracked 파일 목록(gitignore 제외). */
+/**
+ * untracked 파일 목록(gitignore 제외). -z(NUL 구분)로 읽어 core.quotePath 설정과
+ * 무관하게 원본 파일명을 얻는다. 그렇지 않으면 한글 등 비ASCII 경로가 인용-인코딩되어
+ * 이후 git add 에 리터럴 pathspec 으로 넘어가 매칭되지 않는다(리뷰어 지적 AC-05).
+ */
 async function listUntracked(cwd: string): Promise<string[]> {
-  return lines((await git(['ls-files', '--others', '--exclude-standard'], cwd)).stdout);
+  return namesZ(['ls-files', '--others', '--exclude-standard'], cwd);
 }
 
 /** 완료 조건 작업의 베이스라인을 잡는다. 시작 시점 스냅샷을 refs/awl 로 고정한다. */
@@ -127,14 +140,24 @@ export async function isolatedCommit(
   }
 
   // 내가 새로 만든 파일만 스테이징한다(새 파일이라 통째로 내 것; 남의 새 파일은 제외).
+  // git add 실패를 삼키지 않는다. 자체 검증은 "빠진 파일"을 못 잡으므로 여기서 막는다.
   for (const f of newUntracked) {
-    await git(['add', '--', f], cwd);
+    const added = await git(['add', '--', f], cwd);
+    if (added.exitCode !== 0) {
+      await git(['reset', '-q'], cwd);
+      return {
+        committed: false,
+        reason: `새 파일을 스테이징하지 못했습니다: ${f}\n${added.stderr.trim()}`,
+        selfCheckOk: false,
+        ...empty,
+      };
+    }
   }
 
-  const stagedFiles = lines((await git(['diff', '--cached', '--name-only'], cwd)).stdout);
+  const stagedFiles = await namesZ(['diff', '--cached', '--name-only'], cwd);
   // 제외: tracked 남의 변경(unstaged) + 시작 시점부터 있던 남의 untracked.
   const excludedFiles = [
-    ...lines((await git(['diff', '--name-only'], cwd)).stdout),
+    ...(await namesZ(['diff', '--name-only'], cwd)),
     ...nowUntracked.filter((f) => untrackedAtStart.includes(f)),
   ];
 
@@ -154,9 +177,7 @@ export async function isolatedCommit(
 
   const commit = (await git(['rev-parse', 'HEAD'], cwd)).stdout.trim();
   // 자체 검증: 커밋된 파일이 내가 스테이징한 집합과 같은지(내가 안 쓴 파일이 없는지).
-  const committedFiles = lines(
-    (await git(['show', '--name-only', '--format=', commit], cwd)).stdout,
-  );
+  const committedFiles = await namesZ(['show', '--name-only', '--format=', commit], cwd);
   const extraFiles = committedFiles.filter((f) => !stagedFiles.includes(f));
 
   return {

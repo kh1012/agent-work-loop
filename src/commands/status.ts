@@ -40,9 +40,10 @@ export function buildStatus(projectRoot: string): StatusReport {
     const t = String(r.type);
     byType[t] = (byType[t] ?? 0) + 1;
   }
-  const firstAttempt = records.find((r) => r.type === 'attempt');
+  // readRecords 는 at 기준 내림차순이므로 첫 번째 attempt 가 가장 최근이다.
+  const latestAttempt = records.find((r) => r.type === 'attempt');
   const lastAttempt =
-    firstAttempt && typeof firstAttempt.result === 'string' ? firstAttempt.result : null;
+    latestAttempt && typeof latestAttempt.result === 'string' ? latestAttempt.result : null;
 
   return {
     generation: typeof state.generation === 'number' ? state.generation : 1,

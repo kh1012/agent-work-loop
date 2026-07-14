@@ -147,4 +147,25 @@ describe('isolatedCommit — 새 파일(untracked) 처리 (dogfooding 이 잡은
     expect(fs.existsSync(path.join(dir, 'their.ts'))).toBe(true);
     expect(g(['show', 'HEAD', '--name-only'])).not.toContain('their.ts');
   });
+
+  it('한글 등 비ASCII 파일명 새 파일도 스테이징한다 (리뷰어 지적 AC-05)', async () => {
+    const { dir, g } = makeRepo();
+    // 크로스 환경: 기본값(true)에서 한글 경로가 인용-인코딩된다. 이 조건을 강제한다.
+    g(['config', 'core.quotePath', 'true']);
+    fs.writeFileSync(path.join(dir, 'base.txt'), 'base\n');
+    g(['add', '.']);
+    g(['commit', '-q', '-m', 'base']);
+
+    const { snapshot, untracked } = await startBaseline(dir, 'AC-K');
+    fs.writeFileSync(path.join(dir, '한글파일.ts'), 'export const x = 1;\n');
+
+    const outcome = await isolatedCommit(dir, 'AC-K', 'add korean', snapshot, untracked);
+    expect(outcome.stagedFiles).toContain('한글파일.ts');
+
+    // 커밋 파일 목록을 -z(인용 없음)로 읽어 원본 파일명과 비교한다.
+    const committed = g(['show', 'HEAD', '--name-only', '--format=', '-z'])
+      .split('\0')
+      .filter(Boolean);
+    expect(committed).toContain('한글파일.ts');
+  });
 });
