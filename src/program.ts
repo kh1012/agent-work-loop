@@ -97,6 +97,31 @@ export function buildProgram(): Command {
       runDeltas({ json: opts.json === true });
     });
 
+  // 사람이 치는 명령: commit (격리 커밋 — 남의 미커밋 변경을 잃지 않는다)
+  program
+    .command('commit <criterion>')
+    .description('완료 조건 작업을 격리 커밋합니다 (내 변경만)')
+    .option('--start', '베이스라인을 잡습니다 (작업 시작 시)')
+    .option('-m, --message <msg>', '커밋 메시지')
+    .option('--base <ref>', '베이스 드리프트를 확인할 기준 브랜치')
+    .action(
+      async (criterion: string, opts: { start?: boolean; message?: string; base?: string }) => {
+        const { runCommit } = await import('./commands/commit.js');
+        await runCommit(criterion, { start: opts.start, message: opts.message, base: opts.base });
+      },
+    );
+
+  // 사람이 치는 명령: review (리뷰어에게 넘길 자료 조립 — awl 은 리뷰하지 않는다)
+  program
+    .command('review <range>')
+    .description('리뷰어에게 넘길 자료를 조립합니다 (provenance 포함)')
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .option('--base <ref>', 'diff 기준 (기본은 완료 조건 baseline)')
+    .action(async (range: string, opts: { json?: boolean; base?: string }) => {
+      const { runReview } = await import('./commands/review.js');
+      await runReview(range, { json: opts.json === true, base: opts.base });
+    });
+
   // 스킬이 치는 명령(숨김): record
   program
     .command('record <type>', { hidden: true })

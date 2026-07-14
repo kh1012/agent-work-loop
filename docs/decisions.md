@@ -128,6 +128,22 @@
 - **verify output**: stdout+stderr 를 전부 캡처해 결과에 담는다(스킬이 파싱). 사람용 렌더는 통과/실패와 소요 시간만 보여준다. 명령이 없으면 `error: "command_not_found"` 로 일반 실패와 구분한다.
 - **config 명령(인자 없음)**: 현재 설정을 표로 보여주고, 수정은 `config set`(실행 검증 포함) 또는 `.awl/config.json` 직접 편집으로 안내한다. init 의 전체 대화형 재수행은 두지 않았다(수정 경로가 둘로 갈리는 혼란 방지).
 
+## D-17. awl commit 은 스냅샷 + `git apply --cached` 로 격리한다 (방법 A)
+
+- **결정**: "내 변경"을 식별하는 방법으로 **방법 A(스냅샷)** 를 택했다. 작업 시작 시 워킹트리를 `git stash create` 로 스냅샷 커밋으로 만들고 `refs/awl/baseline/<AC>` 로 고정한다. 커밋 시 `git diff <snapshot>` 으로 내 변경 patch 를 뽑아 `git apply --cached` 로 인덱스에만 적용한 뒤 커밋한다.
+- **방법 B(git stash pop)를 거부한 이유**: stash 로 남의 변경을 격리했다가 복원(pop)하는 방식은, pop 이 충돌하면 남의 작업이 유실될 수 있다. 명세가 "이건 절대 있으면 안 된다"고 못 박았다.
+- **방법 A 가 안전한 근거(실증함)**: `git apply --cached` 는 **인덱스에만** 적용하고 워킹트리를 전혀 건드리지 않는다. 그래서 어떤 경우에도 남의 미커밋 변경이 워킹트리에서 사라지지 않는다. 임시 repo 실증: 남의 변경(OTHER)은 커밋에 안 들어가고, 내 변경(MINE)만 커밋되며, 워킹트리에 OTHER 가 그대로 남았다.
+- **불확실할 때 멈춘다**: 내 변경 hunk 가 남의 변경과 3줄(기본 컨텍스트) 이내로 겹치면 `git apply --cached` 가 실패한다. 그때는 커밋하지 않고 "사람이 확인하세요"로 알린다. `-U0`(컨텍스트 0) 같은 강제 적용은 잘못된 위치에 붙을 위험이 있어 쓰지 않는다. "불편한 게 남의 작업을 잃는 것보다 낫다."
+- **자체 검증**: 커밋 후 `git show --name-only` 로 커밋된 파일이 내가 스테이징한 집합과 같은지 확인한다. 초과 파일이 있으면 경고한다.
+- **`git add -A`/`commit -a` 금지, push 금지.** 스냅샷 SHA 는 `refs/awl` 로 고정해 gc 로 사라지지 않게 한다.
+
+## D-18. review 조립 / proceduralErrors 구분 / 베이스 드리프트
+
+- **review 는 자료만 만든다**: awl 은 리뷰하지 않는다. criteria + diff + verify + provenance + rules(scope=review) 를 조립해 넘긴다. 판단은 서브에이전트가 한다. 구현자의 대화 맥락은 넣지 않는다(신선한 눈).
+- **provenance 가 핵심**: diff/verify 가 어떤 branch/commit/worktree 에서 나왔는지 함께 밝힌다. 없으면 리뷰어가 엉뚱한 cwd 에서 교차검증하다 낭비한다(드라이런 교훈).
+- **proceduralErrors 구분**: 완료 조건에 `attempts`(구현 시도 실패 — 설계가 틀림)와 `proceduralErrors`(절차적 실수 — git 을 잘못 씀)를 나눠 기록한다. 전자만 3회 제한에 카운트하고, 후자는 고치고 넘어간다. 카운트 로직 자체는 WI-7(loop)의 몫이고, WI-5.5 는 필드 구조와 state 헬퍼만 제공한다.
+- **베이스 드리프트**: 기준 브랜치는 `--base` 로 받거나 `@{upstream}` 으로 추정한다. 추정 실패 시 경고를 조용히 건너뛴다(에러가 아니다). merge-base 이후 기준 브랜치에 쌓인 커밋 수와, 내 파일과 겹치는 파일을 경고한다.
+
 # Windows 리스크 목록 (macOS에서만 검증함 — Windows 검증 시 체크리스트로 사용)
 
 이 프로젝트는 현재 macOS에서만 검증한다. 아래는 Windows에서 깨질 수 있는 지점과 대비다. 나중에 Windows에서 사람이 검증할 때 이 목록을 하나씩 확인한다.
