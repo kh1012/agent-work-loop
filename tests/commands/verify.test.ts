@@ -4,7 +4,9 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { VerifyMap } from '../../src/commands/config.js';
 import {
+  type VerifyReport,
   buildVerifyBaseline,
+  compareSinceBaseline,
   readVerifyBaseline,
   runVerifyChecks,
   verifyBaselinePath,
@@ -209,5 +211,74 @@ describe('검증 베이스라인 (WI-G AC-01, --since-baseline 의 기반)', () 
   it('베이스라인 파일이 없으면 readVerifyBaseline 은 null (크래시하지 않는다)', () => {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-baseline-none-')));
     expect(readVerifyBaseline(root)).toBeNull();
+  });
+});
+
+describe('compareSinceBaseline (WI-G AC-02/03) — 신규 실패 vs 사전 결함 구분', () => {
+  function reportOf(entries: [string, boolean][]): VerifyReport {
+    return {
+      passed: entries.every(([, ok]) => ok),
+      results: entries.map(([name, ok]) => ({
+        name,
+        exitCode: ok ? 0 : 1,
+        durationMs: 1,
+        output: '',
+      })),
+    };
+  }
+
+  function baselineOf(entries: [string, boolean][]) {
+    return {
+      capturedAt: '2026-07-15T00:00:00.000Z',
+      results: entries.map(([name, passed]) => ({ name, passed })),
+    };
+  }
+
+  it('신규 실패(베이스라인 땐 통과) 가 있으면 회귀로 판정한다', () => {
+    const baseline = baselineOf([
+      ['typecheck', true],
+      ['test', true],
+    ]);
+    const report = reportOf([
+      ['typecheck', true],
+      ['test', false],
+    ]);
+    const c = compareSinceBaseline(report, baseline);
+    expect(c.newFailures).toEqual(['test']);
+    expect(c.passed).toBe(false);
+  });
+
+  it('사전 결함(베이스라인 때도 실패) 은 회귀로 안 잡는다 — 신규 실패가 없으면 passed:true (AC-03)', () => {
+    const baseline = baselineOf([
+      ['typecheck', true],
+      ['e2e', false],
+    ]);
+    const report = reportOf([
+      ['typecheck', true],
+      ['e2e', false],
+    ]);
+    const c = compareSinceBaseline(report, baseline);
+    expect(c.preExistingFailures).toEqual(['e2e']);
+    expect(c.newFailures).toEqual([]);
+    expect(c.passed).toBe(true);
+  });
+
+  it('사전 결함이 해소되면 resolved 로 표시하고 passed 에 영향 없다', () => {
+    const baseline = baselineOf([['test', false]]);
+    const report = reportOf([['test', true]]);
+    const c = compareSinceBaseline(report, baseline);
+    expect(c.resolved).toEqual(['test']);
+    expect(c.passed).toBe(true);
+  });
+
+  it('베이스라인에 없던 체크가 지금 실패하면 안전하게 신규 실패로 취급한다', () => {
+    const baseline = baselineOf([['typecheck', true]]);
+    const report = reportOf([
+      ['typecheck', true],
+      ['e2e', false],
+    ]);
+    const c = compareSinceBaseline(report, baseline);
+    expect(c.newFailures).toEqual(['e2e']);
+    expect(c.passed).toBe(false);
   });
 });

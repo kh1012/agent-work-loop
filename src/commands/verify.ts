@@ -189,9 +189,99 @@ export function readVerifyBaseline(projectRoot: string): VerifyBaseline | null {
   }
 }
 
-export async function runVerify(opts: { json: boolean; bail: boolean }): Promise<void> {
+export interface SinceBaselineComparison {
+  /** 새로 생긴 실패가 없으면 true — 사전 결함이 남아있어도 true 다(AC-03). */
+  passed: boolean;
+  newFailures: string[];
+  preExistingFailures: string[];
+  resolved: string[];
+}
+
+/**
+ * 현재 검증 결과를 베이스라인과 비교한다(AC-02/03). 체크 단위 비교만 한다.
+ * 베이스라인에 없던 체크(나중에 추가된 체크 등)가 지금 실패하면, 비교 기준이
+ * 없으므로 안전한 쪽(신규 실패로 취급)으로 판정한다.
+ */
+export function compareSinceBaseline(
+  report: VerifyReport,
+  baseline: VerifyBaseline,
+): SinceBaselineComparison {
+  const baselineMap = new Map(baseline.results.map((r) => [r.name, r.passed]));
+  const newFailures: string[] = [];
+  const preExistingFailures: string[] = [];
+  const resolved: string[] = [];
+
+  for (const r of report.results) {
+    const nowPassed = isCheckPassed(r);
+    const wasPassed = baselineMap.get(r.name);
+    if (nowPassed) {
+      if (wasPassed === false) {
+        resolved.push(r.name);
+      }
+      continue;
+    }
+    if (wasPassed === false) {
+      preExistingFailures.push(r.name);
+    } else {
+      // wasPassed 가 true 거나(회귀) undefined(베이스라인에 없던 체크) 다.
+      newFailures.push(r.name);
+    }
+  }
+
+  return { passed: newFailures.length === 0, newFailures, preExistingFailures, resolved };
+}
+
+function renderSinceBaseline(c: SinceBaselineComparison, caps: Caps): string {
+  const color = makeColors(caps.color);
+  const out: string[] = ['', '  베이스라인 대비'];
+  if (c.newFailures.length > 0) {
+    out.push(`    ${color.red('신규 실패')}: ${c.newFailures.join(', ')}`);
+  }
+  if (c.preExistingFailures.length > 0) {
+    out.push(`    ${color.dim('사전 결함(변화 없음)')}: ${c.preExistingFailures.join(', ')}`);
+  }
+  if (c.resolved.length > 0) {
+    out.push(`    ${color.green('해소됨')}: ${c.resolved.join(', ')}`);
+  }
+  if (c.newFailures.length === 0 && c.preExistingFailures.length === 0 && c.resolved.length === 0) {
+    out.push(`    ${color.dim('변화 없음')}`);
+  }
+  out.push('');
+  out.push(c.passed ? `  ${color.green('회귀 없음.')}` : `  ${color.red('회귀가 있습니다.')}`);
+  return out.join('\n');
+}
+
+export async function runVerify(opts: {
+  json: boolean;
+  bail: boolean;
+  sinceBaseline?: boolean;
+}): Promise<void> {
   const { projectRoot, config } = requireConfig();
   const report = await runVerifyChecks(config.verify, projectRoot, { bail: opts.bail });
+
+  if (opts.sinceBaseline) {
+    const baseline = readVerifyBaseline(projectRoot);
+    if (!baseline) {
+      if (!opts.json) {
+        process.stdout.write(
+          '\n  검증 베이스라인이 없습니다 — --since-baseline 을 못 씁니다. 전체 검증 결과로 폴백합니다.\n' +
+            '  (awl work new 로 워크아이템을 시작하면 베이스라인이 자동으로 잡힙니다.)\n',
+        );
+      }
+    } else {
+      const comparison = compareSinceBaseline(report, baseline);
+      if (opts.json) {
+        process.stdout.write(
+          `${JSON.stringify({ ...report, sinceBaseline: comparison }, null, 2)}\n`,
+        );
+      } else {
+        process.stdout.write(`${renderVerify(report, caps())}\n`);
+        process.stdout.write(`${renderSinceBaseline(comparison, caps())}\n`);
+      }
+      process.exit(comparison.passed ? 0 : 1);
+    }
+  }
+
   if (opts.json) {
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   } else {
