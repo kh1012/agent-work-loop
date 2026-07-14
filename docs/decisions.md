@@ -323,6 +323,17 @@
 - **같은 패턴이 `evolve --record` 의 `source` 에도 있었다**: `runEvolveRecord` 도 `source` 를 호출부가 안 넣으면 빈 채로 gotcha 의 `history` 에 쌓여(`renderRepeatNotice` 가 "이번: ?" 로 보여줌 — 실제로 이 세션에서 G-006 의 세 번째 반복 기록 직후 재현되어 발견) 위 record.ts 버그와 동일한 근본 원인이다. `requireConfig()`/`loadState()` 로 현재 project/workitem 을 자동으로 채우도록 같이 고쳤다(호출부가 명시하면 그게 우선). G-006 이 이걸로 4 회째 반복될 뻔했으나, 스모크 테스트로 만든 임시 항목이라 `~/.awl/gotchas/G-006.json` 에서 직접 되돌렸다(gotchas 파일은 record 로그와 달리 `count`/`history` 를 제자리에서 갱신하는 가변 상태라 append-only 원칙이 적용되지 않는다).
 - **범위**: `src/commands/record.ts` 만 수정(`RecordDefaults.workitem` 추가, `buildRecord`/`runRecord`). WI-O/WI-P 완료조건 목록 어디에도 속하지 않는 독립 수정이라 `awl commit` (AC 단위 격리 커밋)이 아니라 일반 git 커밋으로 남긴다.
 
+## D-35. WI-P 설계: 계측/metrics (0.3.1)
+
+- **범위 5갈래**: AC-01 `gotcha-applied`/`gotcha-missed` 기록 타입, AC-02 `narrative` 기록 타입(kind 4값 enum + counterfactual 필수), AC-03 `evolve --collect`/`writeGeneration` 의 워크아이템별 auto-metrics 확장(gotchaApplied/gotchaMissed), AC-04 `awl metrics` 신설 명령(세대별 트렌드), AC-05 SKILL.md/AGENTS.awl.md 안내 추가.
+- **프록시 지표 원칙 재확인**: awl 은 LLM 토큰을 측정할 수 없다(조사에서 실제 코드 전수 확인 — token 언급은 git status(-z)/tokenize() 뿐). 시도 횟수·막힘 비율·리뷰 지적 수·gotcha 적용/누락만 잰다.
+- **gotchaId 존재 검증은 안 한다**: `record.ts` 가 `evolve.ts` 를 참조하면 순환 참조가 생긴다(`evolve.ts` 가 이미 `record.ts` 의 `readRecords` 를 가져다 쓴다). gotchaId 는 비어있지 않은 문자열이면 통과 — 오참조는 `recordGotcha` 의 `sameAs` 오참조 방어와 같은 철학(무해한 데이터로 남을 뿐)으로 수용한다.
+- **narrative.kind 는 범용 enum 매커니즘 없이 특수 분기로**: `performanceSensitive`/`alternatives` 조건부 검증과 같은 패턴을 그대로 재사용 — SCHEMAS 는 required/arrays 두 축만 유지.
+- **awl metrics 는 스무딩하지 않는다**: 세대별 원값을 시간순으로 그대로 보여준다. "워크아이템마다 난이도가 다르니 과도하게 비교하지 말라"는 캐비트 문구를 사람용 출력과 `--json` 양쪽에 모두 포함한다(스크립트로 자동화해도 캐비트가 안 묻히게).
+- **기존 세대 스냅샷(WI-B~WI-O, gotchaApplied/gotchaMissed 필드 없음) 은 하위호환**: `awl metrics` 가 없는 필드를 0으로 읽는다(크래시 금지) — 새 필드가 생긴 시점 이전 데이터는 "집계 시작 전" 취급.
+- **게이트 1/2**: 이전 워크아이템들과 같은 자율 진행 근거(D-29 참고)로 자율 승인한다.
+- **후속 조치(완료조건 아님, 구현 다 끝난 뒤 실행)**: (1) 이 세션에 이미 있었던 역사적 사례 중 narrative 4가지 kind 에 해당하는 걸 최소 하나씩 골라 소급 기록, (2) 같은 도메인 워크아이템을 연속 3~4개 진행하는 관행을 문서화(난이도 통제를 위한 방법론), (3) 앞으로 매 완료조건마다 "적용 가능한 gotcha 가 있었는가"를 실제로 확인하는 습관화, (4) 첫 워크아이템(WI-B)을 계측의 기준선/대조군으로 취급.
+
 # Windows 리스크 목록 (macOS에서만 검증함 — Windows 검증 시 체크리스트로 사용)
 
 이 프로젝트는 현재 macOS에서만 검증한다. 아래는 Windows에서 깨질 수 있는 지점과 대비다. 나중에 Windows에서 사람이 검증할 때 이 목록을 하나씩 확인한다.
