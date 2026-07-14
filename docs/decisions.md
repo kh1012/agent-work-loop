@@ -311,6 +311,8 @@
 - **마이그레이션 방식**: `state.ts` 의 `migrateState()`(레거시 스키마를 자동으로, 무손실·멱등적으로 최신에 맞춤)와 같은 패턴을 그대로 따른다 — `~/.awl/gotchas/` 가 없고 `~/.awl/deltas/` 만 있으면, 로드 시점에 자동으로(1) `~/.awl/deltas.backup-<타임스탬프>/` 로 백업 (2) 각 `D-0XX.json` 을 읽어 `id`/`sameAs` 필드의 `D-`를 `G-`로 바꾸고 `G-0XX.json` 으로 `~/.awl/gotchas/` 에 쓴다 (3) 원본 `~/.awl/deltas/` 는 그대로 둔다(삭제 안 함 — 백업과 별개로 원본도 보존, 완전히 무손실). 이미 `~/.awl/gotchas/` 가 있으면(이미 마이그레이션됨) 아무것도 안 한다(멱등).
 - **하위 호환**: `awl deltas` 명령은 0.4.0 까지 유지하되, 실행 시 "`awl gotchas` 를 대신 쓰세요" 경고를 출력하고 동일한 로직(이제는 gotchas 를 읽음)으로 동작한다.
 - **한국어 표기**: "gotcha" 는 외래어로 번역하지 않고 그대로 쓴다(예: "기존 gotcha(existingGotchas)와 같으면").
+- **완료 — AC-05 에서 실제 결함 1건 발견**: 실제 `~/.awl/deltas/` 15개를 마이그레이션해 검증하다가 `awl gotchas --json` 이 빈 배열을 내는 버그를 발견했다. `gotchas.ts`(옛 `deltas.ts`)가 자체적으로 `fs.readdirSync` 를 부르는 별도 파일 읽기 로직을 그대로 남겨둬, `evolve.ts` 의 `migrateDeltasToGotchas` 트리거를 가진 `loadGotchaList()` 를 안 거쳤다 — AC-01(리네임) 때 이 중복을 놓쳤다. `gotchas.ts` 가 `loadGotchaList` 를 그대로 재사용하도록 고쳐 중복 자체를 없앴다(회귀 방지 테스트 신설). 재빌드 관련 사고도 하나 더 있었다: `npm run dev`(tsup --watch) 를 세션 내내 띄워뒀는데도 `git mv` 직후의 편집 하나를 워치가 놓쳐 `dist/cli.js` 가 낡은 채로 남았다 — mtime 비교로 발견, 수동 `npm run build` 로 해결. 15/15 내용 무손실을 python 스크립트로 대조 확인.
+- **2차 리뷰가 사소한 결함 2건 발견**: `program.ts` 의 `evolve --record` 옵션 도움말 문구가 여전히 "deltas" 를 언급(AC-01 grep 스코프에서 놓침) — 정정. `README.md` 가 AC-04 스코프(스킬 문서만) 밖이라 여전히 `awl deltas`/"교훈(delta)" 를 대표 예시로 소개하고 있어, 실사용자가 폐기 예정 별칭을 정식 명령으로 오인할 위험이 있었다 — 정정. 그 외(번호 체계 혼동, 마이그레이션 완전성, 별칭 동작, git rename 미탐지, 테스트 품질)는 전부 지적 없음. 최종 7/7 완료 조건, 338개 테스트. 게이트 1/2 는 이전 워크아이템들과 같은 자율 진행 근거(D-29 참고)로 자율 승인한다.
 
 # Windows 리스크 목록 (macOS에서만 검증함 — Windows 검증 시 체크리스트로 사용)
 
