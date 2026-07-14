@@ -3,7 +3,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { checkBaseDrift, isolatedCommit, startBaseline } from '../../src/commands/commit.js';
+import {
+  buildRescueGuidance,
+  checkBaseDrift,
+  isolatedCommit,
+  startBaseline,
+} from '../../src/commands/commit.js';
 
 function makeRepo(): { dir: string; g: (args: string[]) => string } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-commit-'));
@@ -237,5 +242,24 @@ describe('baseline git ref 네임스페이스 (WI-D AC-06 — 워크아이템이
     await expect(startBaseline(dir, 'AC-07')).resolves.toBeDefined();
     expect(stderrSpy).toHaveBeenCalled();
     stderrSpy.mockRestore();
+  });
+});
+
+describe('buildRescueGuidance (WI-F AC-04 — commit 거부 시 대안 안내, 실사고 재현 방지)', () => {
+  it('hunk 충돌 거부일 때만 격리 워크트리로 옮기는 구체적 명령을 담은 안내를 만든다', () => {
+    const reason =
+      '내 변경을 안전하게 분리할 수 없습니다(hunk 가 남의 변경과 겹칠 수 있습니다). 커밋하지 않았습니다. 사람이 확인하세요.\nerror: patch failed';
+    const guidance = buildRescueGuidance(reason);
+    expect(guidance).not.toBeNull();
+    expect(guidance).toContain('git stash push -u');
+    expect(guidance).toContain('git worktree add');
+    expect(guidance).toContain('git stash pop');
+    expect(guidance).toContain('awl work new');
+  });
+
+  it('"커밋할 변경 없음" 등 다른 거부 사유에는 안내를 안 붙인다(관련 없는 안내로 화면을 안 채운다)', () => {
+    expect(buildRescueGuidance('커밋할 내 변경이 없습니다.')).toBeNull();
+    expect(buildRescueGuidance('커밋 실패: 잠긴 저장소')).toBeNull();
+    expect(buildRescueGuidance(undefined)).toBeNull();
   });
 });

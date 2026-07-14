@@ -238,6 +238,27 @@ export async function isolatedCommit(
   };
 }
 
+/**
+ * awl commit 이 거부됐을 때, hunk 충돌 사유일 때만 격리 워크트리로 옮기는
+ * 구체적 안내를 만든다(WI-F AC-04). 실사고: "사람이 확인하세요"로 끝나고
+ * 대안이 "커밋 없이 계속 진행"뿐이었더니, 결국 내 변경이 나중에 남의 커밋에
+ * 섞여 들어갔다 — awl commit 이 막으려던 사고가 다른 경로로 재현됐다.
+ * 다른 거부 사유("커밋할 변경 없음" 등)에는 관련 없는 안내를 안 붙인다.
+ */
+export function buildRescueGuidance(reason: string | undefined): string | null {
+  if (!reason || !reason.includes('hunk')) {
+    return null;
+  }
+  return [
+    '',
+    '  격리된 워크트리로 옮기는 방법(내 변경을 그대로 다른 곳으로 이동):',
+    '    git stash push -u -m "rescue"          # 내 변경(추적+미추적 전부)을 스택에 담는다',
+    '    git worktree add ../<새-디렉토리> -b <새-브랜치>',
+    '    cd ../<새-디렉토리> && git stash pop    # 옮긴 워크트리에서 변경을 복원',
+    '  (또는 awl work new <ID> --worktree 로 새 워크아이템 + 격리 워크트리를 한 번에 만들고 위 순서로 옮기세요.)',
+  ].join('\n');
+}
+
 export interface DriftInfo {
   ahead: number;
   overlap: string[];
@@ -352,6 +373,10 @@ export async function runCommit(
 
   if (!outcome.committed) {
     process.stderr.write(`\n  ${color.red('커밋하지 않았습니다.')} ${outcome.reason}\n`);
+    const guidance = buildRescueGuidance(outcome.reason);
+    if (guidance) {
+      process.stderr.write(`${guidance}\n`);
+    }
     process.exit(1);
   }
 
