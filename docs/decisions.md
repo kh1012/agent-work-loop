@@ -165,6 +165,16 @@
 - **커밋 추적은 SHA 로 한다(별개 사안)**: 커밋 추적이 필요하면 `awl commit` 이 커밋 후 `state.criteria[<AC>].baseline` 에 남기는 커밋 SHA 를 쓴다(`commit.ts` 참조). 다만 record 자체에는 커밋 SHA 필드가 없고, `state set` 으로 criteria 를 통째 교체하면 `baseline` SHA 가 날아간다([[D-16]] 얕은 병합). **record ↔ 커밋 SHA 연결이 필요한지는 WI-7 에서 evolve 가 정확히 무엇을 읽는지 확정한 뒤 정한다.** 미리 만들면 evolve 가 안 쓰는 필드를 넣을 위험이 있다.
 - **dogfooding 산물 처리**: `.awl/config.json` 은 커밋한다(이 저장소도 awl 을 쓰는 설정, 팀 공유 대상). `.claude/`(설치된 스킬 사본, 원본은 `engine/`)와 `.awl-verify/`(격리 홈), `.awl/state.json` 은 gitignore 한다.
 
+## D-21. awl evolve — 배움의 흐름 (WI-7, 0.1.0 마지막)
+
+- **record ↔ 커밋 연결은 blocked 에만**: `record blocked` 에만 `baseline` SHA 를 자동 첨부한다(state 의 현재 완료조건에서). 성공한 시도는 커밋이 남아 있고 workitem/criterion 태그로 추적되므로 SHA 가 필요 없다. 막힘은 코드를 버리므로 그때만 baseline 이 의미를 갖는다(출발점을 patch 와 짝지어 복원). 나머지 타입에는 넣지 않는다 — 안 쓰는 필드를 만들지 않는다. [[D-20]] 에서 미룬 결정을 여기서 확정.
+- **state set 얕은 병합 버그 수정**: `mergeState` 가 criteria 배열만은 id 기준으로 병합해 기존 필드(baseline 등)를 보존한다. criteria 이외의 배열/객체는 여전히 통째 대체([[D-16]]).
+- **evolve 는 LLM 을 호출하지 않는다(원칙)**: 교훈 추출은 판단이지만 awl 은 판단하지 않는다. `--collect`(모으기)와 `--record`(쓰기·세기) 두 단계로 나누고, 그 사이에서 에이전트가 스킬로 교훈을 추출한다. evolve 가 스스로 교훈을 만들어내는 코드는 없다.
+- **락**: `~/.awl/.lock` 을 `openSync(..., 'wx')` 로 잡는다. records/deltas 는 append 라 대체로 안전하지만 deltas 의 count 갱신과 rules 수정은 아니다. collect/record/promote 가 락을 잡는다.
+- **2회 반복이 최소, 그마저 사람이 확인**: `sameAs` 로 같은 교훈을 다시 기록하면 count 를 올리고, 2회면 알린다. **자동 승격하지 않는다.** 한 번 나온 델타를 바로 규칙으로 만들면 그 프로젝트의 우연을 다음 프로젝트에 강요한다.
+- **promote 는 applies/counter 를 강제**: 둘 중 하나라도 없으면 거부한다. 적용 조건 없는 규칙은 다른 프로젝트로 잘못 끌려가고, 반증 조건 없는 규칙은 검증 불가능한 신념이 된다. 정적 검사로 만들 수 있으면 검사기를 안내한다(졸업). 상한 15는 전역이 아니라 **이 프로젝트에 로드되는 규칙** 기준.
+- **세대 지표는 프로젝트별**: `~/.awl/generations/<project>/<workitem>.json`. 0.1.0 은 기록만, 대시보드 없음. blockedRatio 가 세대를 거쳐 안 내려가면 델타를 쌓는 게 아니라 모으고만 있는 것이다.
+
 # Windows 리스크 목록 (macOS에서만 검증함 — Windows 검증 시 체크리스트로 사용)
 
 이 프로젝트는 현재 macOS에서만 검증한다. 아래는 Windows에서 깨질 수 있는 지점과 대비다. 나중에 Windows에서 사람이 검증할 때 이 목록을 하나씩 확인한다.
