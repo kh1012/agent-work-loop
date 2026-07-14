@@ -54,13 +54,25 @@
 - **대안**:
   - `shell: true`: 파이프(`|`)나 `&&` 같은 셸 기능을 쓸 수 있다. 하지만 검증 명령은 단일 프로그램 실행이면 충분하고, 셸 기능이 필요하면 config에서 스크립트 파일을 가리키게 하면 된다. 크로스 셸 위험을 감수할 이유가 없다.
   - `cross-spawn` 의존성 도입: Windows의 `.cmd` 래퍼 문제를 깔끔히 푼다. 다만 지금은 의존성을 최소로 유지하고, 실제 Windows 지원 강화는 별도 워크아이템에서 이 라이브러리 도입 여부와 함께 다룬다(아래 리스크 목록 참조).
-- **한계(의식적으로 남김)**: `shell: false`이므로 Windows에서 npm으로 설치된 도구(`eslint`, `vitest` 등이 `.cmd` 래퍼로 깔림)를 이름만으로 `spawn`하면 실패할 수 있다. 이 워크아이템은 macOS에서만 검증하므로, 이 문제는 아래 Windows 리스크 목록에 체크리스트로 남긴다. 대신 ENOENT를 `CommandNotFoundError`로 구분해, 나중에 "명령을 찾을 수 없습니다" 안내와 `.cmd` 힌트를 붙일 자리를 마련했다.
+- **한계 → WI-3에서 보강함**: `shell: false`이므로 Windows에서 npm으로 설치된 도구(`eslint`, `vitest` 등이 `.cmd` 래퍼로 깔림)를 이름만으로 `spawn`하면 실패한다. WI-2 시점에는 이 문제를 리스크 목록에만 남겼으나, WI-3 선행 확인에서 이것이 검증 실행(도구의 심장)을 Windows에서 완전히 막는 치명적 문제임을 확인하고 **D-10(cross-spawn 도입)으로 해결했다.** ENOENT는 여전히 `CommandNotFoundError`로 구분한다.
 
 ## D-9. 한글 폭 계산은 의존성 없이 직접 구현한다
 
 - **결정**: 표시 폭 계산(`stringWidth`)을 `string-width` 같은 라이브러리 없이 CJK East Asian Width 범위를 직접 판정해 구현한다.
 - **근거**: 이모지를 쓰지 않기로 했으므로 복잡한 이모지/결합문자 처리가 필요 없다. 다루는 문자는 사실상 ASCII + 한글/CJK뿐이라, 주요 wide 범위만 판정하면 결정적이고 테스트 가능하다. 의존성을 늘리지 않는다.
 - **대안**: `string-width`(정확하지만 이모지·grapheme 처리로 의존성 트리가 커짐). 우리 용도에는 과하다.
+
+## D-10. runner의 실제 spawn은 `cross-spawn`을 쓴다 (WI-3 선행 보강)
+
+- **결정**: `runner.run`의 프로세스 생성을 `node:child_process`의 `spawn`에서 `cross-spawn`으로 교체한다. `shell: false` 원칙(D-8)은 유지하고, 명령 해석/실행만 cross-spawn에 위임한다.
+- **왜 지금(WI-3 시작 전)인가**: D-8의 대비책은 ENOENT를 구분해 두는 것뿐이었다. WI-3 선행 확인에서 이것이 불충분함을 확인했다. 검증 실행은 이 도구의 심장인데, Windows에서 사용자가 config에 `eslint .`처럼 적으면 검증이 아예 안 돈다.
+- **근거(직접 구현이 아니라 라이브러리를 택한 이유)**:
+  1. Windows에서 npm 도구는 `eslint.cmd` 같은 배치 래퍼로 설치된다. 이름만으로 `spawn`하면 못 찾는다.
+  2. 이름을 찾아 `foo.cmd` 절대경로로 바꿔도, **Node 보안 패치(CVE-2024-27980, Node 18.20/20.12/21.7+, 현재 실행 환경은 v22.22.2)가 `.bat`/`.cmd`를 `shell:false`로 spawn하는 것을 막아 EINVAL을 던진다.** 즉 `.cmd` 실행에는 `cmd.exe /c` 경유가 강제된다.
+  3. `cmd.exe /c`로 감싸려면 Windows 인자 이스케이프(공백·따옴표·`^&|<>` 등)를 직접 처리해야 하는데, 이건 악명 높게 까다롭고 잘못하면 인젝션/오동작이 난다. `cross-spawn`이 정확히 이 탐색+이스케이프를 검증된 방식으로 처리한다.
+  4. 직접 구현하면 이 위험 영역의 코드를 macOS에서 실증할 수 없다. "심장"에서 실증 불가한 버그를 안는 것보다, 의존성 하나로 정확성을 사는 편이 낫다.
+- **테스트로 확인한 것**: 기존 runner 단위 테스트 12개가 cross-spawn 위에서 회귀 없이 통과(성공/실패, ENOENT 구분, 타임아웃 SIGTERM, AbortSignal 취소, env 주입). 추가로 절대경로가 아닌 이름(`node`)을 PATH에서 찾아 실행하는 케이스를 넣었다. Windows의 `.cmd` 실제 실행은 macOS에서 실증 불가하므로 cross-spawn의 검증된 동작에 위임하고, Windows 검증 시 아래 리스크 목록 2번으로 확인한다.
+- **대안**: 순수 함수 `resolveCommand(program, {platform, PATHEXT, ...})`로 탐색만 직접 구현. 탐색은 순수 함수로 테스트 가능하지만, 위 (2)(3)의 `.cmd` 실행/이스케이프 문제는 여전히 남아 반쪽 해결이다. 그래서 택하지 않았다.
 
 ---
 
@@ -73,10 +85,10 @@
    - 대비: `paths.ts`는 조합을 전부 `path.join`으로 한다. 문자열 연결(`+ "/" +`)을 쓰지 않는다. 테스트에 `path.win32.join`/`path.posix.join` 대조 단언을 넣어 문서화했다.
    - 확인법: Windows에서 `AWL_HOME`을 임시 폴더로 두고 각 경로 함수 출력이 `\` 구분자로 나오는지, `findProjectRoot`가 상위로 올라가며 찾는지.
 
-2. **`.cmd`/`.bat` 래퍼 실행**
-   - 왜 위험: npm 전역/로컬로 설치된 CLI(`eslint`, `vitest`, `tsc` 등)는 Windows에서 `foo.cmd` 래퍼로 설치된다. `shell: false`인 `spawn('foo', ...)`는 확장자 없는 이름을 못 찾아 ENOENT(또는 EINVAL)로 실패한다.
-   - 대비: 지금은 ENOENT를 `CommandNotFoundError`로 구분만 해 둔다. Windows에서 이 에러가 자주 나면, (a) config에서 `cmd`에 `.cmd` 확장자를 명시하거나 `node_modules/.bin` 절대경로를 쓰거나, (b) `cross-spawn` 도입(별도 워크아이템)으로 해결한다.
-   - 확인법: Windows에서 `run({ cmd: 'vitest', args: ['run'] })`가 ENOENT인지, `run({ cmd: 'vitest.cmd', ... })`나 `.bin` 절대경로면 되는지.
+2. **`.cmd`/`.bat` 래퍼 실행 — WI-3에서 cross-spawn으로 해결(D-10)**
+   - 왜 위험: npm 전역/로컬로 설치된 CLI(`eslint`, `vitest`, `tsc` 등)는 Windows에서 `foo.cmd` 래퍼로 설치된다. `shell: false`인 `spawn('foo', ...)`는 확장자 없는 이름을 못 찾아 ENOENT로 실패하고, 이름을 `foo.cmd`로 바꿔도 Node 보안 패치가 `.cmd`의 `shell:false` spawn을 EINVAL로 막는다.
+   - 대비: `runner`가 `cross-spawn`으로 실행한다(D-10). cross-spawn이 PATHEXT 탐색과 `cmd.exe /c` 경유·인자 이스케이프를 처리하므로 `run({ cmd: 'eslint', args: ['.'] })`가 Windows에서도 동작해야 한다.
+   - 확인법(Windows에서): npm으로 로컬 설치된 도구를 이름만으로 `run({ cmd: 'vitest', args: ['run'] })` 했을 때 실제로 실행되는지, 존재하지 않는 이름은 여전히 `CommandNotFoundError`로 구분되는지.
 
 3. **PowerShell의 환경변수 문법**
    - 왜 위험: `NODE_ENV=test vitest`는 POSIX 셸 문법이다. PowerShell은 `$env:NODE_ENV="test"; vitest`, cmd는 `set NODE_ENV=test && ...`로 완전히 다르다. 명령 문자열에 env를 인라인하면 셸마다 깨진다.

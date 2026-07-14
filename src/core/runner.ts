@@ -1,5 +1,5 @@
-import { spawn } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
+import spawn from 'cross-spawn';
 
 /**
  * 명령어 실행 모듈.
@@ -10,6 +10,9 @@ import { performance } from 'node:perf_hooks';
  *   주입한다.
  * - shell: false 로 실행한다. 크로스 셸 차이(bash/zsh vs PowerShell vs cmd)와
  *   셸 인젝션을 피하기 위해서다. 근거는 docs/decisions.md D-8 참조.
+ * - 실제 spawn은 cross-spawn 을 쓴다. Windows에서 npm 도구가 .cmd 래퍼로
+ *   설치되는 문제(그리고 Node 보안 패치로 .cmd 를 shell:false 로 직접 spawn
+ *   하면 EINVAL 이 나는 문제)를 정확히 해결한다. 근거는 docs/decisions.md D-10.
  * - 명령을 찾지 못하면(ENOENT) 일반 실패와 구분되는 별도 에러를 던진다.
  */
 

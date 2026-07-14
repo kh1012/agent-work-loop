@@ -40,6 +40,14 @@ describe('run — 성공/실패', () => {
     expect(r.exitCode).toBe(3);
     expect(r.stderr).toBe('boom');
   });
+
+  it('절대경로가 아닌 이름도 PATH에서 찾아 실행한다 (cross-spawn 경로)', async () => {
+    // 'node' 는 절대경로가 아니라 PATH에서 찾아야 한다. Windows에서는 node 가
+    // .exe/.cmd 형태여도 cross-spawn 이 해결한다.
+    const r = await run({ cmd: 'node', args: ['-e', 'process.stdout.write("via-path")'] });
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toBe('via-path');
+  });
 });
 
 describe('run — 존재하지 않는 명령', () => {

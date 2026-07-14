@@ -22,10 +22,12 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "commander": "^12.1.0"
+    "commander": "^12.1.0",
+    "cross-spawn": "^7.0.6"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
+    "@types/cross-spawn": "^6.0.6",
     "@types/node": "^22.10.2",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
