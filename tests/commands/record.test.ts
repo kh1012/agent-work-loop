@@ -58,6 +58,29 @@ describe('buildRecord — 구조 강제', () => {
     expect(r.missing).toContain('project');
   });
 
+  it('workitem 이 데이터에 없으면 defaults(현재 워크아이템)로 자동 태깅한다(evolve 워크아이템 집계가 이 태그에 의존)', () => {
+    const r = buildRecord(
+      'attempt',
+      { what: 'a', why: 'b', how: 'c', result: 'passed' },
+      { ...DEFAULTS, workitem: 'WI-O' },
+    );
+    expect(r.record?.workitem).toBe('WI-O');
+  });
+
+  it('workitem 이 데이터에 명시되면 defaults 보다 우선한다', () => {
+    const r = buildRecord(
+      'attempt',
+      { what: 'a', why: 'b', how: 'c', result: 'passed', workitem: 'WI-X' },
+      { ...DEFAULTS, workitem: 'WI-O' },
+    );
+    expect(r.record?.workitem).toBe('WI-X');
+  });
+
+  it('workitem 이 데이터에도 defaults 에도 없으면 필드 자체를 만들지 않는다(안 쓰는 필드 금지, WI-7 D-21)', () => {
+    const r = buildRecord('attempt', { what: 'a', why: 'b', how: 'c', result: 'passed' }, DEFAULTS);
+    expect(r.record).not.toHaveProperty('workitem');
+  });
+
   it('blocked 의 tried 가 비어있으면 거부한다(핵심 구조)', () => {
     const r = buildRecord('blocked', { what: 'a', why: 'b', tried: [], lesson: 'x' }, DEFAULTS);
     expect(r.record).toBeUndefined();

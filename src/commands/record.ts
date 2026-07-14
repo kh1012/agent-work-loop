@@ -48,6 +48,7 @@ export const RECORD_TYPES = Object.keys(SCHEMAS) as RecordType[];
 
 export interface RecordDefaults {
   project?: string;
+  workitem?: string;
   id: string;
   at: string;
 }
@@ -80,6 +81,15 @@ export function buildRecord(
   if (!project) {
     missing.push('project');
   }
+
+  // workitem 은 필수가 아니다(work new 이전 시점의 기록도 있을 수 있다).
+  // 데이터에 명시가 없으면 state.json 의 현재 워크아이템을 자동으로 태깅한다
+  // — 스킬이 매번 workitem 을 직접 적어 넣어야 했던 부담을 없앤다(evolve 의
+  // 워크아이템별 집계가 이 태그에 의존하므로, 빠지면 evolve --collect 가 조용히
+  // 기록을 놓친다).
+  const workitem =
+    (typeof data.workitem === 'string' && data.workitem.trim() !== '' && data.workitem) ||
+    defaults.workitem;
 
   const schema = SCHEMAS[type];
   for (const field of schema.required) {
@@ -119,6 +129,11 @@ export function buildRecord(
   record.type = type;
   record.id = defaults.id;
   record.at = defaults.at;
+  if (workitem) {
+    record.workitem = workitem;
+  } else {
+    delete record.workitem;
+  }
   return { record, missing: [] };
 }
 
@@ -278,9 +293,15 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
 
   const projectRoot = resolveProjectRoot();
   let projectFromConfig: string | undefined;
+  let currentWorkitem: string | undefined;
+  let state: Record<string, unknown> = {};
   if (projectRoot) {
-    const cfg = loadProjectName(projectRoot);
-    projectFromConfig = cfg;
+    projectFromConfig = loadProjectName(projectRoot);
+    state = loadState(projectRoot);
+    currentWorkitem =
+      typeof state.workitem === 'string' && state.workitem.trim() !== ''
+        ? state.workitem
+        : undefined;
   }
 
   const id = newRecordId();
@@ -297,7 +318,7 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
   // blocked 에만 baseline SHA 를 붙인다(막힌 코드를 버리므로 출발점 복원에 필요).
   // 나머지 타입에는 넣지 않는다 — 안 쓰는 필드를 만들지 않는다(WI-7 D-21).
   if (type === 'blocked' && projectRoot && data.baseline === undefined) {
-    const baseline = resolveBlockedBaseline(data, loadState(projectRoot));
+    const baseline = resolveBlockedBaseline(data, state);
     if (baseline) {
       data.baseline = baseline;
     }
@@ -305,6 +326,7 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
 
   const { record, missing } = buildRecord(type as RecordType, data, {
     project: projectFromConfig,
+    workitem: currentWorkitem,
     id,
     at,
   });

@@ -314,6 +314,14 @@
 - **완료 — AC-05 에서 실제 결함 1건 발견**: 실제 `~/.awl/deltas/` 15개를 마이그레이션해 검증하다가 `awl gotchas --json` 이 빈 배열을 내는 버그를 발견했다. `gotchas.ts`(옛 `deltas.ts`)가 자체적으로 `fs.readdirSync` 를 부르는 별도 파일 읽기 로직을 그대로 남겨둬, `evolve.ts` 의 `migrateDeltasToGotchas` 트리거를 가진 `loadGotchaList()` 를 안 거쳤다 — AC-01(리네임) 때 이 중복을 놓쳤다. `gotchas.ts` 가 `loadGotchaList` 를 그대로 재사용하도록 고쳐 중복 자체를 없앴다(회귀 방지 테스트 신설). 재빌드 관련 사고도 하나 더 있었다: `npm run dev`(tsup --watch) 를 세션 내내 띄워뒀는데도 `git mv` 직후의 편집 하나를 워치가 놓쳐 `dist/cli.js` 가 낡은 채로 남았다 — mtime 비교로 발견, 수동 `npm run build` 로 해결. 15/15 내용 무손실을 python 스크립트로 대조 확인.
 - **2차 리뷰가 사소한 결함 2건 발견**: `program.ts` 의 `evolve --record` 옵션 도움말 문구가 여전히 "deltas" 를 언급(AC-01 grep 스코프에서 놓침) — 정정. `README.md` 가 AC-04 스코프(스킬 문서만) 밖이라 여전히 `awl deltas`/"교훈(delta)" 를 대표 예시로 소개하고 있어, 실사용자가 폐기 예정 별칭을 정식 명령으로 오인할 위험이 있었다 — 정정. 그 외(번호 체계 혼동, 마이그레이션 완전성, 별칭 동작, git rename 미탐지, 테스트 품질)는 전부 지적 없음. 최종 7/7 완료 조건, 338개 테스트. 게이트 1/2 는 이전 워크아이템들과 같은 자율 진행 근거(D-29 참고)로 자율 승인한다.
 
+## D-34. `record.ts` 워크아이템 자동 태깅 — WI-P 착수 전 선행 수정
+
+- **발견 경위**: WI-O 를 닫으며 `awl evolve --collect --workitem WI-O` 로 이번 워크아이템의 기록을 모았더니 `reviews`/`blocked` 가 실제로는 12건/여러 건 있었는데도 빈 배열로 나왔다. 원인은 `readRecords({ workitem })` 이 `r.workitem === filter.workitem` 으로 정확히 거르는데, 정작 `runRecord`(record.ts) 가 `record.workitem` 을 채우는 코드 자체가 없었다는 것 — 스킬이 `--json` 데이터에 `"workitem": "WI-x"` 를 직접 적어 넣어야만 태깅됐고, SKILL.md 의 실제 예시들(`record criteria`/`record attempt`/`record blocked`/`record audit` 등)은 전부 그 필드를 안 적는다. 결과적으로 이 세션 내내 쌓인 기록 대부분이 워크아이템 태그 없이 저장됐다(과거분은 append-only 원칙상 소급 수정하지 않는다 — D-33 참고).
+- **왜 지금 고치나**: WI-P(계측/metrics)의 P-1(`gotcha-applied`/`gotcha-missed`/`narrative` 기록, 워크아이템별 auto-metrics)이 정확히 이 워크아이템 태그에 의존한다. 태그가 새는 채로 WI-P 를 시작하면 계측 기능 자체가 처음부터 조용히 틀린 숫자를 낸다 — 그래서 WI-P 의 완료조건이 아니라 그 이전 선행 수정으로 분리했다.
+- **고친 내용**: `project` 필드와 같은 패턴으로, `buildRecord` 가 `data.workitem` 이 없으면 `defaults.workitem` 을 쓰게 하고, `runRecord` 가 `resolveProjectRoot()` 로 찾은 프로젝트의 `state.json` 을 읽어 현재 `state.workitem` 을 `defaults.workitem` 으로 주입한다. `project` 와 달리 **필수로 강제하지는 않는다** — `work new` 이전 시점(아직 워크아이템이 없는 조사 등)의 기록도 유효해야 하기 때문이다. 워크아이템이 전혀 없으면 필드 자체를 안 만든다(안 쓰는 필드 금지, D-21 과 같은 원칙).
+- **G-006 3회째 반복**: 이 버그의 근본 패턴 — "여러 호출부가 채워야 하는 보조 필드를 각자에게 맡기면 조용히 샌다" — 은 WI-D/WI-G 에서 이미 두 번 나온 G-006 과 본질적으로 같다. `sameAs: G-006` 으로 묶었다(3회째 반복 — 규칙 승격은 사람이 판단할 몫이라 자동 승격하지 않았고, 여기 기록해 사용자에게 전달한다).
+- **범위**: `src/commands/record.ts` 만 수정(`RecordDefaults.workitem` 추가, `buildRecord`/`runRecord`). WI-O/WI-P 완료조건 목록 어디에도 속하지 않는 독립 수정이라 `awl commit` (AC 단위 격리 커밋)이 아니라 일반 git 커밋으로 남긴다.
+
 # Windows 리스크 목록 (macOS에서만 검증함 — Windows 검증 시 체크리스트로 사용)
 
 이 프로젝트는 현재 macOS에서만 검증한다. 아래는 Windows에서 깨질 수 있는 지점과 대비다. 나중에 Windows에서 사람이 검증할 때 이 목록을 하나씩 확인한다.
