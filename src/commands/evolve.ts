@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { generationsDir, gotchasDir, lockFile } from '../core/paths.js';
+import { generationsDir, gotchasDir, legacyDeltasDir, lockFile } from '../core/paths.js';
 import { type Caps, caps, makeColors } from '../core/tty.js';
 import { requireConfig } from './config.js';
 import { readRecords } from './record.js';
@@ -58,7 +58,76 @@ export interface Gotcha {
   history?: Record<string, unknown>[];
 }
 
+/** D-0XX 형식 ID 를 G-0XX 로 바꾼다. 이미 다른 형식이면(또는 문자열이 아니면) 그대로 둔다. */
+function remapDeltaId(id: unknown): unknown {
+  if (typeof id !== 'string') {
+    return id;
+  }
+  const m = /^D-(\d+)$/.exec(id);
+  return m ? `G-${m[1]}` : id;
+}
+
+export interface MigrateDeltasResult {
+  /** 이번 호출에서 실제로 옮겼는가(이미 마이그레이션됐으면 false). */
+  migrated: boolean;
+  count: number;
+  backupDir?: string;
+}
+
+/**
+ * ~/.awl/gotchas/ 가 없고 ~/.awl/deltas/ 만 있으면(레거시 설치) 자동으로
+ * 마이그레이션한다(WI-O AC-02) — state.ts 의 migrateState() 와 같은 패턴: 무손실,
+ * 멱등, 자동. 원본 deltas/ 는 지우지 않는다(백업도 별도로 만든다 — 이중 안전).
+ * 이미 gotchas/ 가 있으면(마이그레이션 완료 또는 애초에 새 설치) 아무것도 안 한다.
+ */
+export function migrateDeltasToGotchas(): MigrateDeltasResult {
+  if (fs.existsSync(gotchasDir())) {
+    return { migrated: false, count: 0 };
+  }
+  const dDir = legacyDeltasDir();
+  let files: string[];
+  try {
+    files = fs.readdirSync(dDir).filter((f) => f.endsWith('.json'));
+  } catch {
+    return { migrated: false, count: 0 }; // deltas/ 도 없음 — 완전 새 설치.
+  }
+  if (files.length === 0) {
+    return { migrated: false, count: 0 };
+  }
+
+  const backupDir = `${dDir}.backup-${Date.now()}`;
+  fs.mkdirSync(backupDir, { recursive: true });
+  for (const f of files) {
+    fs.copyFileSync(path.join(dDir, f), path.join(backupDir, f));
+  }
+
+  fs.mkdirSync(gotchasDir(), { recursive: true });
+  let count = 0;
+  for (const f of files) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(path.join(dDir, f), 'utf8')) as Record<
+        string,
+        unknown
+      >;
+      const migrated = {
+        ...raw,
+        id: remapDeltaId(raw.id),
+        ...(raw.sameAs !== undefined ? { sameAs: remapDeltaId(raw.sameAs) } : {}),
+      };
+      fs.writeFileSync(
+        path.join(gotchasDir(), `${migrated.id}.json`),
+        `${JSON.stringify(migrated, null, 2)}\n`,
+      );
+      count += 1;
+    } catch {
+      // 깨진 파일은 건너뛴다(loadGotchaList 와 같은 원칙).
+    }
+  }
+  return { migrated: true, count, backupDir };
+}
+
 export function loadGotchaList(): Gotcha[] {
+  migrateDeltasToGotchas();
   let files: string[];
   try {
     files = fs.readdirSync(gotchasDir()).filter((f) => f.endsWith('.json'));

@@ -6,10 +6,12 @@ import {
   acquireLock,
   collectEvolve,
   loadGotchaList,
+  migrateDeltasToGotchas,
   recordGotcha,
   releaseLock,
   writeGeneration,
 } from '../../src/commands/evolve.js';
+import { legacyDeltasDir } from '../../src/core/paths.js';
 
 const origHome = process.env.AWL_HOME;
 
@@ -164,5 +166,89 @@ describe('writeGeneration — 프로젝트별 디렉토리', () => {
     const written = JSON.parse(fs.readFileSync(file, 'utf8'));
     expect(written.criteriaTotal).toBe(5);
     expect(written.workitem).toBe('WI-6');
+  });
+});
+
+describe('migrateDeltasToGotchas (WI-O AC-02) — 무손실, 멱등, 원본 보존', () => {
+  function seedLegacyDelta(id: string, extra: Record<string, unknown> = {}): void {
+    const dir = legacyDeltasDir();
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, `${id}.json`),
+      JSON.stringify({ id, lesson: `lesson for ${id}`, count: 1, ...extra }),
+    );
+  }
+
+  it('D-0XX 를 G-0XX 로 옮기고 id 를 재부여한다', () => {
+    seedLegacyDelta('D-001');
+    seedLegacyDelta('D-002');
+
+    const result = migrateDeltasToGotchas();
+
+    expect(result.migrated).toBe(true);
+    expect(result.count).toBe(2);
+    const gotchas = loadGotchaList();
+    expect(gotchas.map((g) => g.id).sort()).toEqual(['G-001', 'G-002']);
+  });
+
+  it('sameAs 필드도 D-0XX -> G-0XX 로 함께 갱신한다', () => {
+    seedLegacyDelta('D-001');
+    seedLegacyDelta('D-002', { sameAs: 'D-001' });
+
+    migrateDeltasToGotchas();
+
+    const g2 = loadGotchaList().find((g) => g.id === 'G-002');
+    expect(g2?.sameAs).toBe('G-001');
+  });
+
+  it('원본 deltas/ 디렉토리는 그대로 남는다(삭제 안 함) + 백업도 별도로 만든다', () => {
+    seedLegacyDelta('D-001');
+    const result = migrateDeltasToGotchas();
+
+    expect(fs.existsSync(path.join(legacyDeltasDir(), 'D-001.json'))).toBe(true); // 원본 보존.
+    expect(result.backupDir).toBeDefined();
+    expect(fs.existsSync(path.join(result.backupDir as string, 'D-001.json'))).toBe(true);
+  });
+
+  it('내용(lesson/context/source/count/history)이 그대로 보존된다(무손실)', () => {
+    seedLegacyDelta('D-001', {
+      context: 'ctx',
+      source: { project: 'p', workitem: 'WI-1' },
+      count: 3,
+      history: [{ at: 't1' }, { at: 't2' }],
+    });
+
+    migrateDeltasToGotchas();
+
+    const g = loadGotchaList().find((g) => g.id === 'G-001');
+    expect(g?.lesson).toBe('lesson for D-001');
+    expect(g?.context).toBe('ctx');
+    expect(g?.source).toEqual({ project: 'p', workitem: 'WI-1' });
+    expect(g?.count).toBe(3);
+    expect(g?.history).toEqual([{ at: 't1' }, { at: 't2' }]);
+  });
+
+  it('이미 gotchas/ 가 있으면(마이그레이션 이미 됨) 다시 옮기지 않는다(멱등)', () => {
+    seedLegacyDelta('D-001');
+    migrateDeltasToGotchas();
+    const afterFirst = loadGotchaList().length;
+
+    seedLegacyDelta('D-999'); // 마이그레이션 이후 deltas/ 에 새 파일이 생겨도.
+    const second = migrateDeltasToGotchas();
+
+    expect(second.migrated).toBe(false);
+    expect(loadGotchaList().length).toBe(afterFirst); // 그대로 — 두 번째 실행이 안 건드림.
+  });
+
+  it('deltas/ 도 gotchas/ 도 둘 다 없으면(완전 새 설치) 아무 일도 안 한다', () => {
+    const result = migrateDeltasToGotchas();
+    expect(result.migrated).toBe(false);
+    expect(result.count).toBe(0);
+  });
+
+  it('loadGotchaList 를 그냥 호출하기만 해도 자동으로 마이그레이션된다(migrateState 와 같은 패턴)', () => {
+    seedLegacyDelta('D-001');
+    const gotchas = loadGotchaList(); // 마이그레이션을 명시적으로 안 부름.
+    expect(gotchas.map((g) => g.id)).toEqual(['G-001']);
   });
 });
