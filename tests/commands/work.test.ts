@@ -6,11 +6,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isolatedCommit, startBaseline } from '../../src/commands/commit.js';
 import { collectChecks } from '../../src/commands/doctor.js';
 import * as stateModule from '../../src/commands/state.js';
+import { readVerifyBaseline } from '../../src/commands/verify.js';
 import {
   abandonWorkitem,
   createWorkitem,
   restoreWorkitem,
   runWorkNew,
+  runWorkSwitch,
   summarizeWorkitems,
 } from '../../src/commands/work.js';
 
@@ -680,5 +682,32 @@ describe('runWorkNew — 검증 베이스라인 캡처 (WI-G AC-01)', () => {
 
     await expect(runWorkNew('WI-NOCONF', undefined, {})).resolves.not.toThrow();
     expect(fs.existsSync(path.join(proj, '.awl', 'verify-baseline.json'))).toBe(false);
+  });
+
+  it('work switch 로 다른 워크아이템을 거쳐도, 원래 워크아이템으로 돌아오면 케이스까지 그대로 복원돼 베이스라인이 다시 유효해진다 (AC-10, 2차 리뷰 지적 — switch 왕복 회귀 방지)', async () => {
+    const verify = {
+      typecheck: { cmd: `${process.execPath} --version` },
+      lint: null,
+      test: null,
+      e2e: null,
+    };
+    realGitProjectWithConfig(verify);
+
+    await runWorkNew('WI-Orig', undefined, {}); // 베이스라인: workitem:'WI-Orig'.
+    await runWorkNew('WI-Other', undefined, {}); // 같은 파일을 workitem:'WI-Other' 로 덮어씀(현재 알려진 한계).
+
+    const root = process.cwd();
+    const afterOther = readVerifyBaseline(root);
+    expect(afterOther?.workitem).toBe('WI-Other');
+
+    await runWorkSwitch('WI-Orig'); // 원래 워크아이템으로 복귀 — 대소문자까지 원래 표기 그대로.
+    const state = JSON.parse(fs.readFileSync(path.join(root, '.awl', 'state.json'), 'utf8'));
+    expect(state.workitem).toBe('WI-Orig'); // restoreWorkitem 이 원래 케이스를 복원.
+
+    // 베이스라인 파일은 여전히 WI-Other 것이라(work switch 가 재캡처하지 않음),
+    // resolveSinceBaseline 은 이걸 안전하게 감지해 폴백해야 한다 — 무음 오판 없음.
+    const stillOthers = readVerifyBaseline(root);
+    expect(stillOthers?.workitem).toBe('WI-Other');
+    expect(stillOthers?.workitem).not.toBe(state.workitem);
   });
 });

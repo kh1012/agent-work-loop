@@ -407,4 +407,22 @@ describe('resolveSinceBaseline (WI-G AC-06/AC-07, 리뷰 지적)', () => {
     const r = resolveSinceBaseline(report, legacyBaseline, null);
     expect(r.available).toBe(true);
   });
+
+  it('workitem 필드가 아예 없는 진짜 레거시 verify-baseline.json 을 읽어도 크래시 없이 안전하게 폴백한다 (AC-10, 2차 리뷰 지적 — 객체 리터럴이 아니라 실제 파일로)', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-baseline-legacy-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    // workitem 필드를 추가하기 전(WI-G AC-06 이전) 버전의 실제 저장 형식을 흉내낸다.
+    fs.writeFileSync(
+      verifyBaselinePath(root),
+      `${JSON.stringify({
+        capturedAt: '2026-01-01T00:00:00.000Z',
+        results: [{ name: 'typecheck', passed: true }],
+      })}\n`,
+    );
+
+    const legacyBaseline = readVerifyBaseline(root);
+    expect(legacyBaseline).not.toBeNull();
+    const r = resolveSinceBaseline(report, legacyBaseline, 'WI-A');
+    expect(r).toEqual({ available: false, reason: 'workitem_mismatch' });
+  });
 });
