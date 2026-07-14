@@ -153,6 +153,26 @@ describe('collectChecks — verify.*.cwd 점검 (WI-B, 모노레포)', () => {
     expect(check?.hint).toContain('no/such/dir');
     expect(report.ok).toBe(false);
   });
+
+  it('cwd 가 디렉토리가 아니라 파일이면 missing 으로 표시한다 (AC-07, 리뷰 지적 — verify.ts/config.ts 와 판정 기준 일치)', async () => {
+    const proj = tmp('awl-proj-');
+    fs.mkdirSync(path.join(proj, '.git'), { recursive: true });
+    fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+    fs.writeFileSync(path.join(proj, 'not-a-dir.txt'), 'x'); // 파일(디렉토리 아님)
+    fs.writeFileSync(
+      path.join(proj, '.awl', 'config.json'),
+      JSON.stringify({
+        engineVersion: '0.0.0',
+        verify: { test: { cmd: 'node --version', cwd: 'not-a-dir.txt' }, lint: null, e2e: null },
+      }),
+    );
+    process.chdir(proj);
+
+    const report = await collectChecks();
+    const check = find(report.checks, '검증: test');
+    expect(check?.status).toBe('missing');
+    expect(report.ok).toBe(false);
+  });
 });
 
 describe('renderText — 정렬과 출력', () => {

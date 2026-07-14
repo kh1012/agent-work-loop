@@ -39,6 +39,15 @@ function exists(p: string): boolean {
   }
 }
 
+/** 존재하고 디렉토리인가(verify.ts/config.ts 와 판정 기준을 맞춘다 — WI-B 리뷰 지적). */
+function isDirectory(p: string): boolean {
+  try {
+    return fs.statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 function readJson(p: string): unknown {
   try {
     return JSON.parse(fs.readFileSync(p, 'utf8'));
@@ -258,7 +267,7 @@ async function collectProject(checks: Check[], projectRoot: string | null): Prom
         ? spec.cwd
         : path.join(projectRoot, spec.cwd)
       : undefined;
-    if (cwd && !exists(cwd)) {
+    if (cwd && !isDirectory(cwd)) {
       checks.push({
         group: '이 프로젝트',
         name: `검증: ${vname}`,
