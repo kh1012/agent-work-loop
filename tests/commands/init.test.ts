@@ -101,6 +101,45 @@ describe('detectLanguage', () => {
     fs.writeFileSync(path.join(p, 'packages', 'app', 'package.json'), '{}');
     expect(detectLanguage(p)).toBe('javascript');
   });
+
+  // 리뷰어(서브에이전트)가 실제로 재현해 지적한 결함들 (AC-06, AC-07). 리뷰는
+  // awl review 로 조립한 diff/provenance 만 보고 진행됐고, 구현자 맥락은 없었다.
+  it('pnpm-workspace.yaml 항목에 인라인 # 주석이 있어도 인식한다 (AC-06, 리뷰 지적)', () => {
+    const p = tmp('awl-lang-');
+    fs.writeFileSync(path.join(p, 'package.json'), JSON.stringify({}));
+    fs.writeFileSync(
+      path.join(p, 'pnpm-workspace.yaml'),
+      "packages:\n  - 'packages/*'  # 워크스페이스 패키지\n",
+    );
+    fs.mkdirSync(path.join(p, 'packages', 'lib'), { recursive: true });
+    fs.writeFileSync(path.join(p, 'packages', 'lib', 'tsconfig.json'), '{}');
+    expect(detectLanguage(p)).toBe('typescript');
+  });
+
+  it('pnpm-workspace.yaml 이 flow-style 배열이어도 인식한다 (AC-06, 리뷰 지적)', () => {
+    const p = tmp('awl-lang-');
+    fs.writeFileSync(path.join(p, 'package.json'), JSON.stringify({}));
+    fs.writeFileSync(path.join(p, 'pnpm-workspace.yaml'), "packages: ['packages/*']\n");
+    fs.mkdirSync(path.join(p, 'packages', 'lib'), { recursive: true });
+    fs.writeFileSync(path.join(p, 'packages', 'lib', 'tsconfig.json'), '{}');
+    expect(detectLanguage(p)).toBe('typescript');
+  });
+
+  it('워크스페이스 글롭의 ** 가 2단계 이상 중첩된 tsconfig 도 찾는다 (AC-07, 리뷰 지적)', () => {
+    const p = tmp('awl-lang-');
+    fs.writeFileSync(path.join(p, 'package.json'), JSON.stringify({ workspaces: ['apps/**'] }));
+    fs.mkdirSync(path.join(p, 'apps', 'team1', 'service1'), { recursive: true });
+    fs.writeFileSync(path.join(p, 'apps', 'team1', 'service1', 'tsconfig.json'), '{}');
+    expect(detectLanguage(p)).toBe('typescript');
+  });
+
+  it('** 는 1단계 중첩(apps/service1)도 여전히 찾는다 (회귀)', () => {
+    const p = tmp('awl-lang-');
+    fs.writeFileSync(path.join(p, 'package.json'), JSON.stringify({ workspaces: ['apps/**'] }));
+    fs.mkdirSync(path.join(p, 'apps', 'service1'), { recursive: true });
+    fs.writeFileSync(path.join(p, 'apps', 'service1', 'tsconfig.json'), '{}');
+    expect(detectLanguage(p)).toBe('typescript');
+  });
 });
 
 describe('splitEnv — 인라인 env 분리', () => {

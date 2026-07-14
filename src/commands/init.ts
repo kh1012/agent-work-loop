@@ -96,6 +96,64 @@ function hasTypescriptDependency(pkg: unknown): boolean {
   return false;
 }
 
+/**
+ * YAML 줄에서 따옴표 밖의 `#` 이후를 주석으로 보고 잘라낸다. 리뷰에서 지적된
+ * 결함: 예전엔 `#` 을 캡처 그룹에서 아예 제외해서, 인라인 주석이 붙은 줄
+ * (`- 'packages/*'  # comment`)이 `$` 앵커 매치에 실패해 통째로 유실됐다.
+ */
+function stripYamlComment(line: string): string {
+  let quote: string | null = null;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (quote) {
+      if (c === quote) {
+        quote = null;
+      }
+    } else if (c === '"' || c === "'") {
+      quote = c;
+    } else if (c === '#') {
+      return line.slice(0, i);
+    }
+  }
+  return line;
+}
+
+/**
+ * pnpm-workspace.yaml 에서 워크스페이스 글롭을 뽑는다. YAML 파서 없이 흔한 두
+ * 형태만 인식한다: block-style 리스트(`packages:\n  - 'a'`)와 flow-style
+ * 배열(`packages: ['a']`). 풀 YAML 문법은 지원하지 않는다.
+ */
+function pnpmWorkspaceGlobs(cwd: string): string[] {
+  const p = path.join(cwd, 'pnpm-workspace.yaml');
+  if (!exists(p)) {
+    return [];
+  }
+  const globs: string[] = [];
+  try {
+    const text = fs.readFileSync(p, 'utf8');
+    for (const rawLine of text.split('\n')) {
+      const line = stripYamlComment(rawLine);
+      const flow = /^\s*packages\s*:\s*\[([^\]]*)\]\s*$/.exec(line);
+      if (flow) {
+        for (const item of (flow[1] ?? '').split(',')) {
+          const v = item.trim().replace(/^['"]|['"]$/g, '');
+          if (v) {
+            globs.push(v);
+          }
+        }
+        continue;
+      }
+      const bullet = /^\s*-\s*['"]?([^'"]+?)['"]?\s*$/.exec(line);
+      if (bullet?.[1]) {
+        globs.push(bullet[1].trim());
+      }
+    }
+  } catch {
+    // 못 읽으면 워크스페이스 없는 것으로 취급.
+  }
+  return globs;
+}
+
 /** package.json 의 workspaces 필드 또는 pnpm-workspace.yaml 에서 워크스페이스 글롭을 모은다. */
 function workspaceGlobs(cwd: string, pkg: unknown): string[] {
   const globs: string[] = [];
@@ -110,50 +168,60 @@ function workspaceGlobs(cwd: string, pkg: unknown): string[] {
       }
     }
   }
-  const pnpmWorkspacePath = path.join(cwd, 'pnpm-workspace.yaml');
-  if (exists(pnpmWorkspacePath)) {
-    try {
-      const text = fs.readFileSync(pnpmWorkspacePath, 'utf8');
-      for (const line of text.split('\n')) {
-        const m = /^\s*-\s*['"]?([^'"#]+?)['"]?\s*$/.exec(line);
-        if (m?.[1]) {
-          globs.push(m[1]);
-        }
-      }
-    } catch {
-      // 못 읽으면 워크스페이스 없는 것으로 취급.
-    }
-  }
+  globs.push(...pnpmWorkspaceGlobs(cwd));
   return globs;
 }
 
+const MAX_GLOB_DEPTH = 6;
+
+/** dirs 각각의 디렉토리 자식들(숨김·node_modules 제외)을 모은다. */
+function listSubdirs(dirs: string[]): string[] {
+  const next: string[] = [];
+  for (const d of dirs) {
+    try {
+      for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+        if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
+          next.push(path.join(d, entry.name));
+        }
+      }
+    } catch {
+      // 디렉토리가 없으면 건너뛴다.
+    }
+  }
+  return next;
+}
+
+/** dirs 자신 + 그 아래 모든 깊이의 하위 디렉토리(최대 MAX_GLOB_DEPTH 단계). */
+function listSelfAndDescendants(dirs: string[]): string[] {
+  const all = [...dirs];
+  let frontier = dirs;
+  for (let depth = 0; depth < MAX_GLOB_DEPTH && frontier.length > 0; depth++) {
+    frontier = listSubdirs(frontier);
+    all.push(...frontier);
+  }
+  return all;
+}
+
 /**
- * `<dir>/*` 형태의 단순 글롭만 펼친다(중첩 `**`/브레이스 확장은 필요 없다 —
- * 워크스페이스 멤버 디렉토리를 찾는 용도로 이 정도면 충분하다).
+ * `<dir>/*` 와 `<dir>/**` 형태의 글롭을 펼친다(브레이스 확장 등 풀 글롭 문법은
+ * 지원하지 않는다 — 워크스페이스 멤버 디렉토리를 찾는 용도로 이 정도면 충분하다).
+ * `*` 는 한 단계, `**` 는 그 지점 자신을 포함해 모든 깊이의 하위 디렉토리를 뜻한다
+ * (리뷰에서 지적된 결함: 예전엔 `**` 를 `*` 와 똑같이 한 단계만 확장해서 2단계
+ * 이상 중첩된 워크스페이스 멤버를 조용히 놓쳤다).
  */
 function expandSimpleGlob(cwd: string, glob: string): string[] {
   const parts = glob.split('/').filter(Boolean);
   let dirs = [cwd];
   for (const part of parts) {
-    if (part === '*' || part === '**') {
-      const next: string[] = [];
-      for (const d of dirs) {
-        try {
-          for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
-            if (entry.isDirectory() && !entry.name.startsWith('.')) {
-              next.push(path.join(d, entry.name));
-            }
-          }
-        } catch {
-          // 디렉토리가 없으면 건너뛴다.
-        }
-      }
-      dirs = next;
+    if (part === '**') {
+      dirs = listSelfAndDescendants(dirs);
+    } else if (part === '*') {
+      dirs = listSubdirs(dirs);
     } else {
       dirs = dirs.map((d) => path.join(d, part)).filter((d) => exists(d));
     }
   }
-  return dirs;
+  return [...new Set(dirs)];
 }
 
 /** 워크스페이스 멤버 중 하나라도 tsconfig.json 을 가졌는가. */
