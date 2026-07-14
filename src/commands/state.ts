@@ -20,12 +20,26 @@ export function loadState(projectRoot: string): Record<string, unknown> {
   }
 }
 
-/** 부분 갱신을 병합한다. top-level 키를 교체한다(배열/객체는 통째로 대체). */
+/**
+ * 부분 갱신을 병합한다. top-level 키는 교체하되, criteria 배열만은 id 기준으로
+ * 병합한다. criteria 를 통째로 교체하면 baseline 같은 기존 필드가 날아가기 때문이다
+ * (WI-7 에서 고친 버그). criteria 이외의 배열/객체는 여전히 통째로 대체한다.
+ */
 export function mergeState(
   current: Record<string, unknown>,
   patch: Record<string, unknown>,
 ): Record<string, unknown> {
-  return { ...current, ...patch };
+  const merged = { ...current, ...patch };
+  if (Array.isArray(patch.criteria)) {
+    let acc: Record<string, unknown> = { ...current };
+    for (const c of patch.criteria as Record<string, unknown>[]) {
+      if (c && typeof c.id === 'string') {
+        acc = setCriterion(acc, c.id, c);
+      }
+    }
+    merged.criteria = acc.criteria;
+  }
+  return merged;
 }
 
 /** state.criteria 에서 id 로 완료 조건을 찾는다. */

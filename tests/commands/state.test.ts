@@ -17,12 +17,38 @@ describe('mergeState — 부분 갱신 병합', () => {
     expect(merged).toEqual({ phase: 'loop', workitem: 'WI-3', currentFocus: 'AC-03' });
   });
 
-  it('배열/객체는 통째로 대체한다', () => {
+  it('criteria 이외의 배열/객체는 통째로 대체한다', () => {
+    const merged = mergeState({ tags: ['a', 'b'] }, { tags: ['c'] });
+    expect(merged.tags).toEqual(['c']);
+  });
+
+  it('criteria 는 id 기준으로 병합하고 기존 필드(baseline)를 보존한다 (WI-7 버그 수정)', () => {
     const merged = mergeState(
-      { criteria: [{ id: 'AC-01', status: 'passed' }] },
-      { criteria: [{ id: 'AC-02', status: 'blocked' }] },
+      {
+        criteria: [
+          { id: 'AC-01', status: 'in_progress', baseline: 'abc1234', snapshot: 'snap1' },
+          { id: 'AC-02', status: 'pending' },
+        ],
+      },
+      {
+        criteria: [
+          { id: 'AC-01', status: 'passed' },
+          { id: 'AC-03', status: 'pending' },
+        ],
+      },
     );
-    expect(merged.criteria).toEqual([{ id: 'AC-02', status: 'blocked' }]);
+    const c = merged.criteria as Record<string, unknown>[];
+    // AC-01: status 갱신, baseline/snapshot 보존
+    expect(c.find((x) => x.id === 'AC-01')).toEqual({
+      id: 'AC-01',
+      status: 'passed',
+      baseline: 'abc1234',
+      snapshot: 'snap1',
+    });
+    // AC-02: 손대지 않았으므로 그대로
+    expect(c.find((x) => x.id === 'AC-02')).toEqual({ id: 'AC-02', status: 'pending' });
+    // AC-03: 새로 추가
+    expect(c.find((x) => x.id === 'AC-03')).toEqual({ id: 'AC-03', status: 'pending' });
   });
 });
 
