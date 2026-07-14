@@ -20,6 +20,8 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "test": "vitest run",
+    "release:patch": "node scripts/release.mjs patch",
+    "release:minor": "node scripts/release.mjs minor",
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
