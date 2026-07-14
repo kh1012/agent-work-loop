@@ -196,8 +196,11 @@ const IGNORE_DIRS = new Set([
   'coverage',
 ]);
 
-/** src/ (없으면 projectRoot) 아래 소스 코드 파일명만 재귀적으로 모은다. */
-function listSourceFilenames(projectRoot: string): string[] {
+/**
+ * src/ (없으면 projectRoot) 아래 소스 코드 파일의 절대 경로를 재귀적으로 모은다.
+ * 네이밍 컨벤션 감지(AC-01)와 복잡도 프록시(AC-02) 가 같은 파일 목록을 재사용한다.
+ */
+function listSourceFiles(projectRoot: string): string[] {
   const root = fs.existsSync(path.join(projectRoot, 'src'))
     ? path.join(projectRoot, 'src')
     : projectRoot;
@@ -220,7 +223,7 @@ function listSourceFilenames(projectRoot: string): string[] {
       } else if (e.isFile()) {
         const ext = e.name.split('.').pop() ?? '';
         if (CODE_EXTENSIONS.has(ext)) {
-          out.push(e.name);
+          out.push(path.join(dir, e.name));
         }
       }
     }
@@ -256,6 +259,74 @@ export function detectNamingConvention(filenames: string[]): NamingConventionRes
     };
   }
   return { convention: null, reason: 'mixed', counts, decisiveTotal };
+}
+
+// ---------------------------------------------------------------------------
+// 복잡도 프록시: 파일당 줄 수 (WI-I AC-02) — warn only, 임계값은 하드코딩하지
+// 않고 그 프로젝트의 실제 분포(90th percentile)에서 실행 시점에 계산한다.
+// AST 기반 순환복잡도는 언어마다 파서가 달라 크로스 언어 목표와 안 맞아 기각
+// (D-30 과 같은 이유 — 특정 러너/파서에 종속되지 않는다).
+// ---------------------------------------------------------------------------
+
+const MIN_FILES_FOR_THRESHOLD = 5;
+/** Tukey's fences 의 표준 배수. IQR 기반이라 균일한 분포에선 자연히 outlier 가 0 이 된다
+ * (단순 percentile 인덱스 방식은 최댓값 자신이 임계값이 돼버려 항상 outlier 를 못 잡는
+ * 문제가 있었다 — 실측 테스트로 발견, IQR 로 교체). */
+const IQR_MULTIPLIER = 1.5;
+
+export interface FileLineCount {
+  path: string;
+  lines: number;
+}
+
+export interface FileSizeReport {
+  threshold: number | null;
+  outliers: FileLineCount[];
+}
+
+/** 정렬된 배열에서 선형보간 percentile 을 계산한다(0<=p<=1). */
+function percentile(sorted: number[], p: number): number {
+  const pos = p * (sorted.length - 1);
+  const lower = Math.floor(pos);
+  const upper = Math.ceil(pos);
+  const weight = pos - lower;
+  const lowerVal = sorted[lower] as number;
+  if (upper >= sorted.length) {
+    return lowerVal;
+  }
+  const upperVal = sorted[upper] as number;
+  return lowerVal + (upperVal - lowerVal) * weight;
+}
+
+/**
+ * 파일 크기 분포에서 이상치를 찾는다(Tukey's fences: Q3 + 1.5*IQR). 하드코딩된
+ * 줄 수 매직넘버 대신, 그 프로젝트의 실제 분포에서 실행 시점에 계산한다.
+ */
+export function computeFileSizeOutliers(files: FileLineCount[]): FileSizeReport {
+  if (files.length < MIN_FILES_FOR_THRESHOLD) {
+    return { threshold: null, outliers: [] };
+  }
+  const sortedLines = [...files].map((f) => f.lines).sort((a, b) => a - b);
+  const q1 = percentile(sortedLines, 0.25);
+  const q3 = percentile(sortedLines, 0.75);
+  const iqr = q3 - q1;
+  const threshold = q3 + IQR_MULTIPLIER * iqr;
+  const outliers = files.filter((f) => f.lines > threshold);
+  return { threshold, outliers };
+}
+
+/** listSourceFiles 가 찾은 파일들의 줄 수를 센다. 못 읽는 파일은 건너뛴다. */
+function countFileLines(projectRoot: string): FileLineCount[] {
+  const out: FileLineCount[] = [];
+  for (const abs of listSourceFiles(projectRoot)) {
+    try {
+      const lines = fs.readFileSync(abs, 'utf8').split('\n').length;
+      out.push({ path: path.relative(projectRoot, abs), lines });
+    } catch {
+      // 읽지 못하면 그 파일만 건너뛴다(크래시하지 않는다).
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -474,7 +545,9 @@ async function collectProject(checks: Check[], projectRoot: string | null): Prom
       value: recordedNaming,
     });
   } else {
-    const naming = detectNamingConvention(listSourceFilenames(projectRoot));
+    const naming = detectNamingConvention(
+      listSourceFiles(projectRoot).map((p) => path.basename(p)),
+    );
     if (naming.reason === 'detected' && naming.convention) {
       checks.push({
         group: '이 프로젝트',
@@ -493,6 +566,32 @@ async function collectProject(checks: Check[], projectRoot: string | null): Prom
         value: '판단 보류 (파일 부족)',
       });
     }
+  }
+
+  // 복잡도 프록시: 파일 크기 이상치(WI-I AC-02) — warn only, 절대 fail 시키지 않는다.
+  const sizeReport = computeFileSizeOutliers(countFileLines(projectRoot));
+  if (sizeReport.threshold === null) {
+    checks.push({
+      group: '이 프로젝트',
+      name: '파일 크기',
+      status: 'info',
+      value: '판단 보류 (파일 부족)',
+    });
+  } else if (sizeReport.outliers.length === 0) {
+    checks.push({ group: '이 프로젝트', name: '파일 크기', status: 'ok', value: '이상치 없음' });
+  } else {
+    checks.push({
+      group: '이 프로젝트',
+      name: '파일 크기',
+      status: 'warn',
+      value: `이상치 ${sizeReport.outliers.length}개 (임계값 ${Math.round(sizeReport.threshold)}줄)`,
+      hint: `${sizeReport.outliers
+        .slice(0, 5)
+        .map((o) => `${o.path}(${o.lines}줄)`)
+        .join(
+          ', ',
+        )}${sizeReport.outliers.length > 5 ? ' 등' : ''} — 리팩터 후보로 고려해볼 만합니다(강제 아님).`,
+    });
   }
 
   // 엔진 버전 일치
