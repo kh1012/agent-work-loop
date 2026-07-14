@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-14
+
 ### 추가
 
 - **계측(프록시 지표).** `awl record gotcha-applied`/`gotcha-missed` 로 기존 gotcha 가 실제로 적용됐는지/놓쳤는지를 남긴다. `awl record narrative` 로 게이트/리뷰/스파이크/막힘 처리의 순간을 그때그때 기록한다(`kind`: gate-caught/reviewer-caught/spike-prevented/blocked-discarded, `counterfactual` 필수). `awl evolve --collect` 가 워크아이템별 gotcha 적용/누락 개수를 세어 세대 스냅샷에 포함한다. 신설 `awl metrics` 로 워크아이템(세대)별 시도 횟수/막힘 비율/리뷰 지적/절차 실수/gotcha 적용·누락 추세를 볼 수 있다(옛 스냅샷과 하위호환, "워크아이템마다 난이도가 다르다"는 캐비트 항상 포함). awl 은 LLM 토큰을 직접 측정하지 않는다 — 전부 프록시 지표다.
