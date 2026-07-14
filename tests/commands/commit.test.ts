@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { checkBaseDrift, isolatedCommit, startBaseline } from '../../src/commands/commit.js';
 
 function makeRepo(): { dir: string; g: (args: string[]) => string } {
@@ -205,5 +205,37 @@ describe('baseline git ref 네임스페이스 (WI-D AC-06 — 워크아이템이
 
     const refs = g(['for-each-ref', '--format=%(refname)', 'refs/awl/baseline/']);
     expect(refs.trim()).toBe('refs/awl/baseline/AC-01');
+  });
+
+  it('workitem/ac 에 연속 마침표·공백이 있어도 sanitize 해서 ref 를 만든다 (AC-12, 리뷰 지적)', async () => {
+    const { dir, g } = makeRepo();
+    fs.writeFileSync(path.join(dir, 'f.txt'), 'a\n');
+    g(['add', '.']);
+    g(['commit', '-q', '-m', 'base']);
+
+    setWorkitem(dir, 'WI-A..B');
+    await startBaseline(dir, 'AC 01');
+
+    const refs = g(['for-each-ref', '--format=%(refname)', 'refs/awl/baseline/']);
+    expect(refs).not.toContain('..');
+    expect(refs).not.toContain('AC 01');
+  });
+
+  it('update-ref 가 실패해도(예: 레거시 leaf ref 와 D/F 충돌) 크래시하지 않고 경고만 남긴다 (AC-12, 리뷰 지적)', async () => {
+    const { dir, g } = makeRepo();
+    fs.writeFileSync(path.join(dir, 'f.txt'), 'a\n');
+    g(['add', '.']);
+    g(['commit', '-q', '-m', 'base']);
+
+    // 레거시(워크아이템 없음) baseline 으로 leaf ref refs/awl/baseline/AC-06 을 먼저 만든다.
+    await startBaseline(dir, 'AC-06');
+
+    // workitem 이름이 우연히 'AC-06' 이면 refs/awl/baseline/AC-06/AC-07 을 만들려다
+    // 이미 leaf 로 존재하는 AC-06 과 D/F 충돌한다 — sanitize 로는 못 막는 케이스.
+    setWorkitem(dir, 'AC-06');
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    await expect(startBaseline(dir, 'AC-07')).resolves.toBeDefined();
+    expect(stderrSpy).toHaveBeenCalled();
+    stderrSpy.mockRestore();
   });
 });

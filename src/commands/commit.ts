@@ -76,9 +76,15 @@ async function listUntracked(cwd: string): Promise<string[]> {
   return namesZ(['ls-files', '--others', '--exclude-standard'], cwd);
 }
 
-/** git ref 이름에 안전한 문자만 남긴다(공백 등 잘못된 문자는 _ 로 치환). */
+/**
+ * git ref 이름에 안전한 문자만 남긴다. 금지 문자(공백 등)는 `_` 로 치환하고,
+ * 연속된 마침표(`..`, git 의 상위 경로 표기와 충돌해 ref 이름으로 거부됨)도
+ * `_` 로 뭉갠다(리뷰 지적 AC-12 — 원래는 공백류만 막고 `..` 는 안 막았다).
+ * 이것으로 모든 git ref 규칙을 다 막는다고 보장하지는 않는다 — 그래서
+ * update-ref 호출부는 별도로 실패를 감지해 경고한다(아래).
+ */
 function sanitizeRefComponent(s: string): string {
-  return s.replace(/[^A-Za-z0-9._-]/g, '_');
+  return s.replace(/[^A-Za-z0-9._-]/g, '_').replace(/\.{2,}/g, '_');
 }
 
 /**
@@ -89,13 +95,33 @@ function sanitizeRefComponent(s: string): string {
  * 현재 워크아이템이 없으면(레거시 state 등) 예전처럼 AC-ID 만 쓴다.
  * startBaseline/isolatedCommit 의 공개 시그니처는 바꾸지 않는다 — 여기서
  * loadState 로 직접 판단한다.
+ * ac 도 sanitize 한다(리뷰 지적 AC-12 — workitem 만 걸러서 절반만 안전했다.
+ * `awl commit <criterion>` 의 criterion 은 완전 자유 텍스트 CLI 인자다).
  */
 function baselineRefPath(cwd: string, ac: string): string {
   const state = loadState(cwd);
   const workitem = typeof state.workitem === 'string' ? state.workitem : null;
+  const safeAc = sanitizeRefComponent(ac);
   return workitem
-    ? `refs/awl/baseline/${sanitizeRefComponent(workitem)}/${ac}`
-    : `refs/awl/baseline/${ac}`;
+    ? `refs/awl/baseline/${sanitizeRefComponent(workitem)}/${safeAc}`
+    : `refs/awl/baseline/${safeAc}`;
+}
+
+/**
+ * baseline ref 를 고정한다. 이 ref 는 어디서도 다시 읽지 않는다(dangling 커밋을
+ * git gc 로부터 보호하는 용도일 뿐 — 진짜 baseline 출처는 state.json 의
+ * criteria[].snapshot 이다) — 그래서 실패해도 격리 커밋 자체를 막지 않는다.
+ * 다만 조용히 삼키면 보호가 무음으로 무력화되므로(리뷰 지적 AC-12 — 예:
+ * sanitize 로 못 거른 ref 이름 충돌) 실패 시 경고만 남긴다.
+ */
+async function pinBaselineRef(cwd: string, ac: string, sha: string): Promise<void> {
+  const refPath = baselineRefPath(cwd, ac);
+  const result = await git(['update-ref', refPath, sha], cwd);
+  if (result.exitCode !== 0) {
+    process.stderr.write(
+      `  경고: baseline 보호용 git ref(${refPath})를 못 만들었습니다(기능엔 영향 없음): ${result.stderr.trim()}\n`,
+    );
+  }
 }
 
 /** 완료 조건 작업의 베이스라인을 잡는다. 시작 시점 스냅샷을 refs/awl 로 고정한다. */
@@ -103,7 +129,7 @@ export async function startBaseline(cwd: string, ac: string): Promise<Baseline> 
   const head = (await git(['rev-parse', 'HEAD'], cwd)).stdout.trim();
   const snapshot = await captureSnapshot(cwd);
   const untracked = await listUntracked(cwd);
-  await git(['update-ref', baselineRefPath(cwd, ac), snapshot], cwd);
+  await pinBaselineRef(cwd, ac, snapshot);
   return { snapshot, head, untracked };
 }
 
@@ -353,7 +379,7 @@ export async function runCommit(
   // 다음 격리 커밋을 위해 베이스라인을 이번 커밋 시점으로 갱신한다.
   const newSnap = await captureSnapshot(root);
   const newUntracked = await listUntracked(root);
-  await git(['update-ref', baselineRefPath(root, ac), newSnap], root);
+  await pinBaselineRef(root, ac, newSnap);
   writeState(
     root,
     setCriterion(loadState(root), ac, {
