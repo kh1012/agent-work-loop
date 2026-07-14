@@ -1,4 +1,4 @@
 #!/usr/bin/env node
 import { buildProgram } from './program.js';
 
-buildProgram().parse(process.argv);
+await buildProgram().parseAsync(process.argv);

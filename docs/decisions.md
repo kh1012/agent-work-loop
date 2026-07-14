@@ -76,6 +76,14 @@
 
 ---
 
+## D-11. doctor의 가정 (아직 확정 안 된 저장 위치)
+
+- **가정 1 (교훈 저장 위치)**: doctor는 교훈 개수를 `~/.awl/lessons/` 의 파일 수로 센다. WI-2 `paths`에는 records/deltas/rules/templates/generations만 있고 "교훈(lessons)" 디렉토리는 아직 없다. 명세는 "교훈 개수(없으면 0)"를 요구하므로, 위치를 `~/.awl/lessons` 로 가정하고 없으면 0을 표시한다(크래시하지 않음).
+  - **근거**: 규칙(rules)과 교훈(lessons)은 개념이 다르므로 deltas로 대체하지 않는다. `paths.ts`를 건드리지 않으려고(WI-3는 새 기반 코드 금지) doctor 내부에서 경로만 조합한다.
+  - **대안/후속**: 교훈 디렉토리가 확정되면 doctor의 `lessonsDir` 조합을 그 위치로 바꾼다. 확정 시 `paths.ts`에 `lessonsDir()`를 추가하는 편이 낫다.
+- **가정 2 (state 루프 위치)**: `state.json`의 스키마가 아직 없어, doctor는 `phase` / `step` / `position` 중 먼저 있는 문자열 필드를 "루프 위치"로 보여주고, 없으면 "있음"으로 표시한다. 스키마가 정해지면 이 판독을 맞춘다.
+- **결정(status 분류)**: 문제로 세는 것은 `missing`(없어서 init 필요)과 `fail`(치명적 오류)뿐이다. `warn`(예: awl 스킬 미설치)과 `info`(예: Codex 없음)는 안내만 하고 종료 코드에 넣지 않는다. 명세 예시의 "문제 2개"(~/.awl 없음 + config 없음)와 일치한다.
+
 # Windows 리스크 목록 (macOS에서만 검증함 — Windows 검증 시 체크리스트로 사용)
 
 이 프로젝트는 현재 macOS에서만 검증한다. 아래는 Windows에서 깨질 수 있는 지점과 대비다. 나중에 Windows에서 사람이 검증할 때 이 목록을 하나씩 확인한다.

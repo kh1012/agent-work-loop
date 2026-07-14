@@ -12,7 +12,6 @@ awl 자체는 판단하지 않습니다. 파일과 상태만 관리합니다.
  *
  * `--help`에는 사람이 치는 명령만 보인다. 스킬 전용 명령(verify, record,
  * state, evolve)은 나중에 `{ hidden: true }`로 추가해 help에서 숨긴다.
- * 지금은 사람용 명령이 아직 없으므로 배너와 기본 옵션만 노출한다.
  */
 export function buildProgram(): Command {
   const program = new Command();
@@ -23,6 +22,16 @@ export function buildProgram(): Command {
     .helpOption('-h, --help', '도움말을 출력합니다')
     .addHelpText('beforeAll', `${BANNER}\n`)
     .showHelpAfterError();
+
+  // 사람이 치는 명령: doctor (아무것도 설치·수리하지 않고 점검만 한다)
+  program
+    .command('doctor')
+    .description('설치와 환경을 점검합니다 (아무것도 고치지 않습니다)')
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .action(async (opts: { json?: boolean }) => {
+      const { runDoctor } = await import('./commands/doctor.js');
+      await runDoctor({ json: opts.json === true });
+    });
 
   // 인자 없이 `awl`만 실행하면 도움말을 보여준다.
   program.action(() => {
