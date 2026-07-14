@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { filterRules, loadRules, parseRuleFile } from '../../src/commands/rules.js';
+import { filterRules, loadRules, parseRuleFile, suggestLinter } from '../../src/commands/rules.js';
 
 const origHome = process.env.AWL_HOME;
 
@@ -84,5 +84,21 @@ describe('filterRules — scope', () => {
   it('scope 가 다르면 태그 규칙은 빠지고 무태그만', () => {
     const out = filterRules(rules, { scope: 'review' });
     expect(out.map((r) => r.id)).toEqual(['B']);
+  });
+});
+
+describe('suggestLinter — 검사기 승격 안내', () => {
+  it('any 규칙은 no-explicit-any 를 안내한다', () => {
+    expect(suggestLinter('any 로 타입을 덮지 않는다')?.rule).toBe(
+      '@typescript-eslint/no-explicit-any',
+    );
+  });
+  it('@ts-ignore 규칙은 ban-ts-comment 를 안내한다', () => {
+    expect(suggestLinter('타입 오류를 @ts-ignore 로 덮지 않는다')?.rule).toBe(
+      '@typescript-eslint/ban-ts-comment',
+    );
+  });
+  it('정적 검사로 못 만드는 교훈은 null', () => {
+    expect(suggestLinter('오버레이 좌표계가 축에 의존하는지 먼저 확인한다')).toBeNull();
   });
 });

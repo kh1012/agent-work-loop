@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { rulesDir } from '../core/paths.js';
 import { type Caps, caps, makeColors } from '../core/tty.js';
+import { acquireLock, loadDeltaList, releaseLock } from './evolve.js';
 
 /**
  * awl rules — ~/.awl/rules/active/*.md 를 읽어 이 프로젝트에 적용되는 규칙을 반환한다.
@@ -154,4 +155,126 @@ export function runRules(opts: { scope?: string; json?: boolean; edit?: boolean 
     return;
   }
   process.stdout.write(`${renderRules(filtered, warnings, caps())}\n`);
+}
+
+// ---------------------------------------------------------------------------
+// promote — 교훈을 규칙으로 승격 (사람이 명시적으로 실행)
+// ---------------------------------------------------------------------------
+
+/** 활성 규칙의 다음 id(R-001 형식). */
+function nextRuleId(): string {
+  let max = 0;
+  try {
+    for (const f of fs.readdirSync(activeRulesDir())) {
+      const m = /^R-(\d+)\.md$/.exec(f);
+      if (m?.[1]) {
+        max = Math.max(max, Number(m[1]));
+      }
+    }
+  } catch {
+    // 디렉토리 없으면 0에서 시작.
+  }
+  return `R-${String(max + 1).padStart(3, '0')}`;
+}
+
+/** 규칙 내용을 보고 정적 검사로 만들 수 있으면 검사기와 안내를 돌려준다. */
+export function suggestLinter(lesson: string): { rule: string; hint: string } | null {
+  const l = lesson.toLowerCase();
+  if (/\bany\b/.test(l)) {
+    return {
+      rule: '@typescript-eslint/no-explicit-any',
+      hint: 'eslint 의 @typescript-eslint/no-explicit-any 규칙을 켜세요.',
+    };
+  }
+  if (/ts-ignore|ts-expect-error/.test(l)) {
+    return {
+      rule: '@typescript-eslint/ban-ts-comment',
+      hint: 'eslint 의 @typescript-eslint/ban-ts-comment 규칙을 켜세요.',
+    };
+  }
+  if (/eslint-disable/.test(l)) {
+    return {
+      rule: 'eslint-comments/no-use',
+      hint: 'eslint-comments 플러그인으로 주석 비활성화를 막을 수 있습니다.',
+    };
+  }
+  if (/console\.log/.test(l)) {
+    return { rule: 'no-console', hint: 'eslint 의 no-console 규칙을 켜세요.' };
+  }
+  return null;
+}
+
+const RULE_LOAD_LIMIT = 15;
+
+export function runRulesPromote(
+  deltaId: string,
+  opts: { applies?: string; counter?: string; scope?: string },
+): void {
+  const delta = loadDeltaList().find((d) => d.id === deltaId);
+  if (!delta) {
+    process.stderr.write(`\n  교훈 ${deltaId} 을(를) 찾을 수 없습니다.\n`);
+    process.exit(1);
+  }
+  // applies/counter 는 필수. 없으면 거부한다.
+  if (!opts.applies || opts.applies.trim() === '') {
+    process.stderr.write(
+      '\n  applies(적용 조건)가 필요합니다. --applies "..." 로 주세요.\n  적용 조건 없는 규칙은 다른 프로젝트로 잘못 끌려갑니다.\n',
+    );
+    process.exit(1);
+  }
+  if (!opts.counter || opts.counter.trim() === '') {
+    process.stderr.write(
+      '\n  counter(반증 조건)가 필요합니다. --counter "..." 로 주세요.\n  반증 조건 없는 규칙은 검증 불가능한 신념이 됩니다.\n',
+    );
+    process.exit(1);
+  }
+
+  const c = caps();
+  const color = makeColors(c.color);
+
+  if (!acquireLock()) {
+    process.stderr.write('\n  다른 evolve/promote 가 실행 중입니다(~/.awl/.lock).\n');
+    process.exit(1);
+  }
+  try {
+    const ruleId = nextRuleId();
+    const createdAt = new Date().toISOString().slice(0, 10);
+    const front = [
+      '---',
+      `id: ${ruleId}`,
+      ...(opts.scope ? [`scope: ${opts.scope}`] : []),
+      `applies: ${opts.applies}`,
+      `counter: ${opts.counter}`,
+      'violations: 0',
+      `createdAt: ${createdAt}`,
+      `source: ${deltaId}`,
+      '---',
+      '',
+      delta.lesson,
+      '',
+    ].join('\n');
+    fs.mkdirSync(activeRulesDir(), { recursive: true });
+    fs.writeFileSync(path.join(activeRulesDir(), `${ruleId}.md`), front);
+    process.stdout.write(`\n  ${color.green('승격됨')}: ${ruleId}  "${delta.lesson}"\n`);
+
+    // 검사기로 만들 수 있으면 안내(졸업이 룰 비대화 방지의 8할이다).
+    const linter = suggestLinter(delta.lesson);
+    if (linter) {
+      process.stdout.write('\n  이 규칙은 검사기로 만들 수 있어 보입니다.\n');
+      process.stdout.write(
+        `  검사기로 만들면 규칙 목록에서 빠지고, awl verify 가 대신 잡아줍니다.\n`,
+      );
+      process.stdout.write(`  ${color.dim(`안내: ${linter.hint}`)}\n`);
+    }
+
+    // 이 프로젝트에 로드되는 규칙 수 상한 경고.
+    const loaded = filterRules(loadRules().rules, {});
+    if (loaded.length > RULE_LOAD_LIMIT) {
+      process.stdout.write(
+        `\n  ${color.yellow('경고')}: 이 프로젝트에 로드되는 규칙이 ${loaded.length}개입니다(${RULE_LOAD_LIMIT}개 권장). 검사기로 졸업시킬 규칙이 없는지 보세요.\n`,
+      );
+    }
+  } finally {
+    releaseLock();
+  }
 }
