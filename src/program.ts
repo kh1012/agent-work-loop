@@ -1,11 +1,28 @@
 import { Command } from 'commander';
 import { version } from '../package.json';
+import { installedEngineVersion } from './core/engine.js';
 
 export const BANNER = `Agent Work Loop
 
 같은 실패를 두 번 하지 않게 만드는 도구입니다.
 awl 자체는 판단하지 않습니다. 파일과 상태만 관리합니다.
 판단은 Claude Code 나 Codex 가 합니다.`;
+
+/**
+ * `awl --version` 이 보여줄 문자열을 만든다. 패키지 버전뿐 아니라 설치된
+ * 엔진 버전도 보여준다 — 엔진 버전이 어긋나면 사용자의 doctor 가 아니라
+ * 여기서 먼저 알아챌 수 있어야 한다.
+ */
+export function versionString(): string {
+  const engineVer = installedEngineVersion();
+  if (engineVer === null) {
+    return `awl ${version}`;
+  }
+  if (engineVer === version) {
+    return `awl ${version} (engine ${engineVer})`;
+  }
+  return `awl ${version} (engine ${engineVer} — 버전이 다릅니다. awl init 을 다시 실행하세요)`;
+}
 
 /**
  * awl 명령어 트리를 만든다.
@@ -18,7 +35,7 @@ export function buildProgram(): Command {
 
   program
     .name('awl')
-    .version(version, '-v, --version', '버전을 출력합니다')
+    .version(versionString(), '-v, --version', '버전을 출력합니다')
     .helpOption('-h, --help', '도움말을 출력합니다')
     .addHelpText('beforeAll', `${BANNER}\n`)
     .showHelpAfterError();
@@ -53,20 +70,24 @@ export function buildProgram(): Command {
       await runDoctor({ json: opts.json === true });
     });
 
-  // 사람이 치는 명령: config (현재 설정 보기 + config set 으로 검증 저장)
-  const config = program.command('config').description('이 프로젝트의 설정을 봅니다');
+  // 사람이 치는 명령: config (현재 설정 보기, TTY 면 항목을 골라 수정)
+  const config = program
+    .command('config')
+    .description('이 프로젝트의 설정을 봅니다 (TTY 면 수정도)');
   config.action(async () => {
     const { runConfig } = await import('./commands/config.js');
-    runConfig();
+    await runConfig();
   });
   config
-    .command('set <key> <value>')
-    .description('설정 값을 바꿉니다 (저장 전에 검증 명령을 실제로 실행해 봅니다)')
+    .command('set [key] [value]')
+    .description('설정 값을 바꿉니다 (키 생략 시 목록, cmd 는 실제로 실행해 봅니다)')
     .option('--force', '검증에 실패해도 저장합니다')
-    .action(async (key: string, value: string, opts: { force?: boolean }) => {
-      const { runConfigSet } = await import('./commands/config.js');
-      await runConfigSet(key, value, { force: opts.force === true });
-    });
+    .action(
+      async (key: string | undefined, value: string | undefined, opts: { force?: boolean }) => {
+        const { runConfigSet } = await import('./commands/config.js');
+        await runConfigSet(key, value, { force: opts.force === true });
+      },
+    );
 
   // 사람이 치는 명령: records (기록 조회, 사람이 읽는 목록)
   program
