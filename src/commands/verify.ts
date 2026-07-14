@@ -315,9 +315,16 @@ export function sinceBaselineFallbackMessage(reason: 'no_baseline' | 'workitem_m
 // 가 없으면 무음으로 건너뛰지 않고 전체 test 체크로 폴백한다(안전한 쪽).
 // ---------------------------------------------------------------------------
 
-/** relatedCmd 템플릿의 {files} 를 변경 파일 목록(공백 구분)으로 치환한다. */
+/**
+ * relatedCmd 템플릿의 {files} 를 변경 파일 목록으로 치환한다. 각 경로를
+ * 큰따옴표로 감싼다 — run() 이 shell:false + tokenize() 로 실행하는데(runner.ts),
+ * tokenize 는 따옴표 없는 공백을 그대로 토큰 분리해서 공백 포함 경로가 여러
+ * 인자로 쪼개졌었다(2차 리뷰 지적, AC-07). tokenize 는 "..."/'...' 를 이미
+ * 한 토큰으로 파싱하므로 이 방식이 안전하다.
+ */
 export function substituteRelatedCmd(template: string, changedFiles: string[]): string {
-  return template.replaceAll('{files}', changedFiles.join(' '));
+  const quoted = changedFiles.map((f) => `"${f}"`).join(' ');
+  return template.replaceAll('{files}', quoted);
 }
 
 export interface RelatedTestOutcome {

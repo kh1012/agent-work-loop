@@ -17,6 +17,7 @@ import {
   verifyBaselinePath,
   writeVerifyBaseline,
 } from '../../src/commands/verify.js';
+import { tokenize } from '../../src/core/runner.js';
 
 const NODE = process.execPath;
 
@@ -469,14 +470,22 @@ describe('isCheckPassed (WI-H AC-05, 스파이크 지적 — 4곳 중복 통합)
 });
 
 describe('substituteRelatedCmd (WI-I AC-04)', () => {
-  it('{files} 를 변경 파일 목록(공백 구분)으로 치환한다', () => {
+  it('{files} 를 변경 파일 목록(각 경로를 큰따옴표로 감싸 공백 구분)으로 치환한다', () => {
     expect(substituteRelatedCmd('vitest related {files} --run', ['a.ts', 'b.ts'])).toBe(
-      'vitest related a.ts b.ts --run',
+      'vitest related "a.ts" "b.ts" --run',
     );
   });
 
   it('{files} 가 여러 번 있어도 전부 치환한다', () => {
-    expect(substituteRelatedCmd('echo {files} {files}', ['a.ts'])).toBe('echo a.ts a.ts');
+    expect(substituteRelatedCmd('echo {files} {files}', ['a.ts'])).toBe('echo "a.ts" "a.ts"');
+  });
+
+  it('파일 경로에 공백이 있어도 tokenize() 에서 하나의 인자로 살아남는다 (AC-07, 2차 리뷰 지적)', () => {
+    const cmd = substituteRelatedCmd('vitest related {files}', ['my file.ts', 'b.ts']);
+    const tokens = tokenize(cmd);
+    expect(tokens).toContain('my file.ts'); // 공백 포함 경로가 두 토큰으로 안 쪼개짐.
+    expect(tokens).toContain('b.ts');
+    expect(tokens).toEqual(['vitest', 'related', 'my file.ts', 'b.ts']);
   });
 });
 
