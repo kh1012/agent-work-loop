@@ -858,7 +858,8 @@ export async function promptVerifyLocation(
  * 그대로 돌려준다). 사용자가 각 항목의 명령을 새로 입력해 바꾼 뒤에 호출해도
  * 안전하다 — 순서와 무관하게 그 시점의 verify 스냅샷 전체에 적용되기 때문이다.
  * (리뷰 지적: 예전엔 interactiveInputs 안에 인라인으로만 있어 테스트가 전혀
- * 없었다. 순수 함수로 뽑아 직접 테스트한다.)
+ * 없었다. 별도 함수로 뽑아 직접 테스트한다 — 인자를 mutate 하므로 순수 함수는
+ * 아니다. 반환값은 편의상 같은 참조다.)
  */
 export function applyVerifyCwd(verify: VerifyMap, cwd: string | undefined): VerifyMap {
   if (!cwd) {
