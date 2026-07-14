@@ -617,6 +617,22 @@ function verifyLines(v: VerifyMap): string[] {
   });
 }
 
+/**
+ * "[2/4] 검증 명령어" 화면의 본문 줄들. buildScreens(루트 기준)와 interactiveInputs
+ * 가 모노레포에서 패키지를 다시 골랐을 때(화면 재구성) 둘 다 이 함수로 만든다
+ * (리뷰 지적 AC-09: 예전엔 리터럴 배열이 두 곳에 복사돼 있어 고치면 한쪽만 바뀌었다).
+ */
+export function verifyStepLines(v: VerifyMap): string[] {
+  return [
+    'package.json 등에서 찾았습니다. 맞으면 Enter, 고치려면 새로 입력.',
+    '',
+    ...verifyLines(v),
+    '',
+    '이 명령어들이 유일한 심판입니다.',
+    'AI 가 "다 했습니다"라고 말할 수 없게 만드는 장치입니다.',
+  ];
+}
+
 /** TTY 가 아닌데 --yes 없이 실행했을 때의 안내. */
 export function renderNonTtyNotice(): string {
   return [
@@ -732,19 +748,7 @@ export function buildScreens(projectRoot: string, hasGlobal: boolean, c: Caps): 
   return {
     welcome,
     lang: stepBox('1/4', '주 언어', langLines, sym),
-    verify: stepBox(
-      '2/4',
-      '검증 명령어',
-      [
-        'package.json 등에서 찾았습니다. 맞으면 Enter, 고치려면 새로 입력.',
-        '',
-        ...verifyLines(verify),
-        '',
-        '이 명령어들이 유일한 심판입니다.',
-        'AI 가 "다 했습니다"라고 말할 수 없게 만드는 장치입니다.',
-      ],
-      sym,
-    ),
+    verify: stepBox('2/4', '검증 명령어', verifyStepLines(verify), sym),
     rules: stepBox(
       '3/4',
       '규칙이란',
@@ -899,7 +903,7 @@ async function interactiveInputs(
     // 패키지를 새로 골랐으면 그 패키지에서 감지한 값으로 화면도 다시 그린다
     // (buildScreens 가 만든 screens.verify 는 루트 기준이라 여기선 쓰지 않는다).
     process.stdout.write(
-      `\n${stepBox('2/4', '검증 명령어', ['package.json 등에서 찾았습니다. 맞으면 Enter, 고치려면 새로 입력.', '', ...verifyLines(verify), '', '이 명령어들이 유일한 심판입니다.', 'AI 가 "다 했습니다"라고 말할 수 없게 만드는 장치입니다.'], makeSymbols(c))}\n`,
+      `\n${stepBox('2/4', '검증 명령어', verifyStepLines(verify), makeSymbols(c))}\n`,
     );
   } else {
     process.stdout.write(`\n${screens.verify}\n`);
