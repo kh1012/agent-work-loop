@@ -849,6 +849,26 @@ export async function promptVerifyLocation(
   return { verify: detectVerify(path.join(projectRoot, chosen)), cwd: chosen };
 }
 
+/**
+ * cwd 가 있으면 verify 의 null 아닌 모든 항목에 적용한다(그 자리에서 수정하고
+ * 그대로 돌려준다). 사용자가 각 항목의 명령을 새로 입력해 바꾼 뒤에 호출해도
+ * 안전하다 — 순서와 무관하게 그 시점의 verify 스냅샷 전체에 적용되기 때문이다.
+ * (리뷰 지적: 예전엔 interactiveInputs 안에 인라인으로만 있어 테스트가 전혀
+ * 없었다. 순수 함수로 뽑아 직접 테스트한다.)
+ */
+export function applyVerifyCwd(verify: VerifyMap, cwd: string | undefined): VerifyMap {
+  if (!cwd) {
+    return verify;
+  }
+  for (const k of Object.keys(verify) as (keyof VerifyMap)[]) {
+    const entry = verify[k];
+    if (entry) {
+      entry.cwd = cwd;
+    }
+  }
+  return verify;
+}
+
 async function interactiveInputs(
   rl: readline.Interface,
   projectRoot: string,
@@ -892,14 +912,7 @@ async function interactiveInputs(
       verify[k] = answer.toLowerCase() === '없음' || answer === '-' ? null : splitEnv(answer);
     }
   }
-  if (located.cwd) {
-    for (const k of Object.keys(VERIFY_LABELS) as (keyof VerifyMap)[]) {
-      const entry = verify[k];
-      if (entry) {
-        entry.cwd = located.cwd;
-      }
-    }
-  }
+  applyVerifyCwd(verify, located.cwd);
 
   // 4. [3/4] 규칙이란 (설명 화면)
   process.stdout.write(`\n${screens.rules}\n`);

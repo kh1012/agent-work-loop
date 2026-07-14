@@ -6,7 +6,9 @@ import { PassThrough } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type InitInputs,
+  type VerifyMap,
   applyInit,
+  applyVerifyCwd,
   buildConfig,
   buildScreens,
   detectLanguage,
@@ -274,6 +276,36 @@ describe('promptVerifyLocation (WI-B, readline 직접 구동 — D-23 패턴)', 
     stdoutSpy.mockRestore();
     expect(result.cwd).toBe(path.join('packages', 'app'));
     expect(result.verify.test).toEqual({ cmd: 'vitest run' });
+  });
+});
+
+describe('applyVerifyCwd (WI-B, 리뷰 지적 AC-06 — 예전엔 어떤 테스트도 안 걸림)', () => {
+  it('cwd 가 있으면 null 아닌 모든 항목에 적용한다', () => {
+    const verify: VerifyMap = {
+      typecheck: { cmd: 'tsc --noEmit' },
+      lint: { cmd: 'eslint .' },
+      test: null,
+      e2e: null,
+    };
+    applyVerifyCwd(verify, 'packages/app');
+    expect(verify.typecheck?.cwd).toBe('packages/app');
+    expect(verify.lint?.cwd).toBe('packages/app');
+    expect(verify.test).toBeNull(); // null 은 그대로
+  });
+
+  it('사용자가 프롬프트에서 값을 새로 입력해 바꾼 뒤에도(순서 무관) cwd 가 정확히 적용된다', () => {
+    // interactiveInputs 의 실제 순서를 흉내낸다: 사용자가 typecheck 를 새로 입력해
+    // 바꾼 다음에 applyVerifyCwd 를 호출한다.
+    const verify: VerifyMap = { typecheck: null, lint: null, test: null, e2e: null };
+    verify.typecheck = { cmd: '../../node_modules/.bin/tsc --noEmit' }; // 사용자가 새로 입력
+    applyVerifyCwd(verify, 'packages/app');
+    expect(verify.typecheck?.cwd).toBe('packages/app');
+  });
+
+  it('cwd 가 없으면 아무것도 바꾸지 않는다', () => {
+    const verify: VerifyMap = { typecheck: { cmd: 'tsc' }, lint: null, test: null, e2e: null };
+    applyVerifyCwd(verify, undefined);
+    expect(verify.typecheck?.cwd).toBeUndefined();
   });
 });
 
