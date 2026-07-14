@@ -144,6 +144,15 @@
 - **proceduralErrors 구분**: 완료 조건에 `attempts`(구현 시도 실패 — 설계가 틀림)와 `proceduralErrors`(절차적 실수 — git 을 잘못 씀)를 나눠 기록한다. 전자만 3회 제한에 카운트하고, 후자는 고치고 넘어간다. 카운트 로직 자체는 WI-7(loop)의 몫이고, WI-5.5 는 필드 구조와 state 헬퍼만 제공한다.
 - **베이스 드리프트**: 기준 브랜치는 `--base` 로 받거나 `@{upstream}` 으로 추정한다. 추정 실패 시 경고를 조용히 건너뛴다(에러가 아니다). merge-base 이후 기준 브랜치에 쌓인 커밋 수와, 내 파일과 겹치는 파일을 경고한다.
 
+## D-19. awl-loop 스킬 경로와 자기 검증 방식 (WI-6)
+
+- **스킬 경로**: 스킬 본문을 WI-4 에서 확정한 설치 경로에 채운다.
+  - Claude Code: `engine/skills/claude/awl-loop/SKILL.md` → 설치 시 `<project>/.claude/skills/awl-loop/SKILL.md`
+  - Codex: `engine/skills/codex/AGENTS.awl.md` → 설치 시 `<project>/AGENTS.md` 에 마커(`awl-loop:start/end`)로 감싸 추가
+  - **근거**: 명세 WI-6 산출물은 `engine/skills/awl-loop/SKILL.md`·`engine/skills/awl-loop.agents.md` 로 표기했지만, WI-4 의 `installClaudeSkill`/`installCodexSkill` 과 그 단위 테스트가 이미 위 경로를 참조·검증한다. "자리표시자를 채운다"는 WI-6 지시에 맞추려면 init 이 실제로 설치하는 경로를 써야 한다. init 코드/테스트를 다시 건드리지 않는다(범위 최소).
+- **게이트는 도구 호출로 못박음**: SKILL.md 는 게이트마다 "AskUserQuestion 도구를 호출한다"를 명시한다(Codex 는 "턴을 끝내고 사용자 입력을 받는다"). "승인을 기다립니다"라고 텍스트로 쓰고 넘어가는 것을 실패로 규정한다. 드라이런 교훈: 멈춤은 의지가 아니라 도구 호출로 구현돼야 실제로 멈춘다.
+- **자기 검증(dogfooding)**: 실제 홈(`~/.awl`)을 건드리지 않도록 검증 세션은 `AWL_HOME` 을 저장소 내 임시 디렉토리로 격리한다. 스킬 설치(`.claude/skills/awl-loop/`)와 프로젝트 설정(`.awl/config.json`)은 이 저장소에 실제로 만든다. 목표 "awl status 추가"로 파이프라인을 돌려 게이트 1에서 `AskUserQuestion` 호출로 멈추는지 확인한다.
+
 # Windows 리스크 목록 (macOS에서만 검증함 — Windows 검증 시 체크리스트로 사용)
 
 이 프로젝트는 현재 macOS에서만 검증한다. 아래는 Windows에서 깨질 수 있는 지점과 대비다. 나중에 Windows에서 사람이 검증할 때 이 목록을 하나씩 확인한다.
