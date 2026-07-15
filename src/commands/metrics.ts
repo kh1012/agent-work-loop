@@ -12,6 +12,13 @@ import { requireConfig } from './config.js';
  * 이미 ~/.awl/generations/<project>/<WI>.json 에 쌓아둔 것을 그대로 읽는다).
  */
 
+export interface CoverageSnapshot {
+  auditFindingsTotal: number;
+  addressed: number;
+  excluded: number;
+  excludedApprovedByHuman: boolean;
+}
+
 export interface Generation {
   workitem: string;
   at: string;
@@ -22,11 +29,24 @@ export interface Generation {
   proceduralErrors: number;
   gotchaApplied: number;
   gotchaMissed: number;
+  coverage: CoverageSnapshot;
 }
 
 /** 워크아이템마다 난이도가 다르다는 경고 — 사람용/JSON 양쪽에 항상 포함한다. */
 export function renderMetricsCaveat(): string {
   return '워크아이템마다 난이도가 다릅니다 — 세대 간 절대 비교보다는 경향(추세)만 참고하세요.';
+}
+
+/** coverage 가 없는 옛 스냅샷(WI-T 이전)도 0/false 로 채워 하위호환한다. */
+function readCoverage(raw: unknown): CoverageSnapshot {
+  const c = (raw ?? {}) as Record<string, unknown>;
+  const num = (v: unknown): number => (typeof v === 'number' ? v : 0);
+  return {
+    auditFindingsTotal: num(c.auditFindingsTotal),
+    addressed: num(c.addressed),
+    excluded: num(c.excluded),
+    excludedApprovedByHuman: c.excludedApprovedByHuman === true,
+  };
 }
 
 /**
@@ -60,6 +80,7 @@ export function loadGenerations(project: string): Generation[] {
       proceduralErrors: num(raw.proceduralErrors),
       gotchaApplied: num(raw.gotchaApplied),
       gotchaMissed: num(raw.gotchaMissed),
+      coverage: readCoverage(raw.coverage),
     });
   }
   generations.sort((a, b) => a.at.localeCompare(b.at));
@@ -76,11 +97,12 @@ export function renderMetrics(generations: Generation[], c: Caps): string {
   const idWidth = Math.max(...generations.map((g) => g.workitem.length), 9) + 2;
   const out: string[] = ['', `  세대 ${generations.length}개 (시간순)`, ''];
   out.push(
-    `  ${'워크아이템'.padEnd(idWidth, ' ')}완료조건  시도평균  막힘비율  리뷰지적  절차실수  gotcha적용  gotcha누락`,
+    `  ${'워크아이템'.padEnd(idWidth, ' ')}완료조건  시도평균  막힘비율  리뷰지적  절차실수  gotcha적용  gotcha누락  커버리지`,
   );
   for (const g of generations) {
+    const coverage = `${g.coverage.addressed}/${g.coverage.auditFindingsTotal}`;
     out.push(
-      `  ${g.workitem.padEnd(idWidth, ' ')}${String(g.criteriaTotal).padEnd(10, ' ')}${String(g.avgAttempts).padEnd(10, ' ')}${String(g.blockedRatio).padEnd(10, ' ')}${String(g.reviewRejects).padEnd(10, ' ')}${String(g.proceduralErrors).padEnd(10, ' ')}${String(g.gotchaApplied).padEnd(12, ' ')}${g.gotchaMissed}`,
+      `  ${g.workitem.padEnd(idWidth, ' ')}${String(g.criteriaTotal).padEnd(10, ' ')}${String(g.avgAttempts).padEnd(10, ' ')}${String(g.blockedRatio).padEnd(10, ' ')}${String(g.reviewRejects).padEnd(10, ' ')}${String(g.proceduralErrors).padEnd(10, ' ')}${String(g.gotchaApplied).padEnd(12, ' ')}${String(g.gotchaMissed).padEnd(12, ' ')}${coverage}`,
     );
   }
   out.push('');

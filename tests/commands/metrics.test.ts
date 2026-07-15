@@ -72,6 +72,50 @@ describe('loadGenerations (WI-P AC-04)', () => {
     expect(gens[0]?.gotchaMissed).toBe(0);
   });
 
+  it('coverage 가 없는 옛 스냅샷도 크래시 없이 0/false 로 읽는다 (하위호환, WI-T AC-04)', () => {
+    seedGeneration('p', 'WI-C', {
+      workitem: 'WI-C',
+      at: '2026-07-14T08:00:00Z',
+      criteriaTotal: 3,
+      avgAttempts: 0,
+      blockedRatio: 0,
+      reviewRejects: 0,
+      proceduralErrors: 0,
+      gotchaApplied: 0,
+      gotchaMissed: 0,
+      // coverage 없음 — WI-T 이전 스냅샷
+    });
+    const gens = loadGenerations('p');
+    expect(gens[0]?.coverage).toEqual({
+      auditFindingsTotal: 0,
+      addressed: 0,
+      excluded: 0,
+      excludedApprovedByHuman: false,
+    });
+  });
+
+  it('coverage 가 있으면 그대로 읽는다', () => {
+    seedGeneration('p', 'WI-D', {
+      workitem: 'WI-D',
+      at: '2026-07-14T08:00:00Z',
+      criteriaTotal: 3,
+      avgAttempts: 0,
+      blockedRatio: 0,
+      reviewRejects: 0,
+      proceduralErrors: 0,
+      gotchaApplied: 0,
+      gotchaMissed: 0,
+      coverage: { auditFindingsTotal: 5, addressed: 3, excluded: 2, excludedApprovedByHuman: true },
+    });
+    const gens = loadGenerations('p');
+    expect(gens[0]?.coverage).toEqual({
+      auditFindingsTotal: 5,
+      addressed: 3,
+      excluded: 2,
+      excludedApprovedByHuman: true,
+    });
+  });
+
   it('프로젝트에 세대 기록이 전혀 없으면 빈 배열(크래시하지 않는다)', () => {
     expect(loadGenerations('nope')).toEqual([]);
   });
@@ -116,6 +160,12 @@ describe('renderMetrics — 사람용 표 (WI-P 리뷰 지적: criteriaTotal 누
           proceduralErrors: 4,
           gotchaApplied: 5,
           gotchaMissed: 6,
+          coverage: {
+            auditFindingsTotal: 12,
+            addressed: 5,
+            excluded: 7,
+            excludedApprovedByHuman: true,
+          },
         },
       ],
       caps(),
@@ -129,6 +179,7 @@ describe('renderMetrics — 사람용 표 (WI-P 리뷰 지적: criteriaTotal 누
     expect(out).toContain('5');
     expect(out).toContain('6');
     expect(out).toContain('난이도'); // 캐비트
+    expect(out).toContain('5/12'); // 커버리지(addressed/auditFindingsTotal, WI-T AC-04)
   });
 
   it('세대가 없으면 캐비트를 포함한 안내만 보여준다', () => {

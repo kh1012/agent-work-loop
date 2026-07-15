@@ -210,6 +210,7 @@ describe('writeGeneration — 프로젝트별 디렉토리', () => {
       proceduralErrors: 2,
       gotchaApplied: 3,
       gotchaMissed: 1,
+      coverage: { auditFindingsTotal: 4, addressed: 2, excluded: 2, excludedApprovedByHuman: true },
     };
     const file = writeGeneration('agent-work-loop', 'WI-6', metrics, '2026-07-14T00:00:00Z');
     expect(file).toContain(path.join('generations', 'agent-work-loop', 'WI-6.json'));
@@ -218,6 +219,87 @@ describe('writeGeneration — 프로젝트별 디렉토리', () => {
     expect(written.workitem).toBe('WI-6');
     expect(written.gotchaApplied).toBe(3);
     expect(written.gotchaMissed).toBe(1);
+    expect(written.coverage).toEqual({
+      auditFindingsTotal: 4,
+      addressed: 2,
+      excluded: 2,
+      excludedApprovedByHuman: true,
+    });
+  });
+});
+
+describe('collectEvolve — coverage 계측 (WI-T AC-04)', () => {
+  it('audit findings 와 criteria.addresses 를 대조해 addressed/excluded 를 센다', () => {
+    seedRecords([
+      {
+        id: '1',
+        at: '2026-07-14T10:00:00Z',
+        type: 'audit',
+        workitem: 'WI-6',
+        scope: 's',
+        findings: [
+          { id: 'F-01', what: 'a' },
+          { id: 'F-02', what: 'b' },
+        ],
+      },
+      {
+        id: '2',
+        at: '2026-07-14T09:00:00Z',
+        type: 'gate',
+        workitem: 'WI-6',
+        gate: 1,
+        decision: 'approved',
+        presentedCriteria: ['AC-01'],
+        auto: false,
+      },
+    ]);
+    const state = { criteria: [{ id: 'AC-01', status: 'passed', addresses: ['F-01'] }] };
+    const col = collectEvolve('agent-work-loop', 'WI-6', state);
+
+    expect(col.metrics.coverage).toEqual({
+      auditFindingsTotal: 2,
+      addressed: 1,
+      excluded: 1,
+      excludedApprovedByHuman: true,
+    });
+  });
+
+  it('gate:1 이 auto:true(자율 승인)면 excludedApprovedByHuman 은 false', () => {
+    seedRecords([
+      {
+        id: '1',
+        at: '2026-07-14T10:00:00Z',
+        type: 'audit',
+        workitem: 'WI-6',
+        scope: 's',
+        findings: [{ id: 'F-01', what: 'a' }],
+      },
+      {
+        id: '2',
+        at: '2026-07-14T09:00:00Z',
+        type: 'gate',
+        workitem: 'WI-6',
+        gate: 1,
+        decision: 'approved',
+        presentedCriteria: ['AC-01'],
+        auto: true,
+      },
+    ]);
+    const state = { criteria: [{ id: 'AC-01', status: 'passed' }] };
+    const col = collectEvolve('agent-work-loop', 'WI-6', state);
+
+    expect(col.metrics.coverage.excludedApprovedByHuman).toBe(false);
+  });
+
+  it('gate:1 기록이 없으면 excludedApprovedByHuman 은 false', () => {
+    seedRecords([]);
+    const col = collectEvolve('agent-work-loop', 'WI-6', { criteria: [] });
+    expect(col.metrics.coverage).toEqual({
+      auditFindingsTotal: 0,
+      addressed: 0,
+      excluded: 0,
+      excludedApprovedByHuman: false,
+    });
   });
 });
 

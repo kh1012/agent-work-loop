@@ -3,7 +3,7 @@ import path from 'node:path';
 import { generationsDir, gotchasDir, legacyDeltasDir, lockFile } from '../core/paths.js';
 import { type Caps, caps, makeColors } from '../core/tty.js';
 import { requireConfig } from './config.js';
-import { readRecords } from './record.js';
+import { computeCoverage, readRecords } from './record.js';
 import { loadState } from './state.js';
 
 /**
@@ -165,6 +165,13 @@ function nextGotchaId(gotchas: Gotcha[]): string {
 // collect
 // ---------------------------------------------------------------------------
 
+export interface CoverageMetrics {
+  auditFindingsTotal: number;
+  addressed: number;
+  excluded: number;
+  excludedApprovedByHuman: boolean;
+}
+
 export interface EvolveMetrics {
   criteriaTotal: number;
   avgAttempts: number;
@@ -173,6 +180,7 @@ export interface EvolveMetrics {
   proceduralErrors: number;
   gotchaApplied: number;
   gotchaMissed: number;
+  coverage: CoverageMetrics;
 }
 
 export interface EvolveCollection {
@@ -215,6 +223,21 @@ export function collectEvolve(
     count: g.count,
   }));
 
+  // 커버리지 (WI-T AC-04) — computeCoverage(AC-02) 를 재사용해 조사에서 발견한
+  // 문제 중 몇 건을 완료 조건이 실제로 다뤘는지 센다. excludedApprovedByHuman 은
+  // gate:1 기록이 있고(AC-02 가 이미 배제를 사람에게 제시하도록 강제했으므로,
+  // 기록이 있다는 것 자체가 배제가 있었다면 제시됐다는 뜻이다) auto:true(자율
+  // 승인)가 아닐 때만 true.
+  const auditRecords = records.filter((r) => r.type === 'audit');
+  const gate1 = records.find((r) => r.type === 'gate' && r.gate === 1);
+  const coverage = computeCoverage(auditRecords, criteria);
+  const coverageMetrics: CoverageMetrics = {
+    auditFindingsTotal: coverage.auditFindingIds.length,
+    addressed: coverage.addressedIds.length,
+    excluded: coverage.excludedIds.length,
+    excludedApprovedByHuman: Boolean(gate1) && gate1?.auto !== true,
+  };
+
   const metrics: EvolveMetrics = {
     criteriaTotal,
     avgAttempts: criteriaTotal > 0 ? Math.round((attemptsSum / criteriaTotal) * 100) / 100 : 0,
@@ -223,6 +246,7 @@ export function collectEvolve(
     proceduralErrors,
     gotchaApplied,
     gotchaMissed,
+    coverage: coverageMetrics,
   };
 
   return { workitem, project, blocked, reviews, retried, existingGotchas, metrics };
