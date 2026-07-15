@@ -427,6 +427,28 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
   }
 
   const file = appendRecord(record);
+
+  // gate:2 리뷰 누락 경고 (WI-S AC-03) — 거부하지 않는다, 안내만 한다.
+  if (type === 'gate' && data.gate === 2) {
+    const passedCount = Array.isArray(state.criteria)
+      ? (state.criteria as Record<string, unknown>[]).filter((c) => c.status === 'passed').length
+      : 0;
+    // record.workitem 이 없으면(이론상 WI-R 강제로 항상 있어야 하지만) 판단을
+    // 보류한다 — readRecords 에 workitem: undefined 를 넘기면 필터가 아예
+    // 안 걸려 다른 워크아이템의 review 로도 "있음" 판정될 수 있다(G-020, 같은
+    // 실수를 WI-Q 에서 이미 한 번 했다). 판단 불가능하면 경고도 안 준다(소프트
+    // 체크라 거부는 원래 안 하므로, 잘못된 안심을 주는 것보다 조용한 게 낫다).
+    const workitemForCheck = typeof record.workitem === 'string' ? record.workitem : undefined;
+    if (passedCount >= 3 && workitemForCheck) {
+      const hasReview = readRecords({ type: 'review', workitem: workitemForCheck }).length > 0;
+      if (!hasReview) {
+        process.stderr.write(
+          `\n  완료 조건 ${passedCount}개가 통과했으나 리뷰 기록이 없습니다.\n  리뷰를 건너뛰었습니까?\n`,
+        );
+      }
+    }
+  }
+
   process.stdout.write(`${JSON.stringify({ id, at, file })}\n`);
 }
 

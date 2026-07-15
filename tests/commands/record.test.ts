@@ -621,3 +621,95 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
     expect(records).toHaveLength(1);
   });
 });
+
+describe('runRecord — gate:2 기록 시 리뷰 누락 경고 (WI-S AC-03)', () => {
+  const origCwd = process.cwd();
+  const origHome = process.env.AWL_HOME;
+
+  afterEach(() => {
+    process.chdir(origCwd);
+    if (origHome === undefined) {
+      delete process.env.AWL_HOME;
+    } else {
+      process.env.AWL_HOME = origHome;
+    }
+  });
+
+  function project(criteria: Record<string, unknown>[]): string {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-record-gate2-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, '.awl', 'config.json'),
+      JSON.stringify({ project: 'p', mainLanguage: 'other', verify: {} }),
+    );
+    fs.writeFileSync(
+      path.join(root, '.awl', 'state.json'),
+      JSON.stringify({ workitem: 'WI-9', workitems: {}, criteria }),
+    );
+    process.chdir(root);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-record-gate2-home-'));
+    return root;
+  }
+
+  const threePassed = [
+    { id: 'AC-01', status: 'passed' },
+    { id: 'AC-02', status: 'passed' },
+    { id: 'AC-03', status: 'passed' },
+  ];
+
+  it('완료조건 3개 이상 통과했는데 review 기록이 없으면 경고한다(거부는 아님)', async () => {
+    project(threePassed);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    await runRecord('gate', {
+      json: '{"gate":2,"decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('리뷰'))).toBe(true);
+    expect(readRecords({ type: 'gate' })).toHaveLength(1); // 경고만, 기록은 그대로 남는다.
+
+    stderrSpy.mockRestore();
+  });
+
+  it('review 기록이 이미 있으면 경고하지 않는다', async () => {
+    project(threePassed);
+    await runRecord('review', {
+      json: '{"reviewId":"rev_1","criteria":["AC-01"],"findings":[],"cheatingDetected":[],"verifyPassedBefore":true}',
+    });
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    await runRecord('gate', {
+      json: '{"gate":2,"decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('리뷰'))).toBe(false);
+    stderrSpy.mockRestore();
+  });
+
+  it('완료조건이 3개 미만이면 review 기록이 없어도 경고하지 않는다', async () => {
+    project([
+      { id: 'AC-01', status: 'passed' },
+      { id: 'AC-02', status: 'passed' },
+    ]);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    await runRecord('gate', {
+      json: '{"gate":2,"decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('리뷰'))).toBe(false);
+    stderrSpy.mockRestore();
+  });
+
+  it('gate:1 기록에는 이 경고가 적용되지 않는다(게이트2 전용)', async () => {
+    project(threePassed);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    await runRecord('gate', {
+      json: '{"gate":1,"decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('리뷰'))).toBe(false);
+    stderrSpy.mockRestore();
+  });
+});
