@@ -4,6 +4,12 @@ import { installedEngineVersion } from '../core/engine.js';
 import { findProjectRoot, globalRoot, projectsFile, rulesDir } from '../core/paths.js';
 import { CommandNotFoundError, run, tokenize } from '../core/runner.js';
 import { type Caps, caps, makeColors, stringWidth } from '../core/tty.js';
+import {
+  type VersionCheckResult,
+  type VersionMismatchKind,
+  checkVersions,
+} from '../core/versions.js';
+import { gatherVersionInputs } from './version-check.js';
 
 /**
  * awl doctor — 설치와 환경을 점검한다.
@@ -394,7 +400,7 @@ function collectEnv(checks: Check[]): void {
 }
 
 /** 2. 전역 설치 (~/.awl) */
-function collectGlobal(checks: Check[]): void {
+function collectGlobal(checks: Check[], versionResult: VersionCheckResult): void {
   const root = globalRoot();
   if (!exists(root)) {
     checks.push({
@@ -424,15 +430,30 @@ function collectGlobal(checks: Check[]): void {
     });
   }
 
-  // 엔진 버전
+  // 엔진 버전 — 실행 바이너리와 다르면 경고(WI-X pair #2).
   const engineVer = installedEngineVersion();
+  const binaryMismatch = findMismatch(versionResult, 'binary-vs-engine');
   checks.push({
     group: '전역 설치',
     name: '엔진 버전',
-    status: engineVer ? 'ok' : 'missing',
+    status: engineVer ? (binaryMismatch ? 'warn' : 'ok') : 'missing',
     value: engineVer ?? '없음',
-    hint: engineVer ? undefined : INIT_HINT,
+    hint: binaryMismatch ? binaryMismatch.hint : engineVer ? undefined : INIT_HINT,
   });
+
+  // 빌드 무결성 — package.json 과 engine/version.json(패키지 소스)이 다르면
+  // 경고(WI-X pair #1). 정상 릴리스 경로로는 어긋날 수 없지만(release.mjs 가
+  // 원자적으로 같이 올림), 수동 편집/손상 대비로 방어적으로 확인한다.
+  const buildMismatch = findMismatch(versionResult, 'build');
+  if (buildMismatch) {
+    checks.push({
+      group: '전역 설치',
+      name: '빌드 무결성',
+      status: 'warn',
+      value: `package ${buildMismatch.a} / engine 소스 ${buildMismatch.b}`,
+      hint: buildMismatch.hint,
+    });
+  }
 
   // 규칙 / 교훈 / 프로젝트 수 (없으면 0, 크래시하지 않는다)
   // 규칙은 rules/active 안의 파일을 센다(rules/ 직속의 index.json·graduated.md 는 메타).
@@ -462,7 +483,11 @@ function collectGlobal(checks: Check[]): void {
 }
 
 /** 3. 이 프로젝트 (<project>/.awl) */
-async function collectProject(checks: Check[], projectRoot: string | null): Promise<void> {
+async function collectProject(
+  checks: Check[],
+  projectRoot: string | null,
+  versionResult: VersionCheckResult,
+): Promise<void> {
   if (!projectRoot) {
     checks.push({
       group: '이 프로젝트',
@@ -596,16 +621,18 @@ async function collectProject(checks: Check[], projectRoot: string | null): Prom
     });
   }
 
-  // 엔진 버전 일치
+  // 엔진 버전 일치 (WI-X pair #3) — version-check 와 같은 계산(checkVersions)을 쓴다.
   const installed = installedEngineVersion();
   if (installed !== null) {
-    const match = installed === raw.engineVersion;
+    const projectMismatch = findMismatch(versionResult, 'project-vs-engine');
     checks.push({
       group: '이 프로젝트',
       name: '엔진 버전 일치',
-      status: match ? 'ok' : 'warn',
-      value: match ? raw.engineVersion : `config ${raw.engineVersion} / 설치 ${installed}`,
-      hint: match ? undefined : '엔진 버전이 다릅니다',
+      status: projectMismatch ? 'warn' : 'ok',
+      value: projectMismatch
+        ? `config ${raw.engineVersion} / 설치 ${installed}`
+        : raw.engineVersion,
+      hint: projectMismatch?.hint,
     });
   }
 
@@ -699,7 +726,7 @@ async function collectProject(checks: Check[], projectRoot: string | null): Prom
 }
 
 /** 4. 에이전트 */
-function collectAgents(checks: Check[], base: string): void {
+function collectAgents(checks: Check[], base: string, versionResult: VersionCheckResult): void {
   const claudeDir = path.join(base, '.claude');
   checks.push({
     group: '에이전트',
@@ -716,15 +743,33 @@ function collectAgents(checks: Check[], base: string): void {
     value: exists(agentsMd) ? '감지됨 (AGENTS.md 있음)' : '없음',
   });
 
+  // 스킬 설치 + 버전 (WI-X pair #4) — claude/codex 각각 독립적으로 본다.
   const skillDir = path.join(base, '.claude', 'skills', 'awl-loop');
-  const installed = exists(skillDir);
+  const claudeInstalled = exists(skillDir);
+  const claudeMismatch = findMismatch(versionResult, 'claude-skill-vs-engine');
   checks.push({
     group: '에이전트',
-    name: 'awl 스킬',
-    status: installed ? 'ok' : 'warn',
-    value: installed ? '설치됨' : '설치 안 됨',
-    hint: installed ? undefined : 'awl init 에서 설치할 수 있습니다',
+    name: 'Claude 스킬 버전',
+    status: !claudeInstalled ? 'warn' : claudeMismatch ? 'warn' : 'ok',
+    value: !claudeInstalled ? '설치 안 됨' : claudeMismatch ? claudeMismatch.a : '엔진과 일치',
+    hint: !claudeInstalled ? 'awl init 에서 설치할 수 있습니다' : claudeMismatch?.hint,
   });
+
+  const codexInstalled =
+    exists(agentsMd) && fs.readFileSync(agentsMd, 'utf8').includes('awl-loop:start');
+  const codexMismatch = findMismatch(versionResult, 'codex-skill-vs-engine');
+  checks.push({
+    group: '에이전트',
+    name: 'Codex 스킬 버전',
+    status: !codexInstalled ? 'warn' : codexMismatch ? 'warn' : 'ok',
+    value: !codexInstalled ? '설치 안 됨' : codexMismatch ? codexMismatch.a : '엔진과 일치',
+    hint: !codexInstalled ? 'awl init 에서 설치할 수 있습니다' : codexMismatch?.hint,
+  });
+}
+
+/** versionResult 에서 특정 kind 의 불일치를 찾는다. 못 찾으면(일치하거나 검사 대상 아님) undefined. */
+function findMismatch(result: VersionCheckResult, kind: VersionMismatchKind) {
+  return result.mismatches.find((m) => m.kind === kind);
 }
 
 /** 모든 점검을 수집한다. 결정적이고, 어떤 항목도 크래시하지 않는다. */
@@ -738,10 +783,14 @@ export async function collectChecks(): Promise<DoctorReport> {
     projectRoot = null;
   }
 
+  // 버전 4쌍 검사 (WI-X) — version-check 와 같은 계산을 재사용해 doctor 와
+  // version-check 결과가 갈라지지 않게 한다.
+  const versionResult = checkVersions(gatherVersionInputs(projectRoot));
+
   collectEnv(checks);
-  collectGlobal(checks);
-  await collectProject(checks, projectRoot);
-  collectAgents(checks, projectRoot ?? process.cwd());
+  collectGlobal(checks, versionResult);
+  await collectProject(checks, projectRoot, versionResult);
+  collectAgents(checks, projectRoot ?? process.cwd(), versionResult);
 
   const problems = checks.filter((c) => c.status === 'missing' || c.status === 'fail');
   return { ok: problems.length === 0, checks };
@@ -764,15 +813,18 @@ export function renderText(report: DoctorReport, c: Caps): string {
   const nameWidth = checks.reduce((m, ch) => Math.max(m, stringWidth(ch.name)), 0);
   const valueWidth = checks.reduce((m, ch) => Math.max(m, stringWidth(ch.value ?? '')), 0);
 
+  // 노란색(주의)과 빨간색(오류)은 색 지원 환경에선 색으로, 색 미지원/CI 에선
+  // 마커([!] vs [!!])로 구분한다(WI-X) — 예전엔 둘 다 "-> hint"로 똑같이 보여서
+  // 색이 없으면 구분이 안 됐다.
   const statusText = (ch: Check): string => {
     switch (ch.status) {
       case 'ok':
         return color.green('ok');
       case 'missing':
       case 'fail':
-        return color.red(`-> ${ch.hint ?? ''}`);
+        return color.red(`[!!] ${ch.hint ?? ''}`);
       case 'warn':
-        return color.yellow(`-> ${ch.hint ?? ''}`);
+        return color.yellow(`[!] ${ch.hint ?? ''}`);
       default:
         return '';
     }

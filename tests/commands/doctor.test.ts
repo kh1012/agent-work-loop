@@ -81,8 +81,9 @@ describe('collectChecks — 아무것도 없는 상태', () => {
     expect(find(report.checks, '~/.awl')?.status).toBe('missing');
     // 프로젝트 루트를 못 찾아도 크래시하지 않는다.
     expect(find(report.checks, '프로젝트 루트')?.status).toBe('info');
-    // 에이전트 그룹은 항상 존재한다.
-    expect(find(report.checks, 'awl 스킬')).toBeDefined();
+    // 에이전트 그룹은 항상 존재한다 (WI-X: claude/codex 각각 독립 체크로 분리).
+    expect(find(report.checks, 'Claude 스킬 버전')).toBeDefined();
+    expect(find(report.checks, 'Codex 스킬 버전')).toBeDefined();
   });
 });
 
@@ -268,7 +269,10 @@ describe('renderText — 정렬과 출력', () => {
     const text = renderText(report, ASCII);
 
     const statusCol = (line: string): number | null => {
-      let idx = line.lastIndexOf('-> ');
+      let idx = line.lastIndexOf('[!!] ');
+      if (idx === -1) {
+        idx = line.lastIndexOf('[!] ');
+      }
       if (idx === -1) {
         if (/ ok$/.test(line)) {
           idx = line.length - 2;
@@ -302,6 +306,75 @@ describe('renderText — 정렬과 출력', () => {
     const text = renderText(report, UNICODE);
     // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape 검출 목적
     expect(/\x1b\[/.test(text)).toBe(true);
+  });
+
+  it('warn 은 [!], fail/missing 은 [!!] 로 색 없이도 구분된다(WI-X)', async () => {
+    const report = await collectChecks();
+    const text = renderText(report, ASCII);
+    // makeInstalledProject 는 lint 검증 명령이 없어(missing) [!!] 가 반드시 하나 있다.
+    expect(text).toContain('[!!]');
+  });
+});
+
+describe('collectChecks — 버전 4쌍 (WI-X)', () => {
+  beforeEach(() => {
+    process.env.AWL_HOME = makeInstalledHome(); // engine 0.0.0
+  });
+
+  it('프로젝트 config.engineVersion 이 설치된 엔진과 다르면 엔진 버전 일치가 warn 이고 [!] 힌트에 awl update 를 안내한다', async () => {
+    const proj = tmp('awl-proj-');
+    fs.mkdirSync(path.join(proj, '.git'), { recursive: true });
+    fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(proj, '.awl', 'config.json'),
+      JSON.stringify({ engineVersion: '0.0.1', verify: {} }),
+    );
+    process.chdir(proj);
+
+    const report = await collectChecks();
+    const check = find(report.checks, '엔진 버전 일치');
+    expect(check?.status).toBe('warn');
+    expect(check?.hint).toContain('awl update');
+  });
+
+  it('스킬 미설치면 Claude/Codex 스킬 버전 둘 다 warn', async () => {
+    const proj = tmp('awl-proj-');
+    fs.mkdirSync(path.join(proj, '.git'), { recursive: true });
+    process.chdir(proj);
+
+    const report = await collectChecks();
+    expect(find(report.checks, 'Claude 스킬 버전')?.status).toBe('warn');
+    expect(find(report.checks, 'Codex 스킬 버전')?.status).toBe('warn');
+  });
+
+  it('설치된 스킬 버전이 엔진과 다르면 warn, 같으면 ok', async () => {
+    const proj = tmp('awl-proj-');
+    fs.mkdirSync(path.join(proj, '.git'), { recursive: true });
+    fs.mkdirSync(path.join(proj, '.claude', 'skills', 'awl-loop'), { recursive: true });
+    fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(proj, '.awl', 'skills-version.json'),
+      JSON.stringify({ claude: '0.0.1' }), // 설치된 엔진(0.0.0)과 다름
+    );
+    process.chdir(proj);
+
+    const report = await collectChecks();
+    expect(find(report.checks, 'Claude 스킬 버전')?.status).toBe('warn');
+  });
+
+  it('스킬 버전이 엔진과 같으면 ok', async () => {
+    const proj = tmp('awl-proj-');
+    fs.mkdirSync(path.join(proj, '.git'), { recursive: true });
+    fs.mkdirSync(path.join(proj, '.claude', 'skills', 'awl-loop'), { recursive: true });
+    fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(proj, '.awl', 'skills-version.json'),
+      JSON.stringify({ claude: '0.0.0' }), // 설치된 엔진(0.0.0)과 일치
+    );
+    process.chdir(proj);
+
+    const report = await collectChecks();
+    expect(find(report.checks, 'Claude 스킬 버전')?.status).toBe('ok');
   });
 });
 

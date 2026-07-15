@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { version } from '../package.json';
 import { installedEngineVersion } from './core/engine.js';
+import { type Caps, caps, makeColors } from './core/tty.js';
 
 export const BANNER = `Agent Work Loop
 
@@ -11,9 +12,13 @@ awl 자체는 판단하지 않습니다. 파일과 상태만 관리합니다.
 /**
  * `awl --version` 이 보여줄 문자열을 만든다. 패키지 버전뿐 아니라 설치된
  * 엔진 버전도 보여준다 — 엔진 버전이 어긋나면 사용자의 doctor 가 아니라
- * 여기서 먼저 알아챌 수 있어야 한다.
+ * 여기서 먼저 알아챌 수 있어야 한다(WI-X). 불일치는 노란색+[!] 마커로
+ * 표시한다(색 미지원이면 마커만). 갱신 수단은 `awl update`(엔진)다 —
+ * `awl init` 은 프로젝트/스킬 재설치용이라 이 쌍(바이너리 vs 엔진)엔 안 맞다
+ * (리뷰 지적으로 예전 문구를 바로잡음).
  */
-export function versionString(): string {
+export function versionString(c: Caps = caps()): string {
+  const color = makeColors(c.color);
   const engineVer = installedEngineVersion();
   if (engineVer === null) {
     return `awl ${version}`;
@@ -21,7 +26,7 @@ export function versionString(): string {
   if (engineVer === version) {
     return `awl ${version} (engine ${engineVer})`;
   }
-  return `awl ${version} (engine ${engineVer} — 버전이 다릅니다. awl init 을 다시 실행하세요)`;
+  return `awl ${version} (engine ${engineVer})  ${color.yellow('[!]')} 실행 바이너리와 엔진 버전이 다릅니다\n    ${color.dim('awl update 로 엔진을 갱신하세요')}`;
 }
 
 /**

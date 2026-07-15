@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { version as pkgVersion } from '../package.json';
+import type { Caps } from '../src/core/tty.js';
 import { BANNER, buildProgram, versionString } from '../src/program.js';
 
 const origHome = process.env.AWL_HOME;
@@ -67,23 +68,45 @@ describe('awl 프로그램 구성', () => {
   });
 });
 
+const NO_COLOR: Caps = { unicode: false, color: false, tty: false };
+const COLOR: Caps = { unicode: true, color: true, tty: true };
+
 describe('versionString — engine 버전 표시', () => {
   it('엔진이 설치 안 됐으면 패키지 버전만', () => {
     process.env.AWL_HOME = tmpHomeWithEngine(null);
-    expect(versionString()).toBe(`awl ${pkgVersion}`);
+    expect(versionString(NO_COLOR)).toBe(`awl ${pkgVersion}`);
   });
 
   it('엔진 버전이 같으면 나란히 보여준다', () => {
     process.env.AWL_HOME = tmpHomeWithEngine(pkgVersion);
-    expect(versionString()).toBe(`awl ${pkgVersion} (engine ${pkgVersion})`);
+    expect(versionString(NO_COLOR)).toBe(`awl ${pkgVersion} (engine ${pkgVersion})`);
   });
 
-  it('엔진 버전이 다르면 경고한다', () => {
+  it('엔진 버전이 다르면 [!] 마커와 함께 경고하고 awl update 를 안내한다 (WI-X AC-04, 리뷰 지적 전 awl init 안내는 오답이었음)', () => {
     process.env.AWL_HOME = tmpHomeWithEngine('0.0.1');
-    const s = versionString();
+    const s = versionString(NO_COLOR);
     expect(s).toContain('engine 0.0.1');
-    expect(s).toContain('버전이 다릅니다');
-    expect(s).toContain('awl init');
+    expect(s).toContain('[!]');
+    expect(s).toContain('awl update');
+  });
+
+  it('색 미지원이면 ANSI 코드 없이 마커만 나온다', () => {
+    process.env.AWL_HOME = tmpHomeWithEngine('0.0.1');
+    const s = versionString(NO_COLOR);
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI 이스케이프 부재 확인용
+    expect(/\x1b\[/.test(s)).toBe(false);
+  });
+
+  it('색 지원이면 ANSI 코드가 포함된다', () => {
+    process.env.AWL_HOME = tmpHomeWithEngine('0.0.1');
+    const s = versionString(COLOR);
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI 이스케이프 존재 확인용
+    expect(/\x1b\[/.test(s)).toBe(true);
+  });
+
+  it('인자를 안 주면 현재 프로세스 능력을 기본값으로 쓴다(크래시 없음)', () => {
+    process.env.AWL_HOME = tmpHomeWithEngine(null);
+    expect(() => versionString()).not.toThrow();
   });
 });
 
