@@ -102,6 +102,8 @@ awl evolve
 
 응답을 받은 뒤에만 반복 단계로 넘어간다.
 
+**응답을 받으면 바로 기록한다 (WI-Q)**: `awl record gate --json '{"gate":1,"decision":"approved|modified|rejected|split","presentedCriteria":["AC-01",...],"presentedExclusions":[...],"riskSignals":[...]}'`. 게이트가 실제로 일어났다는 사실 자체를 이 기록 말고는 아무도 검증할 수 없다 — 이걸 빼먹으면 `awl state set` 의 `phase:"loop"` 전환이 거부된다("게이트 1 기록이 없습니다"). `presentedExclusions` 에는 조사에서 찾았지만 이번 완료 조건에서 다루지 않기로 한 항목을 적는다(있다면). **자리 비움 등으로 자율 승인했다면 `"auto":true` 로 남긴다** — 사람이 실제로 응답한 게 아니라는 걸 숨기지 않는다.
+
 ---
 
 ## 반복 (자율 — 사람에게 묻지 마라)
@@ -166,6 +168,8 @@ awl verify --json
 
 - **push는 사람이 한다.** 너는 push하지 않는다(절대 규칙 10).
 - 무엇을 했는지 요약하고, push 여부를 사람에게 맡긴다.
+
+**응답을 받으면 바로 기록한다 (WI-Q)**: `awl record gate --json '{"gate":2,"decision":"approved|more-work|abandoned","presentedCriteria":[...]}'`. **사람이 이 자리에서 새로운 지적을 하면(리뷰가 못 잡은 걸 사람이 짚었다면) `humanFindings` 에 그 내용을 담아 함께 기록한다** — 이건 게이트 2가 실제로 뭔가를 잡았다는 유일한 증거다. 새 지적이 완료 조건으로 편입되면 그 완료조건 ID 도 같이 적어둔다. 자율 승인이었다면 `"auto":true`.
 
 ---
 
