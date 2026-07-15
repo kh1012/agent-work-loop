@@ -13,6 +13,7 @@
 - **리뷰를 기록한다.** `awl record review`의 스키마를 `target`/`verdict`(이분법)에서 `reviewId`/`criteria`/`findings`/`cheatingDetected`/`verifyPassedBefore`(구조화된 필드)로 전면 교체했다. `awl review`가 매 호출마다 새 `reviewId`(`rev_` 접두어)를 발급해 조립 결과와 사람용 출력에 포함한다. `awl record gate`로 게이트 2를 기록할 때 현재 워크아이템의 완료 조건 3개 이상이 통과했는데 `review` 기록이 하나도 없으면 stderr에 경고를 낸다(기록 자체는 거부하지 않는다).
 - **완료 조건의 질을 검사한다.** 완료 조건에 금지된 질적 표현 5개(저위험/주요한/적절한/가능한 만큼/필요시)가 있으면 `awl record criteria`가 거부한다. `awl record audit`의 findings와 완료 조건의 `addresses` 링크를 대조해, 게이트 1 기록 시 어떤 완료 조건도 다루지 않는 발견(배제)이 있는데 `presentedExclusions`로 명시 제시하지 않으면 게이트 1 기록 자체를 거부한다. 게이트 2 기록 시 완료 조건 전부가 1차 시도로 통과하고 막힘이 0건이면 커버리지 수치와 함께 "완료 조건이 충분히 야심찼습니까?"를 stderr에 안내한다(거부 아님). `awl evolve`/`awl metrics`에 커버리지 계측(발견 수/다룬 수/배제 수/사람 승인 여부)이 추가됐다.
 - **기록 상세도를 diff 크기에 맞춘다.** `awl record attempt`가 diff 크기(방금 만든 커밋 또는 작업트리)를 스스로 측정해 필요한 상세도를 안내한다 — 작은 통과 변경(1파일 미만 10줄)은 `what`만, 중간은 `what`/`why`/`how`, 큰 변경(50줄 이상 또는 3파일 이상)은 거기에 `alternatives`(설계 대안)까지 요구한다. 실패한 시도(`result:"failed"`)는 diff 크기와 무관하게 항상 `what`/`why`/`how` 전부를 요구한다(정보 손실 방지).
+- **narrative에 `tool-failed` 종류 추가.** awl 자신의 도구가 오작동해(예: `awl commit`이 "자체 검증 통과"를 보고하고도 무관한 파일을 흡수) 실사고를 낸 순간을 기록할 수 있다.
 
 ### 고침
 
