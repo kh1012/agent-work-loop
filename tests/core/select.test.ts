@@ -129,6 +129,9 @@ describe('runInteractiveSelect — I/O 루프를 stdin 모킹으로 검증 (WI-Y
   afterEach(() => {
     process.stdin.setRawMode = originalSetRawMode;
     vi.restoreAllMocks();
+    // WI-Y AC-07 리뷰 지적 — mockStdin() 이 실제 EventEmitter 에 리스너를 등록만
+    // 하고 한 번도 발화 안 시키면 'data' 리스너가 테스트마다 누적된다.
+    expect(process.stdin.listenerCount('data')).toBe(0);
   });
 
   function mockStdin() {
@@ -136,7 +139,11 @@ describe('runInteractiveSelect — I/O 루프를 stdin 모킹으로 검증 (WI-Y
     process.stdin.setRawMode = setRawMode as typeof process.stdin.setRawMode;
     vi.spyOn(process.stdin, 'resume').mockReturnValue(process.stdin);
     vi.spyOn(process.stdin, 'pause').mockReturnValue(process.stdin);
-    const onceSpy = vi.spyOn(process.stdin, 'once');
+    // WI-Y AC-07 리뷰 지적 — mockImplementation 없이 콜스루하면 실제
+    // EventEmitter 에 'data' 리스너가 등록되고, emit() 을 안 쓰고 콜백을
+    // 직접 호출하는 이 테스트 구조상 once() 의 자동 해제가 안 일어나 리스너가
+    // 테스트마다 누적된다. 아예 실제 등록을 막고 호출 인자만 기록한다.
+    const onceSpy = vi.spyOn(process.stdin, 'once').mockImplementation(() => process.stdin);
     vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     return { setRawMode, onceSpy };
   }
