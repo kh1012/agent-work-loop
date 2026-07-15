@@ -18,8 +18,10 @@ import {
   nonInteractiveInputs,
   promptVerifyLocation,
   registerProject,
+  skillsVersionPath,
   splitEnv,
   verifyStepLines,
+  writeSkillsVersionStamp,
 } from '../../src/commands/init.js';
 import { type Colors, makeColors, stringWidth } from '../../src/core/tty.js';
 
@@ -468,8 +470,31 @@ describe('applyInit — 전체 산출물', () => {
     expect(fs.existsSync(path.join(proj, '.claude', 'skills', 'awl-loop', 'SKILL.md'))).toBe(true);
     expect(fs.readFileSync(path.join(proj, 'AGENTS.md'), 'utf8')).toContain('awl-loop:start');
 
+    // 스킬 버전 스탬프 (WI-X AC-01)
+    const stamp = readJson(skillsVersionPath(proj)) as Record<string, unknown>;
+    expect(stamp.claude).toBe(result.engineVersion);
+    expect(stamp.codex).toBe(result.engineVersion);
+
     // 프로젝트 등록
     expect(result.projectCount).toBe(1);
+  });
+
+  it('스킬을 하나만 설치하면 스탬프에도 그 키만 생긴다', () => {
+    const inputs = nonInteractiveInputs(proj);
+    inputs.skills = { claude: true, codex: false };
+    applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
+
+    const stamp = readJson(skillsVersionPath(proj)) as Record<string, unknown>;
+    expect(stamp.claude).toBeDefined();
+    expect(stamp.codex).toBeUndefined();
+  });
+
+  it('스킬을 하나도 설치하지 않으면 스탬프 파일 자체를 만들지 않는다', () => {
+    const inputs = nonInteractiveInputs(proj);
+    inputs.skills = { claude: false, codex: false };
+    applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
+
+    expect(fs.existsSync(skillsVersionPath(proj))).toBe(false);
   });
 
   it('Codex 스킬을 두 번 설치해도 AGENTS.md 에 중복 추가하지 않는다', () => {

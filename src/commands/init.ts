@@ -500,6 +500,42 @@ export function installCodexSkill(projectRoot: string): boolean {
   return true;
 }
 
+/** <project>/.awl/skills-version.json — 설치된 스킬(Claude/Codex)의 설치 시점 엔진 버전 (WI-X). */
+export function skillsVersionPath(projectRoot: string): string {
+  return path.join(projectRoot, '.awl', 'skills-version.json');
+}
+
+/**
+ * 방금 설치한 스킬들의 설치 시점 엔진 버전을 기록한다(WI-X) — doctor/version-check 가
+ * "설치된 스킬 vs 엔진" 쌍을 계산할 유일한 근거다. 기존 스탬프에 없던 스킬만 덮어쓴다
+ * (예: claude 만 다시 설치해도 codex 의 기존 스탬프는 보존).
+ */
+export function writeSkillsVersionStamp(
+  projectRoot: string,
+  installed: { claude: boolean; codex: boolean },
+  engineVersion: string,
+): void {
+  if (!installed.claude && !installed.codex) {
+    return;
+  }
+  const p = skillsVersionPath(projectRoot);
+  let current: Record<string, unknown> = {};
+  try {
+    current = JSON.parse(fs.readFileSync(p, 'utf8')) as Record<string, unknown>;
+  } catch {
+    // 없거나 깨졌으면 새로 만든다.
+  }
+  const next = { ...current };
+  if (installed.claude) {
+    next.claude = engineVersion;
+  }
+  if (installed.codex) {
+    next.codex = engineVersion;
+  }
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, `${JSON.stringify(next, null, 2)}\n`);
+}
+
 function countEntries(dir: string): number {
   try {
     return fs.readdirSync(dir).filter((f) => !f.startsWith('.')).length;
@@ -558,12 +594,19 @@ export function applyInit(projectRoot: string, inputs: InitInputs, now: string):
   });
 
   const skills: string[] = [];
-  if (inputs.skills.claude && installClaudeSkill(projectRoot)) {
+  const claudeInstalled = inputs.skills.claude && installClaudeSkill(projectRoot);
+  if (claudeInstalled) {
     skills.push('claude');
   }
-  if (inputs.skills.codex && installCodexSkill(projectRoot)) {
+  const codexInstalled = inputs.skills.codex && installCodexSkill(projectRoot);
+  if (codexInstalled) {
     skills.push('codex');
   }
+  writeSkillsVersionStamp(
+    projectRoot,
+    { claude: claudeInstalled, codex: codexInstalled },
+    g.engineVersion,
+  );
 
   return {
     globalCreated: g.created,
