@@ -497,6 +497,30 @@ describe('applyInit — 전체 산출물', () => {
     expect(fs.existsSync(skillsVersionPath(proj))).toBe(false);
   });
 
+  it('writeSkillsVersionStamp — claude 만 다시 설치해도 기존 codex 값은 보존된다 (WI-X AC-07, 리뷰 지적)', () => {
+    fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+    fs.writeFileSync(skillsVersionPath(proj), JSON.stringify({ claude: '0.3.0', codex: '0.3.0' }));
+
+    writeSkillsVersionStamp(proj, { claude: true, codex: false }, '0.5.0');
+
+    const stamp = readJson(skillsVersionPath(proj)) as Record<string, unknown>;
+    expect(stamp.claude).toBe('0.5.0'); // 새로 설치한 것만 갱신
+    expect(stamp.codex).toBe('0.3.0'); // 안 건드린 것은 보존
+  });
+
+  it('writeSkillsVersionStamp — 손상된 JSON 이어도 크래시 없이 새로 만든다 (WI-X AC-07, 리뷰 지적)', () => {
+    fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+    fs.writeFileSync(skillsVersionPath(proj), '{ 이건 JSON 이 아님');
+
+    expect(() =>
+      writeSkillsVersionStamp(proj, { claude: true, codex: true }, '0.5.0'),
+    ).not.toThrow();
+
+    const stamp = readJson(skillsVersionPath(proj)) as Record<string, unknown>;
+    expect(stamp.claude).toBe('0.5.0');
+    expect(stamp.codex).toBe('0.5.0');
+  });
+
   it('Codex 스킬을 두 번 설치해도 AGENTS.md 에 중복 추가하지 않는다', () => {
     const inputs = nonInteractiveInputs(proj);
     inputs.skills = { claude: false, codex: true };
