@@ -4,6 +4,7 @@ import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { installedEngineVersion } from '../core/engine.js';
 import { engineDir, globalRoot, projectsFile } from '../core/paths.js';
+import { runInteractiveSelect } from '../core/select.js';
 import {
   type Caps,
   type Colors,
@@ -11,6 +12,7 @@ import {
   caps,
   makeColors,
   makeSymbols,
+  rawModeCapable,
   stringWidth,
 } from '../core/tty.js';
 
@@ -854,6 +856,56 @@ export async function promptNumber(
   return Number.isInteger(n) && n >= 1 && n <= count ? n - 1 : defaultIndex;
 }
 
+/**
+ * 단일선택 하나를 받는다(WI-Y) — useRawMode 면 방향키 실시간 선택, 아니면
+ * 기존 번호 입력(promptNumber)으로 폴백한다. useRawMode 는 호출부가
+ * rawModeCapable() 로 실제 감지해 넘긴다(이 함수는 주입받은 값만 본다 —
+ * 테스트가 실제 터미널 없이도 두 경로를 다 검증할 수 있게).
+ */
+export async function selectSingle(
+  rl: readline.Interface,
+  options: string[],
+  defaultIndex: number,
+  c: Caps,
+  useRawMode: boolean,
+): Promise<number> {
+  if (useRawMode) {
+    const result = await runInteractiveSelect(options, defaultIndex, false, c);
+    return result?.index ?? defaultIndex;
+  }
+  return promptNumber(rl, defaultIndex, options.length);
+}
+
+/**
+ * 다중선택을 받는다(WI-Y) — useRawMode 면 방향키+Space 토글 실시간 선택,
+ * 아니면 기존 쉼표 구분 번호 입력으로 폴백한다.
+ */
+export async function selectMulti(
+  rl: readline.Interface,
+  options: string[],
+  defaultChecked: number[],
+  c: Caps,
+  useRawMode: boolean,
+): Promise<number[]> {
+  if (useRawMode) {
+    const result = await runInteractiveSelect(options, 0, true, c, defaultChecked);
+    return result?.checked ?? defaultChecked;
+  }
+  const def = defaultChecked
+    .slice()
+    .sort((a, b) => a - b)
+    .map((i) => String(i + 1))
+    .join(',');
+  const answer = (await ask(rl, `  포함할 번호를 쉼표로 (기본 ${def || '없음'}): `)).trim();
+  const chosen = (answer === '' ? def : answer)
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => Number(s) - 1)
+    .filter((n) => Number.isInteger(n) && n >= 0 && n < options.length);
+  return chosen;
+}
+
 export interface VerifyLocationResult {
   verify: VerifyMap;
   /** 패키지를 골랐으면 그 상대경로. verify 각 항목의 cwd 로 쓴다. */
@@ -931,9 +983,15 @@ async function interactiveInputs(
     process.stdout.write(`${screens.welcome}\n`);
   }
 
-  // 2. [1/4] 주 언어
+  // 2. [1/4] 주 언어 (WI-Y: raw-mode 가능하면 방향키, 아니면 기존 번호 입력)
   process.stdout.write(`\n${screens.lang}\n`);
-  const langIdx = await promptNumber(rl, langDefaultIndex(projectRoot), LANG_OPTIONS.length);
+  const langIdx = await selectSingle(
+    rl,
+    LANG_OPTIONS,
+    langDefaultIndex(projectRoot),
+    c,
+    rawModeCapable(),
+  );
   let mainLanguage = LANG_VALUES[langIdx] ?? '';
   if (langIdx === LANG_OPTIONS.length - 1) {
     mainLanguage = (await ask(rl, '  주 언어를 입력하세요: ')).trim();
@@ -970,16 +1028,16 @@ async function interactiveInputs(
   process.stdout.write(`\n${screens.character}\n`);
   const character = (await ask(rl, '  > ')).trim();
 
-  // 6. 스킬 설치
+  // 6. 스킬 설치 (WI-Y: raw-mode 가능하면 방향키+Space 다중선택, 아니면 쉼표 입력)
   process.stdout.write(`\n${screens.skills}\n`);
   const agents = detectAgents(projectRoot);
-  const def = [agents.claude ? '1' : '', agents.codex ? '2' : ''].filter(Boolean).join(',');
-  const answer = (await ask(rl, `  포함할 번호를 쉼표로 (기본 ${def || '없음'}): `)).trim();
-  const chosen = (answer === '' ? def : answer)
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const skills = { claude: chosen.includes('1'), codex: chosen.includes('2') };
+  const skillOptions = [
+    'Claude Code (.claude/skills/awl-loop/ 에 설치)',
+    'Codex (AGENTS.md 에 추가)',
+  ];
+  const defaultChecked = [agents.claude ? 0 : -1, agents.codex ? 1 : -1].filter((i) => i >= 0);
+  const checked = await selectMulti(rl, skillOptions, defaultChecked, c, rawModeCapable());
+  const skills = { claude: checked.includes(0), codex: checked.includes(1) };
 
   return { project, mainLanguage, character, verify, skills };
 }
