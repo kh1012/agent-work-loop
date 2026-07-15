@@ -109,6 +109,38 @@ describe('buildRecord — 구조 강제', () => {
     expect(record.items).toEqual(items); // dependsOn 이 사라지거나 바뀌지 않는다.
   });
 
+  it('criteria 의 항목에 금지된 질적 표현이 있으면 거부한다 (WI-T AC-01)', () => {
+    for (const banned of ['저위험', '주요한', '적절한', '가능한 만큼', '필요시']) {
+      const items = [{ id: 'AC-01', 조건: `chrome-lint ${banned} 건 수정`, 범위: 'y', 검증: 'z' }];
+      const r = buildRecord('criteria', { items }, DEFAULTS);
+      expect(r.record, `"${banned}" 가 거부돼야 함`).toBeUndefined();
+      expect(r.missing.some((m) => m.includes(banned))).toBe(true);
+    }
+  });
+
+  it('criteria 의 항목에 금지어가 없으면 통과한다', () => {
+    const items = [
+      {
+        id: 'AC-01',
+        조건: 'chrome-lint ERROR 4건(파일:라인 명시) 전부 수정',
+        범위: 'y',
+        검증: 'z',
+      },
+    ];
+    const r = buildRecord('criteria', { items }, DEFAULTS);
+    expect(r.missing).toEqual([]);
+  });
+
+  it('criteria 여러 항목 중 하나만 금지어를 써도 전체를 거부한다', () => {
+    const items = [
+      { id: 'AC-01', 조건: '정상 조건', 범위: 'y', 검증: 'z' },
+      { id: 'AC-02', 조건: '적절한 처리', 범위: 'y', 검증: 'z' },
+    ];
+    const r = buildRecord('criteria', { items }, DEFAULTS);
+    expect(r.record).toBeUndefined();
+    expect(r.missing.some((m) => m.includes('AC-02'))).toBe(true);
+  });
+
   it('decision: performanceSensitive:true 인데 alternatives 가 없으면 거부한다 (WI-I AC-05)', () => {
     const r = buildRecord(
       'decision',

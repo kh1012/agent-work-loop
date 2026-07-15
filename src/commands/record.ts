@@ -81,6 +81,20 @@ export const SCHEMAS: Record<RecordType, Schema> = {
 
 export const RECORD_TYPES = Object.keys(SCHEMAS) as RecordType[];
 
+/**
+ * 완료 조건에 남으면 재해석 여지가 생기는 질적 표현 (WI-T). "저위험 건 수정" 같은
+ * 표현은 구현 도중 "무엇을 저위험으로 볼지"가 순수한 판단이 되어 재분류가
+ * 일어난다 — awl verify 가 그 판단 자체를 검증하지 못한다. 열거 가능하거나
+ * 수치화 가능한 표현으로 다시 쓰게 한다.
+ */
+export const BANNED_QUALITATIVE_WORDS = [
+  '저위험',
+  '주요한',
+  '적절한',
+  '가능한 만큼',
+  '필요시',
+] as const;
+
 export interface RecordDefaults {
   project?: string;
   workitem?: string;
@@ -135,6 +149,22 @@ export function buildRecord(
       missing.push(`${field} (비어있지 않은 배열이어야 함)`);
     } else if (schema.arraysAllowEmpty?.includes(field) && !Array.isArray(v)) {
       missing.push(`${field} (배열이어야 함)`);
+    }
+  }
+
+  // 질적 표현 금지 (WI-T AC-01): criteria 의 각 항목을 통째로 문자열화해 금지어를
+  // 찾는다. 특정 필드 이름(조건/범위)에 의존하지 않는다 — 이 코드베이스는 항목
+  // 내부 구조를 강제하지 않으므로(D-15), 어느 필드에 질적 표현이 남아도 잡는다.
+  if (type === 'criteria' && Array.isArray(data.items)) {
+    for (const item of data.items as Record<string, unknown>[]) {
+      const text = JSON.stringify(item);
+      for (const word of BANNED_QUALITATIVE_WORDS) {
+        if (text.includes(word)) {
+          missing.push(
+            `items(${String(item?.id ?? '?')}) 에 금지된 질적 표현 "${word}" — 열거 가능하거나 수치화 가능하게 다시 쓰세요`,
+          );
+        }
+      }
     }
   }
 
