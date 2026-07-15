@@ -168,10 +168,14 @@ awl verify --json
 
 ### 완료 조건 3개마다 리뷰
 
-- `awl review AC-xx..AC-yy --json` 으로 자료를 조립한다.
+- `awl review AC-xx..AC-yy --json` 으로 자료를 조립한다. 조립 결과에 `reviewId`(새로 발급, `rev_` 접두어)가 포함된다.
 - **리뷰어를 서브에이전트로 호출한다. 구현자의 대화 맥락을 넘기지 마라.** (아래 "리뷰어" 참고)
-- 리뷰어의 지적은 **새 완료 조건으로 편입**한다. 리뷰어는 코드를 고치지 않는다.
-- **판정을 받으면 바로 기록한다**: `awl record review --json '{"target":"AC-xx..AC-yy","verdict":"pass 또는 needs-work"}'`. 이걸 빼먹으면 `awl evolve`/`awl metrics` 의 `reviewRejects` 지표가 조용히 0으로 샌다(WI-P 소급 발견 — 리뷰를 실제로 돌리고도 이 한 줄을 빼먹은 채 워크아이템을 닫을 뻔했다).
+- 리뷰어의 지적은 **새 완료 조건으로 편입**한다. 리뷰어는 코드를 고치지 않는다. 편입한 완료 조건의 `awl record criteria` 항목에 `becameCriterion` 자유 필드로 `"<reviewId> finding #1"` 처럼 원래 지적을 가리키는 값을 남겨, 나중에 어느 리뷰 지적이 어느 완료 조건이 됐는지 역추적할 수 있게 한다.
+- **판정을 받으면 바로 기록한다**: `awl record review --json '{"reviewId":"<번들의 reviewId>","criteria":["AC-xx","AC-yy"],"findings":[{"severity":"medium","what":"...","evidence":"파일:줄"}],"cheatingDetected":[],"verifyPassedBefore":true}'`.
+  - `criteria` 는 비어있지 않은 배열(리뷰한 완료 조건 ID들).
+  - `findings`/`cheatingDetected` 는 지적·부정행위가 없으면 빈 배열이어도 된다 — 다만 반드시 **배열**이어야 한다(문자열로 뭉치지 마라, 빈 배열도 정당한 결과다).
+  - `verifyPassedBefore` 는 이 리뷰 **직전**에 `awl verify` 가 이미 통과 상태였는지를 적는다. `true` 인 채로 `findings` 가 비어있지 않으면 "기계 검증은 통과했는데 리뷰가 실사고를 잡았다"는 이 시스템의 가장 강한 증거가 된다 — 아래 "narrative" 의 `reviewer-caught` 와 짝을 이룬다.
+  - 이걸 빼먹으면 `awl evolve`/`awl metrics` 의 `reviewRejects` 지표가 조용히 0으로 샌다(WI-P 소급 발견 — 리뷰를 실제로 돌리고도 이 한 줄을 빼먹은 채 워크아이템을 닫을 뻔했다). `awl record gate` 로 gate:2 를 기록할 때 완료 조건 3개 이상이 통과했는데 review 기록이 하나도 없으면 경고도 뜬다(WI-S).
 
 ---
 

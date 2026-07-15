@@ -62,7 +62,7 @@ awl verify --json
 
 **막힘 처리**(3회 실패): `awl record blocked --diff` 로 `tried` 배열(3가지 접근과 각각의 실패 양상)과 `lesson` 을 남긴다. `git checkout -- .` 로 코드를 버리고 다음 조건으로. 완료 조건은 수정하지 않는다.
 
-**완료 조건 3개마다**: `awl review AC-xx..AC-yy --json` 으로 자료를 조립하고, **리뷰어를 서브에이전트로 호출한다(구현자 맥락 전달 금지).** 지적은 새 완료 조건으로 편입한다. 판정을 받으면 바로 `awl record review --json '{"target":"AC-xx..AC-yy","verdict":"pass 또는 needs-work"}'` 로 기록한다 — 빼먹으면 `awl evolve`/`awl metrics` 의 `reviewRejects` 가 조용히 0으로 샌다.
+**완료 조건 3개마다**: `awl review AC-xx..AC-yy --json` 으로 자료를 조립한다(결과에 `reviewId` 신규 발급 포함). **리뷰어를 서브에이전트로 호출한다(구현자 맥락 전달 금지).** 지적은 새 완료 조건으로 편입하고, 그 완료 조건에 `becameCriterion` 자유 필드로 `"<reviewId> finding #1"` 처럼 원 지적을 남긴다. 판정을 받으면 바로 `awl record review --json '{"reviewId":"<번들의 reviewId>","criteria":["AC-xx","AC-yy"],"findings":[{"severity":"medium","what":"...","evidence":"파일:줄"}],"cheatingDetected":[],"verifyPassedBefore":true}'` 로 기록한다. `criteria` 는 비어있지 않은 배열, `findings`/`cheatingDetected` 는 배열이면 비어있어도 통과(지적/부정행위 없음도 정당한 결과). `verifyPassedBefore` 는 리뷰 직전 `awl verify` 통과 여부 — `true` 인데 `findings` 가 비어있지 않으면 "기계 검증은 통과했는데 리뷰가 실사고를 잡았다"는 증거이니 `narrative` 의 `reviewer-caught` 와 짝지어 기록한다. 빼먹으면 `awl evolve`/`awl metrics` 의 `reviewRejects` 가 조용히 0으로 새고, `awl record gate` 의 gate:2 기록 시 완료 조건 3개 이상 통과했는데 review 기록이 없으면 경고가 뜬다.
 
 ### 게이트 2 — 완료 (반드시 멈춘다)
 
