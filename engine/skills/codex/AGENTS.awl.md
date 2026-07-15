@@ -54,6 +54,8 @@ awl verify --json
 
 **`awl commit` 이 hunk 충돌로 거부하면 그 자리에서 출력하는 대안 안내를 따른다** — "사람이 확인하세요"로 끝내고 "커밋 없이 계속 진행"하지 마라(실사고 재현). 안내가 제시하는 격리 워크트리로 옮기거나, 판단이 안 서면 사람에게 알린다.
 
+**기록 상세도는 diff 크기에 맞춘다(WI-U)**: `awl record attempt` 가 방금 만든 커밋(passed) 또는 작업트리(failed)의 diff 크기를 스스로 재서(`diffTier`: minimal/brief/detailed) 필요한 상세도를 안내하고, 모자라면 거부한다. 작은 통과 변경(1파일 미만 10줄, `diffTier:"minimal"`)은 `what` 만, 중간(`"brief"`)은 `what`/`why`/`how`, 큰 변경(50줄 이상 또는 3파일 이상, `"detailed"`)은 거기에 `alternatives`(대안과 기각 이유)까지. **실패한 시도는 크기와 무관하게 항상 `what`/`why`/`how` 전부 요구** — 실패가 gotcha 의 원천이라 정보를 줄이면 안 된다.
+
 **gotcha 적용/누락 확인(완료조건마다)**: 구현 전에 `awl gotchas --json` 으로 적용 가능한 교훈이 있는지 훑는다. 적용해서 함정을 피했으면 `awl record gotcha-applied --json '{"gotchaId":"G-0xx","what":"..."}'`, 적용 가능했는데도 같은 실패가 재발했으면(구현 중이든 리뷰가 나중에 짚었든) `awl record gotcha-missed --json '{"gotchaId":"G-0xx","what":"...","why":"..."}'`. 해당하는 gotcha 가 없으면 기록하지 않는다 — 이게 `awl evolve`/`awl metrics` 가 학습 여부를 세는 유일한 근거다.
 
 **실패 원인 판별**:
