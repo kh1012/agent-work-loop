@@ -814,6 +814,115 @@ describe('runRecord — gate:2 기록 시 리뷰 누락 경고 (WI-S AC-03)', ()
   });
 });
 
+describe('runRecord — 게이트 2 "너무 쉬웠나" 안내 (WI-T AC-03)', () => {
+  const origCwd = process.cwd();
+  const origHome = process.env.AWL_HOME;
+
+  afterEach(() => {
+    process.chdir(origCwd);
+    if (origHome === undefined) {
+      delete process.env.AWL_HOME;
+    } else {
+      process.env.AWL_HOME = origHome;
+    }
+  });
+
+  function project(criteria: Record<string, unknown>[]): string {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-record-tooeasy-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, '.awl', 'config.json'),
+      JSON.stringify({ project: 'p', mainLanguage: 'other', verify: {} }),
+    );
+    fs.writeFileSync(
+      path.join(root, '.awl', 'state.json'),
+      JSON.stringify({ workitem: 'WI-9', workitems: {}, criteria }),
+    );
+    process.chdir(root);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-record-tooeasy-home-'));
+    return root;
+  }
+
+  it('전부 1차 통과(attempts:0)+막힘 0건이면 안내한다', async () => {
+    project([
+      { id: 'AC-01', status: 'passed', attempts: 0 },
+      { id: 'AC-02', status: 'passed', attempts: 0 },
+    ]);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    await runRecord('gate', {
+      json: '{"gate":2,"decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('충분히 야심찼습니까'))).toBe(
+      true,
+    );
+    stderrSpy.mockRestore();
+  });
+
+  it('하나라도 재시도(attempts>0)가 있으면 안내하지 않는다', async () => {
+    project([
+      { id: 'AC-01', status: 'passed', attempts: 2 },
+      { id: 'AC-02', status: 'passed', attempts: 0 },
+    ]);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    await runRecord('gate', {
+      json: '{"gate":2,"decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('충분히 야심찼습니까'))).toBe(
+      false,
+    );
+    stderrSpy.mockRestore();
+  });
+
+  it('막힌 완료조건이 있으면 안내하지 않는다', async () => {
+    project([
+      { id: 'AC-01', status: 'blocked', attempts: 3 },
+      { id: 'AC-02', status: 'passed', attempts: 0 },
+    ]);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    await runRecord('gate', {
+      json: '{"gate":2,"decision":"more-work","presentedCriteria":["AC-01"]}',
+    });
+
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('충분히 야심찼습니까'))).toBe(
+      false,
+    );
+    stderrSpy.mockRestore();
+  });
+
+  it('완료조건이 0개면 안내하지 않는다', async () => {
+    project([]);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    await runRecord('gate', {
+      json: '{"gate":2,"decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('충분히 야심찼습니까'))).toBe(
+      false,
+    );
+    stderrSpy.mockRestore();
+  });
+
+  it('gate:1 에는 이 안내가 적용되지 않는다', async () => {
+    project([{ id: 'AC-01', status: 'passed', attempts: 0 }]);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    await runRecord('gate', {
+      json: '{"gate":1,"decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('충분히 야심찼습니까'))).toBe(
+      false,
+    );
+    stderrSpy.mockRestore();
+  });
+});
+
 describe('computeCoverage — 순수 계산 (WI-T AC-02)', () => {
   it('addresses 로 안 다뤄진 audit finding 을 배제 목록으로 계산한다', () => {
     const auditRecords = [

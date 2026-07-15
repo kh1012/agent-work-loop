@@ -565,6 +565,26 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
         );
       }
     }
+
+    // "너무 쉬웠나" 안내 (WI-T AC-03) — 강제가 아니라 질문이다. 완료 조건이
+    // 하나 이상이고 전부 status:passed && attempts:0(1차 통과)이면(막힘이
+    // 하나라도 있으면 그 항목은 passed 가 아니므로 이 조건 자체가 자연히 걸러진다)
+    // 커버리지 수치와 함께 물어본다. 거부하지 않는다.
+    const criteria = Array.isArray(state.criteria)
+      ? (state.criteria as Record<string, unknown>[])
+      : [];
+    const allPassedFirstTry =
+      criteria.length > 0 &&
+      criteria.every((c) => c.status === 'passed' && (Number(c.attempts) || 0) === 0);
+    if (allPassedFirstTry) {
+      const auditRecords = workitemForCheck
+        ? readRecords({ type: 'audit', workitem: workitemForCheck })
+        : [];
+      const coverage = computeCoverage(auditRecords, criteria);
+      process.stderr.write(
+        `\n  완료 조건 ${criteria.length}개 전부 1차 통과. 막힘 0건.\n  조사에서 발견한 ${coverage.auditFindingIds.length}건 중 ${coverage.addressedIds.length}건을 다뤘습니다.\n  완료 조건이 충분히 야심찼습니까?\n`,
+      );
+    }
   }
 
   process.stdout.write(`${JSON.stringify({ id, at, file })}\n`);
