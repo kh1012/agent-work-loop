@@ -29,12 +29,18 @@ export type RecordType =
   | 'gate'
   | 'clarify';
 
-/** narrative.kind 로 허용되는 값 (WI-P AC-02). */
+/**
+ * narrative.kind 로 허용되는 값 (WI-P AC-02).
+ * tool-failed(WI-W): awl 자신의 도구가 오작동해(예: 자체 검증 통과를 보고하고도
+ * 무관한 파일을 흡수) 실사고를 낸 순간 — 완료 조건/리뷰/스파이크가 아니라
+ * 도구 자체의 결함이 원인일 때만 쓴다.
+ */
 export const NARRATIVE_KINDS = [
   'gate-caught',
   'reviewer-caught',
   'spike-prevented',
   'blocked-discarded',
+  'tool-failed',
 ] as const;
 
 /** gate:1 의 decision 으로 허용되는 값 (WI-Q AC-01). */

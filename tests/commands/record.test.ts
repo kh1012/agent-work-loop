@@ -258,14 +258,20 @@ describe('buildRecord — 구조 강제', () => {
     expect(r.missing).toContain('counterfactual');
   });
 
-  it('narrative 의 kind 가 허용된 4값이 아니면 거부한다', () => {
+  it('narrative 의 kind 가 허용된 5값이 아니면 거부한다', () => {
     const r = buildRecord('narrative', { kind: 'something-else', counterfactual: 'x' }, DEFAULTS);
     expect(r.record).toBeUndefined();
     expect(r.missing.some((m) => m.startsWith('kind'))).toBe(true);
   });
 
-  it('narrative 의 kind 가 4값 중 하나이고 counterfactual 이 있으면 통과한다', () => {
-    for (const kind of ['gate-caught', 'reviewer-caught', 'spike-prevented', 'blocked-discarded']) {
+  it('narrative 의 kind 가 5값 중 하나이고 counterfactual 이 있으면 통과한다 (WI-W: tool-failed 추가)', () => {
+    for (const kind of [
+      'gate-caught',
+      'reviewer-caught',
+      'spike-prevented',
+      'blocked-discarded',
+      'tool-failed',
+    ]) {
       const r = buildRecord('narrative', { kind, counterfactual: 'x' }, DEFAULTS);
       expect(r.missing).toEqual([]);
     }

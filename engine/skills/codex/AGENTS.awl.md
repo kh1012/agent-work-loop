@@ -86,7 +86,7 @@ awl verify --json
 
 ### narrative — 그 순간에 남긴다 (사후 재구성 아님)
 
-awl 은 토큰을 못 잰다. "이게 없었다면 무슨 일이 있었을지"(counterfactual)는 그 일이 일어나는 순간에만 정확히 남길 수 있다. `kind` 는 넷 중 하나이고 각각 파이프라인의 정해진 자리에서 발생한다 — `gate-caught`(게이트 1/2 에서 발견해 막음), `reviewer-caught`(리뷰어가 실사고 발견), `spike-prevented`(스파이크가 잘못된 설계를 사전에 막음), `blocked-discarded`(막힘 처리로 코드를 버림). `awl record narrative --json '{"kind":"reviewer-caught","counterfactual":"이걸 못 잡았다면 ..."}'`. 해당하는 순간이 없었으면 억지로 기록하지 않는다.
+awl 은 토큰을 못 잰다. "이게 없었다면 무슨 일이 있었을지"(counterfactual)는 그 일이 일어나는 순간에만 정확히 남길 수 있다. `kind` 는 다섯 중 하나이고 각각 파이프라인의 정해진 자리에서 발생한다 — `gate-caught`(게이트 1/2 에서 발견해 막음), `reviewer-caught`(리뷰어가 실사고 발견), `spike-prevented`(스파이크가 잘못된 설계를 사전에 막음), `blocked-discarded`(막힘 처리로 코드를 버림), `tool-failed`(WI-W, awl 자신의 도구가 오작동해 실사고를 냄 — 발표에서 숨기지 않는다). `awl record narrative --json '{"kind":"reviewer-caught","counterfactual":"이걸 못 잡았다면 ..."}'`. 해당하는 순간이 없었으면 억지로 기록하지 않는다.
 
 ### 리뷰어
 
