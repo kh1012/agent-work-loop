@@ -256,10 +256,21 @@ export function buildProgram(): Command {
     .option('--json <data>', '기록할 데이터 (JSON 문자열)')
     .option('--file <path>', '데이터 파일 경로 (큰 데이터용)')
     .option('--diff', 'git diff 를 캡처해 첨부합니다 (blocked)')
-    .action(async (type: string, opts: { json?: string; file?: string; diff?: boolean }) => {
-      const { runRecord } = await import('./commands/record.js');
-      await runRecord(type, { json: opts.json, file: opts.file, diff: opts.diff === true });
-    });
+    .option('--workitem <id>', '이 기록만 다른 워크아이템으로 남깁니다(기본은 현재 워크아이템)')
+    .action(
+      async (
+        type: string,
+        opts: { json?: string; file?: string; diff?: boolean; workitem?: string },
+      ) => {
+        const { runRecord } = await import('./commands/record.js');
+        await runRecord(type, {
+          json: opts.json,
+          file: opts.file,
+          diff: opts.diff === true,
+          workitem: opts.workitem,
+        });
+      },
+    );
 
   // 스킬이 치는 명령(숨김): verify
   program

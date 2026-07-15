@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   appendRecord,
   buildRecord,
@@ -10,6 +10,7 @@ import {
   readRecords,
   renderRecords,
   resolveBlockedBaseline,
+  runRecord,
 } from '../../src/commands/record.js';
 
 const origHome = process.env.AWL_HOME;
@@ -448,5 +449,78 @@ describe('resolveBlockedBaseline — blocked 기록의 baseline SHA 추론 (WI-7
 
   it('focus 를 전혀 알 수 없으면 undefined(크래시하지 않음)', () => {
     expect(resolveBlockedBaseline({}, {})).toBeUndefined();
+  });
+});
+
+describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
+  const origCwd = process.cwd();
+  const origHome = process.env.AWL_HOME;
+
+  afterEach(() => {
+    process.chdir(origCwd);
+    if (origHome === undefined) {
+      delete process.env.AWL_HOME;
+    } else {
+      process.env.AWL_HOME = origHome;
+    }
+  });
+
+  function project(state: Record<string, unknown> | undefined): string {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-record-cli-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, '.awl', 'config.json'),
+      JSON.stringify({ project: 'p', mainLanguage: 'other', verify: {} }),
+    );
+    if (state) {
+      fs.writeFileSync(path.join(root, '.awl', 'state.json'), JSON.stringify(state));
+    }
+    process.chdir(root);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-record-cli-home-'));
+    return root;
+  }
+
+  function mockExit() {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    return { exitSpy, stderrSpy };
+  }
+
+  it('활성 워크아이템이 전혀 없으면(state 도 --workitem 도 없음) 거부한다', async () => {
+    project(undefined); // state.json 없음 = 워크아이템 없음
+    const { exitSpy, stderrSpy } = mockExit();
+
+    await expect(runRecord('spike', { json: '{"question":"q","found":"f"}' })).rejects.toThrow(
+      'exit:1',
+    );
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('활성 워크아이템'))).toBe(true);
+
+    exitSpy.mockRestore();
+    stderrSpy.mockRestore();
+  });
+
+  it('--workitem 플래그가 있으면 활성 워크아이템이 없어도 통과한다', async () => {
+    project(undefined);
+    await runRecord('spike', { json: '{"question":"q","found":"f"}', workitem: 'WI-9' });
+    const records = readRecords({ workitem: 'WI-9' });
+    expect(records).toHaveLength(1);
+  });
+
+  it('state.json 에 현재 워크아이템이 있으면 --workitem 없어도 통과한다', async () => {
+    project({ workitem: 'WI-9', workitems: {} });
+    await runRecord('spike', { json: '{"question":"q","found":"f"}' });
+    const records = readRecords({ workitem: 'WI-9' });
+    expect(records).toHaveLength(1);
+  });
+
+  it('데이터(JSON) 안에 workitem 이 명시되면 활성 워크아이템이 없어도 통과한다(우선순위 유지)', async () => {
+    project(undefined);
+    await runRecord('spike', {
+      json: '{"question":"q","found":"f","workitem":"WI-9"}',
+    });
+    const records = readRecords({ workitem: 'WI-9' });
+    expect(records).toHaveLength(1);
   });
 });

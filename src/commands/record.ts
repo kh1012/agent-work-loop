@@ -322,6 +322,7 @@ export interface RecordCliOpts {
   json?: string;
   file?: string;
   diff?: boolean;
+  workitem?: string;
 }
 
 /** awl record <type> — 스킬이 치는 명령. */
@@ -360,6 +361,24 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
         : undefined;
   }
 
+  // 활성 워크아이템 강제 (WI-R AC-01) — 데이터(JSON)에 명시된 workitem, --workitem
+  // 플래그, state.json 의 현재 워크아이템 중 무엇도 없으면 거부한다. 우선순위는
+  // buildRecord 의 우선순위(데이터 > defaults)와 일치시킨다: 여기서는 defaults 로
+  // 넘길 값(cliWorkitem ?? currentWorkitem)만 고르고, data.workitem 우선은
+  // buildRecord 안에서 그대로 처리된다.
+  const dataWorkitem =
+    typeof data.workitem === 'string' && data.workitem.trim() !== '' ? data.workitem : undefined;
+  const cliWorkitem =
+    typeof opts.workitem === 'string' && opts.workitem.trim() !== '' ? opts.workitem : undefined;
+  const defaultWorkitem = cliWorkitem ?? currentWorkitem;
+  if (!dataWorkitem && !defaultWorkitem) {
+    process.stderr.write(
+      '\n  활성 워크아이템이 없습니다. awl work new <id> [설명] 으로 시작하세요.\n' +
+        '  (이 기록 하나만 다른 워크아이템으로 남기려면 --workitem <id> 를 쓰세요)\n',
+    );
+    process.exit(1);
+  }
+
   const id = newRecordId();
   const at = new Date().toISOString();
 
@@ -382,7 +401,7 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
 
   const { record, missing } = buildRecord(type as RecordType, data, {
     project: projectFromConfig,
-    workitem: currentWorkitem,
+    workitem: defaultWorkitem,
     id,
     at,
   });
