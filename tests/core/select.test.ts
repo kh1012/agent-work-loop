@@ -1,5 +1,11 @@
-import { describe, expect, it } from 'vitest';
-import { advanceSelect, initSelectState, renderSelectOptions } from '../../src/core/select.js';
+import { EventEmitter } from 'node:events';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  advanceSelect,
+  initSelectState,
+  renderSelectOptions,
+  runInteractiveSelect,
+} from '../../src/core/select.js';
 
 const ASCII = { unicode: false, color: false, tty: false };
 
@@ -111,5 +117,97 @@ describe('renderSelectOptions — 순수 렌더 (WI-Y AC-02)', () => {
     const text = renderSelectOptions(['TypeScript', 'Python'], initSelectState(0), false, ASCII);
     expect(text).toContain('TypeScript');
     expect(text).toContain('Python');
+  });
+});
+
+describe('runInteractiveSelect — I/O 루프를 stdin 모킹으로 검증 (WI-Y AC-03)', () => {
+  // 이 테스트 환경(vitest)의 process.stdin 은 TTY 가 아니라 setRawMode 자체가
+  // 없을 수 있다(실제로 이 저장소 환경에서 undefined 로 확인됨) — vi.spyOn 은
+  // 이미 존재하는 메서드에만 걸 수 있으므로, setRawMode 는 직접 대입/복원한다.
+  const originalSetRawMode = process.stdin.setRawMode;
+
+  afterEach(() => {
+    process.stdin.setRawMode = originalSetRawMode;
+    vi.restoreAllMocks();
+  });
+
+  function mockStdin() {
+    const setRawMode = vi.fn().mockReturnValue(process.stdin);
+    process.stdin.setRawMode = setRawMode as typeof process.stdin.setRawMode;
+    vi.spyOn(process.stdin, 'resume').mockReturnValue(process.stdin);
+    vi.spyOn(process.stdin, 'pause').mockReturnValue(process.stdin);
+    const onceSpy = vi.spyOn(process.stdin, 'once');
+    vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    return { setRawMode, onceSpy };
+  }
+
+  // vi.spyOn(process.stdin, 'once') 의 반환 타입은 process.stdin 의 once 오버로드
+  // 전체와 얽혀 있어 그대로 쓰면 타입이 지나치게 복잡해진다 — 여기서 실제로
+  // 쓰는 건 mock.calls 뿐이므로 그 구조만 받는 최소 타입으로 좁힌다.
+  interface OnceSpy {
+    mock: { calls: unknown[][] };
+  }
+
+  function lastDataListener(onceSpy: OnceSpy): (buf: Buffer) => void {
+    const calls = onceSpy.mock.calls.filter((c) => c[0] === 'data');
+    const last = calls[calls.length - 1];
+    if (!last) {
+      throw new Error('data 리스너가 등록되지 않았습니다');
+    }
+    return last[1] as (buf: Buffer) => void;
+  }
+
+  async function pressKey(onceSpy: OnceSpy, bytes: string): Promise<void> {
+    await Promise.resolve();
+    await Promise.resolve();
+    lastDataListener(onceSpy)(Buffer.from(bytes));
+  }
+
+  it('아래-아래-enter 로 2번 인덱스를 선택한다', async () => {
+    const { onceSpy } = mockStdin();
+    const promise = runInteractiveSelect(['a', 'b', 'c'], 0, false, ASCII);
+    await pressKey(onceSpy, '\x1b[B');
+    await pressKey(onceSpy, '\x1b[B');
+    await pressKey(onceSpy, '\r');
+    const result = await promise;
+    expect(result?.index).toBe(2);
+  });
+
+  it('escape 를 누르면 null 을 돌려준다(취소)', async () => {
+    const { onceSpy } = mockStdin();
+    const promise = runInteractiveSelect(['a', 'b'], 0, false, ASCII);
+    await pressKey(onceSpy, '\x1b');
+    const result = await promise;
+    expect(result).toBeNull();
+  });
+
+  it('Ctrl+C 도 취소로 다룬다', async () => {
+    const { onceSpy } = mockStdin();
+    const promise = runInteractiveSelect(['a', 'b'], 0, false, ASCII);
+    await pressKey(onceSpy, '\x03');
+    const result = await promise;
+    expect(result).toBeNull();
+  });
+
+  it('다중선택은 space 로 토글한 뒤 enter 로 확정한다', async () => {
+    const { onceSpy } = mockStdin();
+    const promise = runInteractiveSelect(['a', 'b'], 0, true, ASCII);
+    await pressKey(onceSpy, ' '); // index 0 토글
+    await pressKey(onceSpy, '\x1b[B'); // index 1 로 이동
+    await pressKey(onceSpy, ' '); // index 1 토글
+    await pressKey(onceSpy, '\r');
+    const result = await promise;
+    expect(result?.checked.sort()).toEqual([0, 1]);
+  });
+
+  it('끝나면(성공이든 취소든) raw-mode 를 반드시 되돌린다', async () => {
+    const { onceSpy, setRawMode } = mockStdin();
+    const promise = runInteractiveSelect(['a'], 0, false, ASCII);
+    await pressKey(onceSpy, '\r');
+    await promise;
+    expect(setRawMode).toHaveBeenCalledWith(true);
+    expect(setRawMode).toHaveBeenCalledWith(false);
+    // 마지막 호출이 false(원복)여야 한다.
+    expect(setRawMode.mock.calls[setRawMode.mock.calls.length - 1]?.[0]).toBe(false);
   });
 });

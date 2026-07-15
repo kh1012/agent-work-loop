@@ -81,3 +81,71 @@ export function renderSelectOptions(
   }
   return lines.join('\n');
 }
+
+// ---------------------------------------------------------------------------
+// I/O 계층 — raw-mode 로 실시간 키 입력을 받는다 (WI-Y AC-03).
+// 여기부터는 실제 터미널이 필요해 단위테스트 범위 밖이다(수동 시연). 호출부는
+// rawModeCapable() 이 true 일 때만 이 경로를 타야 한다 — CI/파이프에서 이
+// 함수를 부르면 stdin 이 raw-mode 를 지원 안 해 예측 못 할 동작이 날 수 있다.
+// ---------------------------------------------------------------------------
+
+/** 키 입력 하나를 기다린다. Esc 와 Ctrl+C 를 둘 다 취소로 다룬다. */
+export function readKey(): Promise<SelectKey> {
+  return new Promise((resolve) => {
+    process.stdin.once('data', (buf: Buffer) => {
+      const s = buf.toString('utf8');
+      if (s === '\r' || s === '\n') {
+        resolve('enter');
+      } else if (s === ' ') {
+        resolve('space');
+      } else if (s === '\x1b[A') {
+        resolve('up');
+      } else if (s === '\x1b[B') {
+        resolve('down');
+      } else if (s === '\x1b' || s === '\x03') {
+        resolve('escape');
+      } else {
+        resolve('other');
+      }
+    });
+  });
+}
+
+function moveCursorUp(n: number): string {
+  return n > 0 ? `\x1b[${n}A` : '';
+}
+
+export interface InteractiveSelectResult {
+  index: number;
+  checked: number[];
+}
+
+/**
+ * raw-mode 를 켜고 방향키 선택 화면을 그 자리에서 갱신한다. Esc/Ctrl+C 로
+ * 취소하면 null. 끝나면(성공이든 취소든) raw-mode 를 반드시 되돌린다.
+ */
+export async function runInteractiveSelect(
+  options: string[],
+  defaultIndex: number,
+  multi: boolean,
+  c: Caps,
+  defaultChecked: number[] = [],
+): Promise<InteractiveSelectResult | null> {
+  let state = initSelectState(defaultIndex, defaultChecked);
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+  process.stdout.write(`${renderSelectOptions(options, state, multi, c)}\n`);
+  try {
+    while (!state.done) {
+      const key = await readKey();
+      state = advanceSelect(state, key, options.length, multi);
+      process.stdout.write(
+        `${moveCursorUp(options.length)}${renderSelectOptions(options, state, multi, c)}\n`,
+      );
+    }
+  } finally {
+    process.stdin.setRawMode(false);
+    process.stdin.pause();
+  }
+  return state.cancelled ? null : { index: state.index, checked: [...state.checked] };
+}
