@@ -70,6 +70,16 @@ export function buildProgram(): Command {
       await runDoctor({ json: opts.json === true });
     });
 
+  // 사람이 치는 명령: version-check (버전 네 쌍 불일치 검사 — WI-X)
+  program
+    .command('version-check')
+    .description('버전 불일치를 검사합니다 (package/engine/프로젝트/스킬)')
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .action(async (opts: { json?: boolean }) => {
+      const { runVersionCheck } = await import('./commands/version-check.js');
+      runVersionCheck({ json: opts.json === true });
+    });
+
   // 사람이 치는 명령: config (현재 설정 보기, TTY 면 항목을 골라 수정)
   const config = program
     .command('config')
