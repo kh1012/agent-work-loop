@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   appendRecord,
   buildRecord,
+  computeCoverage,
   monthFile,
   newRecordId,
   readRecords,
@@ -810,5 +811,156 @@ describe('runRecord — gate:2 기록 시 리뷰 누락 경고 (WI-S AC-03)', ()
 
     expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('리뷰'))).toBe(false);
     stderrSpy.mockRestore();
+  });
+});
+
+describe('computeCoverage — 순수 계산 (WI-T AC-02)', () => {
+  it('addresses 로 안 다뤄진 audit finding 을 배제 목록으로 계산한다', () => {
+    const auditRecords = [
+      {
+        findings: [
+          { id: 'F-01', what: 'a' },
+          { id: 'F-02', what: 'b' },
+          { id: 'F-03', what: 'c' },
+        ],
+      },
+    ];
+    const criteria = [{ id: 'AC-01', addresses: ['F-01'] }, { id: 'AC-02' }];
+    const coverage = computeCoverage(auditRecords, criteria);
+    expect(coverage.auditFindingIds.sort()).toEqual(['F-01', 'F-02', 'F-03']);
+    expect(coverage.addressedIds).toEqual(['F-01']);
+    expect(coverage.excludedIds.sort()).toEqual(['F-02', 'F-03']);
+  });
+
+  it('전부 addresses 로 다뤄지면 배제 목록이 빈다', () => {
+    const auditRecords = [{ findings: [{ id: 'F-01' }, { id: 'F-02' }] }];
+    const criteria = [{ id: 'AC-01', addresses: ['F-01', 'F-02'] }];
+    expect(computeCoverage(auditRecords, criteria).excludedIds).toEqual([]);
+  });
+
+  it('id 없는 finding 항목이 섞여도 죽지 않고 그냥 건너뛴다', () => {
+    const auditRecords = [{ findings: ['그냥 문자열', { what: 'id 없음' }, { id: 'F-01' }] }];
+    const criteria: Record<string, unknown>[] = [];
+    const coverage = computeCoverage(auditRecords, criteria);
+    expect(coverage.auditFindingIds).toEqual(['F-01']);
+  });
+
+  it('여러 audit 기록에 걸친 finding 을 합친다', () => {
+    const auditRecords = [{ findings: [{ id: 'F-01' }] }, { findings: [{ id: 'F-02' }] }];
+    const coverage = computeCoverage(auditRecords, []);
+    expect(coverage.auditFindingIds.sort()).toEqual(['F-01', 'F-02']);
+  });
+});
+
+describe('runRecord — 게이트 1 배제 목록 강제 (WI-T AC-02, 핵심)', () => {
+  const origCwd = process.cwd();
+  const origHome = process.env.AWL_HOME;
+
+  afterEach(() => {
+    process.chdir(origCwd);
+    if (origHome === undefined) {
+      delete process.env.AWL_HOME;
+    } else {
+      process.env.AWL_HOME = origHome;
+    }
+  });
+
+  function project(criteria: Record<string, unknown>[]): string {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-record-gate1-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, '.awl', 'config.json'),
+      JSON.stringify({ project: 'p', mainLanguage: 'other', verify: {} }),
+    );
+    fs.writeFileSync(
+      path.join(root, '.awl', 'state.json'),
+      JSON.stringify({ workitem: 'WI-9', workitems: {}, criteria }),
+    );
+    process.chdir(root);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-record-gate1-home-'));
+    return root;
+  }
+
+  function mockExit() {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    return { exitSpy, stderrSpy };
+  }
+
+  it('배제가 있는데 presentedExclusions 가 없으면 gate:1 을 거부한다(파일에 안 씀)', async () => {
+    project([{ id: 'AC-01', addresses: ['F-01'] }]);
+    await runRecord('audit', {
+      json: '{"scope":"s","findings":[{"id":"F-01","what":"a"},{"id":"F-02","what":"b"}]}',
+    });
+    const { exitSpy, stderrSpy } = mockExit();
+
+    await expect(
+      runRecord('gate', { json: '{"gate":1,"decision":"approved","presentedCriteria":["AC-01"]}' }),
+    ).rejects.toThrow('exit:1');
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('F-02'))).toBe(true);
+    expect(readRecords({ type: 'gate' })).toHaveLength(0);
+
+    exitSpy.mockRestore();
+    stderrSpy.mockRestore();
+  });
+
+  it('배제가 있어도 presentedExclusions 가 전부 포함하면 통과한다', async () => {
+    project([{ id: 'AC-01', addresses: ['F-01'] }]);
+    await runRecord('audit', {
+      json: '{"scope":"s","findings":[{"id":"F-01","what":"a"},{"id":"F-02","what":"b"}]}',
+    });
+
+    await runRecord('gate', {
+      json: '{"gate":1,"decision":"approved","presentedCriteria":["AC-01"],"presentedExclusions":[{"id":"F-02","reason":"별도 워크아이템"}]}',
+    });
+    expect(readRecords({ type: 'gate' })).toHaveLength(1);
+  });
+
+  it('배제가 여럿인데 presentedExclusions 가 일부만 포함하면 거부한다', async () => {
+    project([{ id: 'AC-01', addresses: [] }]);
+    await runRecord('audit', {
+      json: '{"scope":"s","findings":[{"id":"F-01","what":"a"},{"id":"F-02","what":"b"}]}',
+    });
+    const { exitSpy, stderrSpy } = mockExit();
+
+    await expect(
+      runRecord('gate', {
+        json: '{"gate":1,"decision":"approved","presentedCriteria":["AC-01"],"presentedExclusions":[{"id":"F-01"}]}',
+      }),
+    ).rejects.toThrow('exit:1');
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('F-02'))).toBe(true);
+
+    exitSpy.mockRestore();
+    stderrSpy.mockRestore();
+  });
+
+  it('배제가 없으면(전부 addresses 로 다뤄짐) presentedExclusions 없이도 통과한다', async () => {
+    project([{ id: 'AC-01', addresses: ['F-01'] }]);
+    await runRecord('audit', { json: '{"scope":"s","findings":[{"id":"F-01","what":"a"}]}' });
+
+    await runRecord('gate', {
+      json: '{"gate":1,"decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+    expect(readRecords({ type: 'gate' })).toHaveLength(1);
+  });
+
+  it('audit 기록 자체가 없으면(발견 0건) presentedExclusions 없이도 통과한다', async () => {
+    project([{ id: 'AC-01' }]);
+    await runRecord('gate', {
+      json: '{"gate":1,"decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+    expect(readRecords({ type: 'gate' })).toHaveLength(1);
+  });
+
+  it('gate:2 는 이 체크 대상이 아니다(배제가 있어도 거부하지 않는다)', async () => {
+    project([{ id: 'AC-01', addresses: [] }]);
+    await runRecord('audit', { json: '{"scope":"s","findings":[{"id":"F-01","what":"a"}]}' });
+
+    await runRecord('gate', {
+      json: '{"gate":2,"decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+    expect(readRecords({ type: 'gate' })).toHaveLength(1);
   });
 });

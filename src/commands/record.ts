@@ -256,6 +256,46 @@ export function resolveBlockedBaseline(
   return crit && typeof crit.baseline === 'string' ? crit.baseline : undefined;
 }
 
+export interface CoverageResult {
+  auditFindingIds: string[];
+  addressedIds: string[];
+  excludedIds: string[];
+}
+
+/**
+ * audit 기록의 findings 와 완료 조건의 addresses 를 대조해 커버리지를 계산한다
+ * (WI-T AC-02/AC-04). 순수 함수(테스트 가능). id 가 없거나 문자열이 아닌 finding/
+ * addresses 항목은 조용히 건너뛴다 — 이 코드베이스는 중첩 배열 항목의 내부 구조를
+ * 강제하지 않으므로(D-15), 이 관례 이전에 쓰인 audit 기록도 죽지 않고 읽힌다.
+ */
+export function computeCoverage(
+  auditRecords: Record<string, unknown>[],
+  criteria: Record<string, unknown>[],
+): CoverageResult {
+  const findingIds = new Set<string>();
+  for (const r of auditRecords) {
+    const findings = Array.isArray(r.findings) ? r.findings : [];
+    for (const f of findings) {
+      if (f && typeof f === 'object' && typeof (f as Record<string, unknown>).id === 'string') {
+        findingIds.add((f as Record<string, unknown>).id as string);
+      }
+    }
+  }
+  const addressedRefs = new Set<string>();
+  for (const c of criteria) {
+    const addresses = Array.isArray(c.addresses) ? c.addresses : [];
+    for (const a of addresses) {
+      if (typeof a === 'string') {
+        addressedRefs.add(a);
+      }
+    }
+  }
+  const auditFindingIds = [...findingIds];
+  const addressedIds = auditFindingIds.filter((id) => addressedRefs.has(id));
+  const excludedIds = auditFindingIds.filter((id) => !addressedRefs.has(id));
+  return { auditFindingIds, addressedIds, excludedIds };
+}
+
 /** at(ISO) 에서 YYYY-MM 월 파일 이름을 만든다. */
 export function monthFile(at: string): string {
   const month = at.slice(0, 7); // YYYY-MM
@@ -471,6 +511,37 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
       `  ${type} 에 필요한 필드: ${SCHEMAS[type as RecordType].required.join(', ')}\n`,
     );
     process.exit(1);
+  }
+
+  // 게이트 1 배제 목록 강제 (WI-T AC-02, 핵심) — audit findings 중 어떤 완료
+  // 조건의 addresses 도 안 가리키는 게 있는데 presentedExclusions 로 명시 제시하지
+  // 않으면 거부한다(파일에 안 쓴다). "배제는 판단이다. 판단은 게이트를 거쳐야
+  // 한다"는 스펙 원문 그대로 — 사후 경고로는 이 구멍을 못 막는다. G-020 과 같은
+  // fail-open 을 피하려고 workitem 이 string 일 때만 계산한다.
+  if (type === 'gate' && data.gate === 1) {
+    const workitemForCheck = typeof record.workitem === 'string' ? record.workitem : undefined;
+    if (workitemForCheck) {
+      const criteria = Array.isArray(state.criteria)
+        ? (state.criteria as Record<string, unknown>[])
+        : [];
+      const auditRecords = readRecords({ type: 'audit', workitem: workitemForCheck });
+      const coverage = computeCoverage(auditRecords, criteria);
+      if (coverage.excludedIds.length > 0) {
+        const presented = Array.isArray(data.presentedExclusions) ? data.presentedExclusions : [];
+        const presentedIds = new Set(
+          presented
+            .map((p) => (typeof p === 'string' ? p : (p as Record<string, unknown>)?.id))
+            .filter((id): id is string => typeof id === 'string'),
+        );
+        const uncovered = coverage.excludedIds.filter((id) => !presentedIds.has(id));
+        if (uncovered.length > 0) {
+          process.stderr.write(
+            `\n  게이트 1 기록을 거부했습니다. 다음 발견이 완료 조건의 addresses 에도, presentedExclusions 에도 없습니다: ${uncovered.join(', ')}\n  완료 조건에 addresses 로 연결하거나, presentedExclusions 에 담아 사람에게 제시하세요.\n`,
+          );
+          process.exit(1);
+        }
+      }
+    }
   }
 
   const file = appendRecord(record);
