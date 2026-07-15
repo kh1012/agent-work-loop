@@ -64,8 +64,9 @@ awl evolve
 
 - 추측하지 않는다. 파일을 연다. 미확인은 미확인으로 남긴다.
 - 이 단계의 규칙을 받는다: `awl rules --scope audit --json`
-- 확인한 것과 안 한 것을 분리해 기록한다: `awl record audit --json '{"scope":"...","findings":["...","..."]}'`
+- 확인한 것과 안 한 것을 분리해 기록한다: `awl record audit --json '{"scope":"...","findings":[{"id":"F-01","what":"...","severity":"high"}]}'`
 - `findings` 는 배열이다. 줄글로 뭉치지 마라.
+- **발견은 발견이다. 할지 말지는 나중 문제다 — 먼저 전부 적는다(WI-T).** 어려운 문제라고 조용히 완료 조건에서 빼지 마라. 각 발견에 `id`(예: `F-01`)를 붙인다 — 이 id 로 나중에 완료 조건이 이 발견을 다루는지(`addresses`) 또는 범위 밖으로 뺐는지(게이트 1의 `presentedExclusions`)를 추적한다.
 
 ### [설계] 무엇을 만들지 + 모르는 것 목록화
 
@@ -97,8 +98,12 @@ awl evolve
   좋은 예: "기존 회귀 없음 — 범위: src/commands/ 아래 테스트 전부 통과"
 - 기계 판정 가능해야 한다. `awl verify` 로 참/거짓이 갈리는 조건으로 쓴다.
 - **순서가 있으면 `dependsOn` 으로 명시한다.** 완료 조건 B 가 A 가 끝나야 시작할 수 있으면 `"dependsOn": ["AC-01"]` 을 붙인다. `awl verify` 로 판정 못 하는 "순서"까지 억지로 `범위`에 우겨넣지 마라 — `dependsOn` 이 그 자리다. 순서가 없으면(서로 독립이면) 비워둔다.
+- **어떤 발견을 다루는지 `addresses` 로 링크한다(WI-T).** `[조사]`에서 매긴 발견 id 를 완료 조건에 `"addresses": ["F-01"]` 로 붙인다. 어떤 발견도 다루지 않는 완료 조건이면(리팩터/도구 정비 등) 왜 있는지 `범위`에 설명한다.
+- **질적 표현을 쓰지 않는다(WI-T).** "저위험", "주요한", "적절한", "가능한 만큼", "필요시" 는 구현 도중 재해석 여지를 남긴다 — `awl record criteria` 가 이 5개 단어를 포함한 항목을 거부한다. 열거 가능하거나 수치화 가능하게 쓴다.
+  나쁜 예: "chrome-lint 확정 위반 중 저위험 건 수정"
+  좋은 예: "chrome-lint ERROR 4건(파일:라인 명시) 전부 수정, WARN 은 범위 밖"
 - 기록하고 상태에 넣는다:
-  - `awl record criteria --json '{"items":[{"id":"AC-01","조건":"...","범위":"...","검증":"awl verify"},{"id":"AC-02","조건":"...","범위":"...","검증":"awl verify","dependsOn":["AC-01"]}]}'`
+  - `awl record criteria --json '{"items":[{"id":"AC-01","조건":"...","범위":"...","검증":"awl verify","addresses":["F-01"]},{"id":"AC-02","조건":"...","범위":"...","검증":"awl verify","dependsOn":["AC-01"],"addresses":["F-02"]}]}'`
   - `awl state set --json '{"phase":"awaiting-gate1","criteria":[{"id":"AC-01","status":"pending","attempts":0,"proceduralErrors":0},{"id":"AC-02","status":"pending","attempts":0,"proceduralErrors":0,"dependsOn":["AC-01"]}]}'`
   - `awl status` 가 `dependsOn` 이 아직 안 끝난 완료 조건을 "블록됨"으로 보여준다 — 어느 걸 먼저 할지는 여전히 네가 정한다(awl 은 계산만 한다).
 
@@ -112,10 +117,24 @@ awl evolve
 - 게이트는 의지가 아니라 도구 호출이다. `AskUserQuestion` 의 응답을 받기 전에는 어떤 파일도 수정하지 않는다.
 - 질문에는 완료 조건 요약과 함께 "이대로 구현 시작 / 완료 조건 수정 / 중단" 같은 선택지를 담는다.
 - **목표 분해를 제안했다면(위 "목표 분해" 참고) 분해 여부도 같은 질문에 담는다** — 별도 게이트를 만들지 않는다. 예: "이대로 하나로 진행 / N개 워크아이템으로 쪼개서 진행 / 완료 조건 수정 / 중단". 쪼개기로 정해지면 첫 워크아이템만 진행하고, 나머지는 각자 차례에 새로 조사→설계→완료조건부터 시작한다.
+- **[조사]에서 찾은 발견 중 어떤 완료 조건의 `addresses` 도 안 가리키는 게 있으면(배제), 그 목록을 질문에 반드시 보여준다(절대 규칙 12, WI-T)** — 사람은 승인한 것만 보고 배제된 것은 못 본다는 게 이 시스템이 겪은 가장 큰 구멍이었다. 예:
+  ```
+  완료 조건 5개.  범위 밖 2건.
+
+    다룰 것 (5)
+      AC-01  ...  -> F-01
+      ...
+
+    범위 밖 (2)  <- 이것을 사람이 승인해야 한다
+      F-02  spacing 토큰 부재     이유: 구조적 결함, 별도 워크아이템 필요
+      F-03  다중 선택             이유: 큰 작업, 범위 밖
+
+    (*) 이대로 시작   ( ) 범위 밖 항목을 다시 논의   ( ) 완료 조건 수정   ( ) 중단
+  ```
 
 응답을 받은 뒤에만 반복 단계로 넘어간다.
 
-**응답을 받으면 바로 기록한다 (WI-Q)**: `awl record gate --json '{"gate":1,"decision":"approved|modified|rejected|split","presentedCriteria":["AC-01",...],"presentedExclusions":[...],"riskSignals":[...]}'`. 게이트가 실제로 일어났다는 사실 자체를 이 기록 말고는 아무도 검증할 수 없다 — 이걸 빼먹으면 `awl state set` 의 `phase:"loop"` 전환이 거부된다("게이트 1 기록이 없습니다"). `presentedExclusions` 에는 조사에서 찾았지만 이번 완료 조건에서 다루지 않기로 한 항목을 적는다(있다면). **자리 비움 등으로 자율 승인했다면 `"auto":true` 로 남긴다** — 사람이 실제로 응답한 게 아니라는 걸 숨기지 않는다.
+**응답을 받으면 바로 기록한다 (WI-Q)**: `awl record gate --json '{"gate":1,"decision":"approved|modified|rejected|split","presentedCriteria":["AC-01",...],"presentedExclusions":[{"id":"F-02","reason":"..."}]}'`. 게이트가 실제로 일어났다는 사실 자체를 이 기록 말고는 아무도 검증할 수 없다 — 이걸 빼먹으면 `awl state set` 의 `phase:"loop"` 전환이 거부된다("게이트 1 기록이 없습니다"). **`presentedExclusions` 는 배제가 있으면 이제 강제된다(WI-T)**: `[조사]`의 audit findings 중 어떤 완료 조건의 `addresses` 도 안 가리키는 게 있는데 `presentedExclusions` 가 그 id 를 다 담지 않으면 `awl record gate` 자체가 기록을 거부한다 — "배제는 판단이다. 판단은 게이트를 거쳐야 한다." 배제가 없으면(전부 `addresses` 로 다뤄짐) 안 넣어도 된다. **자리 비움 등으로 자율 승인했다면 `"auto":true` 로 남긴다** — 사람이 실제로 응답한 게 아니라는 걸 숨기지 않는다.
 
 ---
 
@@ -185,6 +204,7 @@ awl verify --json
 
 - **push는 사람이 한다.** 너는 push하지 않는다(절대 규칙 10).
 - 무엇을 했는지 요약하고, push 여부를 사람에게 맡긴다.
+- **완료 조건 전부가 1차 시도(재시도 없이)로 통과했고 막힘이 0건이면, "충분히 야심찼는가"를 질문에 포함한다(WI-T).** 강제가 아니다 — 축하할 신호가 아니라 완료 조건을 너무 작게 썼을 수 있다는 의심할 신호라는 뜻이다. `awl record gate` 로 gate:2 를 기록하면 이 조건일 때 stderr 에 커버리지 수치(조사에서 발견한 N건 중 M건을 다뤘음)와 함께 같은 안내가 뜬다 — 그 문구를 그대로 질문에 옮긴다.
 
 **응답을 받으면 바로 기록한다 (WI-Q)**: `awl record gate --json '{"gate":2,"decision":"approved|more-work|abandoned","presentedCriteria":[...]}'`. **사람이 이 자리에서 새로운 지적을 하면(리뷰가 못 잡은 걸 사람이 짚었다면) `humanFindings` 에 그 내용을 담아 함께 기록한다** — 이건 게이트 2가 실제로 뭔가를 잡았다는 유일한 증거다. 새 지적이 완료 조건으로 편입되면 그 완료조건 ID 도 같이 적어둔다. 자율 승인이었다면 `"auto":true`.
 
@@ -289,3 +309,4 @@ awl 은 토큰을 못 잰다. "이게 없었다면 무슨 일이 있었을지"(c
 9. **`git add` 를 직접 쓰지 않는다. `awl commit` 을 쓴다.** (직접 add하면 남의 미커밋 변경을 삼킨다)
 10. push하지 않는다.
 11. **[조사]를 시작하기 전에 `awl work new` 로 워크아이템을 등록한다.** ID 접두어 같은 비공식 관례로 때우지 않는다(WI-R).
+12. **조사에서 찾은 문제를 조용히 범위 밖으로 빼지 않는다.** 완료 조건이 안 다루는 발견(배제)은 게이트 1에서 사람에게 보여주고 승인받는다(WI-T).
