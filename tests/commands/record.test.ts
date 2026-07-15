@@ -531,6 +531,40 @@ describe('renderRecords — 줄글이 아니라 목록', () => {
       '기록이 없습니다',
     );
   });
+
+  it('review 기록은 (요약 없음) 대신 reviewId 와 findings 개수를 보여준다 (WI-S AC-06, 리뷰 지적)', () => {
+    const records = [
+      {
+        id: '1',
+        at: '2026-07-14T12:00:00Z',
+        type: 'review',
+        workitem: 'WI-3',
+        reviewId: 'rev_abc123',
+        criteria: ['AC-01'],
+        findings: [{ severity: 'high', what: 'x', evidence: 'y' }],
+        cheatingDetected: [],
+        verifyPassedBefore: true,
+      },
+    ];
+    const text = renderRecords(records, { unicode: false, color: false, tty: false });
+    expect(text).not.toContain('(요약 없음)');
+    expect(text).toContain('rev_abc123');
+    expect(text).toContain('findings 1건');
+  });
+
+  it('reviewId 없는(마이그레이션 이전) review 기록은 기존 target 필드로 요약된다(하위호환)', () => {
+    const records = [
+      {
+        id: '1',
+        at: '2026-07-14T12:00:00Z',
+        type: 'review',
+        target: 'AC-01..AC-03',
+        verdict: 'pass',
+      },
+    ];
+    const text = renderRecords(records, { unicode: false, color: false, tty: false });
+    expect(text).toContain('AC-01..AC-03');
+  });
 });
 
 describe('newRecordId', () => {

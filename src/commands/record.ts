@@ -304,8 +304,20 @@ export function readRecords(filter: RecordFilter = {}): Record<string, unknown>[
   return filtered;
 }
 
-/** 한 줄 요약(what/scope/question 등 대표 필드). 줄글을 쏟지 않는다. */
+/**
+ * 한 줄 요약(what/scope/question 등 대표 필드). 줄글을 쏟지 않는다.
+ *
+ * review 타입은 WI-S 부터 target/verdict 대신 reviewId/findings 를 쓴다(리뷰 지적,
+ * WI-S AC-06) — 마이그레이션 이전 기록(target 만 있는)은 reviewId 가 없으므로
+ * 아래 fallback 체인이 그대로 target 을 집어 하위호환을 지킨다.
+ */
 function summaryOf(r: Record<string, unknown>): string {
+  if (r.type === 'review' && typeof r.reviewId === 'string') {
+    const findings = Array.isArray(r.findings) ? r.findings.length : 0;
+    const cheating = Array.isArray(r.cheatingDetected) ? r.cheatingDetected.length : 0;
+    const cheatingNote = cheating > 0 ? `, 부정행위 ${cheating}건` : '';
+    return `${r.reviewId} — findings ${findings}건${cheatingNote}`;
+  }
   const cand = r.what ?? r.scope ?? r.question ?? r.target ?? r.decision ?? '(요약 없음)';
   return String(cand);
 }
