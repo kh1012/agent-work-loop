@@ -58,7 +58,16 @@ export const SCHEMAS: Record<RecordType, Schema> = {
   criteria: { required: ['items'], arrays: ['items'] },
   attempt: { required: ['what', 'why', 'how', 'result'] },
   blocked: { required: ['what', 'why', 'tried', 'lesson'], arrays: ['tried'] },
-  review: { required: ['target', 'verdict'] },
+  // WI-S: target/verdict(이분법) 를 reviewId/criteria/findings/cheatingDetected/
+  // verifyPassedBefore 로 전면 교체 — target≈criteria, verdict≈findings.length 로
+  // 정보 손실 없이 표현되므로 예전 필드는 없앤다(과거 기록은 append-only 로 그대로
+  // 유효하게 남는다, D-33 원칙). criteria 만 비어있지 않은 배열을 강제한다 —
+  // findings/cheatingDetected 는 존재는 필수지만 빈 배열(지적/부정행위 없음)도
+  // 정당한 결과라 비어있어도 통과한다.
+  review: {
+    required: ['reviewId', 'criteria', 'findings', 'cheatingDetected', 'verifyPassedBefore'],
+    arrays: ['criteria'],
+  },
   decision: { required: ['question', 'decision', 'rationale'] },
   'gotcha-applied': { required: ['gotchaId', 'what'] },
   'gotcha-missed': { required: ['gotchaId', 'what', 'why'] },

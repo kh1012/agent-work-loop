@@ -339,6 +339,86 @@ describe('buildRecord — 구조 강제', () => {
     expect(r.missing).toEqual([]);
     expect((r.record as Record<string, unknown>).questions).toEqual(questions);
   });
+
+  it('review 는 reviewId/criteria/findings/cheatingDetected/verifyPassedBefore 가 필수다 (WI-S AC-01)', () => {
+    const r = buildRecord('review', {}, DEFAULTS);
+    expect(r.record).toBeUndefined();
+    expect(r.missing).toContain('reviewId');
+    expect(r.missing).toContain('criteria');
+    expect(r.missing).toContain('findings');
+    expect(r.missing).toContain('cheatingDetected');
+    expect(r.missing).toContain('verifyPassedBefore');
+  });
+
+  it('review 의 criteria 는 비어있지 않은 배열이어야 한다', () => {
+    const r = buildRecord(
+      'review',
+      {
+        reviewId: 'rev_1',
+        criteria: [],
+        findings: [],
+        cheatingDetected: [],
+        verifyPassedBefore: true,
+      },
+      DEFAULTS,
+    );
+    expect(r.record).toBeUndefined();
+    expect(r.missing.some((m) => m.startsWith('criteria'))).toBe(true);
+  });
+
+  it('review 의 findings/cheatingDetected 는 빈 배열이어도 통과한다(지적/부정행위 없음도 정당한 결과)', () => {
+    const r = buildRecord(
+      'review',
+      {
+        reviewId: 'rev_1',
+        criteria: ['AC-01'],
+        findings: [],
+        cheatingDetected: [],
+        verifyPassedBefore: true,
+      },
+      DEFAULTS,
+    );
+    expect(r.missing).toEqual([]);
+  });
+
+  it('review 의 verifyPassedBefore 가 false 여도(값 자체는 존재) 통과한다', () => {
+    const r = buildRecord(
+      'review',
+      {
+        reviewId: 'rev_1',
+        criteria: ['AC-01'],
+        findings: [],
+        cheatingDetected: [],
+        verifyPassedBefore: false,
+      },
+      DEFAULTS,
+    );
+    expect(r.missing).toEqual([]);
+  });
+
+  it('review 의 findings 내부에 becameCriterion 같은 자유 필드를 넣어도 그대로 보존된다', () => {
+    const findings = [
+      {
+        severity: 'high',
+        what: 'AC-C1 이 주 진입점을 놓침',
+        evidence: 'LayersPanel.toggleProp:236',
+        becameCriterion: 'AC-C3',
+      },
+    ];
+    const r = buildRecord(
+      'review',
+      {
+        reviewId: 'rev_1',
+        criteria: ['AC-C1'],
+        findings,
+        cheatingDetected: [],
+        verifyPassedBefore: true,
+      },
+      DEFAULTS,
+    );
+    expect(r.missing).toEqual([]);
+    expect((r.record as Record<string, unknown>).findings).toEqual(findings);
+  });
 });
 
 describe('record 저장 — append only', () => {
