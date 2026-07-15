@@ -419,6 +419,39 @@ describe('buildRecord — 구조 강제', () => {
     expect(r.missing).toEqual([]);
     expect((r.record as Record<string, unknown>).findings).toEqual(findings);
   });
+
+  it('review 의 findings/cheatingDetected 가 배열이 아니면 거부한다 (WI-S AC-05, 리뷰 지적)', () => {
+    const r = buildRecord(
+      'review',
+      {
+        reviewId: 'rev_1',
+        criteria: ['AC-01'],
+        findings: 'no issues found',
+        cheatingDetected: false,
+        verifyPassedBefore: true,
+      },
+      DEFAULTS,
+    );
+    expect(r.record).toBeUndefined();
+    expect(r.missing.some((m) => m.startsWith('findings'))).toBe(true);
+    expect(r.missing.some((m) => m.startsWith('cheatingDetected'))).toBe(true);
+  });
+
+  it('review 의 findings 가 숫자여도 거부한다', () => {
+    const r = buildRecord(
+      'review',
+      {
+        reviewId: 'rev_1',
+        criteria: ['AC-01'],
+        findings: 0,
+        cheatingDetected: [],
+        verifyPassedBefore: true,
+      },
+      DEFAULTS,
+    );
+    expect(r.record).toBeUndefined();
+    expect(r.missing.some((m) => m.startsWith('findings'))).toBe(true);
+  });
 });
 
 describe('record 저장 — append only', () => {

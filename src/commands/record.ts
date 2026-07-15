@@ -46,6 +46,8 @@ interface Schema {
   required: string[];
   /** 비어있지 않은 배열이어야 하는 필드 */
   arrays?: string[];
+  /** 배열이어야 하지만 비어있어도 되는 필드 (지적/부정행위 없음도 정당한 결과인 경우) */
+  arraysAllowEmpty?: string[];
 }
 
 /**
@@ -67,6 +69,7 @@ export const SCHEMAS: Record<RecordType, Schema> = {
   review: {
     required: ['reviewId', 'criteria', 'findings', 'cheatingDetected', 'verifyPassedBefore'],
     arrays: ['criteria'],
+    arraysAllowEmpty: ['findings', 'cheatingDetected'],
   },
   decision: { required: ['question', 'decision', 'rationale'] },
   'gotcha-applied': { required: ['gotchaId', 'what'] },
@@ -130,6 +133,8 @@ export function buildRecord(
       missing.push(field);
     } else if (schema.arrays?.includes(field) && (!Array.isArray(v) || v.length === 0)) {
       missing.push(`${field} (비어있지 않은 배열이어야 함)`);
+    } else if (schema.arraysAllowEmpty?.includes(field) && !Array.isArray(v)) {
+      missing.push(`${field} (배열이어야 함)`);
     }
   }
 
