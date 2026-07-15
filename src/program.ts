@@ -305,7 +305,14 @@ export function buildProgram(): Command {
       const { runStateSet } = await import('./commands/state.js');
       const { readRecords } = await import('./commands/record.js');
       runStateSet(opts.json, {
+        // 리뷰 지적(WI-Q AC-01~03): readRecords 는 workitem 이 falsy 면 필터를
+        // 아예 건너뛴다("필터 없음" 시맨틱) — 여기서 그대로 넘기면 현재
+        // 워크아이템이 없을 때 다른 워크아이템의 gate:1 로도 통과해버린다
+        // (fail-open). 워크아이템이 없으면 애초에 확인할 gate 레코드가 없다는
+        // 뜻이므로 명시적으로 거부한다(fail-closed) — status.ts 의 buildGateStatus
+        // 가 같은 경우를 이미 엄격 비교로 안전하게 처리하는 것과 일관되게 맞춘다.
         requireGateForLoop: (workitem) =>
+          typeof workitem === 'string' &&
           readRecords({ type: 'gate', workitem }).some((r) => r.gate === 1),
       });
     });

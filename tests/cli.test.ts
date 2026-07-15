@@ -161,4 +161,39 @@ describe.runIf(existsSync(distCli))('빌드된 CLI 실행', () => {
     expect(allowed.status).toBe(0);
     expect(JSON.parse(allowed.stdout).phase).toBe('loop');
   });
+
+  it('현재 워크아이템이 없으면 다른 워크아이템의 gate:1 기록으로도 통과하지 않는다 (WI-Q 리뷰 지적 — fail-open 방지)', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-gate-noworkitem-'));
+    const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-gate-noworkitem-proj-'));
+    fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(proj, '.awl', 'config.json'),
+      JSON.stringify({ project: 'p', mainLanguage: 'other', verify: {} }),
+    );
+    // 현재 워크아이템(workitem 필드) 없이 state.json 만 있다.
+    fs.writeFileSync(path.join(proj, '.awl', 'state.json'), JSON.stringify({ workitems: {} }));
+    const env = { ...process.env, AWL_HOME: home };
+
+    // 다른(과거) 워크아이템의 gate:1 은 기록해둔다 — 이게 새어 들어가면 안 된다.
+    const gateRecord = spawnSync(
+      'node',
+      [
+        distCli,
+        'record',
+        'gate',
+        '--json',
+        '{"gate":1,"decision":"approved","presentedCriteria":["AC-01"],"workitem":"WI-OTHER"}',
+      ],
+      { cwd: proj, env, encoding: 'utf8' },
+    );
+    expect(gateRecord.status).toBe(0);
+
+    const denied = spawnSync('node', [distCli, 'state', 'set', '--json', '{"phase":"loop"}'], {
+      cwd: proj,
+      env,
+      encoding: 'utf8',
+    });
+    expect(denied.status).not.toBe(0);
+    expect(denied.stderr).toContain('게이트 1');
+  });
 });

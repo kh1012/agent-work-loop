@@ -295,6 +295,30 @@ describe('buildRecord — 구조 강제', () => {
       auto: false,
     });
   });
+
+  it('gate 가 숫자가 아닌 타입(문자열/객체/배열/불리언)이면 전부 거부한다(회귀 테스트, WI-Q 리뷰 지적)', () => {
+    for (const badGate of ['1', {}, [1], true]) {
+      const r = buildRecord(
+        'gate',
+        { gate: badGate, decision: 'approved', presentedCriteria: ['AC-01'] },
+        DEFAULTS,
+      );
+      expect(r.record).toBeUndefined();
+      expect(r.missing.some((m) => m.startsWith('gate'))).toBe(true);
+    }
+  });
+
+  it('decision 이 문자열이 아닌 타입(숫자/객체/배열)이면 enum 우회 없이 거부한다(회귀 테스트, WI-Q 리뷰 지적)', () => {
+    for (const badDecision of [5, {}, ['approved']]) {
+      const r = buildRecord(
+        'gate',
+        { gate: 1, decision: badDecision, presentedCriteria: ['AC-01'] },
+        DEFAULTS,
+      );
+      expect(r.record).toBeUndefined();
+      expect(r.missing.some((m) => m.startsWith('decision'))).toBe(true);
+    }
+  });
 });
 
 describe('record 저장 — append only', () => {
