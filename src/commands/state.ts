@@ -131,7 +131,18 @@ export function runStateGet(opts: { json: boolean }): void {
   }
 }
 
-export function runStateSet(jsonPatch: string): void {
+export interface RunStateSetOpts {
+  /**
+   * phase 를 "loop" 로 전환할 때 호출된다. false 를 돌려주면 전환을 거부한다.
+   * state.ts 는 record.ts 를 import 하지 않는다(record.ts 가 이미 state.ts 를
+   * import 하므로 역방향 import 는 순환 참조가 된다 — D-35 와 같은 이유). 그래서
+   * 실제로 gate 레코드를 찾는 로직은 이 콜백으로 주입받는다(program.ts 가 조립).
+   * 주지 않으면(레거시 호출부) 검사를 건너뛴다(하위호환).
+   */
+  requireGateForLoop?: (workitem: string | undefined) => boolean;
+}
+
+export function runStateSet(jsonPatch: string, opts: RunStateSetOpts = {}): void {
   const root = requireRoot();
   let patch: unknown;
   try {
@@ -144,7 +155,18 @@ export function runStateSet(jsonPatch: string): void {
     process.stderr.write('\n  갱신은 JSON 객체여야 합니다.\n');
     process.exit(1);
   }
-  const merged = mergeState(loadState(root), patch as Record<string, unknown>);
+  const current = loadState(root);
+  const p = patch as Record<string, unknown>;
+  if (p.phase === 'loop' && opts.requireGateForLoop) {
+    const workitem = typeof current.workitem === 'string' ? current.workitem : undefined;
+    if (!opts.requireGateForLoop(workitem)) {
+      process.stderr.write(
+        '\n  게이트 1 기록이 없습니다. awl record gate 로 승인 결과를 기록하세요.\n',
+      );
+      process.exit(1);
+    }
+  }
+  const merged = mergeState(current, p);
   writeState(root, merged);
   process.stdout.write(`${JSON.stringify(merged, null, 2)}\n`);
 }

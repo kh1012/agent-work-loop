@@ -117,4 +117,48 @@ describe.runIf(existsSync(distCli))('빌드된 CLI 실행', () => {
     expect(result.stderr).toContain('awl gotchas');
     expect(JSON.parse(result.stdout)[0].lesson).toBe('테스트 교훈');
   });
+
+  it('state set phase:loop 이 gate:1 기록 없이는 거부되고, 기록 후엔 통과한다 (WI-Q AC-02, program.ts 배선 확인)', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-gate-loop-'));
+    const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-gate-loop-proj-'));
+    fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(proj, '.awl', 'config.json'),
+      JSON.stringify({ project: 'p', mainLanguage: 'other', verify: {} }),
+    );
+    fs.writeFileSync(
+      path.join(proj, '.awl', 'state.json'),
+      JSON.stringify({ workitem: 'WI-Q', workitems: {} }),
+    );
+    const env = { ...process.env, AWL_HOME: home };
+
+    const denied = spawnSync('node', [distCli, 'state', 'set', '--json', '{"phase":"loop"}'], {
+      cwd: proj,
+      env,
+      encoding: 'utf8',
+    });
+    expect(denied.status).not.toBe(0);
+    expect(denied.stderr).toContain('게이트 1');
+
+    const gateRecord = spawnSync(
+      'node',
+      [
+        distCli,
+        'record',
+        'gate',
+        '--json',
+        '{"gate":1,"decision":"approved","presentedCriteria":["AC-01"]}',
+      ],
+      { cwd: proj, env, encoding: 'utf8' },
+    );
+    expect(gateRecord.status).toBe(0);
+
+    const allowed = spawnSync('node', [distCli, 'state', 'set', '--json', '{"phase":"loop"}'], {
+      cwd: proj,
+      env,
+      encoding: 'utf8',
+    });
+    expect(allowed.status).toBe(0);
+    expect(JSON.parse(allowed.stdout).phase).toBe('loop');
+  });
 });

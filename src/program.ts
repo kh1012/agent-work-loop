@@ -303,7 +303,11 @@ export function buildProgram(): Command {
     .requiredOption('--json <patch>', '부분 갱신 (JSON 문자열)')
     .action(async (opts: { json: string }) => {
       const { runStateSet } = await import('./commands/state.js');
-      runStateSet(opts.json);
+      const { readRecords } = await import('./commands/record.js');
+      runStateSet(opts.json, {
+        requireGateForLoop: (workitem) =>
+          readRecords({ type: 'gate', workitem }).some((r) => r.gate === 1),
+      });
     });
 
   // 스킬이 치는 명령(숨김): evolve (기록 → 교훈 → 규칙. awl 은 모으고 쓰고 셀 뿐 판단하지 않는다)

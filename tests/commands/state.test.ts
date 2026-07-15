@@ -1,8 +1,14 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { loadState, mergeState, migrateState, writeState } from '../../src/commands/state.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  loadState,
+  mergeState,
+  migrateState,
+  runStateSet,
+  writeState,
+} from '../../src/commands/state.js';
 
 function tmp(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'awl-state-'));
@@ -100,5 +106,67 @@ describe('migrateState — 워크아이템 레지스트리 편입 (WI-D, 순수 
     const once = migrateState({ phase: 'loop', workitem: 'WI-5' });
     const twice = migrateState(once);
     expect(twice).toEqual(once);
+  });
+});
+
+describe('runStateSet — phase:loop 전환에 게이트 1 기록 요구 (WI-Q AC-02)', () => {
+  const origCwd = process.cwd();
+
+  afterEach(() => {
+    process.chdir(origCwd);
+  });
+
+  function project(): string {
+    const root = fs.realpathSync(tmp());
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    writeState(root, { workitem: 'WI-Q' });
+    process.chdir(root);
+    return root;
+  }
+
+  it('requireGateForLoop 콜백이 false 면 phase:loop 전환을 거부한다', () => {
+    const root = project();
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    expect(() => runStateSet('{"phase":"loop"}', { requireGateForLoop: () => false })).toThrow(
+      'exit:1',
+    );
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('게이트 1'))).toBe(true);
+    // 실제로 phase 가 안 바뀌었어야 한다.
+    expect(loadState(root).phase).toBeUndefined();
+
+    exitSpy.mockRestore();
+    stderrSpy.mockRestore();
+  });
+
+  it('requireGateForLoop 콜백이 true 면 정상적으로 phase:loop 로 바뀐다', () => {
+    const root = project();
+    runStateSet('{"phase":"loop"}', { requireGateForLoop: () => true });
+    expect(loadState(root).phase).toBe('loop');
+  });
+
+  it('phase 가 loop 가 아니면 requireGateForLoop 을 아예 안 부른다', () => {
+    const root = project();
+    const cb = vi.fn(() => false);
+    runStateSet('{"phase":"awaiting-gate1"}', { requireGateForLoop: cb });
+    expect(cb).not.toHaveBeenCalled();
+    expect(loadState(root).phase).toBe('awaiting-gate1');
+  });
+
+  it('requireGateForLoop 을 안 주면(옵션 생략) 기존처럼 체크 없이 진행한다(호출부 하위호환)', () => {
+    const root = project();
+    runStateSet('{"phase":"loop"}');
+    expect(loadState(root).phase).toBe('loop');
+  });
+
+  it('현재 워크아이템을 콜백에 그대로 넘긴다', () => {
+    const root = project();
+    const cb = vi.fn(() => true);
+    runStateSet('{"phase":"loop"}', { requireGateForLoop: cb });
+    expect(cb).toHaveBeenCalledWith('WI-Q');
+    void root;
   });
 });
