@@ -352,6 +352,14 @@
 - **안 고친 것**: 같은 파일의 서로 다른 영역을 다른 프로세스가 동시에 편집하는 경우(진짜 동시-편집 시나리오)는 git diff 자체가 두 변경을 구분 못 하므로 이번 수정으로도 못 막는다 — 이건 격리 워크트리(`awl work new --worktree`, WI-F)로 애초에 피하는 게 정답이고, 도구가 사후에 감지할 방법은 없다.
 - **범위**: `src/commands/commit.ts`(`isolatedCommit` 시그니처에 `expectedHead?` 추가, `runCommit`이 `crit.baseline` 전달, 메시지 정정, 파일개수 안내), `tests/commands/commit.test.ts`(신규 4건 + 배선 확인 통합 테스트 1건). WI-Q~U 어느 완료조건에도 속하지 않는 독립 선행 수정이라 일반 git 커밋으로 남긴다(D-34/D-35 와 같은 패턴).
 
+## D-37. WI-Q 완료: 게이트를 기록한다 (0.4.0)
+
+- **범위 4갈래**: AC-01 `awl record gate` 신설(gate 1|2, decision 은 게이트별 enum — gate1: approved/modified/rejected/split, gate2: approved/more-work/abandoned, presentedCriteria 필수), AC-02 `phase:"loop"` 전환에 gate:1 기록 필수화, AC-03 `awl status` 게이트 이력 표시, AC-04 스킬 문서에 게이트 응답 직후 기록 지시 추가.
+- **순환 참조 회피**: `state.ts` 는 `record.ts` 를 import 하지 않는다(record.ts 가 이미 state.ts 를 import 하므로 역방향은 순환). `runStateSet` 에 `requireGateForLoop` 콜백을 선택 인자로 추가하고, 실제 콜백(`readRecords` 사용)은 `program.ts` 의 `state set` CLI 액션 핸들러에서 조립해 주입한다(D-35 의 evolve.ts/record.ts 회피와 같은 패턴).
+- **리뷰가 실제 결함 1건 발견**: `program.ts` 의 게이트 체크 콜백이 `readRecords({type:'gate', workitem})` 에 `workitem` 을 그대로 넘겼는데, `readRecords` 의 필터는 값이 falsy 면 필터 자체를 건너뛴다(전체 매칭) — 현재 워크아이템이 설정 안 된 상태에서 `phase:"loop"` 를 시도하면 **다른 워크아이템의 `gate:1` 기록으로도 통과**하는 fail-open 이었다. `status.ts` 의 `buildGateStatus` 는 같은 케이스를 엄격 비교(`=== null`)로 이미 안전하게(fail-closed) 처리하고 있어 비일관이었다. `typeof workitem === 'string'` 가드를 콜백 앞에 추가해 fail-closed 로 고치고, CLI 통합 테스트(workitem 미설정 + 다른 워크아이템 gate:1 존재 시나리오)와 gate/decision 타입 오용(숫자·객체·배열·불리언) 회귀 테스트를 추가했다. 그 외 부정행위 없음, 나머지 지적 없음.
+- **D-36 이 실전에서 바로 작동함**: 리뷰 지적 수정 커밋을 만들 때 `awl commit AC-02 -m` 을 그대로 시도했더니, AC-02 의 베이스라인이 그 사이(AC-03/AC-04 커밋으로) 이미 낡아 있어 D-36 의 HEAD 드리프트 감지가 정확한 이유와 함께 거부했다 — 가장 최근에 닫힌 AC-04 로 다시 커밋해 해결(WI-P 이후 정착된 패턴과 동일). 이 자체가 D-36 의 가치를 실증한다.
+- **evolve**: `gotcha-applied` 1건(G-013, 매 AC마다 재빌드 직접 확인), `gotcha-missed` 1건(G-004 — 자체검증 순환참조를 이미 진단해뒀는데도 코드 자체는 안 고쳐 실사용에서 재현됨, D-36 으로 이번에 해결). 새 gotcha 1건(G-020 — "필터 없으면 전체 매칭"인 범용 조회 함수를 특정 컨텍스트 전용으로 좁혀 쓸 때는 그 컨텍스트가 비어있는 경우를 호출부에서 fail-closed 로 막아야 한다). 최종 4/4 완료 조건, 게이트 1/2 모두 실제 `AskUserQuestion` 승인(사용자가 대화에 present — 이전 WI-O/P 와 달리 자율 승인 아님, `auto:false` 로 정확히 기록됨).
+
 # Windows 리스크 목록 (macOS에서만 검증함 — Windows 검증 시 체크리스트로 사용)
 
 이 프로젝트는 현재 macOS에서만 검증한다. 아래는 Windows에서 깨질 수 있는 지점과 대비다. 나중에 Windows에서 사람이 검증할 때 이 목록을 하나씩 확인한다.
