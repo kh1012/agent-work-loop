@@ -1,6 +1,6 @@
 {
   "name": "agent-work-loop",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "같은 실패를 두 번 하지 않게 만드는 도구. AI 에이전트의 기록·검증·상태를 파일로 관리합니다.",
   "type": "module",
   "bin": {

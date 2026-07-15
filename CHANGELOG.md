@@ -5,6 +5,16 @@
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-07-15
+
+### 추가
+
+- **리뷰를 기록한다.** `awl record review`의 스키마를 `target`/`verdict`(이분법)에서 `reviewId`/`criteria`/`findings`/`cheatingDetected`/`verifyPassedBefore`(구조화된 필드)로 전면 교체했다. `awl review`가 매 호출마다 새 `reviewId`(`rev_` 접두어)를 발급해 조립 결과와 사람용 출력에 포함한다. `awl record gate`로 게이트 2를 기록할 때 현재 워크아이템의 완료 조건 3개 이상이 통과했는데 `review` 기록이 하나도 없으면 stderr에 경고를 낸다(기록 자체는 거부하지 않는다).
+
+### 고침
+
+- `review` 타입 기록이 사람용 `awl records` 목록에서 항상 "(요약 없음)"으로만 표시되던 문제(요약 함수가 새 스키마의 필드를 인식하지 못함). `reviewId`와 `findings`/`cheatingDetected` 개수로 요약하도록 고쳤다.
+
 ## [0.4.1] - 2026-07-15
 
 ### 추가
