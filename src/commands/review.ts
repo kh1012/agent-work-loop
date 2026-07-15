@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { run } from '../core/runner.js';
 import { type Caps, caps, makeColors } from '../core/tty.js';
 import { type AwlConfig, requireConfig } from './config.js';
@@ -27,11 +28,22 @@ export interface Provenance {
 }
 
 export interface ReviewBundle {
+  reviewId: string;
   criteria: Record<string, unknown>[];
   diff: string;
   verify: VerifyReport;
   provenance: Provenance;
   rules: { id: string; body: string }[];
+}
+
+/**
+ * 새 리뷰 ID 를 발급한다(WI-S AC-02) — record.ts 의 newRecordId() 와 같은
+ * 패턴(접두어+hex). 리뷰 결과를 awl record review 로 남길 때 이 id 를 그대로
+ * 써서, 나중에 "이 리뷰 번들이 실제로 기록됐는가"를 사람이 대조할 수 있게 한다.
+ * awl 은 그 대조 자체를 강제하지 않는다(판단하지 않는다) — id 를 발급만 한다.
+ */
+export function newReviewId(): string {
+  return `rev_${crypto.randomBytes(9).toString('hex')}`;
 }
 
 /** "AC-01..AC-03" 또는 "AC-03" 범위로 완료 조건을 고른다. */
@@ -95,6 +107,7 @@ export async function assembleReview(
   }));
 
   return {
+    reviewId: newReviewId(),
     criteria,
     diff,
     verify,
@@ -111,6 +124,7 @@ export async function assembleReview(
 function renderReview(bundle: ReviewBundle, range: string, c: Caps): string {
   const color = makeColors(c.color);
   const out: string[] = ['', `  리뷰 자료  ${range}`, ''];
+  out.push(`    reviewId     ${bundle.reviewId}`);
   out.push(`    완료 조건    ${bundle.criteria.length}개`);
   out.push(`    diff         ${bundle.diff.split('\n').length}줄`);
   out.push(`    검증         ${bundle.verify.passed ? color.green('통과') : color.red('실패')}`);
@@ -122,6 +136,9 @@ function renderReview(bundle: ReviewBundle, range: string, c: Caps): string {
   out.push(`    워크트리     ${bundle.provenance.worktree}`);
   out.push('');
   out.push(`  ${color.dim(`리뷰어(서브에이전트)에게는 awl review ${range} --json 을 넘기세요.`)}`);
+  out.push(
+    `  ${color.dim(`판정을 받으면 awl record review --json '{"reviewId":"${bundle.reviewId}",...}' 로 기록하세요.`)}`,
+  );
   return out.join('\n');
 }
 

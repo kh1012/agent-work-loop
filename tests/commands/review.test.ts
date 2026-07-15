@@ -61,6 +61,19 @@ describe('assembleReview — provenance 가 핵심', () => {
   });
 });
 
+describe('assembleReview — reviewId 발급 (WI-S AC-02)', () => {
+  it('호출마다 새 reviewId(rev_ 접두어)를 발급한다', async () => {
+    const dir = makeRepo();
+    const state = { criteria: [{ id: 'AC-01', status: 'passed' }] };
+    const bundle1 = await assembleReview(dir, CONFIG, state, 'AC-01', undefined);
+    const bundle2 = await assembleReview(dir, CONFIG, state, 'AC-01', undefined);
+
+    expect(bundle1.reviewId).toMatch(/^rev_/);
+    expect(bundle2.reviewId).toMatch(/^rev_/);
+    expect(bundle1.reviewId).not.toBe(bundle2.reviewId); // 매번 새로 발급
+  });
+});
+
 describe('assembleReview — firstBaseline (WI-H AC-01, D-26/D-28 실사고 재현)', () => {
   function git(dir: string, args: string[]): string {
     return execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
