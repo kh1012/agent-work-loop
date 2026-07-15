@@ -959,6 +959,29 @@ describe('computeCoverage — 순수 계산 (WI-T AC-02)', () => {
     const coverage = computeCoverage(auditRecords, []);
     expect(coverage.auditFindingIds.sort()).toEqual(['F-01', 'F-02']);
   });
+
+  it('state.criteria 에 addresses 가 없어도 criteria 레코드에서 보완한다 (WI-T AC-06, 리뷰 지적 high — awl state set 예시가 addresses 를 안 옮겨도 배제로 오판하지 않는다)', () => {
+    const auditRecords = [{ findings: [{ id: 'F-01' }] }];
+    const criteria = [{ id: 'AC-01' }]; // state set 예시 그대로: addresses 없음
+    const criteriaRecords = [{ items: [{ id: 'AC-01', addresses: ['F-01'] }] }]; // awl record criteria 엔 있음
+    const coverage = computeCoverage(auditRecords, criteria, criteriaRecords);
+    expect(coverage.excludedIds).toEqual([]);
+    expect(coverage.addressedIds).toEqual(['F-01']);
+  });
+
+  it('state.criteria 에 addresses 가 있으면 criteria 레코드보다 우선한다(최신 상태)', () => {
+    const auditRecords = [{ findings: [{ id: 'F-01' }] }];
+    const criteria = [{ id: 'AC-01', addresses: [] }]; // state 가 명시적으로 비움(예: 재분류)
+    const criteriaRecords = [{ items: [{ id: 'AC-01', addresses: ['F-01'] }] }]; // 레코드는 옛 값
+    const coverage = computeCoverage(auditRecords, criteria, criteriaRecords);
+    expect(coverage.excludedIds).toEqual(['F-01']); // state 의 빈 배열이 이긴다
+  });
+
+  it('criteriaRecords 를 안 넘기면(기본값) 기존과 동일하게 동작한다(하위호환)', () => {
+    const auditRecords = [{ findings: [{ id: 'F-01' }] }];
+    const criteria = [{ id: 'AC-01' }];
+    expect(computeCoverage(auditRecords, criteria).excludedIds).toEqual(['F-01']);
+  });
 });
 
 describe('runRecord — 게이트 1 배제 목록 강제 (WI-T AC-02, 핵심)', () => {

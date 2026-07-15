@@ -104,7 +104,7 @@ awl evolve
   좋은 예: "chrome-lint ERROR 4건(파일:라인 명시) 전부 수정, WARN 은 범위 밖"
 - 기록하고 상태에 넣는다:
   - `awl record criteria --json '{"items":[{"id":"AC-01","조건":"...","범위":"...","검증":"awl verify","addresses":["F-01"]},{"id":"AC-02","조건":"...","범위":"...","검증":"awl verify","dependsOn":["AC-01"],"addresses":["F-02"]}]}'`
-  - `awl state set --json '{"phase":"awaiting-gate1","criteria":[{"id":"AC-01","status":"pending","attempts":0,"proceduralErrors":0},{"id":"AC-02","status":"pending","attempts":0,"proceduralErrors":0,"dependsOn":["AC-01"]}]}'`
+  - `awl state set --json '{"phase":"awaiting-gate1","criteria":[{"id":"AC-01","status":"pending","attempts":0,"proceduralErrors":0,"addresses":["F-01"]},{"id":"AC-02","status":"pending","attempts":0,"proceduralErrors":0,"dependsOn":["AC-01"],"addresses":["F-02"]}]}'` — **addresses 를 여기에도 넣는다(WI-T AC-06, 리뷰 지적)**. `awl record criteria` 에만 넣고 `state set` 에 빠뜨리면, 게이트 1 의 배제 판정이 state 를 우선 보므로(리뷰 이력에서 최신 보완은 하지만) 최신값을 명확히 하려면 두 곳 다 채우는 게 안전하다.
   - `awl status` 가 `dependsOn` 이 아직 안 끝난 완료 조건을 "블록됨"으로 보여준다 — 어느 걸 먼저 할지는 여전히 네가 정한다(awl 은 계산만 한다).
 
 ---

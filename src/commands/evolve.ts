@@ -229,8 +229,9 @@ export function collectEvolve(
   // 기록이 있다는 것 자체가 배제가 있었다면 제시됐다는 뜻이다) auto:true(자율
   // 승인)가 아닐 때만 true.
   const auditRecords = records.filter((r) => r.type === 'audit');
+  const criteriaRecords = records.filter((r) => r.type === 'criteria');
   const gate1 = records.find((r) => r.type === 'gate' && r.gate === 1);
-  const coverage = computeCoverage(auditRecords, criteria);
+  const coverage = computeCoverage(auditRecords, criteria, criteriaRecords);
   const coverageMetrics: CoverageMetrics = {
     auditFindingsTotal: coverage.auditFindingIds.length,
     addressed: coverage.addressedIds.length,

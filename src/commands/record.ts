@@ -267,10 +267,17 @@ export interface CoverageResult {
  * (WI-T AC-02/AC-04). 순수 함수(테스트 가능). id 가 없거나 문자열이 아닌 finding/
  * addresses 항목은 조용히 건너뛴다 — 이 코드베이스는 중첩 배열 항목의 내부 구조를
  * 강제하지 않으므로(D-15), 이 관례 이전에 쓰인 audit 기록도 죽지 않고 읽힌다.
+ *
+ * criteriaRecords(선택, awl record criteria 의 append-only 이력)는 state.criteria
+ * 에 addresses 가 없는 완료조건만 보완한다(WI-T AC-06, 리뷰 지적 high) — 스킬이
+ * `awl state set` 을 예시 그대로(addresses 없이) 쳐도 방금 `awl record criteria`
+ * 로 남긴 addresses 가 배제 판정에서 빠지지 않는다. state.criteria 에 addresses
+ * 가 이미 있으면(빈 배열이라도) 그게 최신이므로 우선한다.
  */
 export function computeCoverage(
   auditRecords: Record<string, unknown>[],
   criteria: Record<string, unknown>[],
+  criteriaRecords: Record<string, unknown>[] = [],
 ): CoverageResult {
   const findingIds = new Set<string>();
   for (const r of auditRecords) {
@@ -281,15 +288,38 @@ export function computeCoverage(
       }
     }
   }
+
   const addressedRefs = new Set<string>();
+  const stateHasAddresses = new Set<string>();
   for (const c of criteria) {
-    const addresses = Array.isArray(c.addresses) ? c.addresses : [];
-    for (const a of addresses) {
-      if (typeof a === 'string') {
-        addressedRefs.add(a);
+    if (Array.isArray(c.addresses)) {
+      stateHasAddresses.add(String(c.id));
+      for (const a of c.addresses) {
+        if (typeof a === 'string') {
+          addressedRefs.add(a);
+        }
       }
     }
   }
+  for (const rec of criteriaRecords) {
+    const items = Array.isArray(rec.items) ? rec.items : [];
+    for (const item of items) {
+      const id =
+        item && typeof item === 'object' ? (item as Record<string, unknown>).id : undefined;
+      if (typeof id !== 'string' || stateHasAddresses.has(id)) {
+        continue;
+      }
+      const addresses = (item as Record<string, unknown>).addresses;
+      if (Array.isArray(addresses)) {
+        for (const a of addresses) {
+          if (typeof a === 'string') {
+            addressedRefs.add(a);
+          }
+        }
+      }
+    }
+  }
+
   const auditFindingIds = [...findingIds];
   const addressedIds = auditFindingIds.filter((id) => addressedRefs.has(id));
   const excludedIds = auditFindingIds.filter((id) => !addressedRefs.has(id));
@@ -525,7 +555,8 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
         ? (state.criteria as Record<string, unknown>[])
         : [];
       const auditRecords = readRecords({ type: 'audit', workitem: workitemForCheck });
-      const coverage = computeCoverage(auditRecords, criteria);
+      const criteriaRecords = readRecords({ type: 'criteria', workitem: workitemForCheck });
+      const coverage = computeCoverage(auditRecords, criteria, criteriaRecords);
       if (coverage.excludedIds.length > 0) {
         const presented = Array.isArray(data.presentedExclusions) ? data.presentedExclusions : [];
         const presentedIds = new Set(
@@ -580,7 +611,10 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
       const auditRecords = workitemForCheck
         ? readRecords({ type: 'audit', workitem: workitemForCheck })
         : [];
-      const coverage = computeCoverage(auditRecords, criteria);
+      const criteriaRecords = workitemForCheck
+        ? readRecords({ type: 'criteria', workitem: workitemForCheck })
+        : [];
+      const coverage = computeCoverage(auditRecords, criteria, criteriaRecords);
       process.stderr.write(
         `\n  완료 조건 ${criteria.length}개 전부 1차 통과. 막힘 0건.\n  조사에서 발견한 ${coverage.auditFindingIds.length}건 중 ${coverage.addressedIds.length}건을 다뤘습니다.\n  완료 조건이 충분히 야심찼습니까?\n`,
       );
