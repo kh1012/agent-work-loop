@@ -97,6 +97,32 @@ export function caps(): Caps {
   return computeCaps(process.env, process.platform, process.stdout.isTTY === true);
 }
 
+/**
+ * 방향키 raw-mode 선택이 가능한지 감지한다(WI-Y). Caps 와 별도 함수로 둔다 —
+ * Caps 는 출력 렌더링 능력(stdout 기준)이고 이건 입력 처리 능력(stdin 기준)이라
+ * 축이 다르다. CI 면 무조건 false(명세: 색/유니코드와 같은 원칙). stdin 이
+ * TTY 가 아니면(파이프·리다이렉트) false — 이 경우 raw-mode 자체가 의미 없다.
+ */
+export function computeRawModeCapable(
+  stdinIsTTY: boolean,
+  hasSetRawMode: boolean,
+  ci: boolean,
+): boolean {
+  if (ci) {
+    return false;
+  }
+  return stdinIsTTY && hasSetRawMode;
+}
+
+/** 실제 프로세스로 raw-mode 능력을 감지한다. */
+export function rawModeCapable(): boolean {
+  return computeRawModeCapable(
+    process.stdin.isTTY === true,
+    typeof process.stdin.setRawMode === 'function',
+    isTruthy(process.env.CI),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // 표시 폭 계산 (한글/CJK는 2칸을 차지한다)
 // ---------------------------------------------------------------------------

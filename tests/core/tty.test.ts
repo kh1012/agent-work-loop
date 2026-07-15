@@ -3,6 +3,7 @@ import {
   box,
   charWidth,
   computeCaps,
+  computeRawModeCapable,
   makeColors,
   makeSymbols,
   stringWidth,
@@ -173,5 +174,23 @@ describe('makeColors — 색 미지원이면 통과', () => {
     const c = makeColors(false);
     expect(c.red('x')).toBe('x');
     expect(c.green('한글')).toBe('한글');
+  });
+});
+
+describe('computeRawModeCapable — 방향키 선택 능력 감지 (WI-Y AC-01)', () => {
+  it('stdin 이 TTY 이고 setRawMode 가 있고 CI 가 아니면 true', () => {
+    expect(computeRawModeCapable(true, true, false)).toBe(true);
+  });
+
+  it('CI 면 나머지와 무관하게 false', () => {
+    expect(computeRawModeCapable(true, true, true)).toBe(false);
+  });
+
+  it('stdin 이 TTY 아니면(파이프) false', () => {
+    expect(computeRawModeCapable(false, true, false)).toBe(false);
+  });
+
+  it('setRawMode 가 없으면(예: 일부 환경) false', () => {
+    expect(computeRawModeCapable(true, false, false)).toBe(false);
   });
 });
