@@ -58,7 +58,9 @@ export const SCHEMAS: Record<RecordType, Schema> = {
   audit: { required: ['scope', 'findings'], arrays: ['findings'] },
   spike: { required: ['question', 'found'] },
   criteria: { required: ['items'], arrays: ['items'] },
-  attempt: { required: ['what', 'why', 'how', 'result'] },
+  // WI-U: why/how/alternatives 는 diff 크기(diffTier)에 따라 조건부로 요구된다
+  // (buildRecord 의 attempt 전용 분기가 처리). what/result 만 무조건 필수.
+  attempt: { required: ['what', 'result'] },
   blocked: { required: ['what', 'why', 'tried', 'lesson'], arrays: ['tried'] },
   // WI-S: target/verdict(이분법) 를 reviewId/criteria/findings/cheatingDetected/
   // verifyPassedBefore 로 전면 교체 — target≈criteria, verdict≈findings.length 로
@@ -196,6 +198,33 @@ export function buildRecord(
     }
   }
 
+  // 기록 상세도를 diff 크기에 맞춘다 (WI-U): why/how 는 result:failed 이거나
+  // diffTier 가 minimal 이 아니면(brief/detailed/미측정) 필수다 — 실패한 시도는
+  // gotcha 추출의 재료라 diff 크기와 무관하게 항상 전체 상세를 요구한다(정보
+  // 손실 방지). diffTier 가 없는 경우(git 측정 실패 등)도 안전하게 전체 상세를
+  // 요구한다. alternatives 는 diffTier 가 detailed 일 때만 필수다.
+  if (type === 'attempt') {
+    const tier = typeof data.diffTier === 'string' ? data.diffTier : undefined;
+    const isFailed = data.result === 'failed';
+    const requiresFullDetail = isFailed || tier !== 'minimal';
+    if (requiresFullDetail) {
+      for (const field of ['why', 'how']) {
+        const v = data[field];
+        if (v === undefined || v === null || v === '') {
+          missing.push(field);
+        }
+      }
+    }
+    if (tier === 'detailed') {
+      const alt = data.alternatives;
+      if (!Array.isArray(alt) || alt.length === 0) {
+        missing.push(
+          'alternatives (비어있지 않은 배열이어야 함 — diff 가 크면 설계 대안을 남겨야 합니다)',
+        );
+      }
+    }
+  }
+
   // 성능 재검토(WI-I AC-05): performanceSensitive:true 인 decision 은 alternatives
   // (비어있지 않은 배열)를 필수로 요구한다 — 성능 트레이드오프가 걸린 결정은 대안을
   // 최소 하나는 검토했다는 근거를 남긴다. performanceSensitive 가 없거나 false 면
@@ -282,6 +311,47 @@ export function resolveBlockedBaseline(
   }
   const crit = getCriterion(state, focus);
   return crit && typeof crit.baseline === 'string' ? crit.baseline : undefined;
+}
+
+export interface DiffSize {
+  files: number;
+  lines: number;
+}
+
+export type AttemptDetailTier = 'minimal' | 'brief' | 'detailed';
+
+/**
+ * diff 크기로 attempt 기록에 필요한 상세도를 정한다(WI-U). 순수 함수.
+ * 파일 3개 이상이거나 줄 50개 이상이면 detailed, 파일 1개 이하고 줄 10개
+ * 미만이면 minimal, 나머지는 brief.
+ */
+export function detailTierFor(size: DiffSize): AttemptDetailTier {
+  if (size.files >= 3 || size.lines >= 50) {
+    return 'detailed';
+  }
+  if (size.files <= 1 && size.lines < 10) {
+    return 'minimal';
+  }
+  return 'brief';
+}
+
+/**
+ * git 명령을 돌려 numstat 출력(파일당 "추가\t삭제\t파일명")에서 파일 수와
+ * 변경 줄 수 합을 잰다(WI-U). 명령이 실패하면(ref 없음 등) null — 호출부가
+ * diffTier 를 안 넣고 안전하게 넘어간다.
+ */
+export async function measureDiffSize(cwd: string, args: string[]): Promise<DiffSize | null> {
+  const r = await run({ cmd: 'git', args, cwd, timeoutMs: 10000 });
+  if (r.exitCode !== 0) {
+    return null;
+  }
+  const rows = r.stdout.split('\n').filter((l) => l.trim() !== '');
+  let lines = 0;
+  for (const row of rows) {
+    const [add, del] = row.split('\t');
+    lines += (Number(add) || 0) + (Number(del) || 0);
+  }
+  return { files: rows.length, lines };
 }
 
 export interface CoverageResult {
@@ -554,6 +624,31 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
     const baseline = resolveBlockedBaseline(data, state);
     if (baseline) {
       data.baseline = baseline;
+    }
+  }
+
+  // attempt 의 diffTier 를 diff 크기로 잰다 (WI-U). result:passed 는 awl commit
+  // 이 방금 만든 커밋(스킬 흐름상 이 직전 명령)을, result:failed 는 아직
+  // 커밋 안 된 작업트리를 잰다 — state.currentFocus 같은 별도 상태에 기대지
+  // 않는다(그 필드는 스킬이 채우도록 지시된 적이 없어 실사용에서 항상 비어
+  // 있다). 측정에 실패하면(커밋 이력 없음 등) diffTier 를 안 넣는다 —
+  // buildRecord 가 diffTier 없이도 안전하게(전체 상세 요구) 처리한다.
+  if (type === 'attempt' && projectRoot && data.diffTier === undefined) {
+    const diffArgs =
+      data.result === 'failed'
+        ? ['diff', '--numstat', 'HEAD']
+        : ['show', '--numstat', '--format=', 'HEAD'];
+    const size = await measureDiffSize(projectRoot, diffArgs);
+    if (size) {
+      const tier = detailTierFor(size);
+      data.diffTier = tier;
+      const guidance =
+        tier === 'minimal'
+          ? 'what 만 있으면 됩니다.'
+          : tier === 'detailed'
+            ? 'what/why/how 와 alternatives(설계 대안)를 채우세요.'
+            : 'what/why/how 를 채우세요.';
+      process.stderr.write(`\n  이 변경은 ${size.lines}줄/${size.files}파일입니다. ${guidance}\n`);
     }
   }
 

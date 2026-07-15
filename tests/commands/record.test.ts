@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,6 +7,8 @@ import {
   appendRecord,
   buildRecord,
   computeCoverage,
+  detailTierFor,
+  measureDiffSize,
   monthFile,
   newRecordId,
   readRecords,
@@ -1126,5 +1129,187 @@ describe('runRecord — 게이트 1 배제 목록 강제 (WI-T AC-02, 핵심)', 
       json: '{"gate":2,"decision":"approved","presentedCriteria":["AC-01"]}',
     });
     expect(readRecords({ type: 'gate' })).toHaveLength(1);
+  });
+});
+
+describe('detailTierFor — 순수 계산 (WI-U AC-01)', () => {
+  it('파일 1개 이하 + 줄 10 미만이면 minimal', () => {
+    expect(detailTierFor({ files: 1, lines: 9 })).toBe('minimal');
+    expect(detailTierFor({ files: 0, lines: 0 })).toBe('minimal');
+  });
+  it('파일 3개 이상이면 줄 수와 무관하게 detailed', () => {
+    expect(detailTierFor({ files: 3, lines: 1 })).toBe('detailed');
+  });
+  it('줄 50개 이상이면 파일 수와 무관하게 detailed', () => {
+    expect(detailTierFor({ files: 1, lines: 50 })).toBe('detailed');
+  });
+  it('경계 사이(예: 2파일/20줄)는 brief', () => {
+    expect(detailTierFor({ files: 2, lines: 20 })).toBe('brief');
+  });
+  it('파일 1개인데 줄이 정확히 10이면 minimal 이 아니라 brief(경계값)', () => {
+    expect(detailTierFor({ files: 1, lines: 10 })).toBe('brief');
+  });
+});
+
+describe('measureDiffSize — 실제 git 저장소로 측정 (WI-U AC-01)', () => {
+  function makeRepo(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-attempt-diff-'));
+    const g = (args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
+    g(['init', '-q']);
+    g(['config', 'user.email', 'x@x.com']);
+    g(['config', 'user.name', 'x']);
+    g(['config', 'commit.gpgsign', 'false']);
+    fs.writeFileSync(path.join(dir, 'base.txt'), 'hello\n');
+    g(['add', '.']);
+    g(['commit', '-q', '-m', 'base']);
+    return dir;
+  }
+
+  it('직전 커밋(HEAD)의 파일 수/줄 수를 잰다', async () => {
+    const dir = makeRepo();
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'line1\nline2\nline3\n');
+    execFileSync('git', ['add', '.'], { cwd: dir });
+    execFileSync('git', ['commit', '-q', '-m', 'add a'], { cwd: dir });
+
+    const size = await measureDiffSize(dir, ['show', '--numstat', '--format=', 'HEAD']);
+    expect(size).toEqual({ files: 1, lines: 3 });
+  });
+
+  it('작업트리(미커밋, 추적 중인 파일의 수정)도 잰다', async () => {
+    const dir = makeRepo();
+    fs.writeFileSync(path.join(dir, 'base.txt'), 'hello\nmore\n');
+
+    const size = await measureDiffSize(dir, ['diff', '--numstat', 'HEAD']);
+    expect(size).toEqual({ files: 1, lines: 1 });
+  });
+
+  it('git 명령이 실패하면(존재하지 않는 ref) null 을 돌려준다', async () => {
+    const dir = makeRepo();
+    const size = await measureDiffSize(dir, ['show', '--numstat', '--format=', 'not-a-real-ref']);
+    expect(size).toBeNull();
+  });
+});
+
+describe('runRecord — attempt 기록 상세도를 diff 크기에 맞춘다 (WI-U)', () => {
+  const origCwd = process.cwd();
+  const origHome = process.env.AWL_HOME;
+
+  afterEach(() => {
+    process.chdir(origCwd);
+    if (origHome === undefined) {
+      delete process.env.AWL_HOME;
+    } else {
+      process.env.AWL_HOME = origHome;
+    }
+  });
+
+  function project(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-attempt-project-'));
+    const g = (args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
+    g(['init', '-q']);
+    g(['config', 'user.email', 'x@x.com']);
+    g(['config', 'user.name', 'x']);
+    g(['config', 'commit.gpgsign', 'false']);
+    fs.mkdirSync(path.join(dir, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, '.awl', 'config.json'),
+      JSON.stringify({ project: 'p', mainLanguage: 'other', verify: {} }),
+    );
+    fs.writeFileSync(
+      path.join(dir, '.awl', 'state.json'),
+      JSON.stringify({ workitem: 'WI-9', workitems: {}, criteria: [] }),
+    );
+    fs.writeFileSync(path.join(dir, 'base.txt'), 'hello\n');
+    g(['add', '.']);
+    g(['commit', '-q', '-m', 'base']);
+    process.chdir(dir);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-attempt-project-home-'));
+    return dir;
+  }
+
+  function mockExit() {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    return { exitSpy, stderrSpy };
+  }
+
+  it('작은 통과 변경(1파일/한 줄)은 what 만 있어도 통과한다', async () => {
+    const dir = project();
+    fs.writeFileSync(path.join(dir, 'small.txt'), 'x\n');
+    execFileSync('git', ['add', '.'], { cwd: dir });
+    execFileSync('git', ['commit', '-q', '-m', 'small change'], { cwd: dir });
+
+    await runRecord('attempt', {
+      json: '{"what":"작은 변경","result":"passed","attempt":1}',
+    });
+    const records = readRecords({ type: 'attempt' });
+    expect(records).toHaveLength(1);
+    expect(records[0]?.diffTier).toBe('minimal');
+  });
+
+  it('큰 통과 변경(50줄 이상)은 alternatives 없이 거부한다', async () => {
+    const dir = project();
+    const bigContent = Array.from({ length: 60 }, (_, i) => `line ${i}\n`).join('');
+    fs.writeFileSync(path.join(dir, 'big.txt'), bigContent);
+    execFileSync('git', ['add', '.'], { cwd: dir });
+    execFileSync('git', ['commit', '-q', '-m', 'big change'], { cwd: dir });
+
+    const { exitSpy, stderrSpy } = mockExit();
+    await expect(
+      runRecord('attempt', {
+        json: '{"what":"큰 변경","why":"y","how":"h","result":"passed","attempt":1}',
+      }),
+    ).rejects.toThrow('exit:1');
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('alternatives'))).toBe(true);
+
+    exitSpy.mockRestore();
+    stderrSpy.mockRestore();
+  });
+
+  it('큰 통과 변경도 alternatives 를 채우면 통과한다', async () => {
+    const dir = project();
+    const bigContent = Array.from({ length: 60 }, (_, i) => `line ${i}\n`).join('');
+    fs.writeFileSync(path.join(dir, 'big2.txt'), bigContent);
+    execFileSync('git', ['add', '.'], { cwd: dir });
+    execFileSync('git', ['commit', '-q', '-m', 'big change 2'], { cwd: dir });
+
+    await runRecord('attempt', {
+      json: '{"what":"큰 변경","why":"y","how":"h","alternatives":["대안 A"],"result":"passed","attempt":1}',
+    });
+    const records = readRecords({ type: 'attempt' });
+    expect(records).toHaveLength(1);
+    expect(records[0]?.diffTier).toBe('detailed');
+  });
+
+  it('작은 변경이어도 실패(result:failed)면 why/how 를 여전히 요구한다(핵심 — 크기 무관 전체 상세)', async () => {
+    project();
+    // 작업트리에 아무 변경도 없어도(0/0, minimal 급) failed 는 전체 상세를 요구.
+    const { exitSpy, stderrSpy } = mockExit();
+    await expect(
+      runRecord('attempt', { json: '{"what":"실패한 시도","result":"failed","attempt":1}' }),
+    ).rejects.toThrow('exit:1');
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('why'))).toBe(true);
+
+    exitSpy.mockRestore();
+    stderrSpy.mockRestore();
+  });
+
+  it('실패 시도에 why/how 를 채우면 diffTier 와 무관하게 통과한다', async () => {
+    project();
+    await runRecord('attempt', {
+      json: '{"what":"실패한 시도","why":"y","how":"h","result":"failed","attempt":1}',
+    });
+    expect(readRecords({ type: 'attempt' })).toHaveLength(1);
+  });
+
+  it('diffTier 를 이미 데이터에 명시하면 재측정하지 않는다(하위호환/오프라인 안전판)', async () => {
+    project();
+    await runRecord('attempt', {
+      json: '{"what":"수동 지정","diffTier":"minimal","result":"passed","attempt":1}',
+    });
+    const records = readRecords({ type: 'attempt' });
+    expect(records[0]?.diffTier).toBe('minimal');
   });
 });
