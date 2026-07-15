@@ -25,7 +25,8 @@ export type RecordType =
   | 'decision'
   | 'gotcha-applied'
   | 'gotcha-missed'
-  | 'narrative';
+  | 'narrative'
+  | 'gate';
 
 /** narrative.kind 로 허용되는 값 (WI-P AC-02). */
 export const NARRATIVE_KINDS = [
@@ -34,6 +35,11 @@ export const NARRATIVE_KINDS = [
   'spike-prevented',
   'blocked-discarded',
 ] as const;
+
+/** gate:1 의 decision 으로 허용되는 값 (WI-Q AC-01). */
+export const GATE1_DECISIONS = ['approved', 'modified', 'rejected', 'split'] as const;
+/** gate:2 의 decision 으로 허용되는 값 (WI-Q AC-01). */
+export const GATE2_DECISIONS = ['approved', 'more-work', 'abandoned'] as const;
 
 interface Schema {
   required: string[];
@@ -56,6 +62,7 @@ export const SCHEMAS: Record<RecordType, Schema> = {
   'gotcha-applied': { required: ['gotchaId', 'what'] },
   'gotcha-missed': { required: ['gotchaId', 'what', 'why'] },
   narrative: { required: ['kind', 'counterfactual'] },
+  gate: { required: ['gate', 'decision', 'presentedCriteria'], arrays: ['presentedCriteria'] },
 };
 
 export const RECORD_TYPES = Object.keys(SCHEMAS) as RecordType[];
@@ -136,6 +143,27 @@ export function buildRecord(
     const kindMissing = data.kind === undefined || data.kind === null || data.kind === '';
     if (!kindMissing && !(NARRATIVE_KINDS as readonly unknown[]).includes(data.kind)) {
       missing.push(`kind (다음 중 하나여야 함: ${NARRATIVE_KINDS.join(', ')})`);
+    }
+  }
+
+  // gate.gate 는 1 또는 2여야 하고, decision 은 그 게이트에서만 허용되는 값이어야
+  // 한다(WI-Q AC-01) — 게이트 1/2 가 서로 다른 의미의 결정을 갖기 때문이다
+  // (예: 게이트 1엔 "split"이 있지만 게이트 2엔 없다). narrative.kind 와 같은
+  // 특수 분기 패턴을 재사용한다(D-35).
+  if (type === 'gate') {
+    const gateMissing = data.gate === undefined || data.gate === null || data.gate === '';
+    if (!gateMissing && data.gate !== 1 && data.gate !== 2) {
+      missing.push('gate (1 또는 2여야 함)');
+    }
+    const decisionMissing =
+      data.decision === undefined || data.decision === null || data.decision === '';
+    if (!decisionMissing && (data.gate === 1 || data.gate === 2)) {
+      const allowed = data.gate === 1 ? GATE1_DECISIONS : GATE2_DECISIONS;
+      if (!(allowed as readonly unknown[]).includes(data.decision)) {
+        missing.push(
+          `decision (gate ${data.gate} 에서는 다음 중 하나여야 함: ${allowed.join(', ')})`,
+        );
+      }
     }
   }
 

@@ -227,6 +227,74 @@ describe('buildRecord — 구조 강제', () => {
     expect(r.record).toBeUndefined();
     expect(r.missing.some((m) => m.startsWith('kind'))).toBe(true);
   });
+
+  it('gate 는 gate/decision/presentedCriteria 가 필수다 (WI-Q AC-01)', () => {
+    const r = buildRecord('gate', { gate: 1, decision: 'approved' }, DEFAULTS);
+    expect(r.record).toBeUndefined();
+    expect(r.missing.some((m) => m.startsWith('presentedCriteria'))).toBe(true);
+  });
+
+  it('gate 값이 1/2 가 아니면 거부한다', () => {
+    const r = buildRecord(
+      'gate',
+      { gate: 3, decision: 'approved', presentedCriteria: ['AC-01'] },
+      DEFAULTS,
+    );
+    expect(r.record).toBeUndefined();
+    expect(r.missing.some((m) => m.startsWith('gate'))).toBe(true);
+  });
+
+  it('gate 1 에서 decision 이 게이트1 전용 값이 아니면 거부한다(게이트2 전용 값 more-work 는 게이트1에서 무효)', () => {
+    const r = buildRecord(
+      'gate',
+      { gate: 1, decision: 'more-work', presentedCriteria: ['AC-01'] },
+      DEFAULTS,
+    );
+    expect(r.record).toBeUndefined();
+    expect(r.missing.some((m) => m.startsWith('decision'))).toBe(true);
+  });
+
+  it('gate 2 에서 decision 이 게이트2 전용 값이 아니면 거부한다(게이트1 전용 값 split 은 게이트2에서 무효)', () => {
+    const r = buildRecord(
+      'gate',
+      { gate: 2, decision: 'split', presentedCriteria: ['AC-01'] },
+      DEFAULTS,
+    );
+    expect(r.record).toBeUndefined();
+    expect(r.missing.some((m) => m.startsWith('decision'))).toBe(true);
+  });
+
+  it('gate 1/2 각각 자기 전용 decision 값이면 통과한다', () => {
+    for (const decision of ['approved', 'modified', 'rejected', 'split']) {
+      const r = buildRecord('gate', { gate: 1, decision, presentedCriteria: ['AC-01'] }, DEFAULTS);
+      expect(r.missing).toEqual([]);
+    }
+    for (const decision of ['approved', 'more-work', 'abandoned']) {
+      const r = buildRecord('gate', { gate: 2, decision, presentedCriteria: ['AC-01'] }, DEFAULTS);
+      expect(r.missing).toEqual([]);
+    }
+  });
+
+  it('gate 의 선택 필드(presentedExclusions/riskSignals/modifications/humanFindings/auto)는 그대로 보존된다', () => {
+    const r = buildRecord(
+      'gate',
+      {
+        gate: 1,
+        decision: 'approved',
+        presentedCriteria: ['AC-01'],
+        presentedExclusions: ['다중 선택'],
+        riskSignals: ['조사 미확인 2건'],
+        auto: false,
+      },
+      DEFAULTS,
+    );
+    expect(r.missing).toEqual([]);
+    expect(r.record).toMatchObject({
+      presentedExclusions: ['다중 선택'],
+      riskSignals: ['조사 미확인 2건'],
+      auto: false,
+    });
+  });
 });
 
 describe('record 저장 — append only', () => {
