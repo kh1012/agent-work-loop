@@ -9,6 +9,7 @@
 
 - **게이트를 기록한다.** `awl record gate` — 게이트 1/2 승인 결과를 기록한다(`decision`: 게이트 1은 approved/modified/rejected/split, 게이트 2는 approved/more-work/abandoned, `presentedCriteria` 필수). `awl state set`으로 `phase`를 `"loop"`로 전환하려면 현재 워크아이템의 게이트 1 기록이 있어야 한다(없으면 거부). `awl status`가 게이트 1/2 이력(승인 시각/decision/제시된 완료조건 수/제외 건수, 없으면 "대기중")을 보여준다. 자율 승인은 `auto:true`로 구분해서 남긴다.
 - **스킬 파이프라인에 [명료화] 단계 추가.** [조사] 뒤, [스파이크] 앞 — 목표에 사람만 답할 수 있는 취향/방향 결정이 남아있으면 완료 조건을 쓰기 전에 되묻는다(코드로 답할 수 있는 건 [조사]의 몫). `awl record clarify`로 오간 결정을 기록한다. 되물을 게 없으면 건너뛰고, 3개를 넘으면 목표가 모호하다는 신호로 알린다.
+- **워크아이템 등록을 강제한다.** `awl record`가 활성 워크아이템(기록 데이터의 `workitem` 필드, `--workitem` 플래그, `state.json`의 현재 워크아이템 중 하나)이 없으면 거부한다. `record` 명령에 `--workitem <id>`가 신설됐다(이 기록 하나만 다른 워크아이템으로 남길 때 씀). 스킬 문서에 "[조사]를 시작하기 전에 `awl work new`로 워크아이템을 등록한다"는 절대 규칙이 추가됐다.
 
 ### 고침
 
