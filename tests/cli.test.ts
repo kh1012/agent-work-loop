@@ -220,22 +220,36 @@ describe.runIf(existsSync(distCli))('빌드된 CLI 실행', () => {
     expect(denied.stderr).toContain('게이트 1');
   });
 
-  it('CI=true + stdin 파이프에서 init --yes 는 raw-mode 없이 크래시 없이 끝난다 (WI-Y AC-05, 회귀)', () => {
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-init-ci-home-'));
-    const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-init-ci-proj-'));
-    const env = { ...process.env, AWL_HOME: home, CI: 'true' };
+  it.each([
+    ['CI=true', { CI: 'true' }],
+    ['CI 없음', {}],
+  ])(
+    'stdin 파이프에서 init --yes 는 %s 여부와 무관하게 크래시 없이 끝난다 (WI-Y AC-05/AC-08, 회귀)',
+    (_label, extraEnv) => {
+      // 리뷰(rev_b9f3bb4b93ede055f5 finding #1) 지적 — 이 테스트는 raw-mode "회피"를
+      // 검증하지 않는다. runInit 은 opts.yes===true 면 readline 조차 안 만들고 곧장
+      // nonInteractiveInputs(순수 함수, stdin 미접근)로 직행해 selectSingle/
+      // rawModeCapable 자체를 호출하지 않는다(src/commands/init.ts:1134-1143) —
+      // CI 유무는 이 경로에 아무 영향이 없다. 그래서 CI 있음/없음 두 케이스를 나란히
+      // 돌려 "둘 다 안전하게 끝난다"만 정직하게 확인한다. raw-mode 분기 자체의
+      // true/false 커버리지는 AC-01~03(select.test.ts)과 AC-08(init.test.ts,
+      // selectSingle/selectMulti 직접 단위테스트)의 몫이다.
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-init-ci-home-'));
+      const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-init-ci-proj-'));
+      const env = { ...process.env, ...extraEnv, AWL_HOME: home };
 
-    const result = spawnSync('node', [distCli, 'init', '--yes'], {
-      cwd: proj,
-      env,
-      encoding: 'utf8',
-      input: '', // stdin 을 파이프로 연결한다(TTY 아님) — setRawMode 를 부르면 여기서 바로 터진다
-      timeout: 10_000,
-    });
+      const result = spawnSync('node', [distCli, 'init', '--yes'], {
+        cwd: proj,
+        env,
+        encoding: 'utf8',
+        input: '', // stdin 을 파이프로 연결한다(TTY 아님)
+        timeout: 10_000,
+      });
 
-    expect(result.status).toBe(0);
-    expect(result.signal).toBeNull();
-    const configPath = path.join(proj, '.awl', 'config.json');
-    expect(existsSync(configPath)).toBe(true);
-  });
+      expect(result.status).toBe(0);
+      expect(result.signal).toBeNull();
+      const configPath = path.join(proj, '.awl', 'config.json');
+      expect(existsSync(configPath)).toBe(true);
+    },
+  );
 });

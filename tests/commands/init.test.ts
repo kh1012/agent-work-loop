@@ -18,12 +18,14 @@ import {
   nonInteractiveInputs,
   promptVerifyLocation,
   registerProject,
+  selectMulti,
+  selectSingle,
   skillsVersionPath,
   splitEnv,
   verifyStepLines,
   writeSkillsVersionStamp,
 } from '../../src/commands/init.js';
-import { type Colors, makeColors, stringWidth } from '../../src/core/tty.js';
+import { type Caps, type Colors, makeColors, stringWidth } from '../../src/core/tty.js';
 
 const origCwd = process.cwd();
 const origHome = process.env.AWL_HOME;
@@ -541,5 +543,88 @@ describe('applyInit — 전체 산출물', () => {
       registeredAt: '2026-01-01T00:00:00.000Z',
     });
     expect(count).toBe(1);
+  });
+});
+
+describe('selectSingle/selectMulti — useRawMode:true 배선 (WI-Y AC-08, 리뷰 rev_b9f3bb4b93ede055f5 finding #2)', () => {
+  // select.test.ts 의 stdin 모킹 패턴을 그대로 재사용한다 — 여기서 확인하려는 건
+  // 방향키 상태전이(그건 select.test.ts 가 이미 21개 테스트로 검증)가 아니라,
+  // selectSingle/selectMulti 가 runInteractiveSelect 의 결과를 자기 반환값으로
+  // 제대로 배선하는지(index/checked 매핑, null 병합 기본값)다.
+  const originalSetRawMode = process.stdin.setRawMode;
+  const ASCII: Caps = { unicode: false, color: false, tty: false };
+
+  afterEach(() => {
+    process.stdin.setRawMode = originalSetRawMode;
+    vi.restoreAllMocks();
+    expect(process.stdin.listenerCount('data')).toBe(0);
+  });
+
+  function mockStdin() {
+    process.stdin.setRawMode = vi
+      .fn()
+      .mockReturnValue(process.stdin) as typeof process.stdin.setRawMode;
+    vi.spyOn(process.stdin, 'resume').mockReturnValue(process.stdin);
+    vi.spyOn(process.stdin, 'pause').mockReturnValue(process.stdin);
+    const onceSpy = vi.spyOn(process.stdin, 'once').mockImplementation(() => process.stdin);
+    vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    return onceSpy;
+  }
+
+  function lastDataListener(onceSpy: { mock: { calls: unknown[][] } }): (buf: Buffer) => void {
+    const calls = onceSpy.mock.calls.filter((c) => c[0] === 'data');
+    const last = calls[calls.length - 1];
+    if (!last) {
+      throw new Error('data 리스너가 등록되지 않았습니다');
+    }
+    return last[1] as (buf: Buffer) => void;
+  }
+
+  async function pressKey(onceSpy: { mock: { calls: unknown[][] } }, bytes: string): Promise<void> {
+    await Promise.resolve();
+    await Promise.resolve();
+    lastDataListener(onceSpy)(Buffer.from(bytes));
+  }
+
+  it('selectSingle(..., true) 는 방향키로 고른 인덱스를 그대로 돌려준다', async () => {
+    const onceSpy = mockStdin();
+    const rl = readline.createInterface({ input: new PassThrough(), output: new PassThrough() });
+    const promise = selectSingle(rl, ['a', 'b', 'c'], 0, ASCII, true);
+    await pressKey(onceSpy, '\x1b[B'); // down
+    await pressKey(onceSpy, '\r'); // enter
+    const idx = await promise;
+    rl.close();
+    expect(idx).toBe(1);
+  });
+
+  it('selectSingle(..., true) 는 escape 로 취소되면 defaultIndex 로 돌아간다', async () => {
+    const onceSpy = mockStdin();
+    const rl = readline.createInterface({ input: new PassThrough(), output: new PassThrough() });
+    const promise = selectSingle(rl, ['a', 'b', 'c'], 2, ASCII, true);
+    await pressKey(onceSpy, '\x1b'); // escape
+    const idx = await promise;
+    rl.close();
+    expect(idx).toBe(2);
+  });
+
+  it('selectMulti(..., true) 는 space 로 토글한 체크 목록을 그대로 돌려준다', async () => {
+    const onceSpy = mockStdin();
+    const rl = readline.createInterface({ input: new PassThrough(), output: new PassThrough() });
+    const promise = selectMulti(rl, ['a', 'b'], [], ASCII, true);
+    await pressKey(onceSpy, ' '); // index 0 토글
+    await pressKey(onceSpy, '\r'); // enter
+    const checked = await promise;
+    rl.close();
+    expect(checked).toEqual([0]);
+  });
+
+  it('selectMulti(..., true) 는 escape 로 취소되면 defaultChecked 로 돌아간다', async () => {
+    const onceSpy = mockStdin();
+    const rl = readline.createInterface({ input: new PassThrough(), output: new PassThrough() });
+    const promise = selectMulti(rl, ['a', 'b'], [1], ASCII, true);
+    await pressKey(onceSpy, '\x1b'); // escape
+    const checked = await promise;
+    rl.close();
+    expect(checked).toEqual([1]);
   });
 });
