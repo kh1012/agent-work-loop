@@ -18,8 +18,16 @@ import { getCriterion, loadState, setCriterion, writeState } from './state.js';
  *   워킹트리를 건드리지 않으므로 어떤 경우에도 남의 작업이 날아가지 않는다.
  * - 확신할 수 없으면(hunk 겹쳐 apply 실패) 커밋하지 않고 사람에게 알린다.
  * - git add -A / commit -a 를 쓰지 않는다. push 하지 않는다.
- * 설계 근거는 docs/decisions.md D-17.
+ * 설계 근거는 docs/decisions.md D-17. HEAD 드리프트 감지는 D-36.
  */
+
+/**
+ * 이보다 많은 파일이 한 격리 커밋에 담기면 눈에 띄게 알린다(경고만, 차단 아님).
+ * awl 은 완료조건의 의도된 범위를 모르니 "맞다"고 판단하지 않는다 — 그저
+ * 스스로 대조하도록 개수를 계산해 보여준다. 대부분의 완료조건이 소수 파일만
+ * 건드리는 이 저장소의 실제 관행에서 고른 값이다.
+ */
+const STAGED_FILES_NOTICE_THRESHOLD = 5;
 
 interface GitResult {
   stdout: string;
@@ -153,8 +161,40 @@ export async function isolatedCommit(
   message: string,
   snapshot: string,
   untrackedAtStart: string[] = [],
+  expectedHead?: string,
 ): Promise<CommitOutcome> {
   const empty = { stagedFiles: [], excludedFiles: [], extraFiles: [] };
+
+  // HEAD 드리프트 확인 — diff/apply 를 시도하기 전에 먼저 본다 (D-36).
+  // "자체 검증 통과"(아래 selfCheckOk)는 committedFiles == stagedFiles 를 보는
+  // 내부 일관성 검사일 뿐이다 — 커밋은 스테이징한 내용 그대로 만들어지므로 이
+  // 비교는 항상 동어반복적으로 통과한다(순환 참조). 실제 위험 신호는 따로 있다:
+  // 이 완료조건을 시작한 뒤 다른 커밋이 이 브랜치 HEAD 에 얹혔다면(다른 완료조건을
+  // 실수로 여기서 커밋했거나, 동시 진행 중인 다른 세션/에이전트의 작업), 그
+  // 커밋이 건드린 파일은 snapshot 시점과 달라져 있어 diff/apply 단계에서 결국
+  // hunk 충돌로 걸리긴 하지만(작업 자체는 안전) "hunk 충돌"이라는 일반 메시지만
+  // 뜨고 진짜 원인(HEAD 이동)은 안 보인다. 여기서 먼저 확인해 명확한 이유를 준다.
+  if (expectedHead !== undefined) {
+    const currentHead = (await git(['rev-parse', 'HEAD'], cwd)).stdout.trim();
+    if (currentHead !== expectedHead) {
+      const log = (
+        await git(['log', '--oneline', `${expectedHead}..${currentHead}`], cwd)
+      ).stdout.trim();
+      const commits = lines(log);
+      return {
+        committed: false,
+        reason: [
+          `HEAD 가 이 완료조건의 베이스라인을 잡은 뒤 다른 커밋 ${commits.length}개로 이동했습니다:`,
+          ...commits.map((c) => `  ${c}`),
+          '다른 완료조건을 실수로 여기서 커밋했다면 그쪽을 마저 정리하세요.',
+          '의도한 것이면(동시 작업 등) 지금 이 워킹트리의 변경을 먼저 확인한 뒤',
+          `awl commit ${ac} --start 로 베이스라인을 새로 잡고 다시 시도하세요.`,
+        ].join('\n'),
+        selfCheckOk: false,
+        ...empty,
+      };
+    }
+  }
 
   // 인덱스를 HEAD 로 되돌린다(남의 스테이징을 언스테이징; 워킹트리는 건드리지 않음).
   await git(['reset', '-q'], cwd);
@@ -362,7 +402,15 @@ export async function runCommit(
   const untrackedAtStart = Array.isArray(crit?.untrackedAtStart)
     ? (crit.untrackedAtStart as string[])
     : [];
-  const outcome = await isolatedCommit(root, ac, opts.message, snapshot, untrackedAtStart);
+  const expectedHead = typeof crit?.baseline === 'string' ? crit.baseline : undefined;
+  const outcome = await isolatedCommit(
+    root,
+    ac,
+    opts.message,
+    snapshot,
+    untrackedAtStart,
+    expectedHead,
+  );
 
   // 무엇이 커밋될지/제외됐는지 보여준다.
   process.stdout.write('\n');
@@ -370,6 +418,15 @@ export async function runCommit(
     process.stdout.write('  커밋할 내 변경:\n');
     for (const f of outcome.stagedFiles) {
       process.stdout.write(`    ${color.green('+')} ${f}\n`);
+    }
+    // 파일 개수가 많으면 눈에 띄게 알린다 — "맞다/틀리다"는 판단하지 않는다
+    // (awl 은 이 완료조건의 의도된 범위를 모른다), 개수만 센다. 사람/에이전트가
+    // 스스로 범위와 대조하도록 만드는 게 목적이다(D-36 — 자체검증 통과 메시지를
+    // 과신해 실제로는 무관한 파일이 섞인 커밋을 그대로 넘긴 실사고 재발 방지).
+    if (outcome.stagedFiles.length > STAGED_FILES_NOTICE_THRESHOLD) {
+      process.stdout.write(
+        `  ${color.yellow(`파일 ${outcome.stagedFiles.length}개`)} — 이 완료조건의 범위와 일치하는지 위 목록을 직접 확인하세요.\n`,
+      );
     }
   }
   if (outcome.excludedFiles.length > 0) {
@@ -393,10 +450,15 @@ export async function runCommit(
   process.stdout.write(`\n  커밋됨: ${outcome.commit?.slice(0, 10)}  ${opts.message}\n`);
   if (!outcome.selfCheckOk) {
     process.stderr.write(
-      `  ${color.red('자체 검증 경고')}: 내가 스테이징하지 않은 파일이 커밋에 있습니다: ${outcome.extraFiles.join(', ')}\n`,
+      `  ${color.red('내부 검증 경고')}: 스테이징한 파일과 실제 커밋 내용이 다릅니다: ${outcome.extraFiles.join(', ')}\n`,
     );
   } else {
-    process.stdout.write(`  ${color.dim('자체 검증: 내가 쓴 파일만 커밋됨.')}\n`);
+    // D-36: 이건 "커밋 = 스테이징 내용"이라는 내부 일관성만 확인한다(항상 참인
+    // 동어반복에 가깝다) — "이 커밋이 이 완료조건에만 맞다"는 보장이 아니다.
+    // 그 판단은 위 파일 목록을 직접 보고 하는 몫이다. 예전 문구("내가 쓴 파일만
+    // 커밋됨")는 이 구분 없이 안심을 줘서 실제로 무관한 파일이 섞인 커밋을
+    // 그대로 넘긴 사고가 있었다(실사용 재현).
+    process.stdout.write(`  ${color.dim('내부 검증: 스테이징한 내용 그대로 커밋됨.')}\n`);
   }
 
   // 베이스 드리프트 경고.

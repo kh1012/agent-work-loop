@@ -83,6 +83,98 @@ describe('isolatedCommit — 남의 작업을 잃지 않는다 (핵심)', () => 
   });
 });
 
+describe('isolatedCommit — HEAD 드리프트 감지 (자체검증 순환참조 방지, D-36)', () => {
+  it('베이스라인 시작 이후 다른 커밋이 HEAD 에 얹히면 거부한다(자체 검증은 이 경우를 못 잡는다)', async () => {
+    const { dir, g } = makeRepo();
+    const f = path.join(dir, 'f.txt');
+    const other = path.join(dir, 'other.txt');
+    fs.writeFileSync(f, 'a\n');
+    fs.writeFileSync(other, '기존 내용\n');
+    g(['add', '.']);
+    g(['commit', '-q', '-m', 'base']);
+
+    const { snapshot, head } = await startBaseline(dir, 'AC-01');
+
+    // 내 변경(f.txt 만 건드림).
+    fs.writeFileSync(f, 'a\nMINE\n');
+
+    // 그 사이 다른 커밋이 이 브랜치 HEAD 에 얹힘(다른 완료조건을 실수로 여기서
+    // 커밋했거나, 동시 진행 중인 다른 세션/에이전트의 작업) — 내가 안 건드린
+    // other.txt 를 "수정"한다(신규 추가가 아니라 기존 파일 수정이라 git apply
+    // --cached 충돌 없이 조용히 diff 에 흡수된다. 이게 자체 검증이 못 잡는 진짜
+    // 취약점 — 신규 파일 추가라면 우연히 apply 충돌로 걸리지만, 기존 파일
+    // 수정/삭제는 그렇지 않다).
+    fs.writeFileSync(other, '다른 세션이 수정함\n');
+    g(['add', 'other.txt']);
+    g(['commit', '-q', '-m', 'other work landed in between']);
+
+    const outcome = await isolatedCommit(dir, 'AC-01', 'my change', snapshot, [], head);
+
+    expect(outcome.committed).toBe(false);
+    expect(outcome.reason).toContain('HEAD');
+    // 아무것도 커밋되거나 스테이징되지 않았어야 한다 — 워킹트리 변경도 그대로.
+    expect(fs.readFileSync(f, 'utf8')).toBe('a\nMINE\n');
+    const log = g(['log', '--oneline']);
+    expect(log.trim().split('\n')).toHaveLength(2); // base + other work 뿐, 내 커밋 없음
+  });
+
+  it('HEAD 가 그대로면 expectedHead 를 줘도 평소처럼 커밋된다(하위호환)', async () => {
+    const { dir, g } = makeRepo();
+    const f = path.join(dir, 'f.txt');
+    fs.writeFileSync(f, 'a\n');
+    g(['add', '.']);
+    g(['commit', '-q', '-m', 'base']);
+
+    const { snapshot, head } = await startBaseline(dir, 'AC-01');
+    fs.writeFileSync(f, 'a\nMINE\n');
+
+    const outcome = await isolatedCommit(dir, 'AC-01', 'my change', snapshot, [], head);
+
+    expect(outcome.committed).toBe(true);
+    expect(outcome.selfCheckOk).toBe(true);
+  });
+
+  it('expectedHead 없이는(옛 동작) 드리프트가 여전히 hunk 충돌로 걸리지만, 원인이 HEAD 이동이라는 건 안 알려준다', async () => {
+    const { dir, g } = makeRepo();
+    const f = path.join(dir, 'f.txt');
+    const other = path.join(dir, 'other.txt');
+    fs.writeFileSync(f, 'a\n');
+    fs.writeFileSync(other, '기존 내용\n');
+    g(['add', '.']);
+    g(['commit', '-q', '-m', 'base']);
+
+    const { snapshot } = await startBaseline(dir, 'AC-01');
+    fs.writeFileSync(f, 'a\nMINE\n');
+    fs.writeFileSync(other, '다른 세션이 수정함\n');
+    g(['add', 'other.txt']);
+    g(['commit', '-q', '-m', 'other work landed in between']);
+
+    // expectedHead 를 안 준다 — 이게 지금까지의 실제 호출 방식이었다.
+    // 실측 결과: 이 경우 apply 가 실패해 결국 커밋은 안 된다(index 가 이미
+    // 드리프트 커밋 내용으로 reset 돼 있어 patch 의 이전 상태와 안 맞음).
+    // 다만 이유가 "hunk 충돌"로만 나와 HEAD 가 이동했다는 진짜 원인은 안 보인다.
+    const outcome = await isolatedCommit(dir, 'AC-01', 'my change', snapshot);
+    expect(outcome.committed).toBe(false);
+    expect(outcome.reason).not.toContain('HEAD'); // 원인 불명확 — expectedHead 로 고친 버전과 대조됨
+  });
+
+  it('expectedHead 를 안 주면(생략) 기존처럼 드리프트 확인을 건너뛰고 hunk 로직만 탄다(호출부 하위호환)', async () => {
+    const { dir, g } = makeRepo();
+    const f = path.join(dir, 'f.txt');
+    fs.writeFileSync(f, 'a\n');
+    g(['add', '.']);
+    g(['commit', '-q', '-m', 'base']);
+
+    const { snapshot } = await startBaseline(dir, 'AC-01');
+    fs.writeFileSync(f, 'a\nMINE\n');
+
+    // expectedHead 인자 자체를 생략 — 기존 호출부(테스트 포함)를 안 깨야 한다.
+    const outcome = await isolatedCommit(dir, 'AC-01', 'my change', snapshot);
+
+    expect(outcome.committed).toBe(true);
+  });
+});
+
 describe('checkBaseDrift', () => {
   it('원본이 전진하고 파일이 겹치면 경고 정보를 준다', async () => {
     const { dir, g } = makeRepo();
@@ -329,5 +421,31 @@ describe('firstBaseline (WI-H AC-01) — 재시작/여러 커밋에도 range-sta
     const closed = getCriterion(loadState(proj), 'AC-01');
     expect(closed?.firstBaseline).toBe(commit0); // range-start 는 그대로.
     expect(closed?.baseline).not.toBe(commit0); // baseline 은 이 AC 자신의 커밋으로 갱신(기존 동작 유지).
+  });
+
+  it('runCommit -m 이 실제로 baseline(crit.baseline)을 expectedHead 로 넘겨 HEAD 드리프트를 거부한다 (D-36 배선 확인)', async () => {
+    const proj = realGitProject();
+    await runCommit('AC-01', { start: true });
+    fs.writeFileSync(path.join(proj, 'my-change.txt'), 'work\n');
+
+    // --start 이후 다른 완료조건(혹은 다른 세션)이 이 브랜치에 커밋을 얹음.
+    fs.writeFileSync(path.join(proj, 'other.txt'), 'other work\n');
+    execFileSync('git', ['add', 'other.txt'], { cwd: proj });
+    execFileSync('git', ['commit', '-q', '-m', 'other commit landed'], { cwd: proj });
+
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    await expect(runCommit('AC-01', { message: '작업 완료' })).rejects.toThrow('exit:1');
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('HEAD'))).toBe(true);
+
+    exitSpy.mockRestore();
+    stderrSpy.mockRestore();
+
+    // 커밋되지 않았어야 한다 — HEAD 는 "other commit landed" 그대로.
+    const log = execFileSync('git', ['log', '--oneline'], { cwd: proj, encoding: 'utf8' });
+    expect(log).not.toContain('작업 완료');
   });
 });
