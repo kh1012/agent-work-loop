@@ -85,6 +85,15 @@ export function buildProgram(): Command {
       runVersionCheck({ json: opts.json === true });
     });
 
+  // 사람이 치는 명령: update (설치된 엔진을 갱신 — WI-X)
+  program
+    .command('update')
+    .description('설치된 엔진(~/.awl/engine)을 갱신합니다')
+    .action(async () => {
+      const { runUpdate } = await import('./commands/update.js');
+      runUpdate();
+    });
+
   // 사람이 치는 명령: config (현재 설정 보기, TTY 면 항목을 골라 수정)
   const config = program
     .command('config')
