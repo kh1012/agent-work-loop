@@ -219,4 +219,23 @@ describe.runIf(existsSync(distCli))('빌드된 CLI 실행', () => {
     expect(denied.status).not.toBe(0);
     expect(denied.stderr).toContain('게이트 1');
   });
+
+  it('CI=true + stdin 파이프에서 init --yes 는 raw-mode 없이 크래시 없이 끝난다 (WI-Y AC-05, 회귀)', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-init-ci-home-'));
+    const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-init-ci-proj-'));
+    const env = { ...process.env, AWL_HOME: home, CI: 'true' };
+
+    const result = spawnSync('node', [distCli, 'init', '--yes'], {
+      cwd: proj,
+      env,
+      encoding: 'utf8',
+      input: '', // stdin 을 파이프로 연결한다(TTY 아님) — setRawMode 를 부르면 여기서 바로 터진다
+      timeout: 10_000,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.signal).toBeNull();
+    const configPath = path.join(proj, '.awl', 'config.json');
+    expect(existsSync(configPath)).toBe(true);
+  });
 });
