@@ -190,3 +190,92 @@ describe('renderStatus (AC-01 사람용)', () => {
     expect(text).toContain('아직');
   });
 });
+
+describe('게이트 이력 (WI-Q AC-03)', () => {
+  it('buildStatus 가 gate:1/gate:2 레코드를 읽어 게이트 상태를 낸다', () => {
+    const root = tmpProject({ phase: 'loop', workitem: 'WI-9', criteria: [] });
+    tmpHomeWithRecords([
+      {
+        id: '1',
+        at: '2026-07-15T13:44:00Z',
+        type: 'gate',
+        workitem: 'WI-9',
+        gate: 1,
+        decision: 'approved',
+        presentedCriteria: ['AC-01', 'AC-02', 'AC-03', 'AC-04', 'AC-05'],
+        presentedExclusions: ['a', 'b', 'c'],
+        auto: false,
+      },
+      // 다른 워크아이템의 게이트 기록 — 섞이면 안 된다.
+      {
+        id: '2',
+        at: '2026-07-15T12:00:00Z',
+        type: 'gate',
+        workitem: 'WI-OTHER',
+        gate: 1,
+        decision: 'approved',
+        presentedCriteria: ['x'],
+      },
+    ]);
+    const s = buildStatus(root);
+    expect(s.gates).toHaveLength(2);
+    const g1 = s.gates.find((g) => g.gate === 1);
+    expect(g1?.recorded).toBe(true);
+    expect(g1?.decision).toBe('approved');
+    expect(g1?.at).toBe('2026-07-15T13:44:00Z');
+    expect(g1?.presentedCriteriaCount).toBe(5);
+    expect(g1?.presentedExclusionsCount).toBe(3);
+    expect(g1?.auto).toBe(false);
+    const g2 = s.gates.find((g) => g.gate === 2);
+    expect(g2?.recorded).toBe(false);
+  });
+
+  it('같은 게이트 번호로 여러 번 기록되면(재승인 등) 가장 최근 것을 쓴다', () => {
+    const root = tmpProject({ phase: 'loop', workitem: 'WI-9', criteria: [] });
+    tmpHomeWithRecords([
+      {
+        id: '1',
+        at: '2026-07-15T14:00:00Z',
+        type: 'gate',
+        workitem: 'WI-9',
+        gate: 1,
+        decision: 'modified',
+        presentedCriteria: ['AC-01'],
+      },
+      {
+        id: '2',
+        at: '2026-07-15T13:00:00Z',
+        type: 'gate',
+        workitem: 'WI-9',
+        gate: 1,
+        decision: 'approved',
+        presentedCriteria: ['AC-01'],
+      },
+    ]);
+    const s = buildStatus(root);
+    const g1 = s.gates.find((g) => g.gate === 1);
+    expect(g1?.decision).toBe('modified'); // 더 최근(14:00) 것
+  });
+
+  it('renderStatus 가 사람용 텍스트로 게이트 이력을 보여준다', () => {
+    const root = tmpProject({ phase: 'loop', workitem: 'WI-9', criteria: [] });
+    tmpHomeWithRecords([
+      {
+        id: '1',
+        at: '2026-07-15T13:44:00Z',
+        type: 'gate',
+        workitem: 'WI-9',
+        gate: 1,
+        decision: 'approved',
+        presentedCriteria: ['AC-01', 'AC-02', 'AC-03', 'AC-04', 'AC-05'],
+        presentedExclusions: ['a', 'b', 'c'],
+      },
+    ]);
+    const text = renderStatus(buildStatus(root), { unicode: false, color: false, tty: false });
+    expect(text).toContain('게이트 1');
+    expect(text).toContain('게이트 2');
+    expect(text).toContain('대기중'); // 게이트 2는 아직 없음
+    expect(text).toContain('5'); // presentedCriteria 개수
+    expect(text).toContain('3'); // exclusion 개수
+  });
+});

@@ -18,6 +18,17 @@ export interface BlockedByDeps {
   waitingOn: string[];
 }
 
+/** 게이트 1/2 의 기록 상태 (WI-Q AC-03). recorded:false 면 나머지 필드는 없다. */
+export interface GateStatus {
+  gate: 1 | 2;
+  recorded: boolean;
+  decision?: string;
+  at?: string;
+  presentedCriteriaCount?: number;
+  presentedExclusionsCount?: number;
+  auto?: boolean;
+}
+
 export interface StatusReport {
   generation: number;
   phase: string | null;
@@ -32,6 +43,35 @@ export interface StatusReport {
   };
   records: { total: number; byType: Record<string, number> };
   lastAttempt: string | null;
+  gates: GateStatus[];
+}
+
+/**
+ * 현재 워크아이템의 게이트 1/2 기록을 찾는다. readRecords 는 최근순이라
+ * 같은 게이트 번호가 여러 번 기록됐어도(재승인 등) 첫 번째로 만나는 게 최신이다.
+ * gate 레코드가 없어도(대기중) 항상 두 항목(1, 2)을 돌려준다 — 계산만 한다.
+ */
+function buildGateStatus(records: Record<string, unknown>[]): GateStatus[] {
+  const gateRecords = records.filter((r) => r.type === 'gate');
+  return ([1, 2] as const).map((gate) => {
+    const rec = gateRecords.find((r) => r.gate === gate);
+    if (!rec) {
+      return { gate, recorded: false };
+    }
+    const presentedCriteria = Array.isArray(rec.presentedCriteria) ? rec.presentedCriteria : [];
+    const presentedExclusions = Array.isArray(rec.presentedExclusions)
+      ? rec.presentedExclusions
+      : [];
+    return {
+      gate,
+      recorded: true,
+      decision: typeof rec.decision === 'string' ? rec.decision : undefined,
+      at: typeof rec.at === 'string' ? rec.at : undefined,
+      presentedCriteriaCount: presentedCriteria.length,
+      presentedExclusionsCount: presentedExclusions.length,
+      auto: typeof rec.auto === 'boolean' ? rec.auto : undefined,
+    };
+  });
 }
 
 /**
@@ -80,10 +120,15 @@ export function buildStatus(projectRoot: string): StatusReport {
   const lastAttempt =
     latestAttempt && typeof latestAttempt.result === 'string' ? latestAttempt.result : null;
 
+  // 게이트 이력은 현재 워크아이템 것만 본다(다른 워크아이템 게이트가 섞이면 안 됨).
+  const workitem = typeof state.workitem === 'string' ? state.workitem : null;
+  const gates = buildGateStatus(records.filter((r) => r.workitem === workitem));
+
   return {
     generation: typeof state.generation === 'number' ? state.generation : 1,
     phase: typeof state.phase === 'string' ? state.phase : null,
-    workitem: typeof state.workitem === 'string' ? state.workitem : null,
+    workitem,
+    gates,
     criteria: {
       total: criteria.length,
       passed: count('passed'),
@@ -131,6 +176,16 @@ export function renderStatus(report: StatusReport, c: Caps): string {
     `  기록        ${report.records.total}개  ${color.dim(typeSummary ? `(${typeSummary})` : '')}`,
   );
   out.push(`  최근 검증   ${report.lastAttempt ?? color.dim('(없음)')}`);
+  for (const g of report.gates) {
+    if (!g.recorded) {
+      out.push(`  게이트 ${g.gate}    ${color.dim('대기중')}`);
+      continue;
+    }
+    const when = g.at ? g.at.slice(0, 16).replace('T', ' ') : '';
+    const summary = `완료조건 ${g.presentedCriteriaCount ?? 0}개, 제외 ${g.presentedExclusionsCount ?? 0}건`;
+    const autoTag = g.auto ? color.dim(' (자동)') : '';
+    out.push(`  게이트 ${g.gate}    ${g.decision}${autoTag}   ${when}   ${color.dim(summary)}`);
+  }
   return out.join('\n');
 }
 
