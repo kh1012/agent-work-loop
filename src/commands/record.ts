@@ -95,6 +95,34 @@ export const BANNED_QUALITATIVE_WORDS = [
   '필요시',
 ] as const;
 
+function isHangulSyllable(ch: string): boolean {
+  const code = ch.codePointAt(0) ?? 0;
+  return code >= 0xac00 && code <= 0xd7a3;
+}
+
+/**
+ * text 안에 word 가 "독립된" 형태로 있는지 본다(WI-T AC-07, 리뷰 지적) — 단순
+ * 부분 문자열 매칭은 "부적절한"⊃"적절한", "필요시간"⊃"필요시" 처럼 더 큰 한글
+ * 단어에 낀 경우까지 오탐한다. 매칭 앞/뒤 글자가 한글 음절이면 더 큰 단어의
+ * 일부로 보고 건너뛰고, 앞/뒤가 한글이 아니면(공백·문장부호·문자열 시작/끝)
+ * 독립된 표현으로 보고 거부 대상으로 삼는다.
+ */
+function includesBannedWord(text: string, word: string): boolean {
+  let idx = text.indexOf(word);
+  while (idx !== -1) {
+    const before = idx > 0 ? text[idx - 1] : undefined;
+    const after = idx + word.length < text.length ? text[idx + word.length] : undefined;
+    const attachedToHangul =
+      (before !== undefined && isHangulSyllable(before)) ||
+      (after !== undefined && isHangulSyllable(after));
+    if (!attachedToHangul) {
+      return true;
+    }
+    idx = text.indexOf(word, idx + 1);
+  }
+  return false;
+}
+
 export interface RecordDefaults {
   project?: string;
   workitem?: string;
@@ -159,7 +187,7 @@ export function buildRecord(
     for (const item of data.items as Record<string, unknown>[]) {
       const text = JSON.stringify(item);
       for (const word of BANNED_QUALITATIVE_WORDS) {
-        if (text.includes(word)) {
+        if (includesBannedWord(text, word)) {
           missing.push(
             `items(${String(item?.id ?? '?')}) 에 금지된 질적 표현 "${word}" — 열거 가능하거나 수치화 가능하게 다시 쓰세요`,
           );

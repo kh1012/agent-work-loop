@@ -142,6 +142,26 @@ describe('buildRecord — 구조 강제', () => {
     expect(r.missing.some((m) => m.includes('AC-02'))).toBe(true);
   });
 
+  it('금지어가 더 큰 한글 단어에 포함돼 있으면 오탐하지 않는다 (WI-T AC-07, 리뷰 지적)', () => {
+    const items = [
+      { id: 'AC-01', 조건: 'chrome-lint 대응이 부적절한 부분을 고친다', 범위: 'y', 검증: 'z' },
+    ];
+    const r = buildRecord('criteria', { items }, DEFAULTS);
+    expect(r.missing).toEqual([]);
+  });
+
+  it('금지어가 다른 한글 단어 뒤에 이어져도(단어 뒤쪽 경계) 오탐하지 않는다', () => {
+    const items = [{ id: 'AC-01', 조건: '필요시간을 미리 확인한다', 범위: 'y', 검증: 'z' }];
+    const r = buildRecord('criteria', { items }, DEFAULTS);
+    expect(r.missing).toEqual([]);
+  });
+
+  it('금지어 앞뒤가 한글이 아니면(공백/시작/끝) 여전히 거부한다', () => {
+    const items = [{ id: 'AC-01', 조건: '필요시 다시 확인한다', 범위: 'y', 검증: 'z' }];
+    const r = buildRecord('criteria', { items }, DEFAULTS);
+    expect(r.record).toBeUndefined();
+  });
+
   it('decision: performanceSensitive:true 인데 alternatives 가 없으면 거부한다 (WI-I AC-05)', () => {
     const r = buildRecord(
       'decision',
@@ -1046,6 +1066,18 @@ describe('runRecord — 게이트 1 배제 목록 강제 (WI-T AC-02, 핵심)', 
 
     await runRecord('gate', {
       json: '{"gate":1,"decision":"approved","presentedCriteria":["AC-01"],"presentedExclusions":[{"id":"F-02","reason":"별도 워크아이템"}]}',
+    });
+    expect(readRecords({ type: 'gate' })).toHaveLength(1);
+  });
+
+  it('presentedExclusions 가 순수 문자열 배열이어도 통과한다 (WI-T AC-07, 리뷰 지적)', async () => {
+    project([{ id: 'AC-01', addresses: ['F-01'] }]);
+    await runRecord('audit', {
+      json: '{"scope":"s","findings":[{"id":"F-01","what":"a"},{"id":"F-02","what":"b"}]}',
+    });
+
+    await runRecord('gate', {
+      json: '{"gate":1,"decision":"approved","presentedCriteria":["AC-01"],"presentedExclusions":["F-02"]}',
     });
     expect(readRecords({ type: 'gate' })).toHaveLength(1);
   });

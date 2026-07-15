@@ -291,6 +291,33 @@ describe('collectEvolve — coverage 계측 (WI-T AC-04)', () => {
     expect(col.metrics.coverage.excludedApprovedByHuman).toBe(false);
   });
 
+  it('gate:1 의 auto 가 boolean 이 아니면(예: 문자열) auto:true 아닌 것으로 보고 excludedApprovedByHuman 은 true (WI-T AC-07, 리뷰 지적)', () => {
+    seedRecords([
+      {
+        id: '1',
+        at: '2026-07-14T10:00:00Z',
+        type: 'audit',
+        workitem: 'WI-6',
+        scope: 's',
+        findings: [{ id: 'F-01', what: 'a' }],
+      },
+      {
+        id: '2',
+        at: '2026-07-14T09:00:00Z',
+        type: 'gate',
+        workitem: 'WI-6',
+        gate: 1,
+        decision: 'approved',
+        presentedCriteria: ['AC-01'],
+        auto: 'true', // 문자열 — boolean 아님
+      },
+    ]);
+    const state = { criteria: [{ id: 'AC-01', status: 'passed' }] };
+    const col = collectEvolve('agent-work-loop', 'WI-6', state);
+
+    expect(col.metrics.coverage.excludedApprovedByHuman).toBe(true);
+  });
+
   it('gate:1 기록이 없으면 excludedApprovedByHuman 은 false', () => {
     seedRecords([]);
     const col = collectEvolve('agent-work-loop', 'WI-6', { criteria: [] });
