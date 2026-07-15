@@ -26,7 +26,8 @@ export type RecordType =
   | 'gotcha-applied'
   | 'gotcha-missed'
   | 'narrative'
-  | 'gate';
+  | 'gate'
+  | 'clarify';
 
 /** narrative.kind 로 허용되는 값 (WI-P AC-02). */
 export const NARRATIVE_KINDS = [
@@ -63,6 +64,7 @@ export const SCHEMAS: Record<RecordType, Schema> = {
   'gotcha-missed': { required: ['gotchaId', 'what', 'why'] },
   narrative: { required: ['kind', 'counterfactual'] },
   gate: { required: ['gate', 'decision', 'presentedCriteria'], arrays: ['presentedCriteria'] },
+  clarify: { required: ['questions'], arrays: ['questions'] },
 };
 
 export const RECORD_TYPES = Object.keys(SCHEMAS) as RecordType[];

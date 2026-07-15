@@ -319,6 +319,25 @@ describe('buildRecord — 구조 강제', () => {
       expect(r.missing.some((m) => m.startsWith('decision'))).toBe(true);
     }
   });
+
+  it('clarify 는 questions(비어있지 않은 배열)가 필수다 (WI-V AC-01)', () => {
+    const r = buildRecord('clarify', {}, DEFAULTS);
+    expect(r.record).toBeUndefined();
+    expect(r.missing.some((m) => m.startsWith('questions'))).toBe(true);
+  });
+
+  it('clarify 의 questions 가 빈 배열이면 거부한다', () => {
+    const r = buildRecord('clarify', { questions: [] }, DEFAULTS);
+    expect(r.record).toBeUndefined();
+    expect(r.missing.some((m) => m.startsWith('questions'))).toBe(true);
+  });
+
+  it('clarify 의 questions 가 채워지면 통과하고 내용이 그대로 보존된다', () => {
+    const questions = [{ asked: '닫힘 트리거를?', answered: '바깥 클릭 + Esc' }];
+    const r = buildRecord('clarify', { questions }, DEFAULTS);
+    expect(r.missing).toEqual([]);
+    expect((r.record as Record<string, unknown>).questions).toEqual(questions);
+  });
 });
 
 describe('record 저장 — append only', () => {
