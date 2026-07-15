@@ -101,6 +101,7 @@
 - **결정(프로젝트 루트)**: init은 `findProjectRoot`(상위로 .git 탐색)가 아니라 **현재 디렉토리(cwd)** 를 프로젝트 루트로 본다. "awl은 현재 디렉토리에서 실행하는 도구"라는 명세에 맞추고, 상위의 엉뚱한 .git으로 등록되는 것을 막는다. 프로젝트 이름은 디렉토리명.
 - **가정(state 초기값)**: `state.json` 스키마가 아직 없어 `{ generation: 1, createdAt, loop: null }`로 시작한다. 스키마가 정해지면 맞춘다([[D-11]] 참조).
 - **가정(비대화형)**: `--yes`는 감지된 기본값을 쓰고 성격은 빈 문자열. TTY가 아닌데 `--yes`가 없으면 안내 후 종료 코드 1. `stdin`과 `stdout`이 모두 TTY일 때만 대화형으로 본다.
+- **업데이트(WI-Y)**: "단위 테스트가 불가능하다"는 근거는 이후 stdin 모킹(`process.stdin.setRawMode`/`once` 직접 대입·스파이)으로 반증됐다 — `select.ts`의 순수 상태전이/렌더와 raw-mode I/O 루프 모두 자동 테스트로 커버했다. 다만 번호 입력을 없애지는 않았다: `rawModeCapable()`이 감지될 때만 방향키 선택을 쓰고, 안 되면 여전히 이 결정의 번호 입력으로 폴백한다 — Windows conhost 등 raw-mode가 실제로 깨지는 환경(항목 7 참고, 아직 macOS에서만 실측)에 대한 안전망으로 번호 입력을 유지한다.
 
 ## D-14. 접합(init→doctor)에서 발견해 고친 doctor 버그 2건
 
@@ -457,3 +458,9 @@
    - 왜 위험: runner는 타임아웃 시 `child.kill('SIGTERM')`을 보낸다. Windows에는 POSIX 신호 개념이 없어 SIGTERM이 기대대로 동작하지 않을 수 있다(프로세스가 즉시 죽지 않거나 트리의 자식이 남을 수 있다).
    - 대비: 지금은 macOS에서만 검증. Windows에서 문제가 되면 `taskkill /T` 또는 `tree-kill` 방식을 별도 워크아이템에서 검토한다.
    - 확인법: Windows에서 타임아웃 테스트가 `timedOut=true`로 끝나고 좀비 프로세스가 안 남는지.
+
+7. **방향키 raw-mode 선택(`select.ts`)의 이스케이프 시퀀스**
+   - 왜 위험: 방향키를 누르면 터미널이 `\x1b[A`/`\x1b[B` 같은 이스케이프 시퀀스를 stdin으로 보낸다. 구식 Windows 콘솔(conhost)은 이 시퀀스를 다르게 보내거나 아예 안 보낼 수 있고, `process.stdin.setRawMode`가 일부 Windows 환경(파이프로 리다이렉트된 stdin 등)에서 함수 자체가 없을 수도 있다.
+   - 대비: `rawModeCapable()`이 stdin이 TTY이고 `setRawMode`가 함수로 존재할 때만 true를 돌려준다(CI는 무조건 false). false면 `selectSingle`/`selectMulti`가 기존 번호/쉼표 입력으로 자동 폴백하므로, raw-mode가 아예 안 되는 환경에서도 크래시 없이 동작해야 한다. 순수 상태전이(`advanceSelect`)와 렌더(`renderSelectOptions`)는 stdin 모킹으로 자동 테스트했지만, 실제 Windows 터미널에서 방향키를 눌러 이스케이프 시퀀스가 기대대로 오는지는 macOS에서 실측할 수 없다.
+   - 확인법: Windows Terminal/PowerShell/구식 cmd.exe 각각에서 방향키로 실제 이동이 되는지, 안 되는 환경에서 자동으로 번호 입력 폴백으로 넘어가는지, `setRawMode`가 없는 환경(파이프)에서 `awl init`이 멈추거나 죽지 않는지.
+   - 참고: 이번 워크아이템(WI-Y)에서 박스 문자(항목 4, F-01)와 색상 로그(항목 4와 별개로 `tty.ts`의 `makeColors`, F-02)는 이미 이 목록의 대비책을 그대로 재사용해 추가 코드 변경이 없었다.
