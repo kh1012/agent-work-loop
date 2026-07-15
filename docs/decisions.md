@@ -379,6 +379,14 @@
 - **G-012 재발 안 함**: WI-V 에서 막 겪은 사고를 교훈 삼아, AC-02(스킬 문서 편집) 착수 직전에 `git status --porcelain` 으로 워킹트리 클린을 실제로 확인한 뒤 편집을 시작했다 — `gotcha-applied` 로 기록.
 - **evolve**: `gotcha-applied` 1건(G-012). 새 gotcha 1건(G-022, 위 핵심 설계 결정). 최종 2/2 완료 조건, 게이트 1/2 모두 실제 승인(`auto:false`).
 
+## D-40. WI-S 완료: 리뷰를 기록한다 (0.4.2)
+
+- **범위 4갈래**: AC-01 `record.ts` 의 `review` 스키마를 이분법(`target`/`verdict`)에서 구조화된 필드(`reviewId`/`criteria`/`findings`/`cheatingDetected`/`verifyPassedBefore`)로 전면 교체, AC-02 `awl review` 가 `reviewId`(`rev_` 접두어)를 매번 새로 발급, AC-03 `awl record gate` 의 gate:2 기록 시 완료 조건 3개 이상 통과했는데 `review` 기록이 하나도 없으면 stderr 경고(거부는 아님), AC-04 세 스킬 문서 갱신.
+- **AC-03 의 fail-open 방지 가드를 선제 적용**: `readRecords({type:'review', workitem})` 를 gate:2 체크에 쓸 때, WI-Q 리뷰에서 잡혔던 것과 정확히 같은 클래스의 버그(`workitem` 이 falsy 면 필터가 안 걸려 전체 매칭)를 이번엔 구현 시점에 미리 가드(`typeof workitem === 'string'` 아니면 체크 자체를 건너뜀)로 막았다 — G-020 이 실제로 다음 워크아이템에 적용된 사례.
+- **리뷰(rev_59e6cde93b553215c6)가 기계 검증은 통과했는데 실질적 지적 2건을 발견**(`verifyPassedBefore:true` 인 채로 `findings` 2건 — `reviewer-caught` narrative 로 별도 기록): (1) medium — `SCHEMAS.review` 의 `arrays` 목록에 `findings`/`cheatingDetected` 가 빠져 있어 배열이 아닌 값(문자열/숫자/불리언)도 `buildRecord` 를 통과했다. `arraysAllowEmpty` 라는 새 스키마 키(배열이어야 하지만 비어있어도 되는 필드, 기존 `arrays` 는 비어있지 않음까지 강제)를 추가해 AC-05 로 편입·수정. (2) low — `summaryOf()` 의 대표 필드 폴백 체인(`what ?? scope ?? question ?? target ?? decision`)이 새 스키마의 어떤 필드도 못 봐서, `findings` 가 있는 `review` 레코드도 사람용 `awl records` 목록에서 `(요약 없음)`으로만 나왔다. `type==='review' && reviewId` 분기를 추가해 `reviewId`+`findings`/`cheatingDetected` 개수로 요약하도록 AC-06 으로 편입·수정(옛 `target`/`verdict` 만 있는 마이그레이션 이전 레코드는 `reviewId` 가 없어 기존 폴백 체인을 그대로 타 하위호환 유지). 부정행위는 없음.
+- **환경 함정(도구 자체 결함 아님)**: `npx biome`/`npx vitest` 가 세션의 `rtk` 셸 훅에 가로채여 각각 가짜 OOM 경고와 UTF-8 문자 경계 파싱 패닉을 냈다. `node_modules/.bin/` 의 바이너리를 직접 호출해 진짜 결과(46 files 클린, 405/405 테스트 통과)를 확인했다 — 새 gotcha(G-024)로 남김.
+- **evolve**: 새 gotcha 2건 — G-023(레코드 타입 스키마를 갈아엎을 때 그 타입을 읽는 범용 코드도 grep 으로 같이 확인), G-024(패키지 실행기 래퍼의 이상한 실패는 로컬 바이너리 직접 실행으로 재현 여부부터 확인). `blocked` 없음(안 막힘). 최종 6/6 완료 조건(AC-01~04 는 최초 계획, AC-05/06 은 리뷰 지적 편입), 게이트 1/2 모두 실제 승인(`auto:false`).
+
 # Windows 리스크 목록 (macOS에서만 검증함 — Windows 검증 시 체크리스트로 사용)
 
 이 프로젝트는 현재 macOS에서만 검증한다. 아래는 Windows에서 깨질 수 있는 지점과 대비다. 나중에 Windows에서 사람이 검증할 때 이 목록을 하나씩 확인한다.

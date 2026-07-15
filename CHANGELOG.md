@@ -10,10 +10,12 @@
 - **게이트를 기록한다.** `awl record gate` — 게이트 1/2 승인 결과를 기록한다(`decision`: 게이트 1은 approved/modified/rejected/split, 게이트 2는 approved/more-work/abandoned, `presentedCriteria` 필수). `awl state set`으로 `phase`를 `"loop"`로 전환하려면 현재 워크아이템의 게이트 1 기록이 있어야 한다(없으면 거부). `awl status`가 게이트 1/2 이력(승인 시각/decision/제시된 완료조건 수/제외 건수, 없으면 "대기중")을 보여준다. 자율 승인은 `auto:true`로 구분해서 남긴다.
 - **스킬 파이프라인에 [명료화] 단계 추가.** [조사] 뒤, [스파이크] 앞 — 목표에 사람만 답할 수 있는 취향/방향 결정이 남아있으면 완료 조건을 쓰기 전에 되묻는다(코드로 답할 수 있는 건 [조사]의 몫). `awl record clarify`로 오간 결정을 기록한다. 되물을 게 없으면 건너뛰고, 3개를 넘으면 목표가 모호하다는 신호로 알린다.
 - **워크아이템 등록을 강제한다.** `awl record`가 활성 워크아이템(기록 데이터의 `workitem` 필드, `--workitem` 플래그, `state.json`의 현재 워크아이템 중 하나)이 없으면 거부한다. `record` 명령에 `--workitem <id>`가 신설됐다(이 기록 하나만 다른 워크아이템으로 남길 때 씀). 스킬 문서에 "[조사]를 시작하기 전에 `awl work new`로 워크아이템을 등록한다"는 절대 규칙이 추가됐다.
+- **리뷰를 기록한다.** `awl record review`의 스키마를 `target`/`verdict`(이분법)에서 `reviewId`/`criteria`/`findings`/`cheatingDetected`/`verifyPassedBefore`(구조화된 필드)로 전면 교체했다. `awl review`가 매 호출마다 새 `reviewId`(`rev_` 접두어)를 발급해 조립 결과와 사람용 출력에 포함한다. `awl record gate`로 게이트 2를 기록할 때 현재 워크아이템의 완료 조건 3개 이상이 통과했는데 `review` 기록이 하나도 없으면 stderr에 경고를 낸다(기록 자체는 거부하지 않는다).
 
 ### 고침
 
 - `awl commit`의 "자체 검증 통과" 메시지가 스테이징한 내용과 커밋된 내용을 비교하는 동어반복(순환 참조)이라, 실제로는 무관한 파일이 함께 커밋돼도 항상 "통과"를 보고하던 문제. 완료조건 시작 시점 이후 다른 커밋이 얹혔는지(HEAD 드리프트)를 diff 계산 전에 먼저 확인해 정확한 원인과 함께 거부하고, 메시지도 무엇을 확인했는지 정직하게 정정했다. 스테이징 파일이 많으면(5개 초과) 개수를 눈에 띄게 알린다.
+- `review` 타입 기록이 사람용 `awl records` 목록에서 항상 "(요약 없음)"으로만 표시되던 문제(요약 함수가 새 스키마의 필드를 인식하지 못함). `reviewId`와 `findings`/`cheatingDetected` 개수로 요약하도록 고쳤다.
 
 ## [0.3.1] - 2026-07-14
 
