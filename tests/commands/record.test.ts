@@ -501,6 +501,23 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
     stderrSpy.mockRestore();
   });
 
+  it('프로젝트 루트 자체를 못 찾으면(.awl/.git 도 없음) 진짜 원인을 부연해서 알린다 (WI-R 리뷰 지적)', async () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-record-noroot-')));
+    process.chdir(root);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-record-noroot-home-'));
+    const { exitSpy, stderrSpy } = mockExit();
+
+    await expect(runRecord('spike', { json: '{"question":"q","found":"f"}' })).rejects.toThrow(
+      'exit:1',
+    );
+    expect(
+      stderrSpy.mock.calls.some((c) => String(c[0]).includes('프로젝트 루트를 찾지 못했습니다')),
+    ).toBe(true);
+
+    exitSpy.mockRestore();
+    stderrSpy.mockRestore();
+  });
+
   it('--workitem 플래그가 있으면 활성 워크아이템이 없어도 통과한다', async () => {
     project(undefined);
     await runRecord('spike', { json: '{"question":"q","found":"f"}', workitem: 'WI-9' });

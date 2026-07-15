@@ -372,9 +372,13 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
     typeof opts.workitem === 'string' && opts.workitem.trim() !== '' ? opts.workitem : undefined;
   const defaultWorkitem = cliWorkitem ?? currentWorkitem;
   if (!dataWorkitem && !defaultWorkitem) {
+    // 리뷰 지적(WI-R): projectRoot 자체를 못 찾은 경우(state.json 을 아예 못 읽음)엔
+    // "활성 워크아이템이 없다"는 말이 진짜 원인(프로젝트 미초기화)을 안 알려준다.
+    const hint = projectRoot
+      ? ''
+      : ' (프로젝트 루트를 찾지 못했습니다 — awl init 을 실행했는지 확인하세요.)';
     process.stderr.write(
-      '\n  활성 워크아이템이 없습니다. awl work new <id> [설명] 으로 시작하세요.\n' +
-        '  (이 기록 하나만 다른 워크아이템으로 남기려면 --workitem <id> 를 쓰세요)\n',
+      `\n  활성 워크아이템이 없습니다.${hint} awl work new <id> [설명] 으로 시작하세요.\n  (이 기록 하나만 다른 워크아이템으로 남기려면 --workitem <id> 를 쓰세요)\n`,
     );
     process.exit(1);
   }
