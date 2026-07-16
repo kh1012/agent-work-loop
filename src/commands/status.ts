@@ -158,14 +158,34 @@ export function buildStatus(projectRoot: string): StatusReport {
 }
 
 /**
+ * git merge-base --is-ancestor <commit> HEAD 의 exit code 를 사실로 분류한다.
+ *   0   = HEAD 조상(포함됨)                   → present
+ *   1   = 조상 아님(커밋은 있으나 다른 계보)   → diverged
+ *   128 = 커밋 객체가 이 클론에 없음           → not-found
+ *   그 외(null=타임아웃/시그널, 기타 에러)     → unknown (판정 불가)
+ * unknown 을 not-found 로 뭉뚱그리면 git 이 판정도 못 했는데 "커밋 없음"이라는
+ * 거짓 사실을 표시하게 된다 — awl 은 확실한 사실만 표시한다(리뷰 지적).
+ */
+export function classifyAncestorExit(
+  exitCode: number | null,
+): 'present' | 'diverged' | 'not-found' | 'unknown' {
+  if (exitCode === 0) {
+    return 'present';
+  }
+  if (exitCode === 1) {
+    return 'diverged';
+  }
+  if (exitCode === 128) {
+    return 'not-found';
+  }
+  return 'unknown';
+}
+
+/**
  * 완료조건 커밋(criterion.commit) 중 지금 HEAD 조상이 아닌 것을 사실로 수집한다(wi8-F3).
  * commit 필드가 있는 완료조건만 본다. git 저장소가 아님/HEAD 없음/git 미설치면 빈 배열
- * (status 는 절대 크래시하지 않는다 — gitBranch 와 같은 원칙).
- *
- * merge-base --is-ancestor <commit> HEAD 의 exit code:
- *   0   = HEAD 조상(포함됨) → 수집 안 함
- *   1   = 조상 아님(커밋은 있으나 다른 계보) → diverged
- *   그 외(128 등) = 커밋 객체가 이 클론에 없음 → not-found
+ * (status 는 절대 크래시하지 않는다 — gitBranch 와 같은 원칙). 확실히 판정된 것
+ * (diverged/not-found)만 보고하고 unknown(판정 불가)은 지어내지 않고 건너뛴다.
  */
 export async function checkMissingAcCommits(projectRoot: string): Promise<MissingAcCommit[]> {
   const state = loadState(projectRoot);
@@ -197,14 +217,11 @@ export async function checkMissingAcCommits(projectRoot: string): Promise<Missin
         cwd: projectRoot,
         timeoutMs: 10_000,
       });
-      if (r.exitCode === 0) {
-        continue;
+      const kind = classifyAncestorExit(r.exitCode);
+      // present(포함) 또는 unknown(판정 불가)이면 사실을 표시하지 않는다.
+      if (kind === 'diverged' || kind === 'not-found') {
+        out.push({ id: String(c.id), commit: c.commit, reason: kind });
       }
-      out.push({
-        id: String(c.id),
-        commit: c.commit,
-        reason: r.exitCode === 1 ? 'diverged' : 'not-found',
-      });
     }
     return out;
   } catch {

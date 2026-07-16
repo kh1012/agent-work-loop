@@ -7,6 +7,7 @@ import {
   type StatusReport,
   buildStatus,
   checkMissingAcCommits,
+  classifyAncestorExit,
   renderStatus,
 } from '../../src/commands/status.js';
 
@@ -410,5 +411,20 @@ describe('renderStatus / JSON — missingAcCommits 표시 (wi8-F3 AC-03 C)', () 
     expect(round.missingAcCommits).toEqual([
       { id: 'AC-01', commit: 'abcdef1234567890', reason: 'not-found' },
     ]);
+  });
+});
+
+describe('classifyAncestorExit — 확실한 사실만 (wi8-F3 AC-04, rev_a2bec44c3ee51649ad finding #1)', () => {
+  it('0=포함, 1=diverged, 128=not-found 로 분류한다', () => {
+    expect(classifyAncestorExit(0)).toBe('present');
+    expect(classifyAncestorExit(1)).toBe('diverged');
+    expect(classifyAncestorExit(128)).toBe('not-found');
+  });
+
+  it('null(타임아웃/시그널)·기타 exit 은 unknown 으로 — not-found 를 지어내지 않는다', () => {
+    // 리뷰 지적: 예전엔 null·기타를 전부 not-found 로 떨궈 거짓 사실을 표시했다.
+    expect(classifyAncestorExit(null)).toBe('unknown');
+    expect(classifyAncestorExit(129)).toBe('unknown');
+    expect(classifyAncestorExit(-1)).toBe('unknown');
   });
 });
