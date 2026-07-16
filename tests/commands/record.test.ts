@@ -698,6 +698,44 @@ describe('selectMonthFiles — 순수 월파일 선택(전량 로드 제거)', (
   });
 });
 
+describe('readRecords 실제 파일 오픈 수 — 통합 성능 가드(AC-03)', () => {
+  beforeEach(() => {
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-rrs-'));
+  });
+
+  it('1개월 범위 질의는 그 월 파일만 readFileSync 한다(12개월 픽스처)', () => {
+    const dir = path.join(process.env.AWL_HOME as string, 'records');
+    fs.mkdirSync(dir, { recursive: true });
+    // 12개월 픽스처 — 각 월 파일에 그 월의 레코드 1건.
+    for (let m = 1; m <= 12; m++) {
+      const mm = String(m).padStart(2, '0');
+      fs.writeFileSync(
+        path.join(dir, `2026-${mm}.jsonl`),
+        `${JSON.stringify({ id: `r${mm}`, at: `2026-${mm}-10T00:00:00.000Z`, type: 'spike' })}\n`,
+      );
+    }
+    // fs.readFileSync 를 직접 래핑해 오픈 수를 센다(vi.spyOn 은 esbuild interop 로 불가 → 이중단언 래핑).
+    const fsMut = fs as unknown as { readFileSync: (...a: unknown[]) => unknown };
+    const origRead = fsMut.readFileSync;
+    let reads = 0;
+    fsMut.readFileSync = (...args: unknown[]): unknown => {
+      reads++;
+      return origRead(...args);
+    };
+    try {
+      const jul = readRecords({ months: ['2026-07'] });
+      expect(jul).toHaveLength(1);
+      expect(reads).toBe(1); // 7월 파일만 열었다(나머지 11개월 안 엶)
+      reads = 0;
+      const all = readRecords();
+      expect(all).toHaveLength(12);
+      expect(reads).toBe(12); // 전량은 12개 모두 연다
+    } finally {
+      fsMut.readFileSync = origRead;
+    }
+  });
+});
+
 describe('renderRecords — 줄글이 아니라 목록', () => {
   it('what 을 한 줄씩 보여준다(줄글 아님)', () => {
     const records = [
