@@ -647,6 +647,8 @@ export interface DeferItem {
   why: string;
   recommendation?: string;
   gate?: unknown;
+  /** 어느 audit finding 을 보류하는가(선택). 문서화된 defer 선택 필드라 요약에도 싣는다. */
+  addresses?: unknown;
   at: string;
 }
 
@@ -668,6 +670,7 @@ export function collectDeferred(records: Record<string, unknown>[]): DeferItem[]
       why: String(r.why ?? ''),
       recommendation: typeof r.recommendation === 'string' ? r.recommendation : undefined,
       gate: r.gate,
+      addresses: r.addresses,
       at: String(r.at ?? ''),
     }))
     .sort((a, b) => {

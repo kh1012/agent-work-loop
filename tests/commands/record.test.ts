@@ -1623,3 +1623,20 @@ describe('collectDeferred — critical-only defer 큐 수집(skip-gate-defer AC-
     expect(collectDeferred([{ type: 'attempt', what: 'x' }])).toEqual([]);
   });
 });
+
+describe('collectDeferred — 리뷰 후속(skip-gate-defer AC-04)', () => {
+  it('문서화된 선택 필드 addresses 를 요약 투영에 싣는다', () => {
+    const items = collectDeferred([
+      { type: 'defer', severity: 'high', what: 'H', why: 'w', addresses: ['F-02'], at: 'z' },
+    ]);
+    expect(items[0]?.addresses).toEqual(['F-02']);
+  });
+
+  it('알 수 없는 severity 는 맨 뒤로 정렬된다(방어 분기)', () => {
+    const items = collectDeferred([
+      { type: 'defer', severity: 'weird', what: 'U', why: 'w', at: '2026-07-16T09:00:00Z' },
+      { type: 'defer', severity: 'low', what: 'L', why: 'w', at: '2026-07-16T01:00:00Z' },
+    ]);
+    expect(items.map((i) => i.what)).toEqual(['L', 'U']); // low 먼저, unknown 뒤
+  });
+});
