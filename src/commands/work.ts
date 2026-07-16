@@ -4,7 +4,7 @@ import { run } from '../core/runner.js';
 import { type Caps, caps, card, makeColors, signal } from '../core/tty.js';
 import { loadConfig, resolveProjectRoot } from './config.js';
 import { gitBranch } from './doctor.js';
-import { gate1BlockReason, loadState, migrateState, writeState } from './state.js';
+import { loadState, migrateState, writeState } from './state.js';
 import {
   buildVerifyBaseline,
   isCheckPassed,
@@ -430,11 +430,6 @@ export async function runWorkNew(
   opts: { worktree?: string | boolean; skipBaseline?: boolean } = {},
 ): Promise<void> {
   const root = requireRoot();
-  const gateBlock = gate1BlockReason(loadState(root), 'work-new');
-  if (gateBlock) {
-    process.stderr.write(`\n  ${gateBlock}\n`);
-    process.exit(1);
-  }
   const now = new Date().toISOString();
   const branch = await gitBranch(root);
 

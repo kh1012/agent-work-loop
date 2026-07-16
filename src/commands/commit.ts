@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { protectedFilesMessage } from '../core/protected-files.js';
 import { run } from '../core/runner.js';
-import { type Caps, caps, makeColors } from '../core/tty.js';
+import { type Caps, caps, makeColors, signal } from '../core/tty.js';
 import { loadConfig, resolveProjectRoot } from './config.js';
 import { gate1BlockReason, getCriterion, loadState, setCriterion, writeState } from './state.js';
 
@@ -354,9 +354,11 @@ export async function runCommit(
   opts: { start?: boolean; message?: string; base?: string; force?: boolean },
 ): Promise<void> {
   const root = requireRoot();
-  const gateBlock = gate1BlockReason(loadState(root), 'commit');
+  const c = caps();
+  const color = makeColors(c.color);
+  const gateBlock = gate1BlockReason(loadState(root));
   if (gateBlock) {
-    process.stderr.write(`\n  ${gateBlock}\n`);
+    process.stderr.write(`\n  ${signal(c, 'warn')} ${gateBlock}\n`);
     process.exit(1);
   }
   if (!opts.force) {
@@ -366,8 +368,6 @@ export async function runCommit(
       process.exit(1);
     }
   }
-  const c = caps();
-  const color = makeColors(c.color);
   const now = new Date().toISOString();
 
   if (opts.start) {

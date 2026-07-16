@@ -279,13 +279,13 @@ try {
   );
 } catch (e) {
   die(
-    `v${newVersion}의 로컬 커밋과 태그는 만들었지만 원격 push에 실패했습니다. 네트워크/권한을 확인한 뒤 git push origin ${branch} && git push origin v${newVersion} 를 실행하세요.`,
+    `v${newVersion}의 로컬 커밋과 태그는 만들었지만 원격 push에 실패했습니다. 네트워크/권한을 확인한 뒤 AWL_ALLOW_PUSH=1 git push origin ${branch} && AWL_ALLOW_PUSH=1 git push origin v${newVersion} 를 실행하세요. (pre-push 훅이 막으므로 AWL_ALLOW_PUSH=1 이 필요합니다.)`,
   );
 }
 
 console.log(`
 릴리스했습니다. ${currentVersion} -> ${newVersion}. 커밋·태그(v${newVersion})·원격 push까지 끝냈습니다.
 
-npm 배포만 사람이 실행하세요:
-  npm publish
+npm 배포만 사람이 실행하세요 (prepublishOnly 훅이 막으므로 AWL_ALLOW_PUBLISH=1 이 필요합니다):
+  AWL_ALLOW_PUBLISH=1 npm publish
 `);

@@ -5,7 +5,7 @@ import { recordsDir } from '../core/paths.js';
 import { run } from '../core/runner.js';
 import { type Caps, caps, card, makeColors } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
-import { gate1BlockReason, getCriterion, loadState, writeState } from './state.js';
+import { getCriterion, loadState, writeState } from './state.js';
 
 /**
  * awl record — 구조를 강제하는 기록.
@@ -590,12 +590,6 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
         ? state.workitem
         : undefined;
   }
-  const gateBlock = gate1BlockReason(state, 'record', type);
-  if (gateBlock) {
-    process.stderr.write(`\n  ${gateBlock}\n`);
-    process.exit(1);
-  }
-
   // 활성 워크아이템 강제 (WI-R AC-01) — 데이터(JSON)에 명시된 workitem, --workitem
   // 플래그, state.json 의 현재 워크아이템 중 무엇도 없으면 거부한다. 우선순위는
   // buildRecord 의 우선순위(데이터 > defaults)와 일치시킨다: 여기서는 defaults 로

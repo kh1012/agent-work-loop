@@ -100,22 +100,19 @@ export function writeState(projectRoot: string, state: Record<string, unknown>):
   fs.writeFileSync(p, `${JSON.stringify(state, null, 2)}\n`);
 }
 
-/** Gate 1 승인 대기 중에는 계획 승인에 필요한 최소 명령만 허용한다. */
-export function gate1BlockReason(
-  state: Record<string, unknown>,
-  action: string,
-  recordType?: string,
-): string | null {
+/**
+ * Gate 1 승인 전에는 코드를 커밋하지 않는다.
+ *
+ * awaiting-gate1 은 work new 가 세팅하는 "조사~완료조건" 전 구간이다 — 이 구간에서
+ * 에이전트는 조사/명료화/완료조건을 기록하고(record *) state 에 완료조건을 써야
+ * 한다(state set). 그래서 그 명령들을 막으면 계획 자체를 세울 수 없는 데드락이
+ * 된다. 정말 막아야 하는 건 "코드 수정성" 명령인 commit 하나뿐이고, 위험한 loop
+ * 진입은 runStateSet 의 requireGateForLoop 가 이미 막는다. 따라서 이 가드는 commit
+ * 에만 쓴다. 메시지는 이모지 없이 반환하고, 색/신호는 호출부가 붙인다.
+ */
+export function gate1BlockReason(state: Record<string, unknown>): string | null {
   if (state.phase !== 'awaiting-gate1') return null;
-  if (
-    action === 'verify' ||
-    action === 'state-get' ||
-    action === 'work-switch' ||
-    action === 'work-abandon'
-  )
-    return null;
-  if (action === 'record' && recordType === 'gate') return null;
-  return '⚠️  Gate 1 승인이 먼저 필요합니다. awl record gate 로 승인 결과를 기록하세요.';
+  return 'Gate 1 승인이 먼저 필요합니다. awl record gate 로 계획을 승인한 뒤 커밋하세요.';
 }
 
 /** 검증 결과를 현재 완료 조건에 기계적으로 반영한다. 사람의 blocked 기록과는 구분한다. */
@@ -206,11 +203,6 @@ export function runStateSet(jsonPatch: string, opts: RunStateSetOpts = {}): void
     process.exit(1);
   }
   const current = loadState(root);
-  const gateBlock = gate1BlockReason(current, 'state-set');
-  if (gateBlock) {
-    process.stderr.write(`\n  ${gateBlock}\n`);
-    process.exit(1);
-  }
   const p = patch as Record<string, unknown>;
   if (p.phase === 'loop' && opts.requireGateForLoop) {
     const workitem = typeof current.workitem === 'string' ? current.workitem : undefined;
