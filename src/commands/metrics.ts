@@ -135,10 +135,124 @@ export function renderMetrics(generations: Generation[], c: Caps): string {
   return card(`세대 ${generations.length}개 · 시간순`, out, c);
 }
 
-/** awl metrics */
-export function runMetrics(opts: { json?: boolean }): void {
+/** 케이스(experiment model/mode/taskType) 단위로 집계한 비교 행(experiment-harness AC-02). */
+export interface CaseGroup {
+  key: string;
+  model: string;
+  mode: string;
+  taskType: string;
+  count: number;
+  avgAttempts: number;
+  blockedRatio: number;
+  reviewRejects: number;
+  avgDurationMs?: number;
+  workitems: string[];
+}
+
+const str = (v: unknown): string => (typeof v === 'string' && v !== '' ? v : '?');
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+/** experiment 로 케이스 키를 만든다(model/mode/taskType). 순수. */
+export function experimentKey(exp: Record<string, unknown> | undefined): string {
+  return `${str(exp?.model)}/${str(exp?.mode)}/${str(exp?.taskType)}`;
+}
+
+/**
+ * experiment 가 있는 세대를 케이스 키로 묶어 지표를 집계한다(순수).
+ * experiment 없는 세대는 케이스가 아니라 제외한다(비교 대상 아님).
+ * avgAttempts/blockedRatio 는 세대 평균, reviewRejects 는 합, duration 은 있는 것만 평균.
+ */
+export function groupByExperiment(generations: Generation[]): CaseGroup[] {
+  const buckets = new Map<string, Generation[]>();
+  for (const g of generations) {
+    if (g.experiment === undefined) {
+      continue;
+    }
+    const key = experimentKey(g.experiment);
+    const arr = buckets.get(key) ?? [];
+    arr.push(g);
+    buckets.set(key, arr);
+  }
+  const groups: CaseGroup[] = [];
+  for (const [key, gens] of buckets) {
+    const n = gens.length;
+    const exp = gens[0]?.experiment ?? {};
+    const durs = gens.map((g) => g.durationMs).filter((d): d is number => typeof d === 'number');
+    groups.push({
+      key,
+      model: str(exp.model),
+      mode: str(exp.mode),
+      taskType: str(exp.taskType),
+      count: n,
+      avgAttempts: round2(gens.reduce((s, g) => s + g.avgAttempts, 0) / n),
+      blockedRatio: round2(gens.reduce((s, g) => s + g.blockedRatio, 0) / n),
+      reviewRejects: gens.reduce((s, g) => s + g.reviewRejects, 0),
+      ...(durs.length > 0
+        ? { avgDurationMs: Math.round(durs.reduce((s, d) => s + d, 0) / durs.length) }
+        : {}),
+      workitems: gens.map((g) => g.workitem),
+    });
+  }
+  groups.sort((a, b) => a.key.localeCompare(b.key));
+  return groups;
+}
+
+/** ms 를 사람이 읽는 소요(예: 1h 23m)로. undefined 면 '-'. */
+function fmtDuration(ms: number | undefined): string {
+  if (ms === undefined) {
+    return '-';
+  }
+  const min = Math.round(ms / 60_000);
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+/** 케이스 비교 표(사람용). */
+export function renderCompare(groups: CaseGroup[], untagged: number, c: Caps): string {
+  const color = makeColors(c.color);
+  const caveat = color.dim(renderMetricsCaveat());
+  if (groups.length === 0) {
+    return card(
+      '케이스 비교',
+      [`experiment 태그가 있는 세대가 없습니다(태그 없는 세대 ${untagged}개).`, '', caveat],
+      c,
+    );
+  }
+  const keyWidth = Math.max(...groups.map((g) => g.key.length), 12) + 2;
+  const out: string[] = [
+    `${'케이스(model/mode/task)'.padEnd(keyWidth, ' ')}n   시도평균  막힘비율  리뷰지적  소요평균`,
+  ];
+  for (const g of groups) {
+    out.push(
+      `${g.key.padEnd(keyWidth, ' ')}${String(g.count).padEnd(4, ' ')}${String(g.avgAttempts).padEnd(10, ' ')}${String(g.blockedRatio).padEnd(10, ' ')}${String(g.reviewRejects).padEnd(10, ' ')}${fmtDuration(g.avgDurationMs)}`,
+    );
+  }
+  if (untagged > 0) {
+    out.push('');
+    out.push(color.dim(`(태그 없는 세대 ${untagged}개는 비교에서 제외)`));
+  }
+  out.push('');
+  out.push(caveat);
+  return card(`케이스 ${groups.length}개 비교`, out, c);
+}
+
+/** awl metrics [--compare] */
+export function runMetrics(opts: { json?: boolean; compare?: boolean }): void {
   const { config } = requireConfig();
   const generations = loadGenerations(config.project);
+  if (opts.compare === true) {
+    const groups = groupByExperiment(generations);
+    const untagged = generations.filter((g) => g.experiment === undefined).length;
+    if (opts.json) {
+      process.stdout.write(
+        `${JSON.stringify({ cases: groups, untagged, caveat: renderMetricsCaveat() }, null, 2)}\n`,
+      );
+      return;
+    }
+    process.stdout.write(`${renderCompare(groups, untagged, caps())}\n`);
+    return;
+  }
   if (opts.json) {
     process.stdout.write(
       `${JSON.stringify({ generations, caveat: renderMetricsCaveat() }, null, 2)}\n`,

@@ -335,9 +335,10 @@ export function buildProgram(): Command {
     .command('metrics')
     .description('워크아이템(세대)별 프록시 지표 추세를 봅니다 (토큰 직접 측정 아님)')
     .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
-    .action(async (opts: { json?: boolean }) => {
+    .option('--compare', '실험 케이스(experiment model/mode/taskType)별로 지표를 비교합니다')
+    .action(async (opts: { json?: boolean; compare?: boolean }) => {
       const { runMetrics } = await import('./commands/metrics.js');
-      runMetrics({ json: opts.json === true });
+      runMetrics({ json: opts.json === true, compare: opts.compare === true });
     });
 
   // 사람이 치는 명령: feedback (awl 도구 자체 피드백을 area 별로 모아서 본다)

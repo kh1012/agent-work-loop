@@ -4,6 +4,8 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   computeDurationMs,
+  experimentKey,
+  groupByExperiment,
   loadGenerations,
   renderMetrics,
   renderMetricsCaveat,
@@ -232,5 +234,63 @@ describe('computeDurationMs — 던지기~완료 소요(experiment-harness AC-03
   });
   it('음수(시계 역전)는 undefined', () => {
     expect(computeDurationMs('2026-07-16T02:00:00Z', '2026-07-16T01:00:00Z')).toBeUndefined();
+  });
+});
+
+describe('groupByExperiment/experimentKey — 케이스 비교 집계(experiment-harness AC-02)', () => {
+  const gen = (
+    wi: string,
+    exp: Record<string, unknown> | undefined,
+    over: Record<string, unknown> = {},
+  ) => ({
+    workitem: wi,
+    at: `2026-07-16T${wi.length}0:00:00Z`,
+    criteriaTotal: 3,
+    avgAttempts: 1,
+    blockedRatio: 0,
+    reviewRejects: 0,
+    proceduralErrors: 0,
+    gotchaApplied: 0,
+    gotchaMissed: 0,
+    coverage: { auditFindingsTotal: 0, addressed: 0, excluded: 0, excludedApprovedByHuman: false },
+    ...(exp ? { experiment: exp } : {}),
+    ...over,
+  });
+
+  it('experimentKey 는 model/mode/taskType, 없으면 ?', () => {
+    expect(experimentKey({ model: 'lite', mode: 'loop', taskType: 'ui' })).toBe('lite/loop/ui');
+    expect(experimentKey({ model: 'lite' })).toBe('lite/?/?');
+    expect(experimentKey(undefined)).toBe('?/?/?');
+  });
+
+  it('같은 케이스를 묶어 집계하고, 태그 없는 세대는 제외한다', () => {
+    const groups = groupByExperiment([
+      gen(
+        'A',
+        { model: 'lite', mode: 'loop', taskType: 'ui' },
+        { avgAttempts: 1, reviewRejects: 2, durationMs: 60_000 },
+      ),
+      gen(
+        'B',
+        { model: 'lite', mode: 'loop', taskType: 'ui' },
+        { avgAttempts: 3, reviewRejects: 1, durationMs: 120_000 },
+      ),
+      gen('C', { model: 'flagship', mode: 'loop', taskType: 'ui' }, { avgAttempts: 2 }),
+      gen('D', undefined), // 태그 없음 → 제외
+    ]);
+    expect(groups).toHaveLength(2); // lite/.., flagship/.. — D 제외
+    const lite = groups.find((g) => g.model === 'lite');
+    expect(lite?.count).toBe(2);
+    expect(lite?.avgAttempts).toBe(2); // (1+3)/2
+    expect(lite?.reviewRejects).toBe(3); // 2+1 합
+    expect(lite?.avgDurationMs).toBe(90_000); // (60k+120k)/2
+    expect(lite?.workitems).toEqual(['A', 'B']);
+  });
+
+  it('duration 없는 케이스는 avgDurationMs 를 비운다', () => {
+    const groups = groupByExperiment([
+      gen('C', { model: 'flagship', mode: 'loop', taskType: 'ui' }),
+    ]);
+    expect(groups[0]?.avgDurationMs).toBeUndefined();
   });
 });
