@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.6.7] - 2026-07-16
+
 ### 고침
 
 - CLI 출력 어휘 통일(cli-visual-consistency) — config/record/evolve/rules/changelog/commit 의 평문 stderr 에러를 signal(error)(유니코드 ❌/ASCII [x])로, 락 경합·비차단 경고는 signal(warn)([!])로 통일해 CI·파이프에서도 마커가 폴백된다. commit 성공 라인을 feedback(ok)+커밋 해시 강조로 바꾸고(feedback 유틸 첫 사용처), 상태값 색코딩(work status: 진행/완료=green·보류=warn·중단=muted, 게이트 decision: 승인=green·거부=red)과 핵심값 강조(passed/total·버전 값·init 결과 값)를 status.ts 패턴으로 work/status/version-check/init 에 이식했다. feedback 반복 태그의 하드코딩 [!] 도 signal(warn)로. doctor 값은 clip() 이 ANSI 미인지라 group 헤더 bold 만 유지(per-value 보류) [cli-visual-consistency]
