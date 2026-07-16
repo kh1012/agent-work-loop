@@ -493,6 +493,16 @@ describe('runWorkNew --worktree (WI-F AC-03, 실제 git 저장소로 통합 확�
     expect(fs.readFileSync(path.join(proj, '.gitignore'), 'utf8')).toContain('.awl-worktrees/');
   });
 
+  it('opts.experiment 를 state.workitemExperiment 로 전달한다 (experiment-harness AC-06 passthrough, 리뷰)', async () => {
+    const proj = realGitProject();
+    await runWorkNew('WI-EXP', undefined, {
+      experiment: { model: 'lite', mode: 'loop', taskType: 'ui' },
+    });
+    const state = JSON.parse(fs.readFileSync(path.join(proj, '.awl', 'state.json'), 'utf8'));
+    // runWorkNew → createWorkitem passthrough 가 끊기면 이 필드가 사라진다(회귀 킬).
+    expect(state.workitemExperiment).toEqual({ model: 'lite', mode: 'loop', taskType: 'ui' });
+  });
+
   it('--worktree 출력에 병렬 세션 hint(AWL_HOME 분리)를 붙이고, --worktree 없으면 안 붙인다 (concurrency-1 AC-01)', async () => {
     const capture = (): { writes: string[]; restore: () => void } => {
       const writes: string[] = [];

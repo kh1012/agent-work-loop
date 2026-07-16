@@ -83,6 +83,31 @@ export function versionString(c: Caps = caps()): string {
   ].join('\n');
 }
 
+/** work new --experiment 파싱 결과(순수, 테스트 가능하게 커맨더 액션에서 분리, experiment-harness). */
+export type ExperimentParse =
+  | { ok: true; value: Record<string, unknown> | undefined }
+  | { ok: false; error: string };
+
+/**
+ * --experiment JSON 옵션을 파싱·검증한다(순수). 미지정/빈 문자열이면 undefined(정상),
+ * 파싱 불가/객체 아님/배열이면 에러. 커맨더 액션이 이 결과로 exit/전달을 결정한다.
+ */
+export function parseExperimentOption(input: string | undefined): ExperimentParse {
+  if (typeof input !== 'string' || input.trim() === '') {
+    return { ok: true, value: undefined };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(input);
+  } catch {
+    return { ok: false, error: '--experiment JSON 을 파싱하지 못했습니다.' };
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { ok: false, error: '--experiment 은 JSON 객체여야 합니다.' };
+  }
+  return { ok: true, value: parsed as Record<string, unknown> };
+}
+
 /**
  * awl 명령어 트리를 만든다.
  *
@@ -219,21 +244,12 @@ export function buildProgram(): Command {
         },
       ) => {
         const { runWorkNew } = await import('./commands/work.js');
-        let experiment: Record<string, unknown> | undefined;
-        if (typeof opts.experiment === 'string' && opts.experiment.trim() !== '') {
-          try {
-            const parsed = JSON.parse(opts.experiment);
-            if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-              process.stderr.write('\n  --experiment 은 JSON 객체여야 합니다.\n');
-              process.exit(1);
-            }
-            experiment = parsed as Record<string, unknown>;
-          } catch {
-            process.stderr.write('\n  --experiment JSON 을 파싱하지 못했습니다.\n');
-            process.exit(1);
-          }
+        const parsedExp = parseExperimentOption(opts.experiment);
+        if (!parsedExp.ok) {
+          process.stderr.write(`\n  ${signal(caps(), 'error')} ${parsedExp.error}\n`);
+          process.exit(1);
         }
-        await runWorkNew(id, description, { ...opts, experiment });
+        await runWorkNew(id, description, { ...opts, experiment: parsedExp.value });
       },
     );
   work

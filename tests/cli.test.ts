@@ -7,7 +7,13 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { version as pkgVersion } from '../package.json';
 import type { Caps } from '../src/core/tty.js';
-import { BANNER, buildProgram, renderBanner, versionString } from '../src/program.js';
+import {
+  BANNER,
+  buildProgram,
+  parseExperimentOption,
+  renderBanner,
+  versionString,
+} from '../src/program.js';
 
 const origHome = process.env.AWL_HOME;
 
@@ -80,6 +86,31 @@ describe('awl 프로그램 구성', () => {
   it('metrics 는 사람이 치는 명령이라 도움말에 보인다 (WI-P AC-04)', () => {
     const program = buildProgram();
     expect(program.helpInformation()).toContain('metrics');
+  });
+});
+
+describe('parseExperimentOption — --experiment 파싱/검증 (experiment-harness AC-06, 리뷰)', () => {
+  it('정상 JSON 객체는 ok+value', () => {
+    const r = parseExperimentOption('{"model":"lite","mode":"loop"}');
+    expect(r).toEqual({ ok: true, value: { model: 'lite', mode: 'loop' } });
+  });
+  it('미지정/빈 문자열은 ok+undefined(정상)', () => {
+    expect(parseExperimentOption(undefined)).toEqual({ ok: true, value: undefined });
+    expect(parseExperimentOption('   ')).toEqual({ ok: true, value: undefined });
+  });
+  it('배열은 거부(객체 아님)', () => {
+    const r = parseExperimentOption('[1,2]');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('객체');
+  });
+  it('비객체(숫자/null)는 거부', () => {
+    expect(parseExperimentOption('42').ok).toBe(false);
+    expect(parseExperimentOption('null').ok).toBe(false);
+  });
+  it('파싱 불가는 거부', () => {
+    const r = parseExperimentOption('{not json');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('파싱');
   });
 });
 
