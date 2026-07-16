@@ -204,6 +204,7 @@ export function createWorkitem(
   branch: string | null,
   description?: string,
   worktreePath?: string,
+  experiment?: Record<string, unknown>,
 ): WorkActionResult {
   const trimmed = id.trim();
   if (!trimmed) {
@@ -239,6 +240,9 @@ export function createWorkitem(
       ...(description ? { workitemDescription: description } : {}),
       raw_request: description ?? '',
       ...(worktreePath ? { workitemWorktreePath: worktreePath } : {}),
+      // 실험 케이스 메타(model/mode/taskType). D-15 자유 필드로 보존 —
+      // evolve 가 세대 스냅샷에 실어 metrics --compare 가 케이스별로 비교한다.
+      ...(experiment ? { workitemExperiment: experiment } : {}),
     },
   };
 }
@@ -495,7 +499,12 @@ function ensureGitignored(root: string, target: string): void {
 export async function runWorkNew(
   id: string,
   description: string | undefined,
-  opts: { worktree?: string | boolean; skipBaseline?: boolean; isolated?: boolean } = {},
+  opts: {
+    worktree?: string | boolean;
+    skipBaseline?: boolean;
+    isolated?: boolean;
+    experiment?: Record<string, unknown>;
+  } = {},
 ): Promise<void> {
   const root = requireRoot();
   const now = new Date().toISOString();
@@ -539,7 +548,15 @@ export async function runWorkNew(
     ensureGitignored(root, '.awl-home/');
   }
 
-  const result = createWorkitem(loadState(root), id, now, branch, description, worktreePath);
+  const result = createWorkitem(
+    loadState(root),
+    id,
+    now,
+    branch,
+    description,
+    worktreePath,
+    opts.experiment,
+  );
   if (result.error) {
     // precheck 를 이미 통과했으므로 여기서 다시 에러가 나는 건 예외적인 경우(예:
     // precheck 와 이 호출 사이에 다른 awl 프로세스가 state.json 을 바꿈)뿐이지만,

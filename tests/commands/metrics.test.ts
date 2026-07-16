@@ -55,6 +55,21 @@ describe('loadGenerations (WI-P AC-04)', () => {
     expect(gens.map((g) => g.workitem)).toEqual(['WI-Z', 'WI-A']);
   });
 
+  it('experiment 케이스 메타를 읽고, 없는 옛 스냅샷은 undefined (experiment-harness AC-01)', () => {
+    seedGeneration('p', 'WI-X', {
+      workitem: 'WI-X',
+      at: '2026-07-16T10:00:00Z',
+      criteriaTotal: 3,
+      experiment: { model: 'lite', mode: 'loop', taskType: 'ui' },
+    });
+    seedGeneration('p', 'WI-Y', { workitem: 'WI-Y', at: '2026-07-16T11:00:00Z', criteriaTotal: 2 });
+    const gens = loadGenerations('p');
+    const x = gens.find((g) => g.workitem === 'WI-X');
+    const y = gens.find((g) => g.workitem === 'WI-Y');
+    expect(x?.experiment).toEqual({ model: 'lite', mode: 'loop', taskType: 'ui' });
+    expect(y?.experiment).toBeUndefined(); // 없으면 하위호환 undefined
+  });
+
   it('gotchaApplied/gotchaMissed 필드가 없는 옛 스냅샷도 크래시 없이 0으로 읽는다 (하위호환)', () => {
     seedGeneration('p', 'WI-B', {
       workitem: 'WI-B',

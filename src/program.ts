@@ -209,14 +209,34 @@ export function buildProgram(): Command {
       '--isolated',
       'records(~/.awl)를 이 워크아이템 전용 AWL_HOME 으로 격리합니다 (병렬 세션용)',
     )
+    .option('--experiment <json>', '실험 케이스 메타 JSON (예: {"model":"lite","mode":"loop"})')
     .action(
       async (
         id: string,
         description: string | undefined,
-        opts: { worktree?: string | boolean; skipBaseline?: boolean; isolated?: boolean },
+        opts: {
+          worktree?: string | boolean;
+          skipBaseline?: boolean;
+          isolated?: boolean;
+          experiment?: string;
+        },
       ) => {
         const { runWorkNew } = await import('./commands/work.js');
-        await runWorkNew(id, description, opts);
+        let experiment: Record<string, unknown> | undefined;
+        if (typeof opts.experiment === 'string' && opts.experiment.trim() !== '') {
+          try {
+            const parsed = JSON.parse(opts.experiment);
+            if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+              process.stderr.write('\n  --experiment 은 JSON 객체여야 합니다.\n');
+              process.exit(1);
+            }
+            experiment = parsed as Record<string, unknown>;
+          } catch {
+            process.stderr.write('\n  --experiment JSON 을 파싱하지 못했습니다.\n');
+            process.exit(1);
+          }
+        }
+        await runWorkNew(id, description, { ...opts, experiment });
       },
     );
   work

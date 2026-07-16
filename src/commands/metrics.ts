@@ -30,6 +30,8 @@ export interface Generation {
   gotchaApplied: number;
   gotchaMissed: number;
   coverage: CoverageSnapshot;
+  /** 실험 케이스 메타(model/mode/taskType). 없으면 undefined(하위호환, experiment-harness). */
+  experiment?: Record<string, unknown>;
 }
 
 /** 워크아이템마다 난이도가 다르다는 경고 — 사람용/JSON 양쪽에 항상 포함한다. */
@@ -81,6 +83,9 @@ export function loadGenerations(project: string): Generation[] {
       gotchaApplied: num(raw.gotchaApplied),
       gotchaMissed: num(raw.gotchaMissed),
       coverage: readCoverage(raw.coverage),
+      ...(raw.experiment !== null && typeof raw.experiment === 'object'
+        ? { experiment: raw.experiment as Record<string, unknown> }
+        : {}),
     });
   }
   generations.sort((a, b) => a.at.localeCompare(b.at));

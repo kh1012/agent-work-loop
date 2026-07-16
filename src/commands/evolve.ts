@@ -285,12 +285,15 @@ export function writeGeneration(
   workitem: string | null,
   metrics: EvolveMetrics,
   at: string,
+  extra?: Record<string, unknown>,
 ): string {
   const dir = generationsDir(project);
   fs.mkdirSync(dir, { recursive: true });
   const name = `${workitem ?? 'unknown'}.json`;
   const file = path.join(dir, name);
-  fs.writeFileSync(file, `${JSON.stringify({ workitem, at, ...metrics }, null, 2)}\n`);
+  // extra(experiment/startedAt/durationMs 등)는 그대로 스냅샷에 실린다 — metrics
+  // --compare 가 케이스 축으로 읽는다(experiment-harness). 없으면 예전과 동일.
+  fs.writeFileSync(file, `${JSON.stringify({ workitem, at, ...metrics, ...extra }, null, 2)}\n`);
   return file;
 }
 
@@ -392,7 +395,13 @@ export function runEvolveCollect(opts: {
         : undefined;
     const collection = collectEvolve(config.project, workitem, state, scope);
     const at = new Date().toISOString();
-    writeGeneration(config.project, workitem, collection.metrics, at);
+    // 실험 케이스 메타(work new --experiment)를 세대 스냅샷에 실어 metrics --compare 가
+    // 케이스 축으로 읽게 한다. 없으면(대부분) 예전과 동일.
+    const extra: Record<string, unknown> = {};
+    if (state.workitemExperiment !== undefined) {
+      extra.experiment = state.workitemExperiment;
+    }
+    writeGeneration(config.project, workitem, collection.metrics, at, extra);
     // collect 는 스킬이 파싱하므로 기본 JSON.
     process.stdout.write(`${JSON.stringify(collection, null, 2)}\n`);
   } finally {

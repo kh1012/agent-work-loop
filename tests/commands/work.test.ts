@@ -100,6 +100,15 @@ describe('createWorkitem (WI-D AC-03, awl work new)', () => {
     expect(result.state.workitems).toEqual({});
   });
 
+  it('experiment 케이스 메타를 workitemExperiment 로 보존한다 (experiment-harness AC-01)', () => {
+    const exp = { model: 'lite', mode: 'loop', taskType: 'ui' };
+    const withExp = createWorkitem({}, 'WI-E', 't', 'main', undefined, undefined, exp);
+    expect(withExp.state.workitemExperiment).toEqual(exp);
+    // 없으면 필드가 아예 없다(하위호환)
+    const without = createWorkitem({}, 'WI-F', 't', 'main');
+    expect('workitemExperiment' in without.state).toBe(false);
+  });
+
   it('현재 워크아이템이 있으면 레지스트리에 보관(status: paused)한 뒤 새로 전환한다', () => {
     const before = {
       workitem: 'WI-D',
