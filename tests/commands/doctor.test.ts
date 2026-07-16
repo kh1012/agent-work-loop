@@ -139,6 +139,30 @@ describe('collectChecks — 설치됨 흉내', () => {
     const report = await collectChecks();
     expect(find(report.checks, '교훈')?.value).toBe('2개');
   });
+
+  it('최근 활동(records 시각 + state mtime)을 info 로 표시한다 (concurrency-1 AC-02)', async () => {
+    const home = process.env.AWL_HOME as string;
+    fs.mkdirSync(path.join(home, 'records'), { recursive: true });
+    fs.writeFileSync(
+      path.join(home, 'records', '2026-07.jsonl'),
+      `${JSON.stringify({ id: 'rec_x', at: '2026-07-16T10:30:00.000Z', type: 'audit' })}\n`,
+    );
+    fs.writeFileSync(
+      path.join(process.cwd(), '.awl', 'state.json'),
+      JSON.stringify({ phase: 'loop' }),
+    );
+
+    const report = await collectChecks();
+    const check = find(report.checks, '최근 활동');
+    expect(check?.status).toBe('info'); // 사실만 — warn 이 아니라 종료코드 불변
+    expect(check?.value).toContain('2026-07-16 10:30'); // 최근 기록 시각
+  });
+
+  it('records·state 가 없으면 최근 활동 check 를 만들지 않는다 (concurrency-1 AC-02)', async () => {
+    // beforeEach 의 makeInstalledHome 은 records/ 가 없고 makeInstalledProject 는 state.json 이 없다.
+    const report = await collectChecks();
+    expect(find(report.checks, '최근 활동')).toBeUndefined();
+  });
 });
 
 describe('collectChecks — 프로젝트 루트/브랜치 표시 (WI-C)', () => {

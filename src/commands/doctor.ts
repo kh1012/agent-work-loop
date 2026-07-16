@@ -18,6 +18,7 @@ import {
   type VersionMismatchKind,
   checkVersions,
 } from '../core/versions.js';
+import { readRecords } from './record.js';
 import { gatherVersionInputs } from './version-check.js';
 
 /**
@@ -780,6 +781,33 @@ async function collectProject(
       value: `${leftoverWorktrees.length}개`,
       hint: `.awl-worktrees/ 에 워크트리가 남아 있습니다(${shown}${leftoverWorktrees.length > 3 ? ' 등' : ''}). 완료된 워크아이템이면 git worktree remove 로 정리하세요.`,
     });
+  }
+
+  // 병렬 세션 힌트(concurrency-1): 최근 records 활동 시각 + state.json mtime 을 사실로
+  // 보여준다. awl 은 세션/소유자 개념이 없어(정확 감지는 세션토큰=concurrency-3 전제)
+  // "다른 세션"이라 단정하지 못한다 — 시각만 표시해 사람이 병렬 충돌을 눈치채게 한다.
+  // info 라 doctor 종료코드에도 영향 없다(problems 는 missing/fail 만 센다, F-04).
+  try {
+    const recs = readRecords();
+    const lastAt = recs.length > 0 ? String(recs[0]?.at ?? '') : '';
+    let stateMtime = '';
+    try {
+      stateMtime = fs.statSync(statePath).mtime.toISOString();
+    } catch {
+      // state.json 이 없으면 mtime 도 없다.
+    }
+    if (lastAt || stateMtime) {
+      const fmt = (iso: string): string => (iso ? iso.slice(0, 16).replace('T', ' ') : '없음');
+      checks.push({
+        group: '이 프로젝트',
+        name: '최근 활동',
+        status: 'info',
+        value: `기록 ${fmt(lastAt)} · state ${fmt(stateMtime)}`,
+        hint: '여러 세션이 같은 프로젝트에서 awl 을 돌리면 records(전역 공유)·state 가 뒤섞일 수 있습니다. 병렬로 작업 중이면 AWL_HOME 을 분리하세요.',
+      });
+    }
+  } catch {
+    // readRecords 실패는 무시한다(doctor 는 크래시하지 않는다).
   }
 }
 
