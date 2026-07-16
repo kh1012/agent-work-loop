@@ -444,7 +444,7 @@ function viewportWidth(): number {
 
 export function card(title: string, lines: string[], c: Caps = caps(), minInnerWidth = 0): string {
   const s = makeSymbols(c);
-  const color = makeColors(c.color);
+  const t = makeTokens(c); // 의미 토큰: frame(테두리)·accent(제목)·emphasis(강조)
   const pad = 2; // 좌우 여백(호흡)
 
   // 폭 상한: 뷰포트에서 프레임(2)+여백(pad*2)을 뺀 값. minInnerWidth 는 하한(init 화면).
@@ -460,19 +460,19 @@ export function card(title: string, lines: string[], c: Caps = caps(), minInnerW
     Math.max(minInnerWidth, visibleWidth(title), ...wrapped.map(visibleWidth), 0),
   );
 
-  const frame = (text: string): string => color.gray(text); // 테두리는 은은히 뒤로
+  const frame = (text: string): string => t.frame(text); // 테두리는 은은히 뒤로
   const row = (text: string): string => {
     const gap = Math.max(0, inner - visibleWidth(text));
     return `${frame(s.boxV)}${' '.repeat(pad)}${text}${' '.repeat(gap + pad)}${frame(s.boxV)}`;
   };
 
-  // 상단 테두리에 제목을 심는다: ╭─ 제목 ─────╮ (제목은 cyan bold 로 강조)
+  // 상단 테두리에 제목을 심는다: ╭─ 제목 ─────╮ (제목은 accent+emphasis 로 강조)
   const safeTitle = truncateToWidth(title, inner);
   const tvis = visibleWidth(safeTitle);
   const dash = Math.max(1, inner + pad * 2 - 3 - tvis);
   const top =
     frame(`${s.boxTL}${s.boxH} `) +
-    color.bold(color.cyan(safeTitle)) +
+    t.emphasis(t.accent(safeTitle)) +
     frame(` ${s.boxH.repeat(dash)}${s.boxTR}`);
   const bottom = frame(`${s.boxBL}${s.boxH.repeat(inner + pad * 2)}${s.boxBR}`);
 
@@ -496,7 +496,46 @@ export interface Colors {
   green: (s: string) => string;
   yellow: (s: string) => string;
   cyan: (s: string) => string;
+  blue: (s: string) => string;
   gray: (s: string) => string;
+}
+
+/**
+ * 역할 기반 의미 토큰(cli-design-tokens). 명령이 외형 색 이름(cyan/red…)이 아니라
+ * "무엇을 위한 색인가"(accent/danger…)로 쓰게 해, 팔레트를 한 곳에서 바꿀 수 있고
+ * 의미 충돌(info 와 카드 제목이 둘 다 cyan 이던 것)을 막는다. makeColors 위의 얇은 층이다.
+ */
+export interface Tokens {
+  /** 강조(가장 중요한 값) */
+  emphasis: (s: string) => string;
+  /** 부가·설명(뒤로 물러남) */
+  muted: (s: string) => string;
+  /** 위험·오류 */
+  danger: (s: string) => string;
+  /** 경고 */
+  warning: (s: string) => string;
+  /** 성공 */
+  success: (s: string) => string;
+  /** 액센트(카드 제목 등) */
+  accent: (s: string) => string;
+  /** 정보(accent 와 분리된 색) */
+  info: (s: string) => string;
+  /** 테두리·프레임 */
+  frame: (s: string) => string;
+}
+
+export function makeTokens(c: Caps): Tokens {
+  const col = makeColors(c.color);
+  return {
+    emphasis: col.bold,
+    muted: col.dim,
+    danger: col.red,
+    warning: col.yellow,
+    success: col.green,
+    accent: col.cyan,
+    info: col.blue,
+    frame: col.gray,
+  };
 }
 
 /** 사람용 상태 신호. 모든 명령이 같은 성공·경고·오류 어휘를 쓰게 한다. */
@@ -514,7 +553,8 @@ export function signal(c: Caps, kind: 'ok' | 'warn' | 'error' | 'info'): string 
   if (kind === 'error') {
     return color.red(raw);
   }
-  return color.cyan(raw);
+  // info 는 blue — 카드 제목의 accent(cyan)와 색을 분리한다(cli-design-tokens F-01).
+  return color.blue(raw);
 }
 
 // ---------------------------------------------------------------------------
@@ -545,6 +585,7 @@ export function makeColors(enabled: boolean): Colors {
     green: (s) => ansi(32, s, enabled),
     yellow: (s) => ansi(33, s, enabled),
     cyan: (s) => ansi(36, s, enabled),
+    blue: (s) => ansi(34, s, enabled),
     gray: (s) => ansi(90, s, enabled),
   };
 }

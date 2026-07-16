@@ -7,6 +7,7 @@ import {
   computeRawModeCapable,
   makeColors,
   makeSymbols,
+  makeTokens,
   signal,
   stringWidth,
   visibleWidth,
@@ -279,5 +280,34 @@ describe('computeRawModeCapable — 방향키 선택 능력 감지 (WI-Y AC-01)'
 
   it('setRawMode 가 없으면(예: 일부 환경) false', () => {
     expect(computeRawModeCapable(true, false, false)).toBe(false);
+  });
+});
+
+describe('makeTokens — 역할 의미 토큰(cli-design-tokens AC-01)', () => {
+  const cc = { unicode: true, color: true, tty: true };
+  it('토큰이 외형 색으로 매핑된다(accent=cyan, info=blue, danger=red…)', () => {
+    const t = makeTokens(cc);
+    const col = makeColors(true);
+    expect(t.accent('x')).toBe(col.cyan('x'));
+    expect(t.info('x')).toBe(col.blue('x'));
+    expect(t.danger('x')).toBe(col.red('x'));
+    expect(t.emphasis('x')).toBe(col.bold('x'));
+    expect(t.frame('x')).toBe(col.gray('x'));
+  });
+  it('info 와 accent 는 색이 다르다(cyan 충돌 분리)', () => {
+    const t = makeTokens(cc);
+    expect(t.info('x')).not.toBe(t.accent('x'));
+  });
+  it('color:false 면 통과', () => {
+    expect(makeTokens({ unicode: true, color: false, tty: true }).accent('x')).toBe('x');
+  });
+});
+
+describe('signal info — accent(cyan)와 색 분리(cli-design-tokens AC-01)', () => {
+  const cc = { unicode: true, color: true, tty: true };
+  it('info 는 blue(34), cyan(36) 아님', () => {
+    const s = signal(cc, 'info');
+    expect(s).toContain('\x1b[34m'); // blue
+    expect(s).not.toContain('\x1b[36m'); // cyan 아님
   });
 });
