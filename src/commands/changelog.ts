@@ -10,7 +10,9 @@ export function runChangelogDraft(opts: { workitem?: string; json?: boolean }): 
   const workitem =
     opts.workitem ?? (typeof current.workitem === 'string' ? current.workitem : undefined);
   if (!workitem) {
-    process.stderr.write('\n  워크아이템을 찾을 수 없습니다. --workitem <id> 를 지정하세요.\n');
+    process.stderr.write(
+      `\n  ${signal(caps(), 'error')} 워크아이템을 찾을 수 없습니다. --workitem <id> 를 지정하세요.\n`,
+    );
     process.exit(1);
   }
   const records = readRecords({ workitem });

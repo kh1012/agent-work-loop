@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { generationsDir, gotchasDir, legacyDeltasDir, lockFile } from '../core/paths.js';
-import { type Caps, caps, makeColors } from '../core/tty.js';
+import { type Caps, caps, makeColors, signal } from '../core/tty.js';
 import { requireConfig } from './config.js';
 import { computeDurationMs } from './metrics.js';
 import { computeCoverage, readRecords } from './record.js';
@@ -382,7 +382,7 @@ export function runEvolveCollect(opts: {
   const { projectRoot, config } = requireConfig();
   if (!acquireLock()) {
     process.stderr.write(
-      '\n  다른 evolve 가 실행 중입니다(~/.awl/.lock). 끝난 뒤 다시 시도하세요.\n',
+      `\n  ${signal(caps(), 'warn')} 다른 evolve 가 실행 중입니다(~/.awl/.lock). 끝난 뒤 다시 시도하세요.\n`,
     );
     process.exit(1);
   }
@@ -424,16 +424,20 @@ export function runEvolveRecord(jsonInput: string): void {
   try {
     parsed = JSON.parse(jsonInput);
   } catch (e) {
-    process.stderr.write(`\n  교훈 JSON 을 읽지 못했습니다: ${String(e)}\n`);
+    process.stderr.write(
+      `\n  ${signal(caps(), 'error')} 교훈 JSON 을 읽지 못했습니다: ${String(e)}\n`,
+    );
     process.exit(1);
   }
   if (typeof parsed !== 'object' || parsed === null) {
-    process.stderr.write('\n  교훈은 JSON 객체여야 합니다.\n');
+    process.stderr.write(`\n  ${signal(caps(), 'error')} 교훈은 JSON 객체여야 합니다.\n`);
     process.exit(1);
   }
   const data = parsed as Record<string, unknown>;
   if (typeof data.lesson !== 'string' || data.lesson.trim() === '') {
-    process.stderr.write('\n  lesson(재사용 가능한 교훈 문장)이 필요합니다.\n');
+    process.stderr.write(
+      `\n  ${signal(caps(), 'error')} lesson(재사용 가능한 교훈 문장)이 필요합니다.\n`,
+    );
     process.exit(1);
   }
 
@@ -451,7 +455,9 @@ export function runEvolveRecord(jsonInput: string): void {
   }
 
   if (!acquireLock()) {
-    process.stderr.write('\n  다른 evolve 가 실행 중입니다(~/.awl/.lock).\n');
+    process.stderr.write(
+      `\n  ${signal(caps(), 'warn')} 다른 evolve 가 실행 중입니다(~/.awl/.lock).\n`,
+    );
     process.exit(1);
   }
   try {

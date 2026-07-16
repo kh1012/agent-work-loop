@@ -889,6 +889,17 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
     stderrSpy.mockRestore();
   });
 
+  it('알 수 없는 기록 타입 에러가 평문이 아니라 signal(error) 마커를 단다 (cli-visual-consistency AC-02)', async () => {
+    project({ workitem: 'WI-X' });
+    const { exitSpy, stderrSpy } = mockExit();
+    await expect(runRecord('nonsense-type', { json: '{}' })).rejects.toThrow('exit:1');
+    const out = stderrSpy.mock.calls.map((c) => String(c[0])).join('');
+    expect(out).toContain('알 수 없는 기록 타입'); // 메시지 보존
+    expect(/(\[x\]|❌)/.test(out)).toBe(true); // signal(error) 마커(유니코드 ❌ / ASCII [x])
+    exitSpy.mockRestore();
+    stderrSpy.mockRestore();
+  });
+
   it('프로젝트 루트 자체를 못 찾으면(.awl/.git 도 없음) 진짜 원인을 부연해서 알린다 (WI-R 리뷰 지적)', async () => {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-record-noroot-')));
     process.chdir(root);

@@ -174,13 +174,13 @@ export function requireConfig(): { projectRoot: string; config: AwlConfig } {
   const projectRoot = resolveProjectRoot();
   if (!projectRoot) {
     process.stderr.write(
-      '\n  프로젝트 루트를 찾을 수 없습니다(.git/.awl 없음). awl init 을 실행하세요.\n',
+      `\n  ${signal(caps(), 'error')} 프로젝트 루트를 찾을 수 없습니다(.git/.awl 없음). awl init 을 실행하세요.\n`,
     );
     process.exit(1);
   }
   const loaded = loadConfig(projectRoot);
   if (!loaded.config) {
-    process.stderr.write('\n  config 를 읽을 수 없습니다:\n');
+    process.stderr.write(`\n  ${signal(caps(), 'error')} config 를 읽을 수 없습니다:\n`);
     for (const e of loaded.errors) {
       process.stderr.write(`    - ${e}\n`);
     }
@@ -634,12 +634,14 @@ export async function interactiveEditMenu(
 export async function runConfig(): Promise<void> {
   const projectRoot = resolveProjectRoot();
   if (!projectRoot) {
-    process.stderr.write('\n  프로젝트 루트를 찾을 수 없습니다. awl init 을 실행하세요.\n');
+    process.stderr.write(
+      `\n  ${signal(caps(), 'error')} 프로젝트 루트를 찾을 수 없습니다. awl init 을 실행하세요.\n`,
+    );
     process.exit(1);
   }
   const loaded = loadConfig(projectRoot);
   if (!loaded.config) {
-    process.stderr.write('\n  config.json 에 문제가 있습니다:\n');
+    process.stderr.write(`\n  ${signal(caps(), 'error')} config.json 에 문제가 있습니다:\n`);
     for (const e of loaded.errors) {
       process.stderr.write(`    - ${e}\n`);
     }
@@ -705,12 +707,16 @@ export async function runConfigSet(
 ): Promise<void> {
   const projectRoot = resolveProjectRoot();
   if (!projectRoot) {
-    process.stderr.write('\n  프로젝트 루트를 찾을 수 없습니다. awl init 을 실행하세요.\n');
+    process.stderr.write(
+      `\n  ${signal(caps(), 'error')} 프로젝트 루트를 찾을 수 없습니다. awl init 을 실행하세요.\n`,
+    );
     process.exit(1);
   }
   const loaded = loadConfig(projectRoot);
   if (!loaded.config) {
-    process.stderr.write('\n  config.json 에 문제가 있어 수정할 수 없습니다:\n');
+    process.stderr.write(
+      `\n  ${signal(caps(), 'error')} config.json 에 문제가 있어 수정할 수 없습니다:\n`,
+    );
     for (const e of loaded.errors) {
       process.stderr.write(`    - ${e}\n`);
     }
@@ -725,7 +731,9 @@ export async function runConfigSet(
 
   const parsed = parseConfigKey(key);
   if (!parsed) {
-    process.stderr.write(`\n  지원하지 않는 키입니다: ${key}\n\n  설정 가능한 키:\n`);
+    process.stderr.write(
+      `\n  ${signal(caps(), 'error')} 지원하지 않는 키입니다: ${key}\n\n  설정 가능한 키:\n`,
+    );
     for (const k of SETTABLE_KEYS) {
       process.stderr.write(`    ${k}\n`);
     }
@@ -742,7 +750,7 @@ export async function runConfigSet(
     force: opts.force,
   });
   if (!outcome.ok) {
-    process.stderr.write(`\n  ${outcome.message}\n`);
+    process.stderr.write(`\n  ${signal(caps(), 'error')} ${outcome.message}\n`);
     process.exit(1);
   }
   writeConfigFile(projectRoot, config);

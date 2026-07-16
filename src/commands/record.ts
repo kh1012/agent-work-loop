@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { recordsDir } from '../core/paths.js';
 import { run } from '../core/runner.js';
-import { type Caps, caps, card, makeColors } from '../core/tty.js';
+import { type Caps, caps, card, makeColors, signal } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
 import { getCriterion, loadState, writeState } from './state.js';
 
@@ -785,7 +785,9 @@ export interface RecordCliOpts {
 /** awl record <type> — 스킬이 치는 명령. */
 export async function runRecord(type: string, opts: RecordCliOpts): Promise<void> {
   if (!RECORD_TYPES.includes(type as RecordType)) {
-    process.stderr.write(`\n  알 수 없는 기록 타입: ${type}\n  가능: ${RECORD_TYPES.join(', ')}\n`);
+    process.stderr.write(
+      `\n  ${signal(caps(), 'error')} 알 수 없는 기록 타입: ${type}\n  가능: ${RECORD_TYPES.join(', ')}\n`,
+    );
     process.exit(1);
   }
 
@@ -797,11 +799,13 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
       data = JSON.parse(opts.json);
     }
   } catch (e) {
-    process.stderr.write(`\n  데이터 JSON 을 읽지 못했습니다: ${String(e)}\n`);
+    process.stderr.write(
+      `\n  ${signal(caps(), 'error')} 데이터 JSON 을 읽지 못했습니다: ${String(e)}\n`,
+    );
     process.exit(1);
   }
   if (typeof data !== 'object' || data === null) {
-    process.stderr.write('\n  데이터는 JSON 객체여야 합니다.\n');
+    process.stderr.write(`\n  ${signal(caps(), 'error')} 데이터는 JSON 객체여야 합니다.\n`);
     process.exit(1);
   }
 
@@ -897,7 +901,9 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
     at,
   });
   if (!record) {
-    process.stderr.write(`\n  기록을 거부했습니다. 빠진 필수 필드: ${missing.join(', ')}\n`);
+    process.stderr.write(
+      `\n  ${signal(caps(), 'error')} 기록을 거부했습니다. 빠진 필수 필드: ${missing.join(', ')}\n`,
+    );
     process.stderr.write(
       `  ${type} 에 필요한 필드: ${SCHEMAS[type as RecordType].required.join(', ')}\n`,
     );

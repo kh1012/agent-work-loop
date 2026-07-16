@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { rulesDir } from '../core/paths.js';
-import { type Caps, caps, card, makeColors } from '../core/tty.js';
+import { type Caps, caps, card, makeColors, signal } from '../core/tty.js';
 import { type Gotcha, acquireLock, loadGotchaList, releaseLock } from './evolve.js';
 
 /**
@@ -253,7 +253,9 @@ export function runRulesPromote(
 ): void {
   const gotcha = loadGotchaList().find((g) => g.id === gotchaId);
   if (!gotcha) {
-    process.stderr.write(`\n  교훈 ${gotchaId} 을(를) 찾을 수 없습니다.\n`);
+    process.stderr.write(
+      `\n  ${signal(caps(), 'error')} 교훈 ${gotchaId} 을(를) 찾을 수 없습니다.\n`,
+    );
     process.exit(1);
   }
   // applies/counter 는 필수. 없으면 거부한다(적용 조건 없는 규칙은 다른 프로젝트로 잘못 끌려가고,
@@ -276,7 +278,9 @@ export function runRulesPromote(
   const color = makeColors(c.color);
 
   if (!acquireLock()) {
-    process.stderr.write('\n  다른 evolve/promote 가 실행 중입니다(~/.awl/.lock).\n');
+    process.stderr.write(
+      `\n  ${signal(caps(), 'warn')} 다른 evolve/promote 가 실행 중입니다(~/.awl/.lock).\n`,
+    );
     process.exit(1);
   }
   try {
