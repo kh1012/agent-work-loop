@@ -16,6 +16,7 @@ import {
   resolveBlockedBaseline,
   runRecord,
   selectMonthFiles,
+  shouldDefer,
 } from '../../src/commands/record.js';
 
 const origHome = process.env.AWL_HOME;
@@ -1554,5 +1555,35 @@ describe('defer 레코드 타입 — critical-only 큐(skip-gate-defer AC-01)', 
   it('정해진 값 밖 severity 는 거부한다', () => {
     const r = buildRecord('defer', { severity: 'urgent', what: 'x', why: 'y' }, DEFAULTS);
     expect(r.missing.some((m) => m.includes('severity'))).toBe(true);
+  });
+});
+
+describe('shouldDefer — critical-only 임계 술어(skip-gate-defer AC-03)', () => {
+  it('기본 임계 high: high 만 defer, medium/low 는 통과', () => {
+    expect(shouldDefer('high')).toBe(true);
+    expect(shouldDefer('medium')).toBe(false);
+    expect(shouldDefer('low')).toBe(false);
+  });
+
+  it('임계 medium: high+medium defer, low 통과', () => {
+    expect(shouldDefer('high', 'medium')).toBe(true);
+    expect(shouldDefer('medium', 'medium')).toBe(true);
+    expect(shouldDefer('low', 'medium')).toBe(false);
+  });
+
+  it('임계 low: 전부 defer', () => {
+    expect(shouldDefer('high', 'low')).toBe(true);
+    expect(shouldDefer('medium', 'low')).toBe(true);
+    expect(shouldDefer('low', 'low')).toBe(true);
+  });
+
+  it('알 수 없는 severity 는 fail-safe 로 defer(사람에게)', () => {
+    expect(shouldDefer('urgent')).toBe(true);
+    expect(shouldDefer('')).toBe(true);
+  });
+
+  it('잘못된 threshold 는 기본 high 로 취급한다', () => {
+    expect(shouldDefer('medium', 'garbage')).toBe(false); // high 기본 → medium 통과
+    expect(shouldDefer('high', 'garbage')).toBe(true);
   });
 });

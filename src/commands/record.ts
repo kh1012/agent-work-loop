@@ -74,6 +74,28 @@ export const AWL_FEEDBACK_SEVERITIES = ['high', 'medium', 'low'] as const;
  */
 export const DEFER_SEVERITIES = ['high', 'medium', 'low'] as const;
 
+/**
+ * critical-only 모드에서 이 severity 를 사람에게 defer 할지 판정한다(순수, skip-gate-defer AC-03).
+ *
+ * 판정 기준: severity 가 임계 이상으로 "중요"하면 defer(사람 최종 문의), 아니면 스킬이
+ * "권장 통과"한다. threshold 'high'(기본)=high 만, 'medium'=high+medium, 'low'=전부 defer.
+ * "중요"의 뜻은 severity 를 남기는 쪽(스킬)이 정한다 — 통상 파괴적·스펙 이탈·부정행위 의심·
+ * 되돌리기 어려움을 high 로 본다. severity 가 알 수 없는 값이면 fail-safe 로 defer(true) —
+ * 판단 못 하는 건 자율 통과시키지 않고 사람에게 넘긴다. 잘못된 threshold 는 기본 high 로 취급.
+ *
+ * awl 은 이 술어만 제공한다 — 실제 자율통과/보류 실행(게이트를 권장으로 넘김)은 스킬 몫이다.
+ */
+export function shouldDefer(severity: string, threshold = 'high'): boolean {
+  const levels = DEFER_SEVERITIES as readonly string[];
+  const sevRank = levels.indexOf(severity);
+  if (sevRank === -1) {
+    return true; // 알 수 없는 severity → 안전하게 defer(사람에게)
+  }
+  const thrRank = levels.indexOf(threshold);
+  const effectiveThr = thrRank === -1 ? 0 : thrRank; // 잘못된 threshold → 기본 high(0)
+  return sevRank <= effectiveThr;
+}
+
 interface Schema {
   required: string[];
   /** 비어있지 않은 배열이어야 하는 필드 */
