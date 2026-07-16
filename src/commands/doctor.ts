@@ -212,6 +212,12 @@ const IGNORE_DIRS = new Set([
 ]);
 
 /**
+ * state.json 크기 경고 임계값(피드백 F-1). 정상 state.json 은 수 KB 이내다 —
+ * 1MB 를 넘으면 commit --start 의 untracked 스냅샷 누적 등 이상 징후로 보고 warn 한다.
+ */
+const STATE_SIZE_WARN_BYTES = 1024 * 1024;
+
+/**
  * src/ (없으면 projectRoot) 아래 소스 코드 파일의 절대 경로를 재귀적으로 모은다.
  * 네이밍 컨벤션 감지(AC-01)와 복잡도 프록시(AC-02) 가 같은 파일 목록을 재사용한다.
  */
@@ -731,6 +737,46 @@ async function collectProject(
     } else {
       checks.push({ group: '이 프로젝트', name: 'state.json', status: 'warn', value: '형식 오류' });
     }
+    // 크기 이상치(피드백 F-1): commit --start 의 untracked 스냅샷 누적 등으로 비대해질 수 있다.
+    // warn only — doctor 의 ok 판정(problems = missing/fail)에는 영향을 주지 않는다.
+    let stateBytes: number | null = null;
+    try {
+      stateBytes = fs.statSync(statePath).size;
+    } catch {
+      stateBytes = null;
+    }
+    if (stateBytes !== null && stateBytes > STATE_SIZE_WARN_BYTES) {
+      checks.push({
+        group: '이 프로젝트',
+        name: 'state.json 크기',
+        status: 'warn',
+        value: `${(stateBytes / (1024 * 1024)).toFixed(1)}MB`,
+        hint: 'state.json 이 비정상적으로 큽니다 — commit --start 가 저장하는 untracked 스냅샷 누적이 원인일 수 있습니다. .awl-worktrees/ 를 .gitignore 에 넣고(awl init 재실행) 완료된 워크아이템을 정리하세요.',
+      });
+    }
+  }
+
+  // 완료 후 방치된 워크트리(피드백 F-5): .awl-worktrees/ 아래 남은 워크트리. 회수 명령이 아직
+  // 없어 수동 정리가 필요하고, 방치되면 state.json 비대·디스크 부담의 근원이 된다.
+  const worktreesDir = path.join(projectRoot, '.awl-worktrees');
+  let leftoverWorktrees: string[] = [];
+  try {
+    leftoverWorktrees = fs
+      .readdirSync(worktreesDir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
+  } catch {
+    // .awl-worktrees/ 가 없으면 잔존도 없다.
+  }
+  if (leftoverWorktrees.length > 0) {
+    const shown = leftoverWorktrees.slice(0, 3).join(', ');
+    checks.push({
+      group: '이 프로젝트',
+      name: '워크트리 잔존',
+      status: 'warn',
+      value: `${leftoverWorktrees.length}개`,
+      hint: `.awl-worktrees/ 에 워크트리가 남아 있습니다(${shown}${leftoverWorktrees.length > 3 ? ' 등' : ''}). 완료된 워크아이템이면 git worktree remove 로 정리하세요.`,
+    });
   }
 }
 

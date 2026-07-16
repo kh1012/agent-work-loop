@@ -85,6 +85,8 @@ export const SCHEMAS: Record<RecordType, Schema> = {
   criteria: { required: ['items'], arrays: ['items'] },
   // WI-U: why/how/alternatives 는 diff 크기(diffTier)에 따라 조건부로 요구된다
   // (buildRecord 의 attempt 전용 분기가 처리). what/result 만 무조건 필수.
+  // result:'verified' 는 코드 변경 없이 확인만 한 가드/검증형 완료조건 — 직전 커밋을
+  // 재지 않고 why/how 를 면제한다(what 만으로 통과, 피드백 F-3).
   attempt: { required: ['what', 'result'] },
   blocked: { required: ['what', 'why', 'tried', 'lesson'], arrays: ['tried'] },
   // WI-S: target/verdict(이분법) 를 reviewId/criteria/findings/cheatingDetected/
@@ -235,7 +237,10 @@ export function buildRecord(
   if (type === 'attempt') {
     const tier = typeof data.diffTier === 'string' ? data.diffTier : undefined;
     const isFailed = data.result === 'failed';
-    const requiresFullDetail = isFailed || tier !== 'minimal';
+    // result:'verified' — 코드 변경이 없는 가드/검증형 완료조건. 잴 diff 가 없으니
+    // 직전 커밋 크기에 발목잡히지 않고 what 만으로 통과시킨다(피드백 F-3).
+    const isVerified = data.result === 'verified';
+    const requiresFullDetail = isFailed || (!isVerified && tier !== 'minimal');
     if (requiresFullDetail) {
       for (const field of ['why', 'how']) {
         const v = data[field];
@@ -546,6 +551,24 @@ export function readRecords(filter: RecordFilter = {}): Record<string, unknown>[
 }
 
 /**
+ * 이 워크아이템에 "승인된" 게이트1 레코드가 있는가 (0.6.3, 적대검증 발견 수정).
+ *
+ * 게이트 통과 판정을 가변 phase 문자열이 아니라 append-only gate 레코드로 한다.
+ * phase 는 스킬이 `awl state set` 으로 바꿀 수 있어(hidden 명령), 사람이 REJECT 한
+ * 계획이나 임의 조작한 phase 로 루프 진입/게이트 전 커밋을 우회할 수 있었다.
+ * decision==='approved' 만 인정한다 — `record gate` 의 loop 자동전이 조건과 일관.
+ * workitem 이 falsy 면 확인할 게이트 레코드가 없다는 뜻이므로 fail-closed(false).
+ */
+export function hasApprovedGate1(workitem: string | undefined): boolean {
+  if (typeof workitem !== 'string' || workitem === '') {
+    return false;
+  }
+  return readRecords({ type: 'gate', workitem }).some(
+    (r) => r.gate === 1 && r.decision === 'approved',
+  );
+}
+
+/**
  * 한 줄 요약(what/scope/question 등 대표 필드). 줄글을 쏟지 않는다.
  *
  * review 타입은 WI-S 부터 target/verdict 대신 reviewId/findings 를 쓴다(리뷰 지적,
@@ -675,7 +698,13 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
   // 않는다(그 필드는 스킬이 채우도록 지시된 적이 없어 실사용에서 항상 비어
   // 있다). 측정에 실패하면(커밋 이력 없음 등) diffTier 를 안 넣는다 —
   // buildRecord 가 diffTier 없이도 안전하게(전체 상세 요구) 처리한다.
-  if (type === 'attempt' && projectRoot && data.diffTier === undefined) {
+  // result:'verified'(무변경 가드/검증형)는 잴 변경이 없으므로 직전 커밋을 재지 않는다(F-3).
+  if (
+    type === 'attempt' &&
+    projectRoot &&
+    data.diffTier === undefined &&
+    data.result !== 'verified'
+  ) {
     const diffArgs =
       data.result === 'failed'
         ? ['diff', '--numstat', 'HEAD']

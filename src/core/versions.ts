@@ -75,7 +75,7 @@ export function checkVersions(inputs: VersionInputs): VersionCheckResult {
       kind: 'project-vs-engine',
       a: inputs.projectEngineVersion,
       b: inputs.installedEngineVersion,
-      hint: `이 프로젝트는 ${inputs.projectEngineVersion} 기준으로 설정됐으나 엔진은 ${inputs.installedEngineVersion}입니다. awl update 후 awl init 으로 스킬을 재설치하세요.`,
+      hint: `이 프로젝트는 ${inputs.projectEngineVersion} 기준으로 설정됐으나 엔진은 ${inputs.installedEngineVersion}입니다. awl init --yes 로 프로젝트·스킬 버전을 엔진에 맞춰 동기화하세요.`,
     });
   }
 
@@ -90,7 +90,7 @@ export function checkVersions(inputs: VersionInputs): VersionCheckResult {
         kind: `${skill}-skill-vs-engine`,
         a: skillVersion,
         b: inputs.installedEngineVersion,
-        hint: `설치된 ${SKILL_LABELS[skill]} 스킬이 ${skillVersion} 기준입니다. 엔진은 ${inputs.installedEngineVersion}입니다. awl init 으로 스킬을 재설치하세요.`,
+        hint: `설치된 ${SKILL_LABELS[skill]} 스킬이 ${skillVersion} 기준입니다. 엔진은 ${inputs.installedEngineVersion}입니다. awl init --yes 로 스킬을 재설치·동기화하세요.`,
       });
     }
   }

@@ -18,11 +18,13 @@ import {
   nonInteractiveInputs,
   promptVerifyLocation,
   registerProject,
+  runInit,
   scaffoldGlobal,
   selectMulti,
   selectSingle,
   skillsVersionPath,
   splitEnv,
+  syncExistingInstall,
   verifyStepLines,
   writeSkillsVersionStamp,
 } from '../../src/commands/init.js';
@@ -394,6 +396,14 @@ describe('ensureGitignore — 중복 방지', () => {
     expect(occurrences).toBe(1);
   });
 
+  it('.awl-worktrees/ 도 함께 무시한다 (F-1 근원 차단)', () => {
+    const p = tmp('awl-gi-');
+    ensureGitignore(p);
+    const content = fs.readFileSync(path.join(p, '.gitignore'), 'utf8');
+    expect(content).toContain('.awl/state.json');
+    expect(content).toContain('.awl-worktrees/');
+  });
+
   it('기존 .gitignore 내용을 보존한다', () => {
     const p = tmp('awl-gi-');
     fs.writeFileSync(path.join(p, '.gitignore'), 'node_modules/\n');
@@ -545,6 +555,71 @@ describe('applyInit — 전체 산출물', () => {
     applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
     const agents = fs.readFileSync(path.join(proj, 'AGENTS.md'), 'utf8');
     expect(agents.split('awl-loop:start').length - 1).toBe(1);
+  });
+
+  it('syncExistingInstall — 옛 마커(config·skills-version)를 설치된 엔진 버전으로 끌어올린다 (F-2)', () => {
+    const inputs = nonInteractiveInputs(proj);
+    inputs.skills = { claude: true, codex: true };
+    const result = applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
+    const engineVersion = result.engineVersion;
+
+    // 마커만 옛 버전으로 되돌린다(내용은 최신, 선언 마커만 낡은 상태 — F-2 관측 재현).
+    const configPath = path.join(proj, '.awl', 'config.json');
+    const cfg = readJson(configPath) as Record<string, unknown>;
+    fs.writeFileSync(configPath, JSON.stringify({ ...cfg, engineVersion: '0.0.1' }));
+    fs.writeFileSync(skillsVersionPath(proj), JSON.stringify({ claude: '0.0.1', codex: '0.0.1' }));
+
+    const synced = syncExistingInstall(proj, engineVersion);
+
+    expect(synced.configUpdated).toBe(true);
+    expect(synced.skills.sort()).toEqual(['claude', 'codex']);
+    expect((readJson(configPath) as Record<string, unknown>).engineVersion).toBe(engineVersion);
+    const stamp = readJson(skillsVersionPath(proj)) as Record<string, unknown>;
+    expect(stamp.claude).toBe(engineVersion);
+    expect(stamp.codex).toBe(engineVersion);
+  });
+
+  it('syncExistingInstall — 설치 안 된 스킬은 새로 깔지 않는다 (F-2)', () => {
+    const inputs = nonInteractiveInputs(proj);
+    inputs.skills = { claude: false, codex: false };
+    const result = applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
+
+    const synced = syncExistingInstall(proj, result.engineVersion);
+
+    expect(synced.skills).toEqual([]);
+    expect(fs.existsSync(path.join(proj, '.claude', 'skills', 'awl-loop'))).toBe(false);
+  });
+
+  it('syncExistingInstall — 이미 최신이면 config 를 다시 쓰지 않는다 (F-2)', () => {
+    const inputs = nonInteractiveInputs(proj);
+    inputs.skills = { claude: false, codex: false };
+    const result = applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
+
+    const synced = syncExistingInstall(proj, result.engineVersion);
+
+    expect(synced.configUpdated).toBe(false);
+  });
+
+  it('runInit --yes 재실행이 낡은 마커를 설치 엔진으로 동기화한다 (F-2 CLI 배선)', async () => {
+    const inputs = nonInteractiveInputs(proj);
+    inputs.skills = { claude: true, codex: false };
+    const result = applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
+
+    // 마커만 낡게 되돌린다(선언 마커만 옛 버전 — F-2 관측 재현).
+    const configPath = path.join(proj, '.awl', 'config.json');
+    const cfg = readJson(configPath) as Record<string, unknown>;
+    fs.writeFileSync(configPath, JSON.stringify({ ...cfg, engineVersion: '0.0.1' }));
+    fs.writeFileSync(skillsVersionPath(proj), JSON.stringify({ claude: '0.0.1' }));
+
+    // proj 가 cwd(beforeEach 에서 chdir)이고 config 가 있으므로 --yes 재실행 경로를 탄다.
+    await runInit({ yes: true });
+
+    expect((readJson(configPath) as Record<string, unknown>).engineVersion).toBe(
+      result.engineVersion,
+    );
+    expect((readJson(skillsVersionPath(proj)) as Record<string, unknown>).claude).toBe(
+      result.engineVersion,
+    );
   });
 
   it('같은 프로젝트를 다시 등록해도 프로젝트 수가 늘지 않는다', () => {

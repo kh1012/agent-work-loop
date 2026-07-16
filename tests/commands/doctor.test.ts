@@ -305,7 +305,7 @@ describe('collectChecks — 버전 4쌍 (WI-X)', () => {
     process.env.AWL_HOME = makeInstalledHome(); // engine 0.0.0
   });
 
-  it('프로젝트 config.engineVersion 이 설치된 엔진과 다르면 엔진 버전 일치가 warn 이고 [!] 힌트에 awl update 를 안내한다', async () => {
+  it('프로젝트 config.engineVersion 이 설치된 엔진과 다르면 엔진 버전 일치가 warn 이고 [!] 힌트에 awl init --yes 를 안내한다', async () => {
     const proj = tmp('awl-proj-');
     fs.mkdirSync(path.join(proj, '.git'), { recursive: true });
     fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
@@ -318,7 +318,7 @@ describe('collectChecks — 버전 4쌍 (WI-X)', () => {
     const report = await collectChecks();
     const check = find(report.checks, '엔진 버전 일치');
     expect(check?.status).toBe('warn');
-    expect(check?.hint).toContain('awl update');
+    expect(check?.hint).toContain('awl init --yes');
   });
 
   it('스킬 미설치면 Claude/Codex 스킬 버전 둘 다 warn', async () => {
@@ -588,5 +588,44 @@ describe('collectChecks — 파일 크기 통합 (WI-I AC-02)', () => {
     const report = await collectChecks();
     const check = find(report.checks, '파일 크기');
     expect(check?.status).toBe('ok');
+  });
+});
+
+describe('collectChecks — state.json 비대·워크트리 잔존 경고 (피드백 F-1/F-5)', () => {
+  beforeEach(() => {
+    process.env.AWL_HOME = makeInstalledHome();
+  });
+
+  it('state.json 이 1MB 를 넘으면 warn 으로 잡는다', async () => {
+    const proj = makeInstalledProject();
+    // 형식은 유효 JSON 을 유지한 채로 1MB 를 넘긴다.
+    const big = { phase: 'loop', junk: 'x'.repeat(1024 * 1024 + 16) };
+    fs.writeFileSync(path.join(proj, '.awl', 'state.json'), JSON.stringify(big));
+    process.chdir(proj);
+
+    const report = await collectChecks();
+    const check = find(report.checks, 'state.json 크기');
+    expect(check?.status).toBe('warn');
+    expect(check?.value).toContain('MB');
+  });
+
+  it('정상 크기 state.json 은 크기 경고를 내지 않는다', async () => {
+    const proj = makeInstalledProject();
+    fs.writeFileSync(path.join(proj, '.awl', 'state.json'), JSON.stringify({ phase: 'loop' }));
+    process.chdir(proj);
+
+    const report = await collectChecks();
+    expect(find(report.checks, 'state.json 크기')).toBeUndefined();
+  });
+
+  it('.awl-worktrees/ 에 워크트리가 남아 있으면 warn 으로 잡는다', async () => {
+    const proj = makeInstalledProject();
+    fs.mkdirSync(path.join(proj, '.awl-worktrees', 'WI8'), { recursive: true });
+    process.chdir(proj);
+
+    const report = await collectChecks();
+    const check = find(report.checks, '워크트리 잔존');
+    expect(check?.status).toBe('warn');
+    expect(check?.value).toContain('1');
   });
 });

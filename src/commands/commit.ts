@@ -5,7 +5,8 @@ import { protectedFilesMessage } from '../core/protected-files.js';
 import { run } from '../core/runner.js';
 import { type Caps, caps, makeColors, signal } from '../core/tty.js';
 import { loadConfig, resolveProjectRoot } from './config.js';
-import { gate1BlockReason, getCriterion, loadState, setCriterion, writeState } from './state.js';
+import { hasApprovedGate1 } from './record.js';
+import { getCriterion, loadState, setCriterion, writeState } from './state.js';
 
 /**
  * awl commit — 격리 커밋.
@@ -77,12 +78,23 @@ export interface Baseline {
 }
 
 /**
+ * awl 이 스스로 만든 내부 산출물 경로 접두사. untracked 열거에서 항상 제외한다.
+ * 이들은 완료조건의 "내 변경"일 수 없고(격리 커밋 대상이 아니다), gitignore 되지 않은
+ * 채로 `commit --start` 의 untrackedAtStart 스냅샷에 박히면 워크트리 안 파일 수만큼
+ * state.json 을 선형 폭증시킨다(피드백 F-1: `.awl-worktrees/` 13만 파일 → criteria 88MB,
+ * state.json 128MB). `.gitignore` 설정에 의존하지 않고 코드 레벨에서 근원을 끊는다.
+ */
+const AWL_SELF_PREFIXES = ['.awl-worktrees/', '.awl/'];
+
+/**
  * untracked 파일 목록(gitignore 제외). -z(NUL 구분)로 읽어 core.quotePath 설정과
  * 무관하게 원본 파일명을 얻는다. 그렇지 않으면 한글 등 비ASCII 경로가 인용-인코딩되어
  * 이후 git add 에 리터럴 pathspec 으로 넘어가 매칭되지 않는다(리뷰어 지적 AC-05).
+ * awl 자기 산출물(AWL_SELF_PREFIXES)은 제외한다 — state.json 비대 근원 차단(F-1).
  */
 async function listUntracked(cwd: string): Promise<string[]> {
-  return namesZ(['ls-files', '--others', '--exclude-standard'], cwd);
+  const untracked = await namesZ(['ls-files', '--others', '--exclude-standard'], cwd);
+  return untracked.filter((f) => !AWL_SELF_PREFIXES.some((prefix) => f.startsWith(prefix)));
 }
 
 /**
@@ -356,9 +368,15 @@ export async function runCommit(
   const root = requireRoot();
   const c = caps();
   const color = makeColors(c.color);
-  const gateBlock = gate1BlockReason(loadState(root));
-  if (gateBlock) {
-    process.stderr.write(`\n  ${signal(c, 'warn')} ${gateBlock}\n`);
+  // 게이트1 승인 전에는 커밋하지 않는다. 판정은 가변 phase 가 아니라 "승인된
+  // gate:1 레코드"로 한다(0.6.3, 적대검증 발견) — phase 를 state set 으로 조작해도
+  // 우회되지 않는다. 현재 워크아이템이 있는데 승인 레코드가 없으면 차단한다.
+  const gateState = loadState(root);
+  const gateWorkitem = typeof gateState.workitem === 'string' ? gateState.workitem : undefined;
+  if (gateWorkitem && !hasApprovedGate1(gateWorkitem)) {
+    process.stderr.write(
+      `\n  ${signal(c, 'warn')} Gate 1 승인이 먼저 필요합니다. awl record gate 로 계획을 승인한 뒤 커밋하세요.\n`,
+    );
     process.exit(1);
   }
   if (!opts.force) {

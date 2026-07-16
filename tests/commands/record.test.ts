@@ -100,6 +100,23 @@ describe('buildRecord — 구조 강제', () => {
     });
   });
 
+  it('attempt result:verified 는 why/how 없이 what 만으로 통과한다 (무변경 가드/검증형, F-3)', () => {
+    const r = buildRecord(
+      'attempt',
+      { what: 'LayersPanel 은 이미 tell-free 임을 확인', result: 'verified' },
+      DEFAULTS,
+    );
+    expect(r.missing).toEqual([]);
+    expect(r.record).toMatchObject({ type: 'attempt', result: 'verified' });
+  });
+
+  it('attempt result:passed 는 diffTier 없으면 why/how 를 요구한다 (verified 와 대비, F-3)', () => {
+    const r = buildRecord('attempt', { what: '실제로 변경함', result: 'passed' }, DEFAULTS);
+    expect(r.record).toBeUndefined();
+    expect(r.missing).toContain('why');
+    expect(r.missing).toContain('how');
+  });
+
   it('project 가 데이터에도 config 에도 없으면 거부한다', () => {
     const r = buildRecord(
       'attempt',

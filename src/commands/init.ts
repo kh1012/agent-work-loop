@@ -437,17 +437,28 @@ export function writeState(projectRoot: string, now: string): string {
   return p;
 }
 
-/** .gitignore 에 .awl/state.json 을 추가한다. 이미 있으면 중복 추가하지 않는다. */
+/**
+ * .gitignore 에 awl 이 관리하는 항목을 추가한다. 이미 있는 항목은 건너뛴다.
+ *  - `.awl/state.json`: 로컬 루프 상태(팀과 공유하지 않는다).
+ *  - `.awl-worktrees/`: awl 이 `work new --worktree` 로 만드는 워크트리. gitignore 하지 않으면
+ *    그 안의 파일들이 `commit --start` 의 untracked 스냅샷에 박혀 state.json 을 폭증시킨다
+ *    (피드백 F-1 근원 차단 — commit.ts 의 코드 레벨 필터와 이중 방어).
+ * 하나라도 새로 추가하면 'added', 전부 이미 있으면 'exists' 를 돌려준다.
+ */
 export function ensureGitignore(projectRoot: string): 'added' | 'exists' {
   const gi = path.join(projectRoot, '.gitignore');
-  const target = '.awl/state.json';
-  const content = exists(gi) ? fs.readFileSync(gi, 'utf8') : '';
-  const already = content.split(/\r?\n/).some((line) => line.trim() === target);
-  if (already) {
+  const targets = ['.awl/state.json', '.awl-worktrees/'];
+  let content = exists(gi) ? fs.readFileSync(gi, 'utf8') : '';
+  const has = (t: string): boolean => content.split(/\r?\n/).some((line) => line.trim() === t);
+  const missing = targets.filter((t) => !has(t));
+  if (missing.length === 0) {
     return 'exists';
   }
-  const prefix = content.length > 0 && !content.endsWith('\n') ? '\n' : '';
-  fs.writeFileSync(gi, `${content}${prefix}${target}\n`);
+  for (const target of missing) {
+    const prefix = content.length > 0 && !content.endsWith('\n') ? '\n' : '';
+    content = `${content}${prefix}${target}\n`;
+  }
+  fs.writeFileSync(gi, content);
   return 'added';
 }
 
@@ -556,6 +567,47 @@ export function writeSkillsVersionStamp(
   }
   fs.mkdirSync(path.dirname(p), { recursive: true });
   fs.writeFileSync(p, `${JSON.stringify(next, null, 2)}\n`);
+}
+
+/**
+ * 이미 설정된 프로젝트를 재실행(그대로 쓰기)할 때 버전 마커를 설치된 엔진에 맞춰
+ * 동기화한다(피드백 F-2). `config.engineVersion` 과 이미 설치된 스킬의
+ * `skills-version.json` 을 갱신하고, 스킬 파일 자체도 재설치해 "마커만 올리고 내용은
+ * 옛날" 인 거짓 동기화를 피한다. 설치 안 된 스킬은 새로 깔지 않는다(재실행이 멋대로
+ * 스킬을 추가하지 않게 한다). 반환값은 무엇을 동기화했는지 — 로그용.
+ */
+export function syncExistingInstall(
+  projectRoot: string,
+  engineVersion: string,
+): { configUpdated: boolean; skills: string[] } {
+  // 1) config.engineVersion 만 엔진에 맞춘다(나머지 필드는 팀 설정이므로 보존).
+  let configUpdated = false;
+  const configPath = path.join(projectRoot, '.awl', 'config.json');
+  const raw = readJson(configPath) as Record<string, unknown> | null;
+  if (raw && raw.engineVersion !== engineVersion) {
+    writeFileEnsuringDir(configPath, `${JSON.stringify({ ...raw, engineVersion }, null, 2)}\n`);
+    configUpdated = true;
+  }
+
+  // 2) 이미 설치된 스킬만 재설치(내용 갱신)하고 마커를 동기화한다.
+  const skills: string[] = [];
+  const claudeSkillDir = path.join(projectRoot, '.claude', 'skills', 'awl-loop');
+  if (exists(claudeSkillDir) && installClaudeSkill(projectRoot)) {
+    skills.push('claude');
+  }
+  const agentsMd = path.join(projectRoot, 'AGENTS.md');
+  const codexInstalled =
+    exists(agentsMd) && fs.readFileSync(agentsMd, 'utf8').includes('awl-loop:start');
+  if (codexInstalled && installCodexSkill(projectRoot)) {
+    skills.push('codex');
+  }
+  writeSkillsVersionStamp(
+    projectRoot,
+    { claude: skills.includes('claude'), codex: skills.includes('codex') },
+    engineVersion,
+  );
+
+  return { configUpdated, skills };
 }
 
 function countEntries(dir: string): number {
@@ -1142,7 +1194,7 @@ async function handleExistingConfig(
     installedVer && config?.engineVersion
       ? installedVer === config.engineVersion
         ? `(설치됨: ${installedVer}  일치)`
-        : `(설치됨: ${installedVer}  불일치 -> awl update 를 실행하세요)`
+        : `(설치됨: ${installedVer}  불일치 -> '그대로 쓴다'를 고르면 동기화됩니다)`
       : '';
   process.stdout.write(`    엔진       ${config?.engineVersion ?? '(없음)'}   ${engineNote}\n\n`);
   if (config?.verify) {
@@ -1168,7 +1220,14 @@ async function handleExistingConfig(
   );
 
   if (choice === 0) {
-    process.stdout.write('\n  설정을 그대로 씁니다. 바뀐 것은 없습니다.\n');
+    const synced = syncExistingInstall(projectRoot, installedVer ?? 'unknown');
+    if (synced.configUpdated || synced.skills.length > 0) {
+      process.stdout.write(
+        `\n  설정을 그대로 씁니다. 버전 마커를 ${installedVer ?? '엔진'} 로 동기화했습니다${synced.skills.length ? ` (스킬: ${synced.skills.join(', ')})` : ''}.\n`,
+      );
+    } else {
+      process.stdout.write('\n  설정을 그대로 씁니다. 이미 최신입니다.\n');
+    }
     return;
   }
   if (choice === 1) {
@@ -1221,8 +1280,13 @@ export async function runInit(opts: { yes: boolean }): Promise<void> {
     if (configExists) {
       const engine = scaffoldGlobal();
       const hook = installSafetyHook(projectRoot);
+      const synced = syncExistingInstall(projectRoot, engine.engineVersion);
+      const syncNote =
+        synced.configUpdated || synced.skills.length > 0
+          ? `\n  ${signal(c, 'ok')} 버전 마커를 ${engine.engineVersion} 로 동기화했습니다${synced.skills.length ? ` (스킬: ${synced.skills.join(', ')})` : ''}.`
+          : '';
       process.stdout.write(
-        `\n  .awl/config.json 이 이미 있습니다. 그대로 씁니다.\n  ${signal(c, 'ok')} 엔진 템플릿을 ${engine.created ? '설치했습니다.' : '갱신했습니다.'}${hook.warning ? `\n  ${signal(c, 'warn')} ${hook.warning}` : hook.installed ? `\n  ${signal(c, 'ok')} git push 차단 훅 설치` : ''}\n`,
+        `\n  .awl/config.json 이 이미 있습니다. 그대로 씁니다.\n  ${signal(c, 'ok')} 엔진 템플릿을 ${engine.created ? '설치했습니다.' : '갱신했습니다.'}${syncNote}${hook.warning ? `\n  ${signal(c, 'warn')} ${hook.warning}` : hook.installed ? `\n  ${signal(c, 'ok')} git push 차단 훅 설치` : ''}\n`,
       );
       return;
     }

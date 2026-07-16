@@ -267,6 +267,26 @@ describe('isolatedCommit — 새 파일(untracked) 처리 (dogfooding 이 잡은
       .filter(Boolean);
     expect(committed).toContain('한글파일.ts');
   });
+
+  it('awl 자기 산출물(.awl-worktrees/·.awl/)은 untracked 에서 제외한다 (F-1 state.json 비대 근원)', async () => {
+    const { dir, g } = makeRepo();
+    fs.writeFileSync(path.join(dir, 'base.txt'), 'base\n');
+    g(['add', '.']);
+    g(['commit', '-q', '-m', 'base']);
+
+    // awl 이 스스로 만든 워크트리·상태 (gitignore 되지 않은 최악의 경우를 가정한다).
+    fs.mkdirSync(path.join(dir, '.awl-worktrees', 'WI8'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.awl-worktrees', 'WI8', 'huge.ts'), 'x\n');
+    fs.mkdirSync(path.join(dir, '.awl'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.awl', 'state.json'), '{}\n');
+    // 남의 새 파일 — 이건 계속 untracked 로 잡혀야 한다(제외 대상 아님).
+    fs.writeFileSync(path.join(dir, 'their.ts'), 'other\n');
+
+    const { untracked } = await startBaseline(dir, 'AC-SELF');
+    expect(untracked).toContain('their.ts');
+    expect(untracked.some((f) => f.startsWith('.awl-worktrees/'))).toBe(false);
+    expect(untracked.some((f) => f.startsWith('.awl/'))).toBe(false);
+  });
 });
 
 describe('baseline git ref 네임스페이스 (WI-D AC-06 — 워크아이템이 같은 AC-ID 를 재사용해도 안 겹친다)', () => {
