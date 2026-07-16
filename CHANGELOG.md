@@ -11,6 +11,7 @@
 - awl work new --isolated — records(~/.awl)를 이 워크아이템 전용 AWL_HOME 으로 격리한다(병렬 세션용). 전용 .awl-home 을 만들고 export AWL_HOME 을 안내(실제 격리는 export 적용 시). worktree(state 격리)와 합쳐 병렬 루프를 완전히 나눈다 [concurrency-2]
 - 병렬 세션 방어(사실 표시) — awl work new --worktree 출력에 "records 는 전역 공유" 경고 hint, awl doctor 에 "최근 활동"(최근 records 시각·state mtime) 표시. awl 은 세션 개념이 없어 판단하지 않고 시각 사실만 보여준다 [concurrency-1]
 - state.json 동시성 방어 — writeState 를 원자적으로(temp+rename) 써 부분 쓰기에도 온전, runStateSet 을 프로젝트 락(.awl/state.lock, O_EXCL + stale 자가치유)으로 감싸 동시 세션의 clobber 차단, doctor 가 live 락을 "다른 세션이 state 쓰는 중(토큰)"으로 정확 표시 [concurrency-3]
+- awl init 첫 설정에 프로젝트 선정 단계 — interactive 첫 실행에서 cwd 가 git 프로젝트면 "이 프로젝트/다른 곳/취소", 아니거나 원하면 하위 git 프로젝트를 최근 수정순 객관식(최대 20, node_modules 제외, maxdepth 3)으로 제시한다. --yes 와 기존 config 는 예전대로 cwd 자동(회귀) [init-project-picker]
 
 ### 고침
 
