@@ -286,3 +286,45 @@ describe('padEndDisplay — 표시폭 기준 패딩(cli-design-tokens AC-04)', (
     expect(padEndDisplay('toolong', 3)).toBe('toolong');
   });
 });
+
+describe('wrapToWidth — hanging indent(cli-design-tokens AC-03)', () => {
+  it('hanging on: 넘친 줄이 선행 공백 들여쓰기를 유지한다', () => {
+    const lines = wrapToWidth('  항목 아주아주 긴 설명 텍스트가 넘칩니다', 12, { hanging: true });
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines[0]?.startsWith('  ')).toBe(true);
+    // 연속줄이 왼쪽에 붙지 않고 같은 2칸 들여쓰기를 유지한다
+    for (const l of lines.slice(1)) {
+      expect(l.startsWith('  ')).toBe(true);
+    }
+    for (const l of lines) {
+      expect(visibleWidth(l)).toBeLessThanOrEqual(12);
+    }
+  });
+
+  it('hanging on: 트리 마커(├──) 뒤로 연속줄을 정렬한다', () => {
+    const lines = wrapToWidth('├── 트리 항목 아주 긴 텍스트 설명입니다', 14, { hanging: true });
+    expect(lines.length).toBeGreaterThan(1);
+    // '├── ' 는 표시폭 4 → 연속줄은 4칸 공백으로 시작(마커 자리 비움)
+    for (const l of lines.slice(1)) {
+      expect(l.startsWith('    ')).toBe(true);
+      expect(l.trimStart().startsWith('├')).toBe(false); // 마커를 반복하지 않는다
+    }
+  });
+
+  it('hanging off(기본): 연속줄에 들여쓰기를 넣지 않는다(하위호환)', () => {
+    const plain = wrapToWidth('  항목 아주아주 긴 설명 텍스트가 넘칩니다', 12);
+    // 기본 워드랩은 연속줄 앞 공백을 트림한다 — 둘째 줄이 공백 2개로 시작하지 않는다
+    expect(plain[1]?.startsWith('  ')).toBe(false);
+  });
+
+  it('색이 걸린 선행 프리픽스는 안전하게 일반 워드랩으로 떨어진다(크래시 없음)', () => {
+    const dim = makeColors(true).dim;
+    const lines = wrapToWidth(`${dim('  ')}항목 아주아주 긴 텍스트 설명입니다`, 12, {
+      hanging: true,
+    });
+    expect(lines.length).toBeGreaterThan(1);
+    for (const l of lines) {
+      expect(visibleWidth(l)).toBeLessThanOrEqual(12);
+    }
+  });
+});

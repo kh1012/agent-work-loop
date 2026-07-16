@@ -215,9 +215,33 @@ export function visibleWidth(str: string): number {
  * 끊지 않고 줄마다 열린 색을 닫았다가 다시 여는 방식으로 안전하게 접는다.
  * card 본문이 뷰포트를 넘겨 박스가 화면 밖까지 늘어나는 것을 막는 데 쓴다.
  */
-export function wrapToWidth(text: string, width: number): string[] {
+/**
+ * 선행 들여쓰기(공백 + 선택적 트리/불릿 마커)의 표시폭을 잰다(cli-design-tokens AC-03).
+ * 색(ANSI)이 걸린 줄은 마커 폭 계산이 어긋날 수 있어, 호출부가 "순수 텍스트 프리픽스"일
+ * 때만 이 값을 쓴다. 반환 문자열은 실제 프리픽스(연속줄 정렬용 공백폭 계산에 씀).
+ */
+function leadingIndentPrefix(text: string): string {
+  // 선행 공백 + (있으면) 트리 글리프(├└│─) 또는 불릿(-*•●○▪‣) 하나 + 뒤 공백.
+  const m = /^(\s*(?:[├└│][─│\s]*|[-*•●○▪‣])?\s*)/.exec(text);
+  return m?.[0] ?? '';
+}
+
+export function wrapToWidth(text: string, width: number, opts?: { hanging?: boolean }): string[] {
   if (width <= 0 || visibleWidth(text) <= width) {
     return [text];
+  }
+  // hanging indent: 넘친 줄이 원줄의 들여쓰기(트리/불릿 오프셋)를 유지한다(F-03).
+  // 선행 프리픽스가 순수 텍스트(색 없음)로 원문 시작과 정확히 일치할 때만 적용 —
+  // 색이 걸린 줄은 안전하게 일반 워드랩으로 떨어진다.
+  if (opts?.hanging) {
+    const prefix = leadingIndentPrefix(text);
+    const hangW = stringWidth(prefix);
+    if (hangW > 0 && hangW < width && text.startsWith(prefix)) {
+      const rest = text.slice(prefix.length);
+      const wrapped = wrapToWidth(rest, width - hangW); // 내용만(마커 제외) 좁은 폭으로
+      const pad = ' '.repeat(hangW);
+      return wrapped.map((line, i) => (i === 0 ? prefix + line : pad + line));
+    }
   }
   // 1) 문자 단위로 (활성 스타일, 글자, 폭) 분해. SGR 은 폭 0, 스타일만 바꾼다.
   const cells: { style: string; ch: string; w: number }[] = [];
@@ -434,7 +458,7 @@ export function card(title: string, lines: string[], c: Caps = caps(), minInnerW
   );
 
   // 본문을 폭에 맞게 접는다(표시폭 기준, 색 인지) — 박스가 화면 밖까지 늘어나는 것 방지.
-  const wrapped = lines.flatMap((line) => wrapToWidth(line, maxInner));
+  const wrapped = lines.flatMap((line) => wrapToWidth(line, maxInner, { hanging: true }));
   const inner = Math.min(
     maxInner,
     Math.max(minInnerWidth, visibleWidth(title), ...wrapped.map(visibleWidth), 0),
