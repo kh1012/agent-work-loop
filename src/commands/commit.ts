@@ -424,16 +424,20 @@ export async function runCommit(
   const crit = getCriterion(state, ac);
   const snapshot = crit && typeof crit.snapshot === 'string' ? crit.snapshot : undefined;
   if (!snapshot) {
-    process.stderr.write(
-      `\n  ${ac} 의 베이스라인이 없습니다. 내 변경을 남의 변경과 구분할 수 없습니다.\n` +
-        `\n  아직 구현 전이면 — 먼저 베이스라인을 잡으세요:\n` +
-        `      awl commit ${ac} --start\n` +
-        `\n  이미 구현했다면 — 변경을 잠깐 치웠다가 되돌려 격리 커밋하세요(격리 모델 유지):\n` +
-        `      git stash push -u\n` +
-        `      awl commit ${ac} --start\n` +
-        `      git stash pop\n` +
-        `      awl commit ${ac} -m "..."\n`,
-    );
+    const lines = [
+      `\n  ${ac} 의 베이스라인이 없습니다. 내 변경을 남의 변경과 구분할 수 없습니다.`,
+      '',
+      '  아직 구현 전이면 — 먼저 베이스라인을 잡으세요:',
+      `      awl commit ${ac} --start`,
+      '',
+      '  이미 구현했다면 — 변경을 잠깐 치웠다가 되돌려 격리 커밋하세요(격리 모델 유지):',
+      '      git stash push -u',
+      `      awl commit ${ac} --start`,
+      '      git stash pop',
+      `      awl commit ${ac} -m "..."`,
+      '',
+    ];
+    process.stderr.write(`${lines.join('\n')}\n`);
     process.exit(1);
   }
 

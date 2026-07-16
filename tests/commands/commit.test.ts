@@ -81,6 +81,26 @@ describe('isolatedCommit — 남의 작업을 잃지 않는다 (핵심)', () => 
     expect(outcome.committed).toBe(false);
     expect(outcome.reason).toContain('내 변경이 없습니다');
   });
+
+  it('stash 왕복 복구 경로가 응집 변경(tracked 2 + 새 파일 1)을 격리 커밋한다 (commit-start-rescue AC-02)', async () => {
+    const { dir, g } = makeRepo();
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'a0\n');
+    fs.writeFileSync(path.join(dir, 'b.txt'), 'b0\n');
+    g(['add', '.']);
+    g(['commit', '-q', '-m', 'base']);
+    // --start 없이 응집 구현: tracked 2개 수정 + 새 파일 1개(untracked).
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'a0\nMINE-A\n');
+    fs.writeFileSync(path.join(dir, 'b.txt'), 'b0\nMINE-B\n');
+    fs.writeFileSync(path.join(dir, 'c.txt'), 'NEW-C\n');
+    // 안내한 복구 경로: stash push -u → startBaseline(clean→snapshot=HEAD) → stash pop → isolatedCommit.
+    g(['stash', 'push', '-u']);
+    const { snapshot } = await startBaseline(dir, 'AC-1');
+    g(['stash', 'pop']);
+    const outcome = await isolatedCommit(dir, 'AC-1', 'cohesive', snapshot);
+    expect(outcome.committed).toBe(true);
+    // 세 변경이 모두 격리 커밋에 포함(남의 파일 없음).
+    expect([...outcome.stagedFiles].sort()).toEqual(['a.txt', 'b.txt', 'c.txt']);
+  });
 });
 
 describe('isolatedCommit — HEAD 드리프트 감지 (자체검증 순환참조 방지, D-36)', () => {
@@ -474,7 +494,7 @@ describe('firstBaseline (WI-H AC-01) — 재시작/여러 커밋에도 range-sta
       stderrSpy.mockRestore();
     }
     const msg = errs.join('');
-    expect(msg).toContain(`awl commit AC-9 --start`); // 구현 전 경로
+    expect(msg).toContain('awl commit AC-9 --start'); // 구현 전 경로
     expect(msg).toContain('git stash push'); // 이미 구현한 경우 복구
     expect(msg).toContain('git stash pop');
   });
