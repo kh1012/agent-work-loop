@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+### 추가
+
+- awl status 가 완료조건 커밋(criterion.commit)이 지금 HEAD 에 없으면 사실로 표시한다 — diverged(다른 계보)/not-found(커밋 없음) 구분. 열등 계보를 최종으로 지목한 인수인계를 잡는다. 격리 커밋 SHA 를 commit 전용 필드에 기록(--start 로 리셋 안 됨)하고 status 가 merge-base --is-ancestor 로 대조. 판단하지 않고 사실만 표시(새 명령 없음) [wi8-F3]
+
 ### 고침
 
 - doctor 교훈 수를 gotchas/ 의 .json 만 센다 — 비-json 아티팩트가 섞여도 awl gotchas 와 카운트가 어긋나지 않음 [B1 후속, 검증 세션 지적]

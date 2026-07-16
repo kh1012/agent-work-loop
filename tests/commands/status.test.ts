@@ -4,10 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  type StatusReport,
   buildStatus,
   checkMissingAcCommits,
   renderStatus,
-  type StatusReport,
 } from '../../src/commands/status.js';
 
 const origHome = process.env.AWL_HOME;
