@@ -140,7 +140,7 @@ async function pinBaselineRef(cwd: string, ac: string, sha: string): Promise<voi
   const result = await git(['update-ref', refPath, sha], cwd);
   if (result.exitCode !== 0) {
     process.stderr.write(
-      `  경고: baseline 보호용 git ref(${refPath})를 못 만들었습니다(기능엔 영향 없음): ${result.stderr.trim()}\n`,
+      `  ${signal(caps(), 'warn')} baseline 보호용 git ref(${refPath})를 못 만들었습니다(기능엔 영향 없음): ${result.stderr.trim()}\n`,
     );
   }
 }
@@ -429,7 +429,7 @@ export async function runCommit(
   const snapshot = crit && typeof crit.snapshot === 'string' ? crit.snapshot : undefined;
   if (!snapshot) {
     const lines = [
-      `\n  ${ac} 의 베이스라인이 없습니다. 내 변경을 남의 변경과 구분할 수 없습니다.`,
+      `\n  ${signal(c, 'error')} ${ac} 의 베이스라인이 없습니다. 내 변경을 남의 변경과 구분할 수 없습니다.`,
       '',
       '  아직 구현 전이면 — 먼저 베이스라인을 잡으세요:',
       `      awl commit ${ac} --start`,

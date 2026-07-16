@@ -263,13 +263,13 @@ export function runRulesPromote(
   const missing = validatePromoteOpts(opts);
   if (missing.includes('applies')) {
     process.stderr.write(
-      '\n  applies(적용 조건)가 필요합니다. --applies "..." 로 주세요.\n  적용 조건 없는 규칙은 다른 프로젝트로 잘못 끌려갑니다.\n',
+      `\n  ${signal(caps(), 'error')} applies(적용 조건)가 필요합니다. --applies "..." 로 주세요.\n  적용 조건 없는 규칙은 다른 프로젝트로 잘못 끌려갑니다.\n`,
     );
     process.exit(1);
   }
   if (missing.includes('counter')) {
     process.stderr.write(
-      '\n  counter(반증 조건)가 필요합니다. --counter "..." 로 주세요.\n  반증 조건 없는 규칙은 검증 불가능한 신념이 됩니다.\n',
+      `\n  ${signal(caps(), 'error')} counter(반증 조건)가 필요합니다. --counter "..." 로 주세요.\n  반증 조건 없는 규칙은 검증 불가능한 신념이 됩니다.\n`,
     );
     process.exit(1);
   }

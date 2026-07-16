@@ -838,7 +838,7 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
       ? ''
       : ' (프로젝트 루트를 찾지 못했습니다 — awl init 을 실행했는지 확인하세요.)';
     process.stderr.write(
-      `\n  활성 워크아이템이 없습니다.${hint} awl work new <id> [설명] 으로 시작하세요.\n  (이 기록 하나만 다른 워크아이템으로 남기려면 --workitem <id> 를 쓰세요)\n`,
+      `\n  ${signal(caps(), 'error')} 활성 워크아이템이 없습니다.${hint} awl work new <id> [설명] 으로 시작하세요.\n  (이 기록 하나만 다른 워크아이템으로 남기려면 --workitem <id> 를 쓰세요)\n`,
     );
     process.exit(1);
   }
@@ -934,7 +934,7 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
         const uncovered = coverage.excludedIds.filter((id) => !presentedIds.has(id));
         if (uncovered.length > 0) {
           process.stderr.write(
-            `\n  게이트 1 기록을 거부했습니다. 다음 발견이 완료 조건의 addresses 에도, presentedExclusions 에도 없습니다: ${uncovered.join(', ')}\n  완료 조건에 addresses 로 연결하거나, presentedExclusions 에 담아 사람에게 제시하세요.\n`,
+            `\n  ${signal(caps(), 'error')} 게이트 1 기록을 거부했습니다. 다음 발견이 완료 조건의 addresses 에도, presentedExclusions 에도 없습니다: ${uncovered.join(', ')}\n  완료 조건에 addresses 로 연결하거나, presentedExclusions 에 담아 사람에게 제시하세요.\n`,
           );
           process.exit(1);
         }
@@ -965,7 +965,7 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
       const hasReview = readRecords({ type: 'review', workitem: workitemForCheck }).length > 0;
       if (!hasReview) {
         process.stderr.write(
-          `\n  완료 조건 ${passedCount}개가 통과했으나 리뷰 기록이 없습니다.\n  리뷰를 건너뛰었습니까?\n`,
+          `\n  ${signal(caps(), 'warn')} 완료 조건 ${passedCount}개가 통과했으나 리뷰 기록이 없습니다.\n  리뷰를 건너뛰었습니까?\n`,
         );
       }
     }
