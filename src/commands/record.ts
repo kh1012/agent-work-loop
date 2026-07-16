@@ -27,7 +27,8 @@ export type RecordType =
   | 'gotcha-missed'
   | 'narrative'
   | 'gate'
-  | 'clarify';
+  | 'clarify'
+  | 'awl-feedback';
 
 /**
  * narrative.kind 로 허용되는 값 (WI-P AC-02).
@@ -47,6 +48,24 @@ export const NARRATIVE_KINDS = [
 export const GATE1_DECISIONS = ['approved', 'modified', 'rejected', 'split'] as const;
 /** gate:2 의 decision 으로 허용되는 값 (WI-Q AC-01). */
 export const GATE2_DECISIONS = ['approved', 'more-work', 'abandoned'] as const;
+
+/**
+ * awl-feedback.area 로 허용되는 값 (0.6.x). awl 도구의 어느 기능이 아팠나 —
+ * 이게 모으기(awl feedback)의 묶는 키가 된다. gotcha 와 달리 작업 대상 코드가
+ * 아니라 awl 도구 자체에 대한 피드백이다.
+ */
+export const AWL_FEEDBACK_AREAS = [
+  'commit',
+  'review',
+  'gate',
+  'verify',
+  'state',
+  'init',
+  'cli',
+  '기타',
+] as const;
+/** awl-feedback.severity 로 허용되는 값 (0.6.x). */
+export const AWL_FEEDBACK_SEVERITIES = ['high', 'medium', 'low'] as const;
 
 interface Schema {
   required: string[];
@@ -85,6 +104,10 @@ export const SCHEMAS: Record<RecordType, Schema> = {
   narrative: { required: ['kind', 'counterfactual'] },
   gate: { required: ['gate', 'decision', 'presentedCriteria'], arrays: ['presentedCriteria'] },
   clarify: { required: ['questions'], arrays: ['questions'] },
+  // awl-feedback(0.6.x): awl 도구 자체가 아팠던 점. gotcha(작업 코드 교훈)와 다른
+  // 종류다 — records/ 에 쌓이고 gotcha 로 승격되지 않는다. area 가 모으기의 키.
+  // suggestion 은 선택(개선 아이디어, 강제 아님 — 번역은 사람 몫).
+  'awl-feedback': { required: ['area', 'what', 'impact', 'severity'] },
 };
 
 export const RECORD_TYPES = Object.keys(SCHEMAS) as RecordType[];
@@ -273,6 +296,20 @@ export function buildRecord(
           `decision (gate ${data.gate} 에서는 다음 중 하나여야 함: ${allowed.join(', ')})`,
         );
       }
+    }
+  }
+
+  // awl-feedback.area/severity 는 정해진 값 중 하나여야 한다(narrative.kind 와 같은
+  // 특수 분기, D-35). 값이 아예 없는 경우는 위 required 루프가 이미 missing 처리한다.
+  if (type === 'awl-feedback') {
+    const areaMissing = data.area === undefined || data.area === null || data.area === '';
+    if (!areaMissing && !(AWL_FEEDBACK_AREAS as readonly unknown[]).includes(data.area)) {
+      missing.push(`area (다음 중 하나여야 함: ${AWL_FEEDBACK_AREAS.join(', ')})`);
+    }
+    const sevMissing =
+      data.severity === undefined || data.severity === null || data.severity === '';
+    if (!sevMissing && !(AWL_FEEDBACK_SEVERITIES as readonly unknown[]).includes(data.severity)) {
+      missing.push(`severity (다음 중 하나여야 함: ${AWL_FEEDBACK_SEVERITIES.join(', ')})`);
     }
   }
 

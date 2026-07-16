@@ -251,6 +251,21 @@ awl evolve --record --json '{"lesson":"...","context":"...","source":{...},"same
 - **자동 승격하지 않는다.** `awl rules promote` 는 사람이 명시적으로 실행한다.
 - blocked 가 하나도 없으면(이번에 안 막혔으면) 교훈이 없을 수 있다. 그때는 억지로 만들지 마라.
 
+### awl 도구 자체 피드백 — gotcha 와 다르다 (0.6.x)
+
+**gotcha 와 awl-feedback 을 섞지 마라. 저장 위치도 다르다.**
+- **gotcha** = 작업하는 코드베이스에 대한 교훈. "이 슬롯을 건드리기 전에 구독 범위를 확인하라." (`~/.awl/gotchas/`)
+- **awl-feedback** = awl 도구 자체가 아팠던 점. "awl commit 이 무관한 파일을 삼켰다." (`~/.awl/records/`)
+
+`awl evolve --collect` 출력의 `awlFeedback.prompt` 를 본다. 이번 워크아이템에서 awl 도구 자체(작업 대상 코드가 아니라)가 불편했다면 남긴다:
+
+`awl record awl-feedback --json '{"area":"commit","what":"...","impact":"...","severity":"high","suggestion":"..."}'`
+- `area`: 어느 기능인가 (commit/review/gate/verify/state/init/cli/기타) — 나중에 모으기(`awl feedback`)의 묶는 키.
+- `what`: 무슨 일이 있었나(사실). `impact`: 그래서 무엇을 해야 했나(아픔의 크기). `severity`: high/medium/low.
+- `suggestion`: 선택. 개선 아이디어. 강제 아님 — 번역(패치로 바꾸기)은 사람 몫이다.
+
+**없으면 억지로 만들지 마라 — 매끄러웠으면 그게 좋은 신호다.** awl-feedback 은 gotcha 로 승격되지 않는다(다른 종류다).
+
 ---
 
 ## 리뷰어

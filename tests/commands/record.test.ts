@@ -29,6 +29,56 @@ afterEach(() => {
 
 const DEFAULTS = { project: 'maxflow', id: 'rec_test1', at: '2026-07-14T12:30:00.000Z' };
 
+describe('buildRecord — awl-feedback (0.6.x, AC-01)', () => {
+  it('area/what/impact/severity 가 다 있으면 기록을 만든다 (suggestion 은 선택)', () => {
+    const r = buildRecord(
+      'awl-feedback',
+      { area: 'commit', what: '무관 파일 삼킴', impact: '수동 되돌림', severity: 'high' },
+      DEFAULTS,
+    );
+    expect(r.missing).toEqual([]);
+    expect(r.record).toMatchObject({ type: 'awl-feedback', area: 'commit', severity: 'high' });
+  });
+
+  it('suggestion 을 넣어도 통과한다', () => {
+    const r = buildRecord(
+      'awl-feedback',
+      { area: 'gate', what: 'x', impact: 'y', severity: 'low', suggestion: '개선안' },
+      DEFAULTS,
+    );
+    expect(r.missing).toEqual([]);
+    expect(r.record?.suggestion).toBe('개선안');
+  });
+
+  it('필수 필드가 없으면 무엇이 빠졌는지 돌려준다', () => {
+    const r = buildRecord('awl-feedback', { area: 'commit' }, DEFAULTS);
+    expect(r.record).toBeUndefined();
+    expect(r.missing).toContain('what');
+    expect(r.missing).toContain('impact');
+    expect(r.missing).toContain('severity');
+  });
+
+  it('area 가 허용값이 아니면 거부한다', () => {
+    const r = buildRecord(
+      'awl-feedback',
+      { area: '없는영역', what: 'x', impact: 'y', severity: 'high' },
+      DEFAULTS,
+    );
+    expect(r.record).toBeUndefined();
+    expect(r.missing.some((m) => m.startsWith('area'))).toBe(true);
+  });
+
+  it('severity 가 허용값이 아니면 거부한다', () => {
+    const r = buildRecord(
+      'awl-feedback',
+      { area: 'commit', what: 'x', impact: 'y', severity: 'critical' },
+      DEFAULTS,
+    );
+    expect(r.record).toBeUndefined();
+    expect(r.missing.some((m) => m.startsWith('severity'))).toBe(true);
+  });
+});
+
 describe('buildRecord — 구조 강제', () => {
   it('attempt 의 필수 필드가 없으면 무엇이 빠졌는지 돌려준다', () => {
     const r = buildRecord('attempt', { what: 'x' }, DEFAULTS);

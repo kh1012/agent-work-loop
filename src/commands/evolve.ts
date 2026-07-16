@@ -191,6 +191,16 @@ export interface EvolveCollection {
   retried: Record<string, unknown>[];
   existingGotchas: { id: string; lesson: string; count: number }[];
   metrics: EvolveMetrics;
+  /**
+   * awl 도구 자체 피드백 유도 (0.6.x). awl 은 판단하지 않는다 — 리마인더(prompt)와
+   * 이번 워크아이템에서 이미 남긴 awl-feedback 기록(recorded)만 보여준다. gotcha 와
+   * 다른 종류다(작업 코드 교훈이 아니라 awl 도구 자체가 아팠던 점). 에이전트가
+   * 이걸 보고 남길지 말지 판단한다 — 매끄러웠으면 안 남긴다.
+   */
+  awlFeedback: {
+    prompt: string;
+    recorded: Record<string, unknown>[];
+  };
 }
 
 /** 이번 워크아이템의 기록을 모은다. 판단하지 않는다. state 는 주입받는다(테스트 가능). */
@@ -207,6 +217,9 @@ export function collectEvolve(
   );
   const gotchaApplied = records.filter((r) => r.type === 'gotcha-applied').length;
   const gotchaMissed = records.filter((r) => r.type === 'gotcha-missed').length;
+  // awl 도구 자체 피드백 — 이번 워크아이템에서 이미 남긴 것. gotcha 추출 자료와
+  // 섞지 않는다(다른 종류다). 없으면 빈 배열.
+  const awlFeedbackRecords = records.filter((r) => r.type === 'awl-feedback');
 
   const criteria = Array.isArray(state.criteria)
     ? (state.criteria as Record<string, unknown>[])
@@ -250,7 +263,15 @@ export function collectEvolve(
     coverage: coverageMetrics,
   };
 
-  return { workitem, project, blocked, reviews, retried, existingGotchas, metrics };
+  const awlFeedback = {
+    prompt:
+      '이번 워크아이템에서 awl 도구 자체(작업 대상 코드가 아니라)가 불편했던 점이 있나? ' +
+      '있으면 awl record awl-feedback 으로 남겨라(area/what/impact/severity, suggestion 은 선택). ' +
+      '없으면 넘어가라 — 매끄러웠으면 좋은 신호다. gotcha(작업 코드 교훈)와 다른 종류다.',
+    recorded: awlFeedbackRecords,
+  };
+
+  return { workitem, project, blocked, reviews, retried, existingGotchas, metrics, awlFeedback };
 }
 
 /** 세대 지표를 프로젝트별 디렉토리에 기록한다. */

@@ -228,6 +228,66 @@ describe('writeGeneration — 프로젝트별 디렉토리', () => {
   });
 });
 
+describe('collectEvolve — awlFeedback 유도 (0.6.x, AC-02/AC-03)', () => {
+  it('awl-feedback 기록이 있으면 recorded 에 모으고 prompt 를 준다', () => {
+    seedRecords([
+      {
+        id: 'a1',
+        at: '2026-07-14T10:00:00Z',
+        type: 'awl-feedback',
+        workitem: 'WI-6',
+        area: 'commit',
+        what: '무관 파일 삼킴',
+        impact: '수동 되돌림',
+        severity: 'high',
+      },
+      {
+        id: 'b1',
+        at: '2026-07-14T09:00:00Z',
+        type: 'blocked',
+        workitem: 'WI-6',
+        what: 'x',
+        tried: [{ approach: 'a', failed: 'b' }],
+        lesson: 'y',
+      },
+    ]);
+    const col = collectEvolve('agent-work-loop', 'WI-6', { criteria: [] });
+    expect(col.awlFeedback.recorded).toHaveLength(1);
+    expect(col.awlFeedback.recorded[0]?.area).toBe('commit');
+    expect(col.awlFeedback.prompt.length).toBeGreaterThan(0);
+    // gotcha 추출 자료(blocked)와 섞이지 않는다 — awl-feedback 은 blocked 에 안 들어간다.
+    expect(col.blocked.some((r) => r.type === 'awl-feedback')).toBe(false);
+    expect(col.blocked).toHaveLength(1);
+  });
+
+  it('awl-feedback 기록이 없으면 recorded 는 빈 배열이지만 prompt 는 여전히 준다', () => {
+    seedRecords([
+      { id: '1', at: '2026-07-14T10:00:00Z', type: 'audit', workitem: 'WI-6', scope: 's' },
+    ]);
+    const col = collectEvolve('agent-work-loop', 'WI-6', { criteria: [] });
+    expect(col.awlFeedback.recorded).toEqual([]);
+    expect(col.awlFeedback.prompt.length).toBeGreaterThan(0);
+  });
+
+  it('awl-feedback 은 existingGotchas 로 승격되지 않는다 (다른 종류, records/ 에 산다)', () => {
+    seedRecords([
+      {
+        id: 'a1',
+        at: '2026-07-14T10:00:00Z',
+        type: 'awl-feedback',
+        workitem: 'WI-6',
+        area: 'gate',
+        what: 'x',
+        impact: 'y',
+        severity: 'medium',
+      },
+    ]);
+    const col = collectEvolve('agent-work-loop', 'WI-6', { criteria: [] });
+    expect(col.existingGotchas).toEqual([]);
+    expect(col.awlFeedback.recorded).toHaveLength(1);
+  });
+});
+
 describe('collectEvolve — coverage 계측 (WI-T AC-04)', () => {
   it('audit findings 와 criteria.addresses 를 대조해 addressed/excluded 를 센다', () => {
     seedRecords([
