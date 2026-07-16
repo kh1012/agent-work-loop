@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   computeDurationMs,
   experimentKey,
@@ -10,6 +10,7 @@ import {
   renderCompare,
   renderMetrics,
   renderMetricsCaveat,
+  runMetrics,
 } from '../../src/commands/metrics.js';
 import { caps, visibleWidth } from '../../src/core/tty.js';
 
@@ -400,5 +401,66 @@ describe('renderMetrics/renderCompare 표 정렬 회귀잠금 (cli-design-tokens
     const rowKo = lines.find((l) => l.includes('가나다/loop/ui'));
     const rowAscii = lines.find((l) => l.includes('abcd/loop/ui'));
     expect(visibleWidth(rowKo ?? '')).toBe(visibleWidth(rowAscii ?? ''));
+  });
+});
+
+describe('runMetrics --compare 핸들러 + --json 계약 (experiment-harness AC-05, 리뷰)', () => {
+  const origCwd = process.cwd();
+  afterEach(() => process.chdir(origCwd));
+
+  function projectWithGens(): void {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-metcmp-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, '.awl', 'config.json'),
+      JSON.stringify({
+        project: 'p',
+        mainLanguage: 'other',
+        character: 'ko',
+        engineVersion: '0.6.7',
+        verify: {},
+      }),
+    );
+    process.chdir(root);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-metcmp-home-'));
+    seedGeneration('p', 'WI-A', {
+      workitem: 'WI-A',
+      at: '2026-07-16T09:00:00Z',
+      criteriaTotal: 3,
+      avgAttempts: 1,
+      experiment: { model: 'lite', mode: 'loop', taskType: 'ui' },
+    });
+    seedGeneration('p', 'WI-B', { workitem: 'WI-B', at: '2026-07-16T10:00:00Z', criteriaTotal: 2 }); // 태그 없음
+  }
+
+  function capture(fn: () => void): string {
+    let buf = '';
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((c: unknown) => {
+      buf += String(c);
+      return true;
+    });
+    try {
+      fn();
+    } finally {
+      spy.mockRestore();
+    }
+    return buf;
+  }
+
+  it('--compare --json 이 {cases, untagged, caveat} 구조를 낸다', () => {
+    projectWithGens();
+    const j = JSON.parse(capture(() => runMetrics({ compare: true, json: true })));
+    expect(Array.isArray(j.cases)).toBe(true);
+    expect(j.cases[0]?.key).toBe('lite/loop/ui'); // 태그된 세대만 케이스로
+    expect(j.cases[0]?.count).toBe(1);
+    expect(j.untagged).toBe(1); // 태그 없는 WI-B
+    expect(typeof j.caveat).toBe('string');
+  });
+
+  it('--compare 사람용은 케이스 키와 캐비트를 담는다', () => {
+    projectWithGens();
+    const out = capture(() => runMetrics({ compare: true }));
+    expect(out).toContain('lite/loop/ui');
+    expect(out).toContain('난이도'); // 캐비트
   });
 });
