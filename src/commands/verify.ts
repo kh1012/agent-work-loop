@@ -4,7 +4,8 @@ import { CommandNotFoundError, run } from '../core/runner.js';
 import { type Caps, caps, card, makeColors, signal } from '../core/tty.js';
 import { type AwlConfig, VERIFY_ORDER, type VerifyMap, requireConfig } from './config.js';
 import { gitDirtyFiles } from './doctor.js';
-import { loadState } from './state.js';
+import { applyVerificationAttempts, loadState, writeState } from './state.js';
+import { protectedFilesMessage } from '../core/protected-files.js';
 
 /**
  * awl verify — config 의 검증 명령을 순서대로 실행한다.
@@ -404,13 +405,19 @@ export async function runVerify(opts: {
   bail: boolean;
   sinceBaseline?: boolean;
   related?: boolean;
+  force?: boolean;
 }): Promise<void> {
   const { projectRoot, config } = requireConfig();
+  if (!opts.force) {
+    const protection = await protectedFilesMessage(projectRoot, config.protectedFiles);
+    if (protection) { process.stderr.write(`\n  ${protection}\n`); process.exit(1); }
+  }
 
   if (opts.related) {
     // 전체 검증을 다시 돌지 않는다 — --related 의 목적 자체가 빠른 부분 실행이다.
     const changedFiles = (await gitDirtyFiles(projectRoot)) ?? [];
     const outcome = await runRelatedTests(config, projectRoot, changedFiles);
+    persistVerificationAttempts(projectRoot, isCheckPassed(outcome.result));
     if (opts.json) {
       process.stdout.write(`${JSON.stringify(outcome, null, 2)}\n`);
     } else {
@@ -428,6 +435,7 @@ export async function runVerify(opts: {
   }
 
   const report = await runVerifyChecks(config.verify, projectRoot, { bail: opts.bail });
+  persistVerificationAttempts(projectRoot, report.passed);
 
   if (opts.sinceBaseline) {
     const baseline = readVerifyBaseline(projectRoot);
@@ -456,4 +464,12 @@ export async function runVerify(opts: {
     process.stdout.write(`${renderVerify(report, caps())}\n`);
   }
   process.exit(report.passed ? 0 : 1);
+}
+
+function persistVerificationAttempts(projectRoot: string, passed: boolean): void {
+  const attempted = applyVerificationAttempts(loadState(projectRoot), passed);
+  writeState(projectRoot, attempted.state);
+  if (attempted.blocked.length > 0) {
+    process.stderr.write(`\n  ⚠️  검증 3회 실패: ${attempted.blocked.join(', ')} 을(를) 자동 차단했습니다. (autoBlocked)\n`);
+  }
 }

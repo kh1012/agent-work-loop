@@ -5,7 +5,7 @@ import { recordsDir } from '../core/paths.js';
 import { run } from '../core/runner.js';
 import { type Caps, caps, card, makeColors } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
-import { getCriterion, loadState } from './state.js';
+import { gate1BlockReason, getCriterion, loadState, writeState } from './state.js';
 
 /**
  * awl record — 구조를 강제하는 기록.
@@ -590,6 +590,11 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
         ? state.workitem
         : undefined;
   }
+  const gateBlock = gate1BlockReason(state, 'record', type);
+  if (gateBlock) {
+    process.stderr.write(`\n  ${gateBlock}\n`);
+    process.exit(1);
+  }
 
   // 활성 워크아이템 강제 (WI-R AC-01) — 데이터(JSON)에 명시된 workitem, --workitem
   // 플래그, state.json 의 현재 워크아이템 중 무엇도 없으면 거부한다. 우선순위는
@@ -705,6 +710,12 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
   }
 
   const file = appendRecord(record);
+
+  // 승인 기록 자체가 Gate 1 대기 상태를 해제한다. state set을 별도로 허용하면
+  // 계획 승인 없이 phase만 바꾸는 우회 경로가 생기므로 여기서만 전이한다.
+  if (projectRoot && type === 'gate' && data.gate === 1 && data.decision === 'approved') {
+    writeState(projectRoot, { ...state, phase: 'loop', loop: 'loop' });
+  }
 
   // gate:2 리뷰 누락 경고 (WI-S AC-03) — 거부하지 않는다, 안내만 한다.
   if (type === 'gate' && data.gate === 2) {

@@ -419,20 +419,20 @@ describe('대화형 화면 렌더 (ASCII)', () => {
   it('한글이 섞여도 stepBox 가 깨지지 않고 이모지가 없다', () => {
     const s = buildScreens(screenProject(), false, { unicode: false, color: false, tty: false });
     // ASCII 박스 상단은 + 로 시작한다.
-    for (const box of [s.lang, s.verify, s.rules, s.character, s.skills]) {
+    for (const box of [s.lang, s.verify, s.character, s.skills]) {
       expect(box.startsWith('+')).toBe(true);
       // 각 본문 줄은 세로선 | 로 시작(오른쪽 열린 L자 박스).
       const bodyLines = box.split('\n').slice(1);
       expect(bodyLines.every((l) => l === '' || l.startsWith('|') || l.startsWith('+'))).toBe(true);
     }
     // 이모지가 없어야 한다.
-    const all = [s.welcome, s.lang, s.verify, s.rules, s.character, s.skills].join('\n');
+    const all = [s.welcome, s.lang, s.verify, s.character, s.skills].join('\n');
     expect(all).not.toMatch(/[\u{1F000}-\u{1FFFF}]/u);
   });
 
   it('[보고용] 대화형 전체 흐름 화면을 출력한다', () => {
     const s = buildScreens(screenProject(), false, { unicode: false, color: false, tty: false });
-    const flow = [s.welcome, s.lang, s.verify, s.rules, s.character, s.skills].join('\n\n');
+    const flow = [s.welcome, s.lang, s.verify, s.character, s.skills].join('\n\n');
     process.stdout.write(`\n##### 대화형 흐름 (ASCII) 시작 #####\n${flow}\n##### 끝 #####\n`);
     expect(stringWidth('한글')).toBe(4); // 폭 계산이 살아있음을 확인
   });

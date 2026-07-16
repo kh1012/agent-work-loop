@@ -130,12 +130,13 @@ describe('parseConfigKey — 지원하는 모든 키 (Part 0-4)', () => {
     expect(parseConfigKey('verify.nope.cmd')).toBeNull();
   });
 
-  it('SETTABLE_KEYS 는 12개 verify 키 + project/mainLanguage/character/namingConvention/relatedCmd', () => {
+  it('SETTABLE_KEYS 는 protectedFiles 를 포함한 모든 설정 키를 노출한다', () => {
     expect(SETTABLE_KEYS).toContain('verify.lint.cwd');
     expect(SETTABLE_KEYS).toContain('verify.e2e.env');
     expect(SETTABLE_KEYS).toContain('namingConvention');
     expect(SETTABLE_KEYS).toContain('relatedCmd');
-    expect(SETTABLE_KEYS.length).toBe(5 + 4 * 3);
+    expect(SETTABLE_KEYS).toContain('protectedFiles');
+    expect(SETTABLE_KEYS.length).toBe(6 + 4 * 3);
   });
 });
 

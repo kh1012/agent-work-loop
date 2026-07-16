@@ -23,7 +23,7 @@
     "release:patch": "node scripts/release.mjs patch",
     "release:minor": "node scripts/release.mjs minor",
     "release:major": "node scripts/release.mjs major",
-    "prepublishOnly": "pnpm run build"
+    "prepublishOnly": "node ./engine/templates/block-publish.mjs && pnpm run build"
   },
   "dependencies": {
     "commander": "^12.1.0",

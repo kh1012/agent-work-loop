@@ -100,6 +100,46 @@ export function writeState(projectRoot: string, state: Record<string, unknown>):
   fs.writeFileSync(p, `${JSON.stringify(state, null, 2)}\n`);
 }
 
+/** Gate 1 승인 대기 중에는 계획 승인에 필요한 최소 명령만 허용한다. */
+export function gate1BlockReason(
+  state: Record<string, unknown>,
+  action: string,
+  recordType?: string,
+): string | null {
+  if (state.phase !== 'awaiting-gate1') return null;
+  if (action === 'verify' || action === 'state-get' || action === 'work-switch' || action === 'work-abandon') return null;
+  if (action === 'record' && recordType === 'gate') return null;
+  return '⚠️  Gate 1 승인이 먼저 필요합니다. awl record gate 로 승인 결과를 기록하세요.';
+}
+
+/** 검증 결과를 현재 완료 조건에 기계적으로 반영한다. 사람의 blocked 기록과는 구분한다. */
+export function applyVerificationAttempts(
+  state: Record<string, unknown>,
+  passed: boolean,
+): { state: Record<string, unknown>; blocked: string[] } {
+  const criteria = Array.isArray(state.criteria) ? state.criteria as Record<string, unknown>[] : [];
+  const focus = typeof state.currentFocus === 'string' ? state.currentFocus : undefined;
+  const targets = focus
+    ? criteria.filter((c) => c.id === focus)
+    : criteria.filter((c) => c.status === 'in_progress');
+  if (targets.length === 0) return { state, blocked: [] };
+  const blocked: string[] = [];
+  const next = criteria.map((criterion) => {
+    if (!targets.includes(criterion)) return criterion;
+    if (passed) return { ...criterion, attempts: 0 };
+    const attempts = typeof criterion.attempts === 'number' ? criterion.attempts + 1 : 1;
+    if (attempts >= 3) {
+      blocked.push(String(criterion.id));
+      return { ...criterion, attempts, status: 'blocked', autoBlocked: true };
+    }
+    return { ...criterion, attempts };
+  });
+  return {
+    state: blocked.length ? { ...state, criteria: next, phase: 'blocked', loop: 'blocked' } : { ...state, criteria: next },
+    blocked,
+  };
+}
+
 function requireRoot(): string {
   const root = resolveProjectRoot();
   if (!root) {
@@ -156,6 +196,11 @@ export function runStateSet(jsonPatch: string, opts: RunStateSetOpts = {}): void
     process.exit(1);
   }
   const current = loadState(root);
+  const gateBlock = gate1BlockReason(current, 'state-set');
+  if (gateBlock) {
+    process.stderr.write(`\n  ${gateBlock}\n`);
+    process.exit(1);
+  }
   const p = patch as Record<string, unknown>;
   if (p.phase === 'loop' && opts.requireGateForLoop) {
     const workitem = typeof current.workitem === 'string' ? current.workitem : undefined;

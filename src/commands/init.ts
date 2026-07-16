@@ -52,6 +52,7 @@ export interface AwlConfig {
   character: string;
   engineVersion: string;
   verify: VerifyMap;
+  protectedFiles?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -450,6 +451,21 @@ export function ensureGitignore(projectRoot: string): 'added' | 'exists' {
   return 'added';
 }
 
+/** 정적 템플릿을 설치한다. 기존 사용자 훅은 덮어쓰지 않고 경고만 돌린다. */
+export function installSafetyHook(projectRoot: string): { installed: boolean; warning?: string } {
+  try {
+    const hook = path.join(projectRoot, '.git', 'hooks', 'pre-push');
+    if (exists(hook)) return { installed: false, warning: '기존 pre-push 훅이 있어 awl 훅을 덮어쓰지 않았습니다.' };
+    const template = path.join(packageEngineDir(), 'templates', 'pre-push.sample');
+    fs.mkdirSync(path.dirname(hook), { recursive: true });
+    fs.cpSync(template, hook);
+    fs.chmodSync(hook, 0o755);
+    return { installed: true };
+  } catch (error) {
+    return { installed: false, warning: `push 차단 훅을 설치하지 못했습니다: ${String(error)}` };
+  }
+}
+
 /** ~/.awl/projects.json 에 이 프로젝트를 등록한다. 같은 경로면 갱신한다. */
 export function registerProject(entry: {
   name: string;
@@ -582,6 +598,7 @@ export interface InitResult {
   projectCount: number;
   ruleCount: number;
   lessonCount: number;
+  safetyHook: { installed: boolean; warning?: string };
 }
 
 export function applyInit(projectRoot: string, inputs: InitInputs, now: string): InitResult {
@@ -590,6 +607,7 @@ export function applyInit(projectRoot: string, inputs: InitInputs, now: string):
   const configPath = writeConfig(projectRoot, config);
   const statePath = writeState(projectRoot, now);
   const gitignore = ensureGitignore(projectRoot);
+  const safetyHook = installSafetyHook(projectRoot);
   const projectCount = registerProject({
     name: inputs.project,
     path: projectRoot,
@@ -623,6 +641,7 @@ export function applyInit(projectRoot: string, inputs: InitInputs, now: string):
     projectCount,
     ruleCount: countEntries(path.join(globalRoot(), 'rules', 'active')),
     lessonCount: countEntries(path.join(globalRoot(), 'lessons')),
+    safetyHook,
   };
 }
 
@@ -703,6 +722,11 @@ export function renderResult(result: InitResult, inputs: InitInputs, c: Caps): s
     line(
       '.awl/state.json',
       result.gitignore === 'added' ? 'gitignore 에 추가함' : '이미 gitignore 에 있음',
+      result.safetyHook.warning
+        ? `${signal(c, 'warn')} ${result.safetyHook.warning}`
+        : result.safetyHook.installed
+          ? `${signal(c, 'ok')} git push 차단 훅 설치`
+          : 'git push 차단 훅 이미 설치됨',
     ),
   );
   setupLines.push(
@@ -743,7 +767,6 @@ export interface InteractiveScreens {
   welcome: string | null;
   lang: string;
   verify: string;
-  rules: string;
   character: string;
   skills: string;
 }
@@ -791,33 +814,18 @@ export function buildScreens(projectRoot: string, hasGlobal: boolean, c: Caps): 
 
   return {
     welcome,
-    lang: stepBox('1/4', '주 언어', langLines, c),
-    verify: stepBox('2/4', '검증 명령어', verifyStepLines(verify), c),
-    rules: stepBox(
-      '3/4',
-      '규칙이란',
-      [
-        '작업하다 같은 실패를 두 번 하면, awl 이 그걸 규칙으로 만듭니다.',
-        '예: "여백은 토큰 값만. 자유 px 금지"',
-        '',
-        '규칙은 당신에게 쌓입니다. 다음 프로젝트에도 따라옵니다.',
-        '그래서 문제가 하나 생깁니다.',
-        '',
-        '  이 프로젝트의 규칙이, 저 프로젝트에서도 맞을까?',
-        '',
-        '그걸 판단하려면 이 프로젝트가 어떤 곳인지 알아야 합니다.',
-      ],
-      c,
-    ),
+    lang: stepBox('1/3', '주 언어', langLines, c),
+    verify: stepBox('2/3', '검증 명령어', verifyStepLines(verify), c),
     character: stepBox(
-      '4/4',
-      '이 프로젝트는 어떤 곳입니까',
+      '3/3',
+      '규칙과 이 프로젝트의 성격',
       [
-        '한 줄이면 됩니다. 나중에 규칙이 생겼을 때,',
-        '그 규칙을 여기에 적용할지 판단하는 근거가 됩니다.',
+        '같은 실패가 쌓이면 규칙이 되고, 다음 프로젝트에도 전파됩니다.',
+        '프로젝트의 성격은 그 규칙을 여기에도 적용할지 판단하는 근거입니다.',
         '',
-        '비워둬도 됩니다. 다만 적어두면, 다른 프로젝트의 규칙이',
-        '여기로 잘못 끌려오지 않습니다.',
+        '이 프로젝트는 어떤 곳입니까?',
+        '(예시: "React + TailwindCSS 웹 프론트엔드", "Python Fast API 분석 서버",',
+        '       "TypeScript 라이브러리 패키지")',
       ],
       c,
     ),
@@ -1046,7 +1054,7 @@ async function interactiveInputs(
     const verify = located.verify;
     if (located.cwd) {
       // 패키지를 새로 골랐으면 그 패키지에서 감지한 값으로 화면도 다시 그린다.
-      process.stdout.write(`\n${stepBox('2/4', '검증 명령어', verifyStepLines(verify), c)}\n`);
+      process.stdout.write(`\n${stepBox('2/3', '검증 명령어', verifyStepLines(verify), c)}\n`);
     } else {
       process.stdout.write(`\n${screens.verify}\n`);
     }
@@ -1060,11 +1068,7 @@ async function interactiveInputs(
     }
     applyVerifyCwd(verify, located.cwd);
 
-    // 4. [3/4] 규칙이란 (설명 화면)
-    process.stdout.write(`\n${screens.rules}\n`);
-    await ask(prompt(), '  Enter 로 계속: ');
-
-    // 5. [4/4] 이 프로젝트는 어떤 곳입니까
+    // 3. [3/3] 규칙과 프로젝트 성격
     process.stdout.write(`\n${screens.character}\n`);
     const character = (await ask(prompt(), '  > ')).trim();
 
@@ -1215,8 +1219,9 @@ export async function runInit(opts: { yes: boolean }): Promise<void> {
   if (opts.yes) {
     if (configExists) {
       const engine = scaffoldGlobal();
+      const hook = installSafetyHook(projectRoot);
       process.stdout.write(
-        `\n  .awl/config.json 이 이미 있습니다. 그대로 씁니다.\n  ${signal(c, 'ok')} 엔진 템플릿을 ${engine.created ? '설치했습니다.' : '갱신했습니다.'}\n`,
+        `\n  .awl/config.json 이 이미 있습니다. 그대로 씁니다.\n  ${signal(c, 'ok')} 엔진 템플릿을 ${engine.created ? '설치했습니다.' : '갱신했습니다.'}${hook.warning ? `\n  ${signal(c, 'warn')} ${hook.warning}` : hook.installed ? `\n  ${signal(c, 'ok')} git push 차단 훅 설치` : ''}\n`,
       );
       return;
     }

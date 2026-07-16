@@ -1,0 +1,7 @@
+#!/bin/sh
+# awl safety hook: normal pushes need an explicit human/release override.
+if [ "${AWL_ALLOW_PUSH:-}" = "1" ]; then
+  exit 0
+fi
+echo "❌ awl: git push is blocked. Review the release, then use AWL_ALLOW_PUSH=1 git push." >&2
+exit 1

@@ -275,7 +275,7 @@ try {
   execFileSync(
     'git',
     ['push', '--atomic', 'origin', `HEAD:refs/heads/${branch}`, `refs/tags/v${newVersion}`],
-    { cwd: REPO_ROOT, stdio: 'inherit' },
+    { cwd: REPO_ROOT, stdio: 'inherit', env: { ...process.env, AWL_ALLOW_PUSH: '1' } },
   );
 } catch (e) {
   die(

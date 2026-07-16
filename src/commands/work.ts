@@ -4,7 +4,7 @@ import { run } from '../core/runner.js';
 import { type Caps, caps, card, makeColors, signal } from '../core/tty.js';
 import { loadConfig, resolveProjectRoot } from './config.js';
 import { gitBranch } from './doctor.js';
-import { loadState, migrateState, writeState } from './state.js';
+import { gate1BlockReason, loadState, migrateState, writeState } from './state.js';
 import {
   buildVerifyBaseline,
   isCheckPassed,
@@ -117,6 +117,7 @@ export interface WorkitemEntry {
   createdAt: string;
   branch?: string;
   description?: string;
+  raw_request?: string;
   phase?: unknown;
   loop?: unknown;
   criteria: Record<string, unknown>[];
@@ -151,6 +152,7 @@ function archiveCurrent(
     ...(typeof migrated.workitemDescription === 'string'
       ? { description: migrated.workitemDescription }
       : {}),
+    ...(typeof migrated.raw_request === 'string' ? { raw_request: migrated.raw_request } : {}),
     phase: migrated.phase ?? null,
     loop: migrated.loop ?? null,
     criteria: Array.isArray(migrated.criteria)
@@ -169,6 +171,7 @@ function archiveCurrent(
     workitemBranch: _b,
     workitemCreatedAt: _ca,
     workitemDescription: _d,
+    raw_request: _rr,
     // currentFocus/worktreePath 는 워크아이템별 상태다(리뷰 지적 AC-09, 같은 실수를
     // worktreePath 에서 반복하지 않는다) — rest 로 흘려보내면 다음(새) 워크아이템의
     // 최상위로 그대로 새어 들어간다. entry 스냅샷에만 담고 여기선 제거한다.
@@ -233,6 +236,7 @@ export function createWorkitem(
       workitemCreatedAt: now,
       ...(branch ? { workitemBranch: branch } : {}),
       ...(description ? { workitemDescription: description } : {}),
+      raw_request: description ?? '',
       ...(worktreePath ? { workitemWorktreePath: worktreePath } : {}),
     },
   };
@@ -275,6 +279,7 @@ export function restoreWorkitem(
     workitemCreatedAt: entry.createdAt,
     ...(entry.branch ? { workitemBranch: entry.branch } : {}),
     ...(entry.description ? { workitemDescription: entry.description } : {}),
+    ...(typeof entry.raw_request === 'string' ? { raw_request: entry.raw_request } : {}),
     ...(entry.currentFocus ? { currentFocus: entry.currentFocus } : {}),
     ...(entry.worktreePath ? { workitemWorktreePath: entry.worktreePath } : {}),
     workitems: remainingRegistry,
@@ -425,6 +430,11 @@ export async function runWorkNew(
   opts: { worktree?: string | boolean; skipBaseline?: boolean } = {},
 ): Promise<void> {
   const root = requireRoot();
+  const gateBlock = gate1BlockReason(loadState(root), 'work-new');
+  if (gateBlock) {
+    process.stderr.write(`\n  ${gateBlock}\n`);
+    process.exit(1);
+  }
   const now = new Date().toISOString();
   const branch = await gitBranch(root);
 

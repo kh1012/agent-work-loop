@@ -21,13 +21,13 @@ export function loadGotchas(): Gotcha[] {
 function renderGotchas(gotchas: Gotcha[], c: Caps): string {
   const color = makeColors(c.color);
   if (gotchas.length === 0) {
-    return card('교훈', ['교훈이 없습니다.'], c);
+    return card('함정', ['함정이 없습니다.'], c);
   }
   const out: string[] = [];
   for (const g of gotchas) {
     out.push(`${color.dim('·')} ${g.lesson || '(요약 없음)'}`);
   }
-  return card(`교훈 ${gotchas.length}개 · 아직 규칙 아님`, out, c);
+  return card(`함정 ${gotchas.length}개 · 아직 규칙 아님`, out, c);
 }
 
 export function runGotchas(opts: { json?: boolean }): void {

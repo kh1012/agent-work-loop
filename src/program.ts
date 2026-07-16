@@ -12,7 +12,10 @@ awl 자체는 판단하지 않습니다. 파일과 상태만 관리합니다.
 시작하기:
   1. awl init       이 프로젝트를 설정합니다
   2. awl status     지금 어디까지 왔는지 봅니다
-  3. awl doctor     설치와 환경을 점검합니다`;
+  3. awl doctor     설치와 환경을 점검합니다
+
+진단 스킬: /awl-improve-loop 는 하네스의 동시성·상태 누수·게이트 우회를 점검하는
+임시 피드백 도구입니다. 실제 개발 환경에서는 사용하지 말고 격리된 Mock 환경에서만 실행하세요.`;
 
 const DENSE_AWL = `█████╗ ██╗    ██╗██╗
 ██╔══██╗██║    ██║██║
@@ -263,7 +266,7 @@ export function buildProgram(): Command {
   // 사람이 치는 명령: gotchas (아직 규칙이 되지 않은 교훈, WI-O — 예전 이름 deltas 를 개명함)
   program
     .command('gotchas')
-    .description('아직 규칙이 되지 않은 교훈을 봅니다')
+    .description('아직 규칙이 되지 않은 함정을 봅니다')
     .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
     .action(async (opts: { json?: boolean }) => {
       const { runGotchas } = await import('./commands/gotchas.js');
@@ -280,10 +283,20 @@ export function buildProgram(): Command {
       runMetrics({ json: opts.json === true });
     });
 
+  program
+    .command('changelog')
+    .description('Gate 2 승인 뒤 CHANGELOG.md에 옮길 초안을 만듭니다 (파일은 쓰지 않음)')
+    .option('--workitem <id>', '대상 워크아이템 (기본: 현재)')
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .action(async (opts: { workitem?: string; json?: boolean }) => {
+      const { runChangelogDraft } = await import('./commands/changelog.js');
+      runChangelogDraft({ workitem: opts.workitem, json: opts.json === true });
+    });
+
   // 폐기 예정(0.4.0 까지 유지): deltas 는 gotchas 의 옛 이름이다.
   program
     .command('deltas', { hidden: true })
-    .description('(폐기 예정 — awl gotchas 를 쓰세요) 아직 규칙이 되지 않은 교훈을 봅니다')
+    .description('(폐기 예정 — awl gotchas 를 쓰세요) 아직 규칙이 되지 않은 함정을 봅니다')
     .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
     .action(async (opts: { json?: boolean }) => {
       process.stderr.write(
@@ -300,10 +313,11 @@ export function buildProgram(): Command {
     .option('--start', '베이스라인을 잡습니다 (작업 시작 시)')
     .option('-m, --message <msg>', '커밋 메시지')
     .option('--base <ref>', '베이스 드리프트를 확인할 기준 브랜치')
+    .option('--force', '보호 파일 변경 검사를 사람이 확인하고 우회합니다')
     .action(
-      async (criterion: string, opts: { start?: boolean; message?: string; base?: string }) => {
+      async (criterion: string, opts: { start?: boolean; message?: string; base?: string; force?: boolean }) => {
         const { runCommit } = await import('./commands/commit.js');
-        await runCommit(criterion, { start: opts.start, message: opts.message, base: opts.base });
+        await runCommit(criterion, { start: opts.start, message: opts.message, base: opts.base, force: opts.force });
       },
     );
 
@@ -347,6 +361,7 @@ export function buildProgram(): Command {
     .description('검증 명령을 순서대로 실행합니다')
     .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
     .option('--bail', '첫 실패에서 멈춥니다')
+    .option('--force', '보호 파일 변경 검사를 사람이 확인하고 우회합니다')
     .option('--since-baseline', '베이스라인 대비 신규 실패만 회귀로 판정합니다')
     .option(
       '--related',
@@ -358,6 +373,7 @@ export function buildProgram(): Command {
         bail?: boolean;
         sinceBaseline?: boolean;
         related?: boolean;
+        force?: boolean;
       }) => {
         const { runVerify } = await import('./commands/verify.js');
         await runVerify({
@@ -365,6 +381,7 @@ export function buildProgram(): Command {
           bail: opts.bail === true,
           sinceBaseline: opts.sinceBaseline === true,
           related: opts.related === true,
+          force: opts.force === true,
         });
       },
     );
