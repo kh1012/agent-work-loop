@@ -496,7 +496,7 @@ function ensureWorktreesGitignored(root: string): void {
 export async function runWorkNew(
   id: string,
   description: string | undefined,
-  opts: { worktree?: string | boolean; skipBaseline?: boolean } = {},
+  opts: { worktree?: string | boolean; skipBaseline?: boolean; isolated?: boolean } = {},
 ): Promise<void> {
   const root = requireRoot();
   const now = new Date().toISOString();
@@ -523,6 +523,17 @@ export async function runWorkNew(
       process.exit(1);
     }
     ensureWorktreesGitignored(root);
+  }
+
+  // --isolated(concurrency-2): 이 워크아이템 전용 AWL_HOME 을 만든다. records(~/.awl)는
+  // AWL_HOME 파생이라, worktree(state 격리) + 이 전용 home(records 격리)이 합쳐지면
+  // 병렬 루프가 완전히 나뉜다. 미래 셸 env 는 못 바꾸므로 경로만 만들고 export 를
+  // 안내한다(실제 격리는 세션이 그 export 를 적용할 때 발생). 워크트리별 경로라
+  // 두 --isolated 세션이 같은 home 을 공유하지 않는다.
+  let isolatedHome: string | undefined;
+  if (opts.isolated) {
+    isolatedHome = path.join(worktreePath ?? root, '.awl-home');
+    fs.mkdirSync(isolatedHome, { recursive: true });
   }
 
   const result = createWorkitem(loadState(root), id, now, branch, description, worktreePath);
@@ -589,12 +600,18 @@ export async function runWorkNew(
   process.stdout.write(
     `    ${color.dim(worktreePath ? `다음 → cd ${worktreePath} 후 awl-loop 시작` : '다음 → awl-loop 시작')}\n`,
   );
-  if (worktreePath) {
+  if (isolatedHome) {
+    // --isolated: records 격리용 전용 home. 셸 env 는 못 바꾸므로 export 를 안내한다.
+    process.stdout.write(`    ${color.dim(`export AWL_HOME=${isolatedHome}`)}\n`);
+    process.stdout.write(
+      `    ${color.dim('(records 를 이 워크아이템 전용으로 격리 — 실제 격리는 이 export 를 적용해야 발생합니다)')}\n`,
+    );
+  } else if (worktreePath) {
     // 병렬 세션 방어(concurrency-1): worktree 는 git(워킹트리+state)만 격리한다.
     // records(~/.awl)는 AWL_HOME 파생이라 전역 공유로 남는다 — 병렬 세션이 같은
-    // 프로젝트를 돌리면 records 가 뒤섞인다. AWL_HOME 을 분리하면 완전히 나뉜다.
+    // 프로젝트를 돌리면 records 가 뒤섞인다. AWL_HOME 분리나 --isolated 로 나뉜다.
     process.stdout.write(
-      `    ${color.dim('참고 → worktree 는 git 만 격리합니다. records(~/.awl)는 전역 공유이니, 병렬 세션이면 AWL_HOME 을 따로 두세요.')}\n`,
+      `    ${color.dim('참고 → worktree 는 git 만 격리합니다. records(~/.awl)는 전역 공유이니, 병렬 세션이면 AWL_HOME 을 따로 두거나 --isolated 를 쓰세요.')}\n`,
     );
   }
 }
