@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { kstDateOf, kstDayRange, recordsInKstDay } from '../../src/commands/brief.js';
+import {
+  buildBrief,
+  kstDateOf,
+  kstDayRange,
+  recordsInKstDay,
+  summarizeRecord,
+} from '../../src/commands/brief.js';
 
 describe('kstDateOf — UTC epoch ms → KST 달력 날짜', () => {
   it('UTC 14:59:59Z 는 같은 날 KST 23:59(경계 이전)', () => {
@@ -65,5 +71,62 @@ describe('recordsInKstDay — project + KST 오늘 범위 재필터', () => {
   it('at 파싱 불가 레코드는 버린다', () => {
     const got = recordsInKstDay([{ at: 'not-a-date', project: 'awl' }], 'awl', range);
     expect(got).toHaveLength(0);
+  });
+});
+
+describe('summarizeRecord — 타입별 짧은 요약', () => {
+  it('attempt 는 what 을 요약으로', () => {
+    expect(summarizeRecord({ type: 'attempt', what: '구현 완료' })).toBe('구현 완료');
+  });
+
+  it('gate 는 gate N + decision', () => {
+    expect(summarizeRecord({ type: 'gate', gate: 1, decision: 'approved' })).toBe('gate1 approved');
+  });
+
+  it('audit 는 scope, evolve 는 lesson 을 쓴다', () => {
+    expect(summarizeRecord({ type: 'audit', scope: 'brief' })).toBe('brief');
+    expect(summarizeRecord({ type: 'evolve', lesson: '먼저 확인한다' })).toBe('먼저 확인한다');
+  });
+
+  it('마땅한 필드가 없으면 type 을 요약으로', () => {
+    expect(summarizeRecord({ type: 'narrative', kind: 'reviewer-caught' })).toBe('reviewer-caught');
+    expect(summarizeRecord({ type: 'unknown' })).toBe('unknown');
+  });
+});
+
+describe('buildBrief — 오늘 요약 3축(records/commits/criteria) 조립', () => {
+  it('세 축을 담고 각 record 는 {type,workitem,at,summary} 로 압축', () => {
+    const brief = buildBrief({
+      date: '2026-07-16',
+      project: 'awl',
+      records: [
+        { at: '2026-07-16T05:00:00.000Z', type: 'attempt', workitem: 'WI-1', what: '구현' },
+      ],
+      commits: [{ hash: 'abc1234', subject: 'feat: x' }],
+      criteria: [{ id: 'AC-01', status: 'passed', attempts: 1, baseline: 'deadbeef' }],
+      changedFiles: [],
+    });
+    expect(brief.date).toBe('2026-07-16');
+    expect(brief.project).toBe('awl');
+    expect(brief.records).toEqual([
+      { type: 'attempt', workitem: 'WI-1', at: '2026-07-16T05:00:00.000Z', summary: '구현' },
+    ]);
+    expect(brief.commits).toEqual([{ hash: 'abc1234', subject: 'feat: x' }]);
+    // criteria 는 {id,status} 로만 압축(baseline/attempts 등 내부필드 제외)
+    expect(brief.criteria).toEqual([{ id: 'AC-01', status: 'passed' }]);
+  });
+
+  it('빈 하루는 빈 축들을 낸다(에러 아님)', () => {
+    const brief = buildBrief({
+      date: '2026-07-17',
+      project: 'awl',
+      records: [],
+      commits: [],
+      criteria: [],
+      changedFiles: [],
+    });
+    expect(brief.records).toEqual([]);
+    expect(brief.commits).toEqual([]);
+    expect(brief.criteria).toEqual([]);
   });
 });

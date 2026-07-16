@@ -1,5 +1,7 @@
+import { run } from '../core/runner.js';
 import { resolveProjectRoot } from './config.js';
 import { loadProjectName, readRecords } from './record.js';
+import { loadState } from './state.js';
 
 /**
  * awl brief — KST "오늘"의 진행분(records)을 모아 낸다.
@@ -63,6 +65,76 @@ export function recordsInKstDay(
   });
 }
 
+/** 그날의 한 커밋(요약). */
+export interface BriefCommit {
+  hash: string;
+  subject: string;
+}
+
+/** 스킬이 소비하는 오늘 요약 구조. awl 은 데이터만 낸다(판단은 스킬). */
+export interface Brief {
+  date: string;
+  project?: string;
+  records: { type: string; workitem?: string; at: string; summary: string }[];
+  commits: BriefCommit[];
+  criteria: { id: string; status: string }[];
+  verifyItems: VerifyItem[];
+}
+
+/** 검증 항목(사람이 눈으로 볼 것). how 는 방법(딥링크/화면/절차), 없으면 비움. */
+export interface VerifyItem {
+  what: string;
+  how?: string;
+  source: string; // 'record' | 'criterion' | 'heuristic'
+}
+
+/**
+ * 레코드를 타입별로 짧게 요약한다(순수). 사람/스킬이 훑기 좋게 한 줄.
+ * 마땅한 필드가 없으면 type 자체를 요약으로 쓴다.
+ */
+export function summarizeRecord(r: Record<string, unknown>): string {
+  const type = String(r.type ?? '');
+  if (type === 'gate') {
+    return `gate${r.gate ?? '?'} ${r.decision ?? ''}`.trim();
+  }
+  const pick = r.what ?? r.lesson ?? r.scope ?? r.question ?? r.kind ?? r.condition ?? r.조건 ?? '';
+  const s = String(pick).trim();
+  return s !== '' ? s : type;
+}
+
+/**
+ * 오늘 요약 3축(records/commits/criteria) + verifyItems 를 조립한다(순수).
+ *
+ * records 는 KST-오늘+project 로 이미 필터된 것을 받아 {type,workitem,at,summary}
+ * 로 압축한다. criteria 는 {id,status} 로만 압축한다(baseline/attempts 등 내부필드 제외).
+ * verifyItems 는 AC-04 에서 extractVerifyItems 로 채운다(여기선 빈 배열).
+ */
+export function buildBrief(input: {
+  date: string;
+  project?: string;
+  records: Record<string, unknown>[];
+  commits: BriefCommit[];
+  criteria: Record<string, unknown>[];
+  changedFiles: string[];
+}): Brief {
+  return {
+    date: input.date,
+    project: input.project,
+    records: input.records.map((r) => ({
+      type: String(r.type ?? ''),
+      workitem: typeof r.workitem === 'string' ? r.workitem : undefined,
+      at: String(r.at ?? ''),
+      summary: summarizeRecord(r),
+    })),
+    commits: input.commits,
+    criteria: input.criteria.map((c) => ({
+      id: String(c.id ?? ''),
+      status: String(c.status ?? ''),
+    })),
+    verifyItems: [],
+  };
+}
+
 export interface BriefCliOpts {
   today?: boolean;
   date?: string;
@@ -70,7 +142,44 @@ export interface BriefCliOpts {
 }
 
 /**
- * awl brief 진입점. KST 오늘(또는 --date)의 records 를 모아 낸다.
+ * 그날(KST 경계)의 git 커밋을 모은다(I/O). --since/--until 을 UTC ISO 경계로 넘긴다.
+ * git 이 없거나 실패하면 빈 배열(brief 는 부분 데이터라도 낸다).
+ */
+async function gitCommitsInRange(
+  root: string,
+  range: { startMs: number; endMs: number },
+): Promise<BriefCommit[]> {
+  try {
+    const r = await run({
+      cmd: 'git',
+      args: [
+        'log',
+        `--since=${new Date(range.startMs).toISOString()}`,
+        `--until=${new Date(range.endMs).toISOString()}`,
+        '--format=%H%x00%s',
+      ],
+      cwd: root,
+      timeoutMs: 10_000,
+    });
+    if (r.exitCode !== 0) {
+      return [];
+    }
+    const commits: BriefCommit[] = [];
+    for (const line of r.stdout.split('\n')) {
+      if (line.trim() === '') {
+        continue;
+      }
+      const [hash, subject] = line.split('\0');
+      commits.push({ hash: (hash ?? '').slice(0, 9), subject: subject ?? '' });
+    }
+    return commits;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * awl brief 진입점. KST 오늘(또는 --date)의 records/commits/criteria 를 모아 낸다.
  * --date 가 있으면 그 날, 없으면 KST 오늘(Date.now 기준)을 쓴다.
  */
 export async function runBrief(opts: BriefCliOpts): Promise<void> {
@@ -91,10 +200,26 @@ export async function runBrief(opts: BriefCliOpts): Promise<void> {
   }
 
   const dayRecords = recordsInKstDay(readRecords(), project, range);
+  const commits = await gitCommitsInRange(root, range);
+  const state = loadState(root);
+  const criteria = Array.isArray(state.criteria)
+    ? (state.criteria as Record<string, unknown>[])
+    : [];
+
+  const brief = buildBrief({
+    date,
+    project,
+    records: dayRecords,
+    commits,
+    criteria,
+    changedFiles: [],
+  });
 
   if (opts.json === true) {
-    process.stdout.write(`${JSON.stringify({ date, project, records: dayRecords }, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify(brief, null, 2)}\n`);
     return;
   }
-  process.stdout.write(`${date} (KST) — records ${dayRecords.length}건\n`);
+  process.stdout.write(
+    `${date} (KST) — records ${brief.records.length} · commits ${brief.commits.length} · criteria ${brief.criteria.length}\n`,
+  );
 }
