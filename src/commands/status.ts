@@ -1,3 +1,4 @@
+import { run } from '../core/runner.js';
 import { type Caps, caps, card, makeColors, makeSymbols, signal } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
 import { readRecords } from './record.js';
@@ -29,6 +30,17 @@ export interface GateStatus {
   auto?: boolean;
 }
 
+/**
+ * 완료조건 커밋이 지금 HEAD 에 없다는 "사실"(wi8-F3). awl 은 어느 계보가 맞다고
+ * 판단하지 않는다 — diverged(커밋은 있으나 HEAD 조상 아님, 다른 계보)와
+ * not-found(커밋 객체가 이 클론에 없음)만 구분해 표시한다.
+ */
+export interface MissingAcCommit {
+  id: string;
+  commit: string;
+  reason: 'diverged' | 'not-found';
+}
+
 export interface StatusReport {
   generation: number;
   phase: string | null;
@@ -44,6 +56,9 @@ export interface StatusReport {
   records: { total: number; byType: Record<string, number> };
   lastAttempt: string | null;
   gates: GateStatus[];
+  // 커밋 SHA 대조는 git 을 써야 해서 동기 buildStatus 밖(checkMissingAcCommits)에서
+  // 채운다. 옵션 필드라 buildStatus 만 부르는 기존 경로/테스트는 영향 없다.
+  missingAcCommits?: MissingAcCommit[];
 }
 
 /**
@@ -142,6 +157,61 @@ export function buildStatus(projectRoot: string): StatusReport {
   };
 }
 
+/**
+ * 완료조건 커밋(criterion.commit) 중 지금 HEAD 조상이 아닌 것을 사실로 수집한다(wi8-F3).
+ * commit 필드가 있는 완료조건만 본다. git 저장소가 아님/HEAD 없음/git 미설치면 빈 배열
+ * (status 는 절대 크래시하지 않는다 — gitBranch 와 같은 원칙).
+ *
+ * merge-base --is-ancestor <commit> HEAD 의 exit code:
+ *   0   = HEAD 조상(포함됨) → 수집 안 함
+ *   1   = 조상 아님(커밋은 있으나 다른 계보) → diverged
+ *   그 외(128 등) = 커밋 객체가 이 클론에 없음 → not-found
+ */
+export async function checkMissingAcCommits(projectRoot: string): Promise<MissingAcCommit[]> {
+  const state = loadState(projectRoot);
+  const criteria = Array.isArray(state.criteria)
+    ? (state.criteria as Record<string, unknown>[])
+    : [];
+  const withCommit = criteria.filter(
+    (c): c is Record<string, unknown> & { commit: string } =>
+      typeof c.commit === 'string' && c.commit.length > 0,
+  );
+  if (withCommit.length === 0) {
+    return [];
+  }
+  try {
+    const head = await run({
+      cmd: 'git',
+      args: ['rev-parse', '--verify', '--quiet', 'HEAD'],
+      cwd: projectRoot,
+      timeoutMs: 10_000,
+    });
+    if (head.exitCode !== 0) {
+      return [];
+    }
+    const out: MissingAcCommit[] = [];
+    for (const c of withCommit) {
+      const r = await run({
+        cmd: 'git',
+        args: ['merge-base', '--is-ancestor', c.commit, 'HEAD'],
+        cwd: projectRoot,
+        timeoutMs: 10_000,
+      });
+      if (r.exitCode === 0) {
+        continue;
+      }
+      out.push({
+        id: String(c.id),
+        commit: c.commit,
+        reason: r.exitCode === 1 ? 'diverged' : 'not-found',
+      });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 export function renderStatus(report: StatusReport, c: Caps): string {
   const color = makeColors(c.color);
   const s = makeSymbols(c);
@@ -175,6 +245,13 @@ export function renderStatus(report: StatusReport, c: Caps): string {
       `${s.vGuide}   ${s.lastBranch} ${signal(c, 'warn')} ${color.yellow(b.id)} 블록됨  ${color.dim(`(대기: ${b.waitingOn.join(', ')})`)}`,
     );
   }
+  // 캐노니컬 HEAD 검증(wi8-F3): 완료조건 커밋이 지금 HEAD 에 없다는 사실만 표시한다.
+  for (const m of report.missingAcCommits ?? []) {
+    const why = m.reason === 'diverged' ? '다른 계보' : '커밋 없음';
+    out.push(
+      `${s.vGuide}   ${s.lastBranch} ${signal(c, 'warn')} ${color.yellow(m.id)} 커밋이 HEAD에 없음  ${color.dim(`(${m.commit.slice(0, 10)}, ${why})`)}`,
+    );
+  }
   out.push(
     `${s.branch} 기록       ${report.records.total}개  ${color.dim(typeSummary ? `(${typeSummary})` : '')}`,
   );
@@ -194,7 +271,7 @@ export function renderStatus(report: StatusReport, c: Caps): string {
   return card(`진행 상황 · ${report.generation}세대`, out, c);
 }
 
-export function runStatus(opts: { json: boolean }): void {
+export async function runStatus(opts: { json: boolean }): Promise<void> {
   const root = resolveProjectRoot();
   if (!root) {
     const cc = caps();
@@ -203,7 +280,12 @@ export function runStatus(opts: { json: boolean }): void {
     );
     process.exit(1);
   }
-  const report = buildStatus(root);
+  // buildStatus 는 동기 유지(기존 호출/테스트 보존). 커밋 SHA 대조는 git 이 필요해
+  // 여기서 async 로 덧붙인다 — 없으면 빈 배열이라 렌더/JSON 모두 영향 없다.
+  const report: StatusReport = {
+    ...buildStatus(root),
+    missingAcCommits: await checkMissingAcCommits(root),
+  };
   if (opts.json) {
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   } else {

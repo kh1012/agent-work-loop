@@ -1,8 +1,14 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { buildStatus, renderStatus } from '../../src/commands/status.js';
+import {
+  buildStatus,
+  checkMissingAcCommits,
+  renderStatus,
+  type StatusReport,
+} from '../../src/commands/status.js';
 
 const origHome = process.env.AWL_HOME;
 
@@ -277,5 +283,132 @@ describe('게이트 이력 (WI-Q AC-03)', () => {
     expect(text).toContain('대기중'); // 게이트 2는 아직 없음
     expect(text).toContain('5'); // presentedCriteria 개수
     expect(text).toContain('3'); // exclusion 개수
+  });
+});
+
+// wi8-F3: 캐노니컬 HEAD 검증 ---------------------------------------------------
+
+function makeGitRepo(): { dir: string; g: (args: string[]) => string } {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-status-git-')));
+  const g = (args: string[]) => execFileSync('git', args, { cwd: dir, encoding: 'utf8' });
+  g(['init', '-q', '-b', 'main']);
+  g(['config', 'user.email', 'x@x.com']);
+  g(['config', 'user.name', 'x']);
+  g(['config', 'commit.gpgsign', 'false']);
+  fs.mkdirSync(path.join(dir, '.awl'), { recursive: true });
+  return { dir, g };
+}
+
+function writeStateFile(dir: string, state: unknown): void {
+  fs.writeFileSync(path.join(dir, '.awl', 'state.json'), JSON.stringify(state));
+}
+
+describe('checkMissingAcCommits — 캐노니컬 HEAD 검증 (wi8-F3 AC-02/03 B)', () => {
+  it('완료조건 커밋이 HEAD 조상이 아니면(다른 계보) diverged 로 수집한다', async () => {
+    const { dir, g } = makeGitRepo();
+    fs.writeFileSync(path.join(dir, 'f.txt'), 'base\n');
+    g(['add', '-A']);
+    g(['commit', '-q', '-m', 'base']);
+    const base = g(['rev-parse', 'HEAD']).trim();
+    // 계보 A: AC-01 이 여기서 커밋됨.
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'A\n');
+    g(['add', '-A']);
+    g(['commit', '-q', '-m', 'A']);
+    const cA = g(['rev-parse', 'HEAD']).trim();
+    // 계보 B: base 에서 분기(A 를 포함하지 않음). 지금 HEAD=other.
+    g(['checkout', '-q', '-b', 'other', base]);
+    fs.writeFileSync(path.join(dir, 'b.txt'), 'B\n');
+    g(['add', '-A']);
+    g(['commit', '-q', '-m', 'B']);
+    // state 는 AC-01 이 cA(A 계보)에서 커밋됐다고 기록 — 열등 계보(other)를 최종 지목한 상황.
+    writeStateFile(dir, { criteria: [{ id: 'AC-01', status: 'passed', commit: cA }] });
+
+    const missing = await checkMissingAcCommits(dir);
+    expect(missing).toHaveLength(1);
+    expect(missing[0]).toMatchObject({ id: 'AC-01', commit: cA, reason: 'diverged' });
+  });
+
+  it('완료조건 커밋이 HEAD 조상이면 빈 배열(정상 계보)', async () => {
+    const { dir, g } = makeGitRepo();
+    fs.writeFileSync(path.join(dir, 'f.txt'), 'base\n');
+    g(['add', '-A']);
+    g(['commit', '-q', '-m', 'base']);
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'A\n');
+    g(['add', '-A']);
+    g(['commit', '-q', '-m', 'A']);
+    const cA = g(['rev-parse', 'HEAD']).trim();
+    writeStateFile(dir, { criteria: [{ id: 'AC-01', status: 'passed', commit: cA }] });
+    expect(await checkMissingAcCommits(dir)).toEqual([]);
+  });
+
+  it('완료조건 커밋 SHA 가 이 클론에 아예 없으면 not-found', async () => {
+    const { dir, g } = makeGitRepo();
+    fs.writeFileSync(path.join(dir, 'f.txt'), 'base\n');
+    g(['add', '-A']);
+    g(['commit', '-q', '-m', 'base']);
+    writeStateFile(dir, { criteria: [{ id: 'AC-01', status: 'passed', commit: '0'.repeat(40) }] });
+    const missing = await checkMissingAcCommits(dir);
+    expect(missing).toHaveLength(1);
+    expect(missing[0]).toMatchObject({ id: 'AC-01', reason: 'not-found' });
+  });
+
+  it('commit 필드 없는 완료조건은 검사하지 않는다(빈 배열)', async () => {
+    const { dir, g } = makeGitRepo();
+    fs.writeFileSync(path.join(dir, 'f.txt'), 'base\n');
+    g(['add', '-A']);
+    g(['commit', '-q', '-m', 'base']);
+    writeStateFile(dir, { criteria: [{ id: 'AC-01', status: 'passed', baseline: 'x' }] });
+    expect(await checkMissingAcCommits(dir)).toEqual([]);
+  });
+
+  it('git 저장소가 아니거나 커밋이 없으면 빈 배열(크래시 없음)', async () => {
+    const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-status-nogit-')));
+    fs.mkdirSync(path.join(dir, '.awl'), { recursive: true });
+    writeStateFile(dir, { criteria: [{ id: 'AC-01', status: 'passed', commit: 'deadbeef' }] });
+    expect(await checkMissingAcCommits(dir)).toEqual([]);
+  });
+});
+
+describe('renderStatus / JSON — missingAcCommits 표시 (wi8-F3 AC-03 C)', () => {
+  const plain = { unicode: false, color: false, tty: false };
+  function mkReport(over: Partial<StatusReport>): StatusReport {
+    return {
+      generation: 1,
+      phase: 'loop',
+      workitem: 'WI',
+      criteria: { total: 1, passed: 1, blocked: 0, inProgress: 0, pending: 0, blockedByDeps: [] },
+      records: { total: 0, byType: {} },
+      lastAttempt: null,
+      gates: [
+        { gate: 1, recorded: false },
+        { gate: 2, recorded: false },
+      ],
+      ...over,
+    };
+  }
+
+  it('missingAcCommits 가 있으면 AC id·"HEAD에 없음"·단축 SHA 를 출력한다', () => {
+    const report = mkReport({
+      missingAcCommits: [{ id: 'AC-01', commit: 'abcdef1234567890', reason: 'diverged' }],
+    });
+    const text = renderStatus(report, plain);
+    expect(text).toContain('AC-01');
+    expect(text).toContain('HEAD에 없음');
+    expect(text).toContain('abcdef1234'); // 단축 SHA 10자
+  });
+
+  it('missingAcCommits 가 없거나 비었으면 그 줄을 출력하지 않는다', () => {
+    expect(renderStatus(mkReport({}), plain)).not.toContain('HEAD에 없음');
+    expect(renderStatus(mkReport({ missingAcCommits: [] }), plain)).not.toContain('HEAD에 없음');
+  });
+
+  it('JSON 왕복 — missingAcCommits 가 직렬화된다', () => {
+    const report = mkReport({
+      missingAcCommits: [{ id: 'AC-01', commit: 'abcdef1234567890', reason: 'not-found' }],
+    });
+    const round = JSON.parse(JSON.stringify(report)) as StatusReport;
+    expect(round.missingAcCommits).toEqual([
+      { id: 'AC-01', commit: 'abcdef1234567890', reason: 'not-found' },
+    ]);
   });
 });

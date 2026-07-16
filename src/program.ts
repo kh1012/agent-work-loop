@@ -121,7 +121,7 @@ export function buildProgram(): Command {
     .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
     .action(async (opts: { json?: boolean }) => {
       const { runStatus } = await import('./commands/status.js');
-      runStatus({ json: opts.json === true });
+      await runStatus({ json: opts.json === true });
     });
 
   // 사람이 치는 명령: doctor (아무것도 설치·수리하지 않고 점검만 한다)
