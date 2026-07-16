@@ -835,7 +835,7 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
 }
 
 /** config.json 에서 project 이름만 가볍게 읽는다(스키마 검증은 requireConfig 몫). */
-function loadProjectName(projectRoot: string): string | undefined {
+export function loadProjectName(projectRoot: string): string | undefined {
   try {
     const p = path.join(projectRoot, '.awl', 'config.json');
     const j = JSON.parse(fs.readFileSync(p, 'utf8')) as Record<string, unknown>;

@@ -124,6 +124,18 @@ export function buildProgram(): Command {
       await runStatus({ json: opts.json === true });
     });
 
+  // 사람이 치는 명령: brief (KST 오늘 진행분을 스킬이 소비할 데이터로 낸다)
+  program
+    .command('brief')
+    .description('KST 오늘(또는 --date)의 진행분을 모아 냅니다(스킬 소비용 --json)')
+    .option('--today', '오늘(KST) 기준으로 모읍니다(기본)')
+    .option('--date <YYYY-MM-DD>', 'KST 기준 특정 날짜로 모읍니다')
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .action(async (opts: { today?: boolean; date?: string; json?: boolean }) => {
+      const { runBrief } = await import('./commands/brief.js');
+      await runBrief({ today: opts.today === true, date: opts.date, json: opts.json === true });
+    });
+
   // 사람이 치는 명령: doctor (아무것도 설치·수리하지 않고 점검만 한다)
   program
     .command('doctor')
