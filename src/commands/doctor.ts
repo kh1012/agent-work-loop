@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { installedEngineVersion } from '../core/engine.js';
-import { findProjectRoot, globalRoot, projectsFile, rulesDir } from '../core/paths.js';
+import { findProjectRoot, globalRoot, gotchasDir, projectsFile, rulesDir } from '../core/paths.js';
 import { CommandNotFoundError, run, tokenize } from '../core/runner.js';
 import {
   type Caps,
@@ -472,8 +472,8 @@ function collectGlobal(checks: Check[], versionResult: VersionCheckResult): void
 
   // 규칙 / 교훈 / 프로젝트 수 (없으면 0, 크래시하지 않는다)
   // 규칙은 rules/active 안의 파일을 센다(rules/ 직속의 index.json·graduated.md 는 메타).
-  // 교훈 저장 위치는 아직 확정되지 않았다(다음 워크아이템). ~/.awl/lessons 로 가정한다.
-  const lessonsDir = path.join(root, 'lessons');
+  // 교훈(gotcha)은 ~/.awl/gotchas/ 를 센다 — awl gotchas 와 같은 소스. 예전엔 확정되지
+  // 않은 ~/.awl/lessons 를 가정해 delta→gotcha 개명(WI-O) 이후 늘 0 개로 오보했다.
   checks.push({
     group: '전역 설치',
     name: '규칙',
@@ -484,7 +484,7 @@ function collectGlobal(checks: Check[], versionResult: VersionCheckResult): void
     group: '전역 설치',
     name: '교훈',
     status: 'info',
-    value: `${countEntries(lessonsDir)}개`,
+    value: `${countEntries(gotchasDir())}개`,
   });
 
   let projectCount = 0;

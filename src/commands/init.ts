@@ -440,6 +440,9 @@ export function writeState(projectRoot: string, now: string): string {
 /**
  * .gitignore 에 awl 이 관리하는 항목을 추가한다. 이미 있는 항목은 건너뛴다.
  *  - `.awl/state.json`: 로컬 루프 상태(팀과 공유하지 않는다).
+ *  - `.awl/verify-baseline.json`: work new 가 잡는 검증 베이스라인(로컬 전용). init 이
+ *    미리 안 넣으면 나중에 verify 가 추가하면서 .gitignore 를 미커밋으로 남기고, 첫
+ *    `awl commit` 이 그 변경을 "남의 것"으로 오인해 제외한다 — 그래서 init 이 한 번에 넣는다.
  *  - `.awl-worktrees/`: awl 이 `work new --worktree` 로 만드는 워크트리. gitignore 하지 않으면
  *    그 안의 파일들이 `commit --start` 의 untracked 스냅샷에 박혀 state.json 을 폭증시킨다
  *    (피드백 F-1 근원 차단 — commit.ts 의 코드 레벨 필터와 이중 방어).
@@ -447,7 +450,7 @@ export function writeState(projectRoot: string, now: string): string {
  */
 export function ensureGitignore(projectRoot: string): 'added' | 'exists' {
   const gi = path.join(projectRoot, '.gitignore');
-  const targets = ['.awl/state.json', '.awl-worktrees/'];
+  const targets = ['.awl/state.json', '.awl/verify-baseline.json', '.awl-worktrees/'];
   let content = exists(gi) ? fs.readFileSync(gi, 'utf8') : '';
   const has = (t: string): boolean => content.split(/\r?\n/).some((line) => line.trim() === t);
   const missing = targets.filter((t) => !has(t));
@@ -628,12 +631,18 @@ export function detectAgents(projectRoot: string): { claude: boolean; codex: boo
 
 /** --yes(비대화형)에서 쓸 입력. 자동 감지 기본값, 성격은 빈 문자열. */
 export function nonInteractiveInputs(projectRoot: string): InitInputs {
+  const detected = detectAgents(projectRoot);
+  // --yes 는 자동 셋업이다. 아무 에이전트도 감지 안 되면(빈 프로젝트) 주 대상인
+  // Claude 스킬을 기본 설치해 곧바로 /awl-loop 를 쓸 수 있게 한다 — 예전엔 감지된
+  // 것만 깔아, 신규 프로젝트는 스킬 없이 셋업돼 "다음 단계: init 재실행" 으로 끊겼다.
+  // .claude/ 는 gitignore 대상이라 로컬 설치로 안전하다. 감지되면 그대로 존중한다.
+  const skills = detected.claude || detected.codex ? detected : { claude: true, codex: false };
   return {
     project: path.basename(projectRoot),
     mainLanguage: detectLanguage(projectRoot) ?? '',
     character: '',
     verify: detectVerify(projectRoot),
-    skills: detectAgents(projectRoot),
+    skills,
   };
 }
 

@@ -404,6 +404,13 @@ describe('ensureGitignore — 중복 방지', () => {
     expect(content).toContain('.awl-worktrees/');
   });
 
+  it('verify-baseline.json 도 init 시점에 무시한다 (B4: work new 가 나중에 만들어 첫 commit 이 오귀속하는 것 차단)', () => {
+    const p = tmp('awl-gi-');
+    ensureGitignore(p);
+    const content = fs.readFileSync(path.join(p, '.gitignore'), 'utf8');
+    expect(content).toContain('.awl/verify-baseline.json');
+  });
+
   it('기존 .gitignore 내용을 보존한다', () => {
     const p = tmp('awl-gi-');
     fs.writeFileSync(path.join(p, '.gitignore'), 'node_modules/\n');
@@ -411,6 +418,33 @@ describe('ensureGitignore — 중복 방지', () => {
     const content = fs.readFileSync(path.join(p, '.gitignore'), 'utf8');
     expect(content).toContain('node_modules/');
     expect(content).toContain('.awl/state.json');
+  });
+});
+
+describe('nonInteractiveInputs — 스킬 기본값 (B3)', () => {
+  it('빈 프로젝트(감지 0)면 Claude 스킬을 기본으로 켠다 — 예전엔 아무것도 안 깔려 /awl-loop 를 못 썼다', () => {
+    const p = tmp('awl-fresh-');
+    fs.mkdirSync(path.join(p, '.git'), { recursive: true });
+    const inputs = nonInteractiveInputs(p);
+    expect(inputs.skills.claude).toBe(true);
+    expect(inputs.skills.codex).toBe(false);
+  });
+
+  it('.claude/ 가 이미 있으면 그대로 감지해 존중한다', () => {
+    const p = tmp('awl-hasclaude-');
+    fs.mkdirSync(path.join(p, '.claude'), { recursive: true });
+    const inputs = nonInteractiveInputs(p);
+    expect(inputs.skills.claude).toBe(true);
+    expect(inputs.skills.codex).toBe(false);
+  });
+
+  it('AGENTS.md 만 있으면 codex 만 존중하고 claude 를 억지로 켜지 않는다 (감지되면 기본값 미적용)', () => {
+    const p = tmp('awl-hascodex-');
+    fs.mkdirSync(path.join(p, '.git'), { recursive: true });
+    fs.writeFileSync(path.join(p, 'AGENTS.md'), '# agents\n');
+    const inputs = nonInteractiveInputs(p);
+    expect(inputs.skills.codex).toBe(true);
+    expect(inputs.skills.claude).toBe(false);
   });
 });
 

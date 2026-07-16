@@ -117,6 +117,16 @@ describe('collectChecks — 설치됨 흉내', () => {
     // --version 만 확인하므로 넉넉히 잡아도 빨라야 한다.
     expect(Date.now() - start).toBeLessThan(5000);
   });
+
+  it('교훈 카운트를 gotchas/ 에서 센다 (B1: 예전엔 lessons/ 를 봐서 늘 0개로 오보)', async () => {
+    const home = process.env.AWL_HOME as string;
+    fs.mkdirSync(path.join(home, 'gotchas'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'gotchas', 'G-001.json'), '{}');
+    fs.writeFileSync(path.join(home, 'gotchas', 'G-002.json'), '{}');
+    fs.writeFileSync(path.join(home, 'gotchas', 'G-003.json'), '{}');
+    const report = await collectChecks();
+    expect(find(report.checks, '교훈')?.value).toBe('3개');
+  });
 });
 
 describe('collectChecks — 프로젝트 루트/브랜치 표시 (WI-C)', () => {

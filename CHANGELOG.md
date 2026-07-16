@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+### 고침
+
+- doctor 가 교훈 수를 gotchas/ 에서 센다 — 예전엔 빈 lessons/ 를 봐서 늘 0개로 오보 [B1]
+- init --yes 가 빈 프로젝트에도 Claude 스킬을 기본 설치 — 셋업 직후 바로 /awl-loop 사용 가능 [B3]
+- init 이 .gitignore 에 verify-baseline.json 도 넣는다 — work new 가 나중에 만든 이 파일이 첫 commit 에 오귀속되던 문제 차단 [B4]
+
 ## [0.6.4] - 2026-07-16
 
 ### 추가
