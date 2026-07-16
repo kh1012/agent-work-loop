@@ -8,6 +8,8 @@
 ### 추가
 
 - awl status 가 완료조건 커밋(criterion.commit)이 지금 HEAD 에 없으면 사실로 표시한다 — diverged(다른 계보)/not-found(커밋 없음) 구분. 열등 계보를 최종으로 지목한 인수인계를 잡는다. 격리 커밋 SHA 를 commit 전용 필드에 기록(--start 로 리셋 안 됨)하고 status 가 merge-base --is-ancestor 로 대조. 판단하지 않고 사실만 표시(새 명령 없음) [wi8-F3]
+- awl work new --isolated — records(~/.awl)를 이 워크아이템 전용 AWL_HOME 으로 격리한다(병렬 세션용). 전용 .awl-home 을 만들고 export AWL_HOME 을 안내(실제 격리는 export 적용 시). worktree(state 격리)와 합쳐 병렬 루프를 완전히 나눈다 [concurrency-2]
+- 병렬 세션 방어(사실 표시) — awl work new --worktree 출력에 "records 는 전역 공유" 경고 hint, awl doctor 에 "최근 활동"(최근 records 시각·state mtime) 표시. awl 은 세션 개념이 없어 판단하지 않고 시각 사실만 보여준다 [concurrency-1]
 
 ### 고침
 
