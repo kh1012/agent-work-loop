@@ -153,7 +153,7 @@ export function extractVerifyItems(
  *
  * records 는 KST-오늘+project 로 이미 필터된 것을 받아 {type,workitem,at,summary}
  * 로 압축한다. criteria 는 {id,status} 로만 압축한다(baseline/attempts 등 내부필드 제외).
- * verifyItems 는 AC-04 에서 extractVerifyItems 로 채운다(여기선 빈 배열).
+ * verifyItems 는 extractVerifyItems 로 명시필드 + UI 휴리스틱을 합쳐 채운다.
  */
 export function buildBrief(input: {
   date: string;
@@ -177,7 +177,7 @@ export function buildBrief(input: {
       id: String(c.id ?? ''),
       status: String(c.status ?? ''),
     })),
-    verifyItems: [],
+    verifyItems: extractVerifyItems(input.records, input.criteria, input.changedFiles),
   };
 }
 
@@ -225,7 +225,44 @@ async function gitCommitsInRange(
 }
 
 /**
- * awl brief 진입점. KST 오늘(또는 --date)의 records/commits/criteria 를 모아 낸다.
+ * 그날 커밋들이 건드린 파일 목록을 모은다(I/O, UI 휴리스틱 입력용).
+ * git log --name-only 를 KST 경계로 돌려 유니크 파일 경로를 낸다. 실패 시 빈 배열.
+ */
+async function gitChangedFilesInRange(
+  root: string,
+  range: { startMs: number; endMs: number },
+): Promise<string[]> {
+  try {
+    const r = await run({
+      cmd: 'git',
+      args: [
+        'log',
+        `--since=${new Date(range.startMs).toISOString()}`,
+        `--until=${new Date(range.endMs).toISOString()}`,
+        '--name-only',
+        '--format=',
+      ],
+      cwd: root,
+      timeoutMs: 10_000,
+    });
+    if (r.exitCode !== 0) {
+      return [];
+    }
+    const seen = new Set<string>();
+    for (const line of r.stdout.split('\n')) {
+      const f = line.trim();
+      if (f !== '') {
+        seen.add(f);
+      }
+    }
+    return [...seen];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * awl brief 진입점. KST 오늘(또는 --date)의 records/commits/criteria/verifyItems 를 모아 낸다.
  * --date 가 있으면 그 날, 없으면 KST 오늘(Date.now 기준)을 쓴다.
  */
 export async function runBrief(opts: BriefCliOpts): Promise<void> {
@@ -247,25 +284,20 @@ export async function runBrief(opts: BriefCliOpts): Promise<void> {
 
   const dayRecords = recordsInKstDay(readRecords(), project, range);
   const commits = await gitCommitsInRange(root, range);
+  const changedFiles = await gitChangedFilesInRange(root, range);
   const state = loadState(root);
   const criteria = Array.isArray(state.criteria)
     ? (state.criteria as Record<string, unknown>[])
     : [];
 
-  const brief = buildBrief({
-    date,
-    project,
-    records: dayRecords,
-    commits,
-    criteria,
-    changedFiles: [],
-  });
+  const brief = buildBrief({ date, project, records: dayRecords, commits, criteria, changedFiles });
 
   if (opts.json === true) {
     process.stdout.write(`${JSON.stringify(brief, null, 2)}\n`);
     return;
   }
+  // 사람용은 최소 요약만 — 가이드·큐레이션은 스킬(별도 LLM) 몫이다.
   process.stdout.write(
-    `${date} (KST) — records ${brief.records.length} · commits ${brief.commits.length} · criteria ${brief.criteria.length}\n`,
+    `${date} (KST) — records ${brief.records.length} · commits ${brief.commits.length} · criteria ${brief.criteria.length} · verify ${brief.verifyItems.length}\n`,
   );
 }

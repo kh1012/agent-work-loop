@@ -192,5 +192,22 @@ describe('buildBrief — 오늘 요약 3축(records/commits/criteria) 조립', (
     expect(brief.records).toEqual([]);
     expect(brief.commits).toEqual([]);
     expect(brief.criteria).toEqual([]);
+    expect(brief.verifyItems).toEqual([]);
+  });
+
+  it('verifyItems 는 명시(records/criteria) + UI 휴리스틱(changedFiles)을 합쳐 채운다', () => {
+    const brief = buildBrief({
+      date: '2026-07-16',
+      project: 'awl',
+      records: [
+        { at: 'x', type: 'attempt', manualVerify: true, what: '눈으로 확인', verifyHow: '화면 A' },
+      ],
+      commits: [],
+      criteria: [],
+      changedFiles: ['src/editor/Toolbar.tsx'],
+    });
+    expect(brief.verifyItems).toHaveLength(2);
+    expect(brief.verifyItems[0]).toEqual({ what: '눈으로 확인', how: '화면 A', source: 'record' });
+    expect(brief.verifyItems.at(-1)?.source).toBe('heuristic');
   });
 });
