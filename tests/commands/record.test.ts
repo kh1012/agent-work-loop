@@ -13,8 +13,10 @@ import {
   monthFile,
   newRecordId,
   readRecords,
+  renderDeferSummary,
   renderRecords,
   resolveBlockedBaseline,
+  runDeferSummary,
   runRecord,
   selectMonthFiles,
   shouldDefer,
@@ -1638,5 +1640,106 @@ describe('collectDeferred — 리뷰 후속(skip-gate-defer AC-04)', () => {
       { type: 'defer', severity: 'low', what: 'L', why: 'w', at: '2026-07-16T01:00:00Z' },
     ]);
     expect(items.map((i) => i.what)).toEqual(['L', 'U']); // low 먼저, unknown 뒤
+  });
+});
+
+describe('renderDeferSummary — 최종 요약 렌더(skip-gate-defer AC-06, 리뷰 후속)', () => {
+  it('빈 큐는 안내 메시지', () => {
+    const out = renderDeferSummary([]);
+    expect(out).toContain('비어있습니다');
+  });
+
+  it('항목을 [severity] what·왜 중요·권장 라인으로 낸다(recommendation 유무 반영)', () => {
+    const out = renderDeferSummary([
+      {
+        severity: 'high',
+        what: '스펙 이탈',
+        why: '되돌리기 어려움',
+        recommendation: '보류',
+        at: 'z',
+      },
+      { severity: 'low', what: '사소', why: '영향 적음', at: 'z' },
+    ]);
+    expect(out).toContain('[high] 스펙 이탈');
+    expect(out).toContain('왜 중요: 되돌리기 어려움');
+    expect(out).toContain('권장(자율 시): 보류'); // recommendation 있으면 라인 존재
+    // recommendation 없는 항목엔 권장 라인이 그 항목에 안 붙는다
+    const lowIdx = out.indexOf('[low] 사소');
+    expect(out.slice(lowIdx)).not.toContain('권장(자율 시)');
+  });
+});
+
+describe('runDeferSummary — --json 기계 계약 + workitem 폴백(skip-gate-defer AC-05, 리뷰 후속)', () => {
+  const origCwd = process.cwd();
+  const origHome = process.env.AWL_HOME;
+
+  afterEach(() => {
+    process.chdir(origCwd);
+    if (origHome === undefined) {
+      delete process.env.AWL_HOME;
+    } else {
+      process.env.AWL_HOME = origHome;
+    }
+  });
+
+  function project(state: Record<string, unknown> | undefined): void {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-defer-cli-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, '.awl', 'config.json'),
+      JSON.stringify({ project: 'p', mainLanguage: 'other', verify: {} }),
+    );
+    if (state) {
+      fs.writeFileSync(path.join(root, '.awl', 'state.json'), JSON.stringify(state));
+    }
+    process.chdir(root);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-defer-home-'));
+  }
+
+  const seedDefer = (workitem: string, severity: string, what: string, at: string) =>
+    appendRecord({
+      id: `d-${what}`,
+      at,
+      type: 'defer',
+      workitem,
+      severity,
+      what,
+      why: 'w',
+      project: 'p',
+    });
+
+  function captureStdout(fn: () => void): string {
+    let buf = '';
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+      buf += String(chunk);
+      return true;
+    });
+    try {
+      fn();
+    } finally {
+      spy.mockRestore();
+    }
+    return buf;
+  }
+
+  it('--json 은 {workitem,count,items} 를 내고 count 정확·items severity 내림차순', () => {
+    project(undefined);
+    seedDefer('WI-D', 'low', 'L', '2026-07-16T01:00:00Z');
+    seedDefer('WI-D', 'high', 'H', '2026-07-16T02:00:00Z');
+    seedDefer('WI-OTHER', 'high', 'X', '2026-07-16T03:00:00Z'); // 다른 워크아이템 제외
+    const out = captureStdout(() => runDeferSummary({ json: true, workitem: 'WI-D' }));
+    const j = JSON.parse(out);
+    expect(j.workitem).toBe('WI-D');
+    expect(j.count).toBe(2);
+    expect(j.items.map((i: { severity: string }) => i.severity)).toEqual(['high', 'low']); // 내림차순
+  });
+
+  it('workitem 미지정이면 state.workitem 으로 폴백한다', () => {
+    project({ workitem: 'WI-FALL' });
+    seedDefer('WI-FALL', 'high', 'F', '2026-07-16T02:00:00Z');
+    const out = captureStdout(() => runDeferSummary({ json: true }));
+    const j = JSON.parse(out);
+    expect(j.workitem).toBe('WI-FALL'); // state.workitem 폴백
+    expect(j.count).toBe(1);
   });
 });
