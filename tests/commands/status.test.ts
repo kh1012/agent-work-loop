@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   type StatusReport,
   buildStatus,
@@ -10,6 +10,7 @@ import {
   classifyAncestorExit,
   pipelineLanes,
   renderStatus,
+  runStatus,
 } from '../../src/commands/status.js';
 
 const origHome = process.env.AWL_HOME;
@@ -468,5 +469,40 @@ describe('pipelineLanes — .tasks 레인 상태 판정(pipeline-status-tracking
 
   it('빈 .tasks 는 빈 레인', () => {
     expect(pipelineLanes([], [], [])).toEqual([]);
+  });
+});
+
+describe('runStatus --pipeline 핸들러 (pipeline-status-tracking AC-02, glue 커버)', () => {
+  const origCwd = process.cwd();
+  afterEach(() => process.chdir(origCwd));
+
+  it('.tasks/{plan,exec,review} 를 읽어 --json 으로 lanes 를 낸다', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-pipe-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    for (const d of ['plan', 'exec', 'review'])
+      fs.mkdirSync(path.join(root, '.tasks', d), { recursive: true });
+    fs.writeFileSync(path.join(root, '.tasks', 'plan', 'freshwi.md'), '');
+    fs.writeFileSync(path.join(root, '.tasks', 'exec', 'donewiㅍ.md'), '');
+    fs.writeFileSync(path.join(root, '.tasks', 'review', 'donewi.pass.md'), '');
+    process.chdir(root);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-pipe-home-'));
+
+    let buf = '';
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((c: unknown) => {
+      buf += String(c);
+      return true;
+    });
+    try {
+      // runStatus 는 async 지만 --pipeline 분기는 동기 렌더 후 return.
+      void runStatus({ json: true, pipeline: true });
+    } finally {
+      spy.mockRestore();
+    }
+    const j = JSON.parse(buf);
+    const by = Object.fromEntries(
+      j.lanes.map((l: { name: string; status: string }) => [l.name, l.status]),
+    );
+    expect(by.donewi).toBe('complete');
+    expect(by.freshwi).toBe('pending');
   });
 });
