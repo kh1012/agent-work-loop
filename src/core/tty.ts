@@ -561,6 +561,30 @@ export function signal(c: Caps, kind: 'ok' | 'warn' | 'error' | 'info'): string 
   return color.blue(raw);
 }
 
+/** 파이프라인 레인 상태 키워드(pipeline-status-tracking F-01). */
+export type PipelineStatus = 'pending' | 'executing' | 'reviewing' | 'complete' | 'blocked';
+
+/**
+ * 파이프라인 workitem 상태 배지(pipeline-status-tracking AC-01). signal 과 같은 패턴 —
+ * 색 토큰 + 유니코드 글리프(폭1)/ASCII 폴백. 상태 어휘를 한 곳에서 관리한다.
+ */
+export function statusBadge(c: Caps, status: PipelineStatus): string {
+  const t = makeTokens(c);
+  const glyph = c.unicode
+    ? { pending: '○', executing: '▶', reviewing: '◐', complete: '●', blocked: '✗' }[status]
+    : { pending: '[.]', executing: '[>]', reviewing: '[~]', complete: '[ok]', blocked: '[x]' }[
+        status
+      ];
+  const paint = {
+    pending: t.muted,
+    executing: t.accent,
+    reviewing: t.warning,
+    complete: t.success,
+    blocked: t.danger,
+  }[status];
+  return paint(glyph);
+}
+
 // ---------------------------------------------------------------------------
 // 경량 레이아웃 (박스 없이 색·여백으로 — 액션 결과용)
 // ---------------------------------------------------------------------------

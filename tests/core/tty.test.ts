@@ -9,6 +9,7 @@ import {
   makeTokens,
   padEndDisplay,
   signal,
+  statusBadge,
   stringWidth,
   visibleWidth,
   wrapToWidth,
@@ -333,5 +334,29 @@ describe('signal error 폴백(cli-visual-consistency AC-01)', () => {
   it('유니코드는 ❌, ASCII(CI/파이프)는 [x] — raw 이모지 없음', () => {
     expect(signal({ unicode: true, color: false, tty: true }, 'error')).toBe('❌');
     expect(signal({ unicode: false, color: false, tty: false }, 'error')).toBe('[x]');
+  });
+});
+
+describe('statusBadge — 파이프라인 상태 배지(pipeline-status-tracking AC-01)', () => {
+  const CC = { unicode: true, color: true, tty: true };
+  const ASCII = { unicode: false, color: false, tty: false };
+  it('상태별 색 토큰 — complete=green, blocked=red, executing=cyan, reviewing=yellow, pending=gray', () => {
+    expect(statusBadge(CC, 'complete')).toBe('\x1b[32m●\x1b[0m'); // green
+    expect(statusBadge(CC, 'blocked')).toBe('\x1b[31m✗\x1b[0m'); // red(danger)
+    expect(statusBadge(CC, 'executing')).toBe('\x1b[36m▶\x1b[0m'); // cyan(accent)
+    expect(statusBadge(CC, 'reviewing')).toBe('\x1b[33m◐\x1b[0m'); // yellow(warning)
+    expect(statusBadge(CC, 'pending')).toBe('\x1b[2m○\x1b[0m'); // dim(muted) — 대기는 subdued
+  });
+  it('ASCII 폴백 — 색·유니코드 없이 토큰만', () => {
+    expect(statusBadge(ASCII, 'complete')).toBe('[ok]');
+    expect(statusBadge(ASCII, 'blocked')).toBe('[x]');
+    expect(statusBadge(ASCII, 'pending')).toBe('[.]');
+    expect(statusBadge(ASCII, 'executing')).toBe('[>]');
+    expect(statusBadge(ASCII, 'reviewing')).toBe('[~]');
+  });
+  it('유니코드 글리프는 표시폭 1(정렬 안정)', () => {
+    for (const s of ['pending', 'executing', 'reviewing', 'complete', 'blocked'] as const) {
+      expect(visibleWidth(statusBadge(CC, s))).toBe(1);
+    }
   });
 });
