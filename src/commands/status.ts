@@ -1,5 +1,18 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { run } from '../core/runner.js';
-import { type Caps, caps, card, makeColors, makeSymbols, makeTokens, signal } from '../core/tty.js';
+import {
+  type Caps,
+  type PipelineStatus,
+  caps,
+  card,
+  makeColors,
+  makeSymbols,
+  makeTokens,
+  padEndDisplay,
+  signal,
+  statusBadge,
+} from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
 import { readRecords } from './record.js';
 import { loadState } from './state.js';
@@ -303,7 +316,80 @@ export function renderStatus(report: StatusReport, c: Caps): string {
   return card(`진행 상황 · ${report.generation}세대`, out, c);
 }
 
-export async function runStatus(opts: { json: boolean }): Promise<void> {
+/** 한 파이프라인 레인의 workitem 상태(pipeline-status-tracking AC-02). */
+export interface PipelineLane {
+  name: string;
+  status: PipelineStatus;
+}
+
+/**
+ * .tasks/{plan,exec,review} 의 파일명만으로 레인별 workitem 상태를 판정한다(순수, 파일 내용 안 엶).
+ *
+ * 우선순위: review/<name>.pass.md=complete → review/<name>.md(수정요구)=blocked →
+ * exec/<name>.md(review 대기)=reviewing → plan/<name>.hold.md(에스컬레이션)=blocked →
+ * plan/<name>ㅍ.md(착수)=executing → plan/<name>.md(신규)=pending.
+ */
+export function pipelineLanes(
+  planFiles: string[],
+  execFiles: string[],
+  reviewFiles: string[],
+): PipelineLane[] {
+  const isMd = (f: string): boolean => f.endsWith('.md');
+  const base = (f: string): string =>
+    f
+      .replace(/\.md$/, '')
+      .replace(/\.(pass|hold)$/, '')
+      .replace(/ㅍ$/, '');
+  const names = new Set<string>();
+  for (const f of [...planFiles, ...execFiles, ...reviewFiles]) {
+    if (isMd(f)) {
+      names.add(base(f));
+    }
+  }
+  const lanes: PipelineLane[] = [];
+  for (const name of names) {
+    let status: PipelineStatus;
+    if (reviewFiles.includes(`${name}.pass.md`)) {
+      status = 'complete';
+    } else if (reviewFiles.includes(`${name}.md`)) {
+      status = 'blocked'; // review/<name>.md(정확) = 미반영 수정요구. ㅍ 반영본은 아래 reviewing 으로.
+    } else if (execFiles.some((f) => isMd(f) && base(f) === name)) {
+      status = 'reviewing'; // exec 핸드오프 = review 대기
+    } else if (planFiles.includes(`${name}.hold.md`)) {
+      status = 'blocked'; // hold = 사람 에스컬레이션(멈춤)
+    } else if (planFiles.includes(`${name}ㅍ.md`)) {
+      status = 'executing'; // 착수 표식
+    } else {
+      status = 'pending'; // plan/<name>.md 신규
+    }
+    lanes.push({ name, status });
+  }
+  lanes.sort((a, b) => a.name.localeCompare(b.name));
+  return lanes;
+}
+
+/** 파이프라인 레인 뷰를 렌더한다(statusBadge 사용). */
+export function renderPipeline(lanes: PipelineLane[], c: Caps): string {
+  if (lanes.length === 0) {
+    return card('파이프라인', ['.tasks 레인이 비어있습니다.'], c);
+  }
+  const nameWidth = Math.max(...lanes.map((l) => l.name.length), 4) + 2;
+  const out = lanes.map(
+    (l) => `${statusBadge(c, l.status)}  ${padEndDisplay(l.name, nameWidth)}${l.status}`,
+  );
+  return card(`파이프라인 ${lanes.length}개 레인`, out, c);
+}
+
+/** 디렉토리 파일명을 읽는다(없으면 빈 배열 — awl 은 파이프라인 유무를 판단하지 않는다). */
+function readDirNames(dir: string): string[] {
+  try {
+    return fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+}
+
+export async function runStatus(opts: { json: boolean; pipeline?: boolean }): Promise<void> {
   const root = resolveProjectRoot();
   if (!root) {
     const cc = caps();
@@ -311,6 +397,22 @@ export async function runStatus(opts: { json: boolean }): Promise<void> {
       `\n  ${signal(cc, 'error')} 프로젝트 루트를 찾을 수 없습니다.\n      ${makeSymbols(cc).lastBranch} awl init 을 실행하세요.\n`,
     );
     process.exit(1);
+  }
+  // --pipeline: temp-loop 하네스의 .tasks/{plan,exec,review} 레인 상태를 배지로 낸다(opt-in).
+  // awl 코어의 일반 status 와 분리 — .tasks 가 없으면 빈 뷰다(awl 은 하네스 유무를 판단 안 함).
+  if (opts.pipeline === true) {
+    const tasks = path.join(root, '.tasks');
+    const lanes = pipelineLanes(
+      readDirNames(path.join(tasks, 'plan')),
+      readDirNames(path.join(tasks, 'exec')),
+      readDirNames(path.join(tasks, 'review')),
+    );
+    if (opts.json) {
+      process.stdout.write(`${JSON.stringify({ lanes }, null, 2)}\n`);
+    } else {
+      process.stdout.write(`${renderPipeline(lanes, caps())}\n`);
+    }
+    return;
   }
   // buildStatus 는 동기 유지(기존 호출/테스트 보존). 커밋 SHA 대조는 git 이 필요해
   // 여기서 async 로 덧붙인다 — 없으면 빈 배열이라 렌더/JSON 모두 영향 없다.

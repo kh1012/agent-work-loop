@@ -8,6 +8,7 @@ import {
   buildStatus,
   checkMissingAcCommits,
   classifyAncestorExit,
+  pipelineLanes,
   renderStatus,
 } from '../../src/commands/status.js';
 
@@ -446,5 +447,26 @@ describe('classifyAncestorExit — 확실한 사실만 (wi8-F3 AC-04, rev_a2bec4
     expect(classifyAncestorExit(null)).toBe('unknown');
     expect(classifyAncestorExit(129)).toBe('unknown');
     expect(classifyAncestorExit(-1)).toBe('unknown');
+  });
+});
+
+describe('pipelineLanes — .tasks 레인 상태 판정(pipeline-status-tracking AC-02)', () => {
+  it('우선순위대로 상태를 매핑한다(파일 내용 안 엶)', () => {
+    const lanes = pipelineLanes(
+      ['newwiㅍ.md', 'freshwi.md', 'heldwi.hold.md'], // plan
+      ['reviewingwi.md', 'donewiㅍ.md', 'fixwi.md'], // exec
+      ['donewi.pass.md', 'fixwi.md'], // review
+    );
+    const by = Object.fromEntries(lanes.map((l) => [l.name, l.status]));
+    expect(by.donewi).toBe('complete'); // review .pass 우선
+    expect(by.fixwi).toBe('blocked'); // review/<name>.md 수정요구
+    expect(by.reviewingwi).toBe('reviewing'); // exec 핸드오프
+    expect(by.heldwi).toBe('blocked'); // plan .hold = 에스컬레이션
+    expect(by.newwi).toBe('executing'); // plan ㅍ 착수
+    expect(by.freshwi).toBe('pending'); // plan 신규
+  });
+
+  it('빈 .tasks 는 빈 레인', () => {
+    expect(pipelineLanes([], [], [])).toEqual([]);
   });
 });

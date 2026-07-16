@@ -141,9 +141,10 @@ export function buildProgram(): Command {
     .command('status')
     .description('지금 어디까지 왔는지 한눈에 봅니다')
     .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
-    .action(async (opts: { json?: boolean }) => {
+    .option('--pipeline', '.tasks 레인(plan/exec/review)의 workitem 상태를 배지로 봅니다')
+    .action(async (opts: { json?: boolean; pipeline?: boolean }) => {
       const { runStatus } = await import('./commands/status.js');
-      await runStatus({ json: opts.json === true });
+      await runStatus({ json: opts.json === true, pipeline: opts.pipeline === true });
     });
 
   // 사람이 치는 명령: brief (KST 오늘 진행분을 스킬이 소비할 데이터로 낸다)
