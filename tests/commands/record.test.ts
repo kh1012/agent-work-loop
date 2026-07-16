@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   appendRecord,
   buildRecord,
+  collectDeferred,
   computeCoverage,
   detailTierFor,
   measureDiffSize,
@@ -1585,5 +1586,40 @@ describe('shouldDefer — critical-only 임계 술어(skip-gate-defer AC-03)', (
   it('잘못된 threshold 는 기본 high 로 취급한다', () => {
     expect(shouldDefer('medium', 'garbage')).toBe(false); // high 기본 → medium 통과
     expect(shouldDefer('high', 'garbage')).toBe(true);
+  });
+});
+
+describe('collectDeferred — critical-only defer 큐 수집(skip-gate-defer AC-02)', () => {
+  it('defer 만 골라 severity 높은 순으로 정렬한다', () => {
+    const recs = [
+      { type: 'defer', severity: 'low', what: 'L', why: 'wl', at: '2026-07-16T01:00:00Z' },
+      { type: 'attempt', what: 'x' }, // defer 아님 → 제외
+      {
+        type: 'defer',
+        severity: 'high',
+        what: 'H',
+        why: 'wh',
+        recommendation: '보류',
+        gate: 2,
+        at: '2026-07-16T02:00:00Z',
+      },
+      { type: 'defer', severity: 'medium', what: 'M', why: 'wm', at: '2026-07-16T03:00:00Z' },
+    ];
+    const items = collectDeferred(recs);
+    expect(items.map((i) => i.severity)).toEqual(['high', 'medium', 'low']);
+    expect(items[0]).toMatchObject({ what: 'H', why: 'wh', recommendation: '보류', gate: 2 });
+    expect(items[2]?.recommendation).toBeUndefined(); // 선택 필드 없으면 비움
+  });
+
+  it('같은 severity 는 최근(at desc) 먼저', () => {
+    const recs = [
+      { type: 'defer', severity: 'high', what: 'old', why: 'w', at: '2026-07-16T01:00:00Z' },
+      { type: 'defer', severity: 'high', what: 'new', why: 'w', at: '2026-07-16T05:00:00Z' },
+    ];
+    expect(collectDeferred(recs).map((i) => i.what)).toEqual(['new', 'old']);
+  });
+
+  it('defer 기록이 없으면 빈 배열', () => {
+    expect(collectDeferred([{ type: 'attempt', what: 'x' }])).toEqual([]);
   });
 });

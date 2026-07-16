@@ -511,6 +511,17 @@ export function buildProgram(): Command {
       },
     );
 
+  // 스킬이 치는 명령(숨김): defer-summary (critical-only 보류 큐 최종 요약)
+  program
+    .command('defer-summary', { hidden: true })
+    .description('critical-only 모드에서 보류한 중요 항목을 최종 요약합니다')
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .option('--workitem <wi>', '워크아이템 지정(없으면 현재)')
+    .action(async (opts: { json?: boolean; workitem?: string }) => {
+      const m = await import('./commands/record.js');
+      m.runDeferSummary({ json: opts.json === true, workitem: opts.workitem });
+    });
+
   // 인자 없이 `awl`만 실행하면 도움말을 보여준다.
   program.action(() => {
     program.help();

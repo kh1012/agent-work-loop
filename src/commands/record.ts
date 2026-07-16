@@ -640,6 +640,80 @@ export function readRecords(filter: RecordFilter = {}): Record<string, unknown>[
   return filtered;
 }
 
+/** critical-only 모드에서 사람에게 최종 문의할 보류 항목(skip-gate-defer AC-02). */
+export interface DeferItem {
+  severity: string;
+  what: string;
+  why: string;
+  recommendation?: string;
+  gate?: unknown;
+  at: string;
+}
+
+/**
+ * defer 기록을 severity 높은 순(같으면 최근 순)으로 수집한다(순수).
+ * defer 아닌 기록은 버린다. 알 수 없는 severity 는 맨 뒤로 민다.
+ */
+export function collectDeferred(records: Record<string, unknown>[]): DeferItem[] {
+  const levels = DEFER_SEVERITIES as readonly string[];
+  const rank = (s: string): number => {
+    const i = levels.indexOf(s);
+    return i === -1 ? levels.length : i;
+  };
+  return records
+    .filter((r) => r.type === 'defer')
+    .map((r) => ({
+      severity: String(r.severity ?? ''),
+      what: String(r.what ?? ''),
+      why: String(r.why ?? ''),
+      recommendation: typeof r.recommendation === 'string' ? r.recommendation : undefined,
+      gate: r.gate,
+      at: String(r.at ?? ''),
+    }))
+    .sort((a, b) => {
+      const d = rank(a.severity) - rank(b.severity);
+      return d !== 0 ? d : b.at.localeCompare(a.at);
+    });
+}
+
+/** defer 큐를 사람용으로 렌더한다(최종 요약). 가이드가 아니라 목록이다. */
+export function renderDeferSummary(items: DeferItem[]): string {
+  if (items.length === 0) {
+    return 'critical-only 보류 큐가 비어있습니다(사람 확인이 필요한 중요 항목 없음).';
+  }
+  const lines = [`critical-only 보류 ${items.length}건 — 사람 최종 확인 필요:`];
+  for (const it of items) {
+    lines.push(`  [${it.severity}] ${it.what}`);
+    lines.push(`      왜 중요: ${it.why}`);
+    if (it.recommendation !== undefined) {
+      lines.push(`      권장(자율 시): ${it.recommendation}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+/**
+ * awl defer-summary — critical-only 모드에서 보류한 중요 항목을 최종 요약한다.
+ * workitem 미지정이면 state 의 현재 워크아이템. awl 은 요약만 낸다 — 판단은 사람.
+ */
+export function runDeferSummary(opts: { json?: boolean; workitem?: string }): void {
+  const projectRoot = resolveProjectRoot();
+  let workitem = opts.workitem;
+  if (workitem === undefined && projectRoot) {
+    const state = loadState(projectRoot);
+    workitem =
+      typeof state.workitem === 'string' && state.workitem.trim() !== ''
+        ? state.workitem
+        : undefined;
+  }
+  const items = collectDeferred(readRecords({ type: 'defer', workitem }));
+  if (opts.json === true) {
+    process.stdout.write(`${JSON.stringify({ workitem, count: items.length, items }, null, 2)}\n`);
+    return;
+  }
+  process.stdout.write(`${renderDeferSummary(items)}\n`);
+}
+
 /**
  * 이 워크아이템에 "승인된" 게이트1 레코드가 있는가 (0.6.3, 적대검증 발견 수정).
  *
