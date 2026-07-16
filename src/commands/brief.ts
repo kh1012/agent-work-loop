@@ -187,51 +187,57 @@ export interface BriefCliOpts {
   json?: boolean;
 }
 
+/** git log 한 커밋 헤더의 줄머리 표식(파일 줄과 구분). 파일 경로가 이걸로 시작할 일은 없다. */
+const GIT_COMMIT_MARK = '@@C@@';
+
 /**
- * 그날(KST 경계)의 git 커밋을 모은다(I/O). --since/--until 을 UTC ISO 경계로 넘긴다.
- * git 이 없거나 실패하면 빈 배열(brief 는 부분 데이터라도 낸다).
+ * `git log --name-only --format=@@C@@%H<NUL>%ct<NUL>%s` 출력을 파싱한다(순수).
+ *
+ * 커밋의 committer timestamp(%ct, 초)를 records 와 **동일한 반열림 [start,end)** 로
+ * 코드측에서 직접 거른다 — git --until 은 양끝 포함이라 KST 자정 정각 커밋이 인접
+ * 두 날에 이중계수되는데(리뷰 F-01), ct==end 를 제외해 그 경계 의미를 records 와 맞춘다.
+ * 범위 밖 커밋의 파일은 changedFiles 에 넣지 않는다.
+ *
+ * 주의(F-02, 수용): --name-only 는 병합 커밋의 파일을 기본 미출력한다. UI 변경이
+ * 병합 커밋으로만 들어온 경우 그 파일은 휴리스틱에서 누락될 수 있다(명시필드 우선이라 영향 제한).
  */
-async function gitCommitsInRange(
-  root: string,
+export function parseGitLog(
+  stdout: string,
   range: { startMs: number; endMs: number },
-): Promise<BriefCommit[]> {
-  try {
-    const r = await run({
-      cmd: 'git',
-      args: [
-        'log',
-        `--since=${new Date(range.startMs).toISOString()}`,
-        `--until=${new Date(range.endMs).toISOString()}`,
-        '--format=%H%x00%s',
-      ],
-      cwd: root,
-      timeoutMs: 10_000,
-    });
-    if (r.exitCode !== 0) {
-      return [];
-    }
-    const commits: BriefCommit[] = [];
-    for (const line of r.stdout.split('\n')) {
-      if (line.trim() === '') {
-        continue;
+): { commits: BriefCommit[]; changedFiles: string[] } {
+  const commits: BriefCommit[] = [];
+  const files = new Set<string>();
+  let inRange = false;
+  for (const line of stdout.split('\n')) {
+    if (line.startsWith(GIT_COMMIT_MARK)) {
+      const [hash, ctStr, subject] = line.slice(GIT_COMMIT_MARK.length).split('\0');
+      const ctMs = Number(ctStr) * 1000;
+      inRange = Number.isFinite(ctMs) && ctMs >= range.startMs && ctMs < range.endMs;
+      if (inRange) {
+        commits.push({ hash: (hash ?? '').slice(0, 9), subject: subject ?? '' });
       }
-      const [hash, subject] = line.split('\0');
-      commits.push({ hash: (hash ?? '').slice(0, 9), subject: subject ?? '' });
+      continue;
     }
-    return commits;
-  } catch {
-    return [];
+    const f = line.trim();
+    if (f !== '' && inRange) {
+      files.add(f);
+    }
   }
+  return { commits, changedFiles: [...files] };
 }
 
 /**
- * 그날 커밋들이 건드린 파일 목록을 모은다(I/O, UI 휴리스틱 입력용).
- * git log --name-only 를 KST 경계로 돌려 유니크 파일 경로를 낸다. 실패 시 빈 배열.
+ * 그날(KST 경계)의 커밋과 변경파일을 git log **한 번**으로 모은다(I/O).
+ *
+ * --since/--until 은 coarse 프리필터(git 은 양끝 포함이라 [start,end) 의 상위집합)로만
+ * 쓰고, 정확한 반열림 경계는 parseGitLog 가 %ct 로 코드측에서 잡는다. 커밋 요약과
+ * 변경파일을 한 서브프로세스로 얻어 두 축의 경계 의미를 일치시킨다(리뷰 F-01/F-03).
+ * git 이 없거나 실패하면 빈 결과(brief 는 부분 데이터라도 낸다).
  */
-async function gitChangedFilesInRange(
+async function gitLogInRange(
   root: string,
   range: { startMs: number; endMs: number },
-): Promise<string[]> {
+): Promise<{ commits: BriefCommit[]; changedFiles: string[] }> {
   try {
     const r = await run({
       cmd: 'git',
@@ -240,24 +246,17 @@ async function gitChangedFilesInRange(
         `--since=${new Date(range.startMs).toISOString()}`,
         `--until=${new Date(range.endMs).toISOString()}`,
         '--name-only',
-        '--format=',
+        `--format=${GIT_COMMIT_MARK}%H%x00%ct%x00%s`,
       ],
       cwd: root,
       timeoutMs: 10_000,
     });
     if (r.exitCode !== 0) {
-      return [];
+      return { commits: [], changedFiles: [] };
     }
-    const seen = new Set<string>();
-    for (const line of r.stdout.split('\n')) {
-      const f = line.trim();
-      if (f !== '') {
-        seen.add(f);
-      }
-    }
-    return [...seen];
+    return parseGitLog(r.stdout, range);
   } catch {
-    return [];
+    return { commits: [], changedFiles: [] };
   }
 }
 
@@ -283,8 +282,7 @@ export async function runBrief(opts: BriefCliOpts): Promise<void> {
   }
 
   const dayRecords = recordsInKstDay(readRecords(), project, range);
-  const commits = await gitCommitsInRange(root, range);
-  const changedFiles = await gitChangedFilesInRange(root, range);
+  const { commits, changedFiles } = await gitLogInRange(root, range);
   const state = loadState(root);
   const criteria = Array.isArray(state.criteria)
     ? (state.criteria as Record<string, unknown>[])

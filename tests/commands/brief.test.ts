@@ -4,6 +4,7 @@ import {
   extractVerifyItems,
   kstDateOf,
   kstDayRange,
+  parseGitLog,
   recordsInKstDay,
   summarizeRecord,
 } from '../../src/commands/brief.js';
@@ -209,5 +210,55 @@ describe('buildBrief — 오늘 요약 3축(records/commits/criteria) 조립', (
     expect(brief.verifyItems).toHaveLength(2);
     expect(brief.verifyItems[0]).toEqual({ what: '눈으로 확인', how: '화면 A', source: 'record' });
     expect(brief.verifyItems.at(-1)?.source).toBe('heuristic');
+  });
+});
+
+describe('parseGitLog — 단일 git log 파싱 + committer ts 반열림 [start,end) 필터', () => {
+  const range = kstDayRange('2026-07-16');
+  const startSec = Math.floor(range.startMs / 1000);
+  const endSec = Math.floor(range.endMs / 1000);
+  const MARK = '@@C@@';
+
+  it('ct==start 포함, ct==end 제외 — 자정 커밋 이중계수 방지(records와 같은 반열림)', () => {
+    const stdout = [
+      `${MARK}aaaa111\0${startSec}\0첫 커밋(자정 정각)`,
+      '',
+      'src/a.tsx',
+      `${MARK}bbbb222\0${endSec}\0익일 자정 커밋`,
+      '',
+      'src/b.tsx',
+    ].join('\n');
+    const { commits, changedFiles } = parseGitLog(stdout, range);
+    expect(commits.map((c) => c.hash)).toEqual(['aaaa111']); // end 커밋 제외
+    expect(changedFiles).toEqual(['src/a.tsx']); // 제외된 커밋의 파일도 빠짐
+  });
+
+  it('범위 내 여러 커밋의 파일을 유니크로 모은다', () => {
+    const mid = Math.floor((startSec + endSec) / 2);
+    const stdout = [
+      `${MARK}c1\0${mid}\0커밋1`,
+      '',
+      'src/x.tsx',
+      'src/shared.ts',
+      `${MARK}c2\0${mid + 10}\0커밋2`,
+      '',
+      'src/y.css',
+      'src/shared.ts',
+    ].join('\n');
+    const { commits, changedFiles } = parseGitLog(stdout, range);
+    expect(commits).toHaveLength(2);
+    expect(commits[0]).toEqual({ hash: 'c1', subject: '커밋1' });
+    expect(changedFiles.sort()).toEqual(['src/shared.ts', 'src/x.tsx', 'src/y.css']); // 중복 제거
+  });
+
+  it('빈 출력은 빈 축', () => {
+    expect(parseGitLog('', range)).toEqual({ commits: [], changedFiles: [] });
+  });
+
+  it('전체 해시는 9자로 자른다', () => {
+    const mid = Math.floor((startSec + endSec) / 2);
+    const stdout = `${MARK}0123456789abcdef\0${mid}\0긴 해시`;
+    const { commits } = parseGitLog(stdout, range);
+    expect(commits[0]?.hash).toBe('012345678'); // 9자
   });
 });
