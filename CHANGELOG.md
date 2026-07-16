@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-07-16
+
+### 고침
+
+- constrain diagnostics and align banner
+
 ## [0.5.4] - 2026-07-16
 
 ### 추가
