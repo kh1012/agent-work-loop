@@ -7,6 +7,7 @@ import {
   experimentKey,
   groupByExperiment,
   loadGenerations,
+  renderCompare,
   renderMetrics,
   renderMetricsCaveat,
 } from '../../src/commands/metrics.js';
@@ -292,5 +293,64 @@ describe('groupByExperiment/experimentKey — 케이스 비교 집계(experiment
       gen('C', { model: 'flagship', mode: 'loop', taskType: 'ui' }),
     ]);
     expect(groups[0]?.avgDurationMs).toBeUndefined();
+  });
+});
+
+describe('experiment-harness AC-04 — 리뷰 후속', () => {
+  const gen2 = (wi: string, exp: Record<string, unknown>, over: Record<string, unknown> = {}) => ({
+    workitem: wi,
+    at: '2026-07-16T10:00:00Z',
+    criteriaTotal: 3,
+    avgAttempts: 1,
+    blockedRatio: 0,
+    reviewRejects: 0,
+    proceduralErrors: 0,
+    gotchaApplied: 0,
+    gotchaMissed: 0,
+    coverage: { auditFindingsTotal: 0, addressed: 0, excluded: 0, excludedApprovedByHuman: false },
+    experiment: exp,
+    ...over,
+  });
+
+  it('groupByExperiment 는 케이스 키를 사전순으로 정렬한다(positional 가드)', () => {
+    const groups = groupByExperiment([
+      gen2('A', { model: 'zeta', mode: 'loop', taskType: 'ui' }),
+      gen2('B', { model: 'alpha', mode: 'loop', taskType: 'ui' }),
+    ]);
+    // alpha 가 zeta 보다 앞 — sort() 를 지우면 입력순(zeta,alpha)이라 실패한다
+    expect(groups.map((g) => g.model)).toEqual(['alpha', 'zeta']);
+  });
+
+  it('renderCompare 는 케이스 키·지표·소요(h/m)·태그없음 안내를 담는다', () => {
+    const groups = groupByExperiment([
+      gen2(
+        'A',
+        { model: 'lite', mode: 'loop', taskType: 'ui' },
+        { avgAttempts: 2, reviewRejects: 3, durationMs: 5_400_000 },
+      ),
+    ]);
+    const out = renderCompare(groups, 4, caps());
+    expect(out).toContain('lite/loop/ui');
+    expect(out).toContain('2'); // avgAttempts
+    expect(out).toContain('3'); // reviewRejects
+    expect(out).toContain('1h 30m'); // 5,400,000ms = 90분
+    expect(out).toContain('4'); // 태그 없는 세대 4개
+    expect(out).toContain('난이도'); // 캐비트
+  });
+
+  it('renderCompare 는 케이스 없으면 태그없음 안내만', () => {
+    const out = renderCompare([], 7, caps());
+    expect(out).toContain('태그가 있는 세대가 없습니다');
+    expect(out).toContain('7');
+  });
+
+  it('loadGenerations 는 배열 experiment 를 거부한다(쓰기 경로와 대칭)', () => {
+    seedGeneration('p', 'WI-arr', {
+      workitem: 'WI-arr',
+      at: '2026-07-16T10:00:00Z',
+      criteriaTotal: 1,
+      experiment: ['nope'], // 배열은 experiment 아님
+    });
+    expect(loadGenerations('p')[0]?.experiment).toBeUndefined();
   });
 });

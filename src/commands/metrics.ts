@@ -101,7 +101,11 @@ export function loadGenerations(project: string): Generation[] {
       gotchaApplied: num(raw.gotchaApplied),
       gotchaMissed: num(raw.gotchaMissed),
       coverage: readCoverage(raw.coverage),
-      ...(raw.experiment !== null && typeof raw.experiment === 'object'
+      // 배열은 experiment 로 인정하지 않는다 — 쓰기 경로(program.ts)가 Array.isArray 로
+      // 거부하는 것과 대칭. 손상/수기편집된 스냅샷의 배열이 유사 케이스로 오염되는 걸 막는다.
+      ...(raw.experiment !== null &&
+      typeof raw.experiment === 'object' &&
+      !Array.isArray(raw.experiment)
         ? { experiment: raw.experiment as Record<string, unknown> }
         : {}),
       ...(typeof raw.startedAt === 'string' ? { startedAt: raw.startedAt } : {}),
