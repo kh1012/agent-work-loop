@@ -13,6 +13,7 @@
 - state.json 동시성 방어 — writeState 를 원자적으로(temp+rename) 써 부분 쓰기에도 온전, runStateSet 을 프로젝트 락(.awl/state.lock, O_EXCL + stale 자가치유)으로 감싸 동시 세션의 clobber 차단, doctor 가 live 락을 "다른 세션이 state 쓰는 중(토큰)"으로 정확 표시 [concurrency-3]
 - awl init 첫 설정에 프로젝트 선정 단계 — interactive 첫 실행에서 cwd 가 git 프로젝트면 "이 프로젝트/다른 곳/취소", 아니거나 원하면 하위 git 프로젝트를 최근 수정순 객관식(최대 20, node_modules 제외, maxdepth 3)으로 제시한다. --yes 와 기존 config 는 예전대로 cwd 자동(회귀) [init-project-picker]
 - record/완료조건에 선택 검증 태그 manualVerify/verifyHow — 기계검증(awl verify)으로 못 잡고 사람이 눈으로/브라우저로 직접 재확인해야 하는 항목과 그 방법을 기록 시점에 남긴다. 스키마 변경 없이 흐르고(하위호환), awl brief 가 "직접 볼 검증 항목"의 1차 소스로 읽는다(없을 때만 UI 휴리스틱 폴백) [records-verify-tag]
+- awl brief 명령 — KST "오늘"(또는 --date YYYY-MM-DD)의 진행분을 모아 스킬이 소비할 데이터로 낸다(--json). records(UTC at 을 KST+9 로 변환해 그날 경계 재필터)·commits(git log KST 경계)·criteria(진행/완료)·verifyItems(수동검증 명시필드 우선 + UI 파일변경 휴리스틱) 4축. awl 은 판단하지 않고 데이터만 — "오늘 한 일 정리" 가이드는 스킬 몫. 사람용 렌더는 개수 요약만 [awl-brief]
 
 ### 고침
 
