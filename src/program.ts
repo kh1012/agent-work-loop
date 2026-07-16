@@ -294,6 +294,24 @@ export function buildProgram(): Command {
       runMetrics({ json: opts.json === true });
     });
 
+  // 사람이 치는 명령: feedback (awl 도구 자체 피드백을 area 별로 모아서 본다)
+  program
+    .command('feedback')
+    .description('awl 도구 자체 피드백을 area 별로 묶어 봅니다 (해법은 제시하지 않습니다)')
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .option('--area <area>', 'area 로 거릅니다 (commit, gate, verify 등)')
+    .option('--severity <sev>', 'severity 로 거릅니다 (high/medium/low)')
+    .option('--since <date>', '이 ISO 날짜 이후 수집분만 봅니다 (예: 2026-07-01)')
+    .action(async (opts: { json?: boolean; area?: string; severity?: string; since?: string }) => {
+      const { runFeedback } = await import('./commands/feedback.js');
+      runFeedback({
+        json: opts.json === true,
+        area: opts.area,
+        severity: opts.severity,
+        since: opts.since,
+      });
+    });
+
   program
     .command('changelog')
     .description('Gate 2 승인 뒤 CHANGELOG.md에 옮길 초안을 만듭니다 (파일은 쓰지 않음)')
