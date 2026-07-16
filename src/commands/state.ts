@@ -157,22 +157,51 @@ export function acquireStateLock(projectRoot: string, token: string): boolean {
   if (tryCreate()) {
     return true;
   }
+  // 이미 있음 — stale(오래된 leaked 락)이면 원자적으로 뺏는다. rename 으로 먼저 "차지"한다:
+  // source 는 하나뿐이라 둘이 동시에 steal 을 시도해도 rename 은 하나만 성공하고 나머지는
+  // ENOENT 로 실패한다(blind unlink 의 double-acquire TOCTOU 차단). 차지에 성공한 쪽만
+  // O_EXCL 로 새 락을 만든다 — 그 사이 제3자가 만들었으면 EEXIST 로 false(역시 안전).
   if (Date.now() - lockAgeAt(p) > STATE_LOCK_STALE_MS) {
+    const claimed = `${p}.${process.pid}.steal`;
     try {
-      fs.unlinkSync(p);
+      fs.renameSync(p, claimed);
     } catch {
-      // 그 사이 다른 프로세스가 정리했을 수 있다 — 무시하고 재시도한다.
+      return false; // 남이 먼저 차지했거나 그 사이 정상 해제됨 — 이번엔 실패.
+    }
+    try {
+      fs.unlinkSync(claimed);
+    } catch {
+      // 이미 없으면 무시.
     }
     return tryCreate();
   }
   return false;
 }
 
-export function releaseStateLock(projectRoot: string): void {
+/** 락을 해제한다. 내 세션 토큰의 락일 때만 지운다 — 느린 보유자가 steal 당한 뒤 후임의
+ * 락을 지우는 것을 막는다(소유권 검증). 토큰을 안 주면(테스트/정리) 소유권 무시하고 지운다. */
+export function releaseStateLock(projectRoot: string, token?: string): void {
+  const p = stateLockFile(projectRoot);
+  if (token !== undefined) {
+    const held = readRawLockToken(p);
+    if (held !== null && held !== token) {
+      return; // 내 락이 아니다 — 건드리지 않는다.
+    }
+  }
   try {
-    fs.unlinkSync(stateLockFile(projectRoot));
+    fs.unlinkSync(p);
   } catch {
     // 이미 없으면 무시한다.
+  }
+}
+
+/** 락 파일의 token(소유권 검증용). 없거나 못 읽으면 null. */
+function readRawLockToken(p: string): string | null {
+  try {
+    const raw = JSON.parse(fs.readFileSync(p, 'utf8')) as { token?: unknown };
+    return typeof raw.token === 'string' ? raw.token : null;
+  } catch {
+    return null;
   }
 }
 
@@ -288,29 +317,34 @@ export function runStateSet(jsonPatch: string, opts: RunStateSetOpts = {}): void
   // read-modify-write 를 프로젝트 락으로 감싼다 — 동시 세션이 그 사이에 끼어들어 서로의
   // phase/criteria 를 덮는 것을 막는다(F-01). 못 잡으면(다른 세션이 쓰는 중) 조용한
   // clobber 대신 명시적으로 거부한다.
-  if (!acquireStateLock(root, sessionToken())) {
+  const token = sessionToken();
+  if (!acquireStateLock(root, token)) {
     process.stderr.write(
       '\n  다른 세션이 지금 state 를 쓰는 중입니다(.awl/state.lock). 잠시 후 다시 시도하세요.\n',
     );
     process.exit(1);
   }
+  // 게이트 거부는 여기서 exit 하지 않고 플래그로 미룬다 — 해제를 finally 한 곳으로 모아
+  // (단일 해제 경로), process.exit 로 인한 락 누수를 구조적으로 없앤다(리뷰 지적).
+  let gateRejected = false;
   try {
     const current = loadState(root);
     if (p.phase === 'loop' && opts.requireGateForLoop) {
       const workitem = typeof current.workitem === 'string' ? current.workitem : undefined;
-      if (!opts.requireGateForLoop(workitem)) {
-        // process.exit 는 finally 를 안 돌리므로 여기서 먼저 해제한다(락 누수 방지).
-        releaseStateLock(root);
-        process.stderr.write(
-          '\n  게이트 1 승인 기록이 없습니다. awl record gate 로 계획을 승인(approved)한 뒤 다시 시도하세요.\n',
-        );
-        process.exit(1);
-      }
+      gateRejected = !opts.requireGateForLoop(workitem);
     }
-    const merged = mergeState(current, p);
-    writeState(root, merged);
-    process.stdout.write(`${JSON.stringify(merged, null, 2)}\n`);
+    if (!gateRejected) {
+      const merged = mergeState(current, p);
+      writeState(root, merged);
+      process.stdout.write(`${JSON.stringify(merged, null, 2)}\n`);
+    }
   } finally {
-    releaseStateLock(root);
+    releaseStateLock(root, token);
+  }
+  if (gateRejected) {
+    process.stderr.write(
+      '\n  게이트 1 승인 기록이 없습니다. awl record gate 로 계획을 승인(approved)한 뒤 다시 시도하세요.\n',
+    );
+    process.exit(1);
   }
 }

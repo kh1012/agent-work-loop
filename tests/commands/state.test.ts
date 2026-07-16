@@ -297,4 +297,14 @@ describe('acquireStateLock / releaseStateLock — 프로젝트 락 헬퍼 (concu
     expect(readStateLock(root)).toBeNull();
     releaseStateLock(root);
   });
+
+  it('releaseStateLock 은 내 토큰의 락만 해제한다 — 남의 stolen 락은 안 지운다 (concurrency-3 AC-04)', () => {
+    const root = tmp();
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    acquireStateLock(root, 'holder');
+    releaseStateLock(root, 'other'); // 남의 토큰으로는 안 지운다(소유권 검증)
+    expect(readStateLock(root)).toMatchObject({ token: 'holder' }); // 여전히 잡혀 있음
+    releaseStateLock(root, 'holder'); // 내 토큰이면 지운다
+    expect(readStateLock(root)).toBeNull();
+  });
 });
