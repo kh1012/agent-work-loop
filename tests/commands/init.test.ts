@@ -20,6 +20,7 @@ import {
   registerProject,
   runInit,
   scaffoldGlobal,
+  scanGitProjects,
   selectMulti,
   selectSingle,
   skillsVersionPath,
@@ -750,5 +751,40 @@ describe('selectSingle/selectMulti — useRawMode:true 배선 (WI-Y AC-08, 리�
     const checked = await promise;
     rl.close();
     expect(checked).toEqual([1]);
+  });
+});
+
+describe('scanGitProjects — git 프로젝트 스캔 (init-project-picker AC-02)', () => {
+  it('하위 .git 디렉토리를 찾고 node_modules·cwd자신·깊이초과를 제외한다', () => {
+    const root = fs.realpathSync(tmp('awl-scan-'));
+    const mk = (rel: string) => {
+      const d = path.join(root, rel);
+      fs.mkdirSync(path.join(d, '.git'), { recursive: true });
+    };
+    fs.mkdirSync(path.join(root, '.git'), { recursive: true }); // cwd 자신 git — 제외돼야
+    mk('proj-a'); // depth 1
+    mk('sub/proj-b'); // depth 2
+    mk('node_modules/proj-c'); // node_modules 안 — 제외
+    mk('a/b/c/proj-deep'); // depth 4 — maxdepth 3 초과 제외
+
+    const names = scanGitProjects(root).map((f) => f.name);
+    expect(names).toContain('proj-a');
+    expect(names).toContain('proj-b');
+    expect(names).not.toContain('proj-c'); // node_modules 내부
+    expect(names).not.toContain('proj-deep'); // 깊이 초과
+    expect(names).not.toContain(path.basename(root)); // cwd 자신
+  });
+
+  it('mtime 내림차순 정렬 + 최대 20개로 자른다', () => {
+    const root = fs.realpathSync(tmp('awl-scan2-'));
+    for (let i = 0; i < 25; i++) {
+      fs.mkdirSync(path.join(root, `p${i}`, '.git'), { recursive: true });
+    }
+    const found = scanGitProjects(root);
+    expect(found.length).toBe(20); // 25개 중 20개로 캡
+    // mtime 내림차순(비증가) 정렬.
+    for (let i = 1; i < found.length; i++) {
+      expect(found[i - 1]?.mtimeMs).toBeGreaterThanOrEqual(found[i]?.mtimeMs ?? 0);
+    }
   });
 });

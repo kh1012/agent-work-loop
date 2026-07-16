@@ -206,6 +206,55 @@ function listSelfAndDescendants(dirs: string[]): string[] {
   return all;
 }
 
+const GIT_SCAN_MAX_DEPTH = 3;
+const GIT_SCAN_LIMIT = 20;
+
+export interface GitProjectCandidate {
+  path: string;
+  name: string;
+  mtimeMs: number;
+}
+
+/**
+ * cwd 하위(자신 제외)에서 `.git` 을 가진 git 프로젝트 디렉토리를 스캔한다(init-project-picker).
+ * maxDepth 단계까지만, node_modules·숨김 디렉토리 내부는 순회 제외, git 프로젝트를 만나면
+ * 그 안으로는 더 안 들어간다(서브모듈 무시). 최근 수정(mtime) 내림차순, 최대 GIT_SCAN_LIMIT 개.
+ * 순수(부작용 없음).
+ */
+export function scanGitProjects(root: string, maxDepth = GIT_SCAN_MAX_DEPTH): GitProjectCandidate[] {
+  const found: GitProjectCandidate[] = [];
+  const walk = (dir: string, depth: number): void => {
+    if (depth > maxDepth) {
+      return;
+    }
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    // depth>0 인 디렉토리가 .git 을 가지면 후보다(cwd 자신은 AC-01 이 따로 처리).
+    if (depth > 0 && entries.some((e) => e.name === '.git')) {
+      let mtimeMs = 0;
+      try {
+        mtimeMs = fs.statSync(dir).mtimeMs;
+      } catch {
+        // stat 실패 시 0(맨 뒤로 정렬).
+      }
+      found.push({ path: dir, name: path.basename(dir), mtimeMs });
+      return; // 프로젝트 안(서브모듈 등)으로는 더 안 들어간다.
+    }
+    for (const e of entries) {
+      if (e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules') {
+        walk(path.join(dir, e.name), depth + 1);
+      }
+    }
+  };
+  walk(root, 0);
+  found.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return found.slice(0, GIT_SCAN_LIMIT);
+}
+
 /**
  * `<dir>/*` 와 `<dir>/**` 형태의 글롭을 펼친다(브레이스 확장 등 풀 글롭 문법은
  * 지원하지 않는다 — 워크스페이스 멤버 디렉토리를 찾는 용도로 이 정도면 충분하다).
