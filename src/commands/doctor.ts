@@ -71,10 +71,11 @@ function readJson(p: string): unknown {
   }
 }
 
-/** 디렉토리 안의 파일 개수. 없으면 0. 숨김 파일 제외. */
-function countEntries(dir: string): number {
+/** 디렉토리 안의 파일 개수. 없으면 0. 숨김 파일 제외. ext 를 주면 그 확장자만 센다. */
+function countEntries(dir: string, ext?: string): number {
   try {
-    return fs.readdirSync(dir).filter((f) => !f.startsWith('.')).length;
+    return fs.readdirSync(dir).filter((f) => !f.startsWith('.') && (ext ? f.endsWith(ext) : true))
+      .length;
   } catch {
     return 0;
   }
@@ -472,8 +473,10 @@ function collectGlobal(checks: Check[], versionResult: VersionCheckResult): void
 
   // 규칙 / 교훈 / 프로젝트 수 (없으면 0, 크래시하지 않는다)
   // 규칙은 rules/active 안의 파일을 센다(rules/ 직속의 index.json·graduated.md 는 메타).
-  // 교훈(gotcha)은 ~/.awl/gotchas/ 를 센다 — awl gotchas 와 같은 소스. 예전엔 확정되지
+  // 교훈(gotcha)은 ~/.awl/gotchas/ 의 .json 만 센다 — awl gotchas(loadGotchaList) 와
+  // 같은 파일 선택(f.endsWith('.json'))이라 카운트가 어긋나지 않는다. 예전엔 확정되지
   // 않은 ~/.awl/lessons 를 가정해 delta→gotcha 개명(WI-O) 이후 늘 0 개로 오보했다.
+  // (.json 필터 없이 세면 비-json 아티팩트가 섞일 때 과대카운트 — 검증 세션 후속 지적.)
   checks.push({
     group: '전역 설치',
     name: '규칙',
@@ -484,7 +487,7 @@ function collectGlobal(checks: Check[], versionResult: VersionCheckResult): void
     group: '전역 설치',
     name: '교훈',
     status: 'info',
-    value: `${countEntries(gotchasDir())}개`,
+    value: `${countEntries(gotchasDir(), '.json')}개`,
   });
 
   let projectCount = 0;

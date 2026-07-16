@@ -127,6 +127,18 @@ describe('collectChecks — 설치됨 흉내', () => {
     const report = await collectChecks();
     expect(find(report.checks, '교훈')?.value).toBe('3개');
   });
+
+  it('교훈은 .json 만 센다 — 비-json 아티팩트는 제외해 awl gotchas 와 카운트가 일치 (검증 세션 후속)', async () => {
+    const home = process.env.AWL_HOME as string;
+    fs.mkdirSync(path.join(home, 'gotchas'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'gotchas', 'G-001.json'), '{}');
+    fs.writeFileSync(path.join(home, 'gotchas', 'G-002.json'), '{}');
+    // gotchasDir 에 섞일 수 있는 비-json 아티팩트(백업/메모 등)는 세지 않는다.
+    fs.writeFileSync(path.join(home, 'gotchas', 'notes.txt'), 'x');
+    fs.writeFileSync(path.join(home, 'gotchas', 'G-001.json.bak'), '{}');
+    const report = await collectChecks();
+    expect(find(report.checks, '교훈')?.value).toBe('2개');
+  });
 });
 
 describe('collectChecks — 프로젝트 루트/브랜치 표시 (WI-C)', () => {

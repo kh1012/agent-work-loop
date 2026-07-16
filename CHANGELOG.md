@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+### 고침
+
+- doctor 교훈 수를 gotchas/ 의 .json 만 센다 — 비-json 아티팩트가 섞여도 awl gotchas 와 카운트가 어긋나지 않음 [B1 후속, 검증 세션 지적]
+
 ## [0.6.5] - 2026-07-16
 
 ### 고침
