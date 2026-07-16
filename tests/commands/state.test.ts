@@ -237,6 +237,20 @@ describe('setCriterion — commit 필드 보존 불변식 (wi8-F3 AC-01)', () =>
     expect(c?.commit).toBe('sha_final'); // 얕은 병합이라 commit 은 살아남는다.
     expect(c?.baseline).toBe('head_sha'); // baseline 은 리셋됨(다른 목적).
   });
+
+  it('criteria 의 manualVerify/verifyHow 를 얕은 병합으로 보존한다 (records-verify-tag AC-02)', () => {
+    let state = setCriterion({}, 'AC-01', {
+      status: 'pending',
+      manualVerify: true,
+      verifyHow: '브라우저에서 레이어 패널 실측',
+    });
+    // 이후 다른 필드(status)를 갱신해도 검증 태그는 보존된다(스키마 변경 없이 흐른다).
+    state = setCriterion(state, 'AC-01', { status: 'passed' });
+    const c = getCriterion(state, 'AC-01');
+    expect(c?.manualVerify).toBe(true);
+    expect(c?.verifyHow).toBe('브라우저에서 레이어 패널 실측');
+    expect(c?.status).toBe('passed');
+  });
 });
 
 describe('writeState — 원자적 쓰기 (concurrency-3 AC-01)', () => {
