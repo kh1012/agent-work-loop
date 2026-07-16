@@ -5,9 +5,11 @@
 ## 요약
 | 케이스 | 결과 | 판정 |
 |---|---|---|
-| A. 동시 state set | 유효 JSON 유지·거부(exit1) 정상이나 **성공 수 > 살아남은 키** | ⚠ **[HIGH] 락 있는데도 lost update** |
-| B. 동시 commit --start | 8/8 성공인데 baseline 은 1~4/8만 | ⚠ **[MEDIUM] 무락 lost update (예상대로)** |
+| A. 동시 state set | (수정 전) **성공 > 살아남은 키** → (수정 후) **성공 == 살아남은 키** | ✅ **[HIGH] F-A 수정 확인** (fix-lock-atomicity) |
+| B. 동시 commit --start | 8/8 성공인데 baseline 은 1~5/8만 | ⚠ **[MEDIUM] 무락 lost update (예상대로, F-B 후속)** |
 | C. 동시 record | 8/8, 깨진 줄 0 | ✅ 견고(appendFileSync O_APPEND 원자적) |
+
+> **F-A 수정 완료**(fix-lock-atomicity, 커밋 ebc549e): 락 생성을 linkSync 로 원자화(빈 창 제거) + lockAgeAt mtime 폴백. 재실행 결과 Case A 가 성공 수 == 살아남은 키(예: 성공 1/키 1, 성공 3/키 3)로 lost update 소멸. F-B(commit --start 무락)는 별개 후속.
 
 관측 예(N=8):
 ```
