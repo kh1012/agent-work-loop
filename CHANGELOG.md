@@ -18,6 +18,8 @@
 - critical-only 모드 지원(awl 코어=데이터만) — defer 레코드 타입(severity/what/why, 선택 recommendation/gate/addresses)으로 자율 통과를 보류한 중요 항목을 남긴다. shouldDefer(severity, threshold=high) 순수 술어(high=high만/medium=high+medium/low=전부, unknown severity 는 fail-safe defer)로 스킬이 게이트 defer/권장통과를 판단한다. awl defer-summary 로 완료 시 보류 큐를 severity 순으로 최종 요약(--json/사람용). mode/deferThreshold 는 state 에 D-15 로 보존. 끄면(mode 미설정) 기존 동작 무변화. 자율진행 실행은 스킬 몫 [skip-gate-defer]
 - 실험 측정 지원(experiment-harness) — awl work new --experiment '{"model":..,"mode":..,"taskType":..}' 로 워크아이템에 실험 케이스 메타를 달면(D-15) evolve 가 세대 스냅샷에 실어, awl metrics --compare 가 케이스(model/mode/taskType)별로 지표(시도평균·막힘비율·리뷰지적·소요평균)를 나란히 비교한다(--json). 던지기~완료 소요(workitemCreatedAt~완료 at)를 durationMs 로 집계. 태그 없는 옛 세대는 비교에서 제외·하위호환. awl 은 케이스 기록·집계만, 실험 실행·판단은 사람/스킬 [experiment-harness]
 
+- CLI 디자인 정비(cli-design-tokens) — tty.ts 에 역할 의미 토큰(makeTokens: emphasis/muted/danger/accent/frame/info…)을 도입해 명령이 외형 색이 아니라 역할로 색을 쓴다. info 신호를 blue 로 바꿔 카드 제목 accent(cyan)와 색을 분리. 죽은 코드 box() 를 폐기하고 사람용 박스를 card 로 통일. card 본문 wrap 에 hanging indent 를 넣어 넘친 줄이 트리/불릿 들여쓰기를 유지(둘째 줄이 왼쪽에 붙던 정렬 깨짐 수정). metrics 표와 init 을 stringWidth 기반 padEndDisplay 로 통일(한글 섞인 열 정렬), 배너의 임시 진단 문구 제거 [cli-design-tokens]
+
 ### 고침
 
 - doctor 교훈 수를 gotchas/ 의 .json 만 센다 — 비-json 아티팩트가 섞여도 awl gotchas 와 카운트가 어긋나지 않음 [B1 후속, 검증 세션 지적]
