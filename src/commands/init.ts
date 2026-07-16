@@ -1332,22 +1332,62 @@ async function handleExistingConfig(
 // 진입점
 // ---------------------------------------------------------------------------
 
+export type ProjectChoice = { kind: 'path'; path: string } | { kind: 'type' } | { kind: 'cancel' };
+
+/**
+ * 프로젝트 선정 셀렉터의 인덱스를 후보 목록에 대해 해석한다(순수 — 오프바이원 방지).
+ * 0..n-1 = 후보, n = 직접 경로 입력, 그 외 = 취소.
+ */
+export function resolveProjectChoice(
+  idx: number,
+  candidates: GitProjectCandidate[],
+): ProjectChoice {
+  if (idx >= 0 && idx < candidates.length) {
+    return { kind: 'path', path: candidates[idx]?.path ?? '' };
+  }
+  if (idx === candidates.length) {
+    return { kind: 'type' };
+  }
+  return { kind: 'cancel' };
+}
+
 /**
  * interactive init 첫 단계: 어느 프로젝트에 awl 을 붙일지 고른다(init-project-picker).
  * cwd 가 git 프로젝트면 "이 프로젝트/다른 곳/취소", 아니거나 원하면 하위 git 프로젝트를
  * 최근 수정순 객관식으로 제시한다(끝에 직접 경로 입력·취소). 취소면 null.
+ *
+ * stdin 단일 소유(init.ts 의 interactiveInputs 와 같은 불변식): raw 셀렉터는 열린 readline
+ * 없이 runInteractiveSelect 를 직접 돌린다 — 열린 readline 과 raw 셀렉터가 stdin 을 동시에
+ * 소비하면 화면이 망가진다. 텍스트 프롬프트용 readline 은 lazy 로 만들되 셀렉터 전에 닫는다.
  */
 async function pickProjectRoot(cwd: string, c: Caps): Promise<string | null> {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   const raw = rawModeCapable();
+  const session: { rl: readline.Interface | null } = { rl: null };
+  const prompt = (): readline.Interface => {
+    if (!session.rl) {
+      session.rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    }
+    return session.rl;
+  };
+  const select = async (options: string[], title: string): Promise<number> => {
+    if (raw) {
+      // stdin 유일 소비자가 셀렉터가 되도록 열린 readline 을 먼저 닫는다.
+      if (session.rl) {
+        session.rl.close();
+        session.rl = null;
+      }
+      const r = await runInteractiveSelect(options, 0, false, c, [], {
+        title,
+        hint: '↑↓ 또는 j/k 이동 · Enter 선택 · Esc 기본값 유지',
+      });
+      return r?.index ?? 0;
+    }
+    return selectSingle(prompt(), options, 0, c, false, title);
+  };
   try {
     if (exists(path.join(cwd, '.git'))) {
-      const idx = await selectSingle(
-        rl,
+      const idx = await select(
         [`이 프로젝트로 진행  (${cwd})`, '다른 프로젝트 고르기', '취소'],
-        0,
-        c,
-        raw,
         '어느 프로젝트에 awl 을 붙일까요?',
       );
       if (idx === 0) {
@@ -1364,17 +1404,28 @@ async function pickProjectRoot(cwd: string, c: Caps): Promise<string | null> {
       candidates.length > 0
         ? '프로젝트를 고르세요 (최근 수정순, 최대 20)'
         : '하위에 git 프로젝트가 없습니다 — 직접 입력하거나 취소';
-    const idx = await selectSingle(rl, labels, 0, c, raw, title);
-    if (idx < candidates.length) {
-      return candidates[idx]?.path ?? null;
+    const choice = resolveProjectChoice(await select(labels, title), candidates);
+    if (choice.kind === 'path') {
+      return choice.path;
     }
-    if (idx === candidates.length) {
-      const typed = (await ask(rl, '  프로젝트 경로를 입력하세요: ')).trim();
-      return typed ? path.resolve(typed) : null;
+    if (choice.kind === 'cancel') {
+      return null;
     }
-    return null; // 취소.
+    // 직접 경로 입력 — 존재하는 경로만 받는다(오타로 엉뚱한 곳에 스캐폴딩 방지).
+    const typed = (await ask(prompt(), '  프로젝트 경로를 입력하세요: ')).trim();
+    if (!typed) {
+      return null;
+    }
+    const resolved = path.resolve(typed);
+    if (!exists(resolved)) {
+      process.stdout.write(`\n  그 경로가 없습니다: ${resolved}\n`);
+      return null;
+    }
+    return resolved;
   } finally {
-    rl.close();
+    if (session.rl) {
+      session.rl.close();
+    }
   }
 }
 

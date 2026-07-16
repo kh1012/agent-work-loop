@@ -18,6 +18,7 @@ import {
   nonInteractiveInputs,
   promptVerifyLocation,
   registerProject,
+  resolveProjectChoice,
   runInit,
   scaffoldGlobal,
   scanGitProjects,
@@ -786,5 +787,23 @@ describe('scanGitProjects — git 프로젝트 스캔 (init-project-picker AC-02
     for (let i = 1; i < found.length; i++) {
       expect(found[i - 1]?.mtimeMs).toBeGreaterThanOrEqual(found[i]?.mtimeMs ?? 0);
     }
+  });
+});
+
+describe('resolveProjectChoice — 셀렉터 인덱스 해석 (init-project-picker AC-04)', () => {
+  const cands = [
+    { path: '/a', name: 'a', mtimeMs: 2 },
+    { path: '/b', name: 'b', mtimeMs: 1 },
+  ];
+  it('0..n-1 은 후보, n 은 직접입력, 그 외는 취소', () => {
+    expect(resolveProjectChoice(0, cands)).toEqual({ kind: 'path', path: '/a' });
+    expect(resolveProjectChoice(1, cands)).toEqual({ kind: 'path', path: '/b' });
+    expect(resolveProjectChoice(2, cands)).toEqual({ kind: 'type' }); // n = 직접 입력
+    expect(resolveProjectChoice(3, cands)).toEqual({ kind: 'cancel' });
+    expect(resolveProjectChoice(-1, cands)).toEqual({ kind: 'cancel' });
+  });
+  it('후보 0개면 0 = 직접입력, 1 = 취소', () => {
+    expect(resolveProjectChoice(0, [])).toEqual({ kind: 'type' });
+    expect(resolveProjectChoice(1, [])).toEqual({ kind: 'cancel' });
   });
 });
