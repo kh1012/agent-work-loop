@@ -9,8 +9,10 @@ import {
   migrateDeltasToGotchas,
   recordGotcha,
   releaseLock,
+  runEvolveCollect,
   writeGeneration,
 } from '../../src/commands/evolve.js';
+import { loadGenerations } from '../../src/commands/metrics.js';
 import { legacyDeltasDir } from '../../src/core/paths.js';
 
 const origHome = process.env.AWL_HOME;
@@ -262,6 +264,34 @@ describe('writeGeneration — 프로젝트별 디렉토리', () => {
       excludedApprovedByHuman: true,
     });
   });
+
+  it('extra(experiment/startedAt/durationMs)를 스냅샷에 싣는다 (experiment-harness AC-04, 리뷰)', () => {
+    const metrics = {
+      criteriaTotal: 1,
+      avgAttempts: 1,
+      blockedRatio: 0,
+      reviewRejects: 0,
+      proceduralErrors: 0,
+      gotchaApplied: 0,
+      gotchaMissed: 0,
+      coverage: {
+        auditFindingsTotal: 0,
+        addressed: 0,
+        excluded: 0,
+        excludedApprovedByHuman: false,
+      },
+    };
+    const file = writeGeneration('p', 'WI-E', metrics, '2026-07-16T12:00:00Z', {
+      experiment: { model: 'lite', mode: 'loop', taskType: 'ui' },
+      startedAt: '2026-07-16T10:00:00Z',
+      durationMs: 7_200_000,
+    });
+    const written = JSON.parse(fs.readFileSync(file, 'utf8'));
+    // ...extra 스프레드가 없으면 세 필드가 사라진다(회귀 킬).
+    expect(written.experiment).toEqual({ model: 'lite', mode: 'loop', taskType: 'ui' });
+    expect(written.startedAt).toBe('2026-07-16T10:00:00Z');
+    expect(written.durationMs).toBe(7_200_000);
+  });
 });
 
 describe('collectEvolve — awlFeedback 유도 (0.6.x, AC-02/AC-03)', () => {
@@ -507,5 +537,49 @@ describe('migrateDeltasToGotchas (WI-O AC-02) — 무손실, 멱등, 원본 보�
     seedLegacyDelta('D-001');
     const gotchas = loadGotchaList(); // 마이그레이션을 명시적으로 안 부름.
     expect(gotchas.map((g) => g.id)).toEqual(['G-001']);
+  });
+});
+
+describe('runEvolveCollect — 세대에 experiment/duration 영속화 (experiment-harness AC-04, 리뷰)', () => {
+  const origCwd = process.cwd();
+  const origHome2 = process.env.AWL_HOME;
+  afterEach(() => {
+    process.chdir(origCwd);
+    if (origHome2 === undefined) delete process.env.AWL_HOME;
+    else process.env.AWL_HOME = origHome2;
+  });
+
+  it('state.workitemExperiment/workitemCreatedAt 를 세대 스냅샷에 실어 loadGenerations 로 읽힌다', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-evocol-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, '.awl', 'config.json'),
+      JSON.stringify({
+        project: 'p',
+        mainLanguage: 'other',
+        character: 'ko',
+        engineVersion: '0.6.7',
+        verify: {},
+      }),
+    );
+    fs.writeFileSync(
+      path.join(root, '.awl', 'state.json'),
+      JSON.stringify({
+        workitem: 'WI-9',
+        criteria: [],
+        workitemCreatedAt: '2026-07-16T10:00:00Z',
+        workitemExperiment: { model: 'lite', mode: 'loop', taskType: 'ui' },
+      }),
+    );
+    process.chdir(root);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-evocol-home-'));
+
+    runEvolveCollect({ workitem: 'WI-9', json: true });
+    const gen = loadGenerations('p').find((g) => g.workitem === 'WI-9');
+    // extra 조립 라인이 제거되면 이 세 단언이 실패한다(회귀 킬).
+    expect(gen?.experiment).toEqual({ model: 'lite', mode: 'loop', taskType: 'ui' });
+    expect(gen?.startedAt).toBe('2026-07-16T10:00:00Z');
+    expect(typeof gen?.durationMs).toBe('number'); // 던지기~지금 소요(양수)
+    expect(gen?.durationMs).toBeGreaterThan(0);
   });
 });
