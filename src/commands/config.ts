@@ -98,7 +98,10 @@ export function validateConfig(obj: unknown): string[] {
       }
     }
   }
-  if ('protectedFiles' in o && (!Array.isArray(o.protectedFiles) || !o.protectedFiles.every((p) => typeof p === 'string'))) {
+  if (
+    'protectedFiles' in o &&
+    (!Array.isArray(o.protectedFiles) || !o.protectedFiles.every((p) => typeof p === 'string'))
+  ) {
     errors.push('protectedFiles 형식 오류 (문자열 배열)');
   }
   return errors;
@@ -150,7 +153,9 @@ export function loadConfig(projectRoot: string): ConfigResult {
     engineVersion: raw.engineVersion as string,
     ...(typeof raw.namingConvention === 'string' ? { namingConvention: raw.namingConvention } : {}),
     ...(typeof raw.relatedCmd === 'string' ? { relatedCmd: raw.relatedCmd } : {}),
-    ...(Array.isArray(raw.protectedFiles) ? { protectedFiles: raw.protectedFiles as string[] } : {}),
+    ...(Array.isArray(raw.protectedFiles)
+      ? { protectedFiles: raw.protectedFiles as string[] }
+      : {}),
     verify: {
       typecheck: (rv.typecheck ?? null) as VerifyEntry,
       lint: (rv.lint ?? null) as VerifyEntry,
@@ -391,8 +396,15 @@ export async function applyConfigValue(
 
   if (parsed.kind === 'protectedFiles') {
     let files: unknown;
-    try { files = JSON.parse(rawValue); } catch { return { ok: false, message: 'protectedFiles 는 JSON 문자열 배열이어야 합니다.' }; }
-    if (!Array.isArray(files) || !files.every((file) => typeof file === 'string' && file.trim() !== '')) {
+    try {
+      files = JSON.parse(rawValue);
+    } catch {
+      return { ok: false, message: 'protectedFiles 는 JSON 문자열 배열이어야 합니다.' };
+    }
+    if (
+      !Array.isArray(files) ||
+      !files.every((file) => typeof file === 'string' && file.trim() !== '')
+    ) {
       return { ok: false, message: 'protectedFiles 는 비어 있지 않은 문자열 배열이어야 합니다.' };
     }
     config.protectedFiles = files;

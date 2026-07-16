@@ -1,11 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { protectedFilesMessage } from '../core/protected-files.js';
 import { CommandNotFoundError, run } from '../core/runner.js';
 import { type Caps, caps, card, makeColors, signal } from '../core/tty.js';
 import { type AwlConfig, VERIFY_ORDER, type VerifyMap, requireConfig } from './config.js';
 import { gitDirtyFiles } from './doctor.js';
 import { applyVerificationAttempts, loadState, writeState } from './state.js';
-import { protectedFilesMessage } from '../core/protected-files.js';
 
 /**
  * awl verify — config 의 검증 명령을 순서대로 실행한다.
@@ -410,7 +410,10 @@ export async function runVerify(opts: {
   const { projectRoot, config } = requireConfig();
   if (!opts.force) {
     const protection = await protectedFilesMessage(projectRoot, config.protectedFiles);
-    if (protection) { process.stderr.write(`\n  ${protection}\n`); process.exit(1); }
+    if (protection) {
+      process.stderr.write(`\n  ${protection}\n`);
+      process.exit(1);
+    }
   }
 
   if (opts.related) {
@@ -470,6 +473,8 @@ function persistVerificationAttempts(projectRoot: string, passed: boolean): void
   const attempted = applyVerificationAttempts(loadState(projectRoot), passed);
   writeState(projectRoot, attempted.state);
   if (attempted.blocked.length > 0) {
-    process.stderr.write(`\n  ⚠️  검증 3회 실패: ${attempted.blocked.join(', ')} 을(를) 자동 차단했습니다. (autoBlocked)\n`);
+    process.stderr.write(
+      `\n  ⚠️  검증 3회 실패: ${attempted.blocked.join(', ')} 을(를) 자동 차단했습니다. (autoBlocked)\n`,
+    );
   }
 }

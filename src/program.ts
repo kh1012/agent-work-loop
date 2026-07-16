@@ -315,9 +315,17 @@ export function buildProgram(): Command {
     .option('--base <ref>', '베이스 드리프트를 확인할 기준 브랜치')
     .option('--force', '보호 파일 변경 검사를 사람이 확인하고 우회합니다')
     .action(
-      async (criterion: string, opts: { start?: boolean; message?: string; base?: string; force?: boolean }) => {
+      async (
+        criterion: string,
+        opts: { start?: boolean; message?: string; base?: string; force?: boolean },
+      ) => {
         const { runCommit } = await import('./commands/commit.js');
-        await runCommit(criterion, { start: opts.start, message: opts.message, base: opts.base, force: opts.force });
+        await runCommit(criterion, {
+          start: opts.start,
+          message: opts.message,
+          base: opts.base,
+          force: opts.force,
+        });
       },
     );
 

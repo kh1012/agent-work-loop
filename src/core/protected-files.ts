@@ -6,8 +6,18 @@ export async function changedProtectedFiles(
   protectedFiles: string[] | undefined,
 ): Promise<string[]> {
   if (!protectedFiles || protectedFiles.length === 0) return [];
-  const result = await run({ cmd: 'git', args: ['diff', '--name-only', 'HEAD'], cwd: projectRoot, timeoutMs: 15_000 });
-  const changed = new Set(result.stdout.split('\n').map((p) => p.trim()).filter(Boolean));
+  const result = await run({
+    cmd: 'git',
+    args: ['diff', '--name-only', 'HEAD'],
+    cwd: projectRoot,
+    timeoutMs: 15_000,
+  });
+  const changed = new Set(
+    result.stdout
+      .split('\n')
+      .map((p) => p.trim())
+      .filter(Boolean),
+  );
   return protectedFiles.filter((file) => changed.has(file));
 }
 

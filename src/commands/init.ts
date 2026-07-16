@@ -455,7 +455,8 @@ export function ensureGitignore(projectRoot: string): 'added' | 'exists' {
 export function installSafetyHook(projectRoot: string): { installed: boolean; warning?: string } {
   try {
     const hook = path.join(projectRoot, '.git', 'hooks', 'pre-push');
-    if (exists(hook)) return { installed: false, warning: '기존 pre-push 훅이 있어 awl 훅을 덮어쓰지 않았습니다.' };
+    if (exists(hook))
+      return { installed: false, warning: '기존 pre-push 훅이 있어 awl 훅을 덮어쓰지 않았습니다.' };
     const template = path.join(packageEngineDir(), 'templates', 'pre-push.sample');
     fs.mkdirSync(path.dirname(hook), { recursive: true });
     fs.cpSync(template, hook);

@@ -1,12 +1,11 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { protectedFilesMessage } from '../core/protected-files.js';
 import { run } from '../core/runner.js';
 import { type Caps, caps, makeColors } from '../core/tty.js';
-import { resolveProjectRoot } from './config.js';
+import { loadConfig, resolveProjectRoot } from './config.js';
 import { gate1BlockReason, getCriterion, loadState, setCriterion, writeState } from './state.js';
-import { protectedFilesMessage } from '../core/protected-files.js';
-import { loadConfig } from './config.js';
 
 /**
  * awl commit — 격리 커밋.
@@ -356,10 +355,16 @@ export async function runCommit(
 ): Promise<void> {
   const root = requireRoot();
   const gateBlock = gate1BlockReason(loadState(root), 'commit');
-  if (gateBlock) { process.stderr.write(`\n  ${gateBlock}\n`); process.exit(1); }
+  if (gateBlock) {
+    process.stderr.write(`\n  ${gateBlock}\n`);
+    process.exit(1);
+  }
   if (!opts.force) {
     const protection = await protectedFilesMessage(root, loadConfig(root).config?.protectedFiles);
-    if (protection) { process.stderr.write(`\n  ${protection}\n`); process.exit(1); }
+    if (protection) {
+      process.stderr.write(`\n  ${protection}\n`);
+      process.exit(1);
+    }
   }
   const c = caps();
   const color = makeColors(c.color);

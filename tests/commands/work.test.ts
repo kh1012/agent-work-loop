@@ -723,7 +723,10 @@ describe('runWorkNew — 검증 베이스라인 캡처 (WI-G AC-01)', () => {
     // Gate 1 승인 뒤에 다음 워크아이템으로 전환한다.
     const firstStatePath = path.join(process.cwd(), '.awl', 'state.json');
     const firstState = JSON.parse(fs.readFileSync(firstStatePath, 'utf8'));
-    fs.writeFileSync(firstStatePath, `${JSON.stringify({ ...firstState, phase: 'loop' }, null, 2)}\n`);
+    fs.writeFileSync(
+      firstStatePath,
+      `${JSON.stringify({ ...firstState, phase: 'loop' }, null, 2)}\n`,
+    );
     await runWorkNew('WI-Other', undefined, {}); // 같은 파일을 workitem:'WI-Other' 로 덮어씀(현재 알려진 한계).
 
     const root = process.cwd();

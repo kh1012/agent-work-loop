@@ -107,7 +107,13 @@ export function gate1BlockReason(
   recordType?: string,
 ): string | null {
   if (state.phase !== 'awaiting-gate1') return null;
-  if (action === 'verify' || action === 'state-get' || action === 'work-switch' || action === 'work-abandon') return null;
+  if (
+    action === 'verify' ||
+    action === 'state-get' ||
+    action === 'work-switch' ||
+    action === 'work-abandon'
+  )
+    return null;
   if (action === 'record' && recordType === 'gate') return null;
   return '⚠️  Gate 1 승인이 먼저 필요합니다. awl record gate 로 승인 결과를 기록하세요.';
 }
@@ -117,7 +123,9 @@ export function applyVerificationAttempts(
   state: Record<string, unknown>,
   passed: boolean,
 ): { state: Record<string, unknown>; blocked: string[] } {
-  const criteria = Array.isArray(state.criteria) ? state.criteria as Record<string, unknown>[] : [];
+  const criteria = Array.isArray(state.criteria)
+    ? (state.criteria as Record<string, unknown>[])
+    : [];
   const focus = typeof state.currentFocus === 'string' ? state.currentFocus : undefined;
   const targets = focus
     ? criteria.filter((c) => c.id === focus)
@@ -135,7 +143,9 @@ export function applyVerificationAttempts(
     return { ...criterion, attempts };
   });
   return {
-    state: blocked.length ? { ...state, criteria: next, phase: 'blocked', loop: 'blocked' } : { ...state, criteria: next },
+    state: blocked.length
+      ? { ...state, criteria: next, phase: 'blocked', loop: 'blocked' }
+      : { ...state, criteria: next },
     blocked,
   };
 }
