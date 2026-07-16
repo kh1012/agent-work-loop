@@ -138,7 +138,7 @@ function registryOf(state: Record<string, unknown>): Record<string, WorkitemEntr
  */
 function archiveCurrent(
   state: Record<string, unknown>,
-  status: 'paused' | 'abandoned',
+  status: 'paused' | 'abandoned' | 'done',
   now: string,
 ): Record<string, unknown> {
   const migrated = migrateState(state);
@@ -330,6 +330,74 @@ export function abandonWorkitem(
       workitems: { ...registry, [key]: { ...entry, status: 'abandoned' } },
     },
   };
+}
+
+/**
+ * 완료된 워크아이템의 criteria 에서 비대·불필요해진 스냅샷 필드를 비운다(F-1/F-5).
+ * untrackedAtStart(워크트리 파일 목록)와 snapshot(stash 커밋 SHA)은 격리 커밋 중에만
+ * 쓰이므로 완료 후엔 필요 없다 — state.json 비대분을 회수한다. baseline(SHA)은 작고
+ * 이력이라 남긴다.
+ */
+function stripCriteriaSnapshots(criteria: Record<string, unknown>[]): Record<string, unknown>[] {
+  return criteria.map((c) => {
+    const { untrackedAtStart: _u, snapshot: _s, ...rest } = c;
+    return rest;
+  });
+}
+
+export interface WorkDoneResult extends WorkActionResult {
+  /** 정리할 워크트리 경로(있으면). 실제 디렉토리 제거는 부작용이라 핸들러 몫이다. */
+  worktree?: { path: string };
+}
+
+/**
+ * awl work done <id> — 완료된 워크아이템을 정리한다(피드백 F-5). status 를 done 으로
+ * 바꾸고, criteria 의 비대 스냅샷(untrackedAtStart/snapshot)을 비워 state.json 을
+ * 회수하며, 워크트리 경로를 돌려준다. 삭제가 아니라 완료 표시라 기록은 레지스트리에
+ * 남는다(abandon 과 같은 원칙). 현재/레지스트리 워크아이템 모두 대상이 된다.
+ */
+export function markWorkitemDone(
+  state: Record<string, unknown>,
+  id: string,
+  now: string,
+): WorkDoneResult {
+  const trimmed = id.trim();
+  const migrated = migrateState(state);
+  const currentId = typeof migrated.workitem === 'string' ? migrated.workitem : null;
+
+  // 대상이 현재(top-level) 워크아이템 — 레지스트리에 done 으로 보관하고 최상위를 비운다.
+  if (currentId && trimmed.toLowerCase() === currentId.toLowerCase()) {
+    const wtPath =
+      typeof migrated.workitemWorktreePath === 'string' ? migrated.workitemWorktreePath : undefined;
+    const archived = archiveCurrent(migrated, 'done', now);
+    const reg = registryOf(archived);
+    const entry = reg[currentId] as WorkitemEntry;
+    const next = {
+      ...archived,
+      workitems: {
+        ...reg,
+        [currentId]: { ...entry, criteria: stripCriteriaSnapshots(entry.criteria ?? []) },
+      },
+    };
+    return { state: next, ...(wtPath ? { worktree: { path: wtPath } } : {}) };
+  }
+
+  // 대상이 레지스트리(paused/abandoned) 워크아이템.
+  const registry = registryOf(migrated);
+  const key = Object.keys(registry).find((k) => k.toLowerCase() === trimmed.toLowerCase());
+  if (!key) {
+    return { state, error: `그런 워크아이템이 없습니다: ${trimmed}` };
+  }
+  const entry = registry[key] as WorkitemEntry;
+  const wtPath = typeof entry.worktreePath === 'string' ? entry.worktreePath : undefined;
+  const next = {
+    ...migrated,
+    workitems: {
+      ...registry,
+      [key]: { ...entry, status: 'done', criteria: stripCriteriaSnapshots(entry.criteria ?? []) },
+    },
+  };
+  return { state: next, ...(wtPath ? { worktree: { path: wtPath } } : {}) };
 }
 
 function requireRoot(): string {
@@ -553,4 +621,85 @@ export function runWorkAbandon(id: string): void {
   process.stdout.write(
     `\n${feedback(c, 'ok', `중단 처리  ${id}`, '기록은 남아 있습니다 (삭제되지 않습니다)')}\n`,
   );
+}
+
+/**
+ * 워크트리 디렉토리를 제거한다(work done). 두 가지가 removeGitWorktree 와 다르다(F-5):
+ *  - 브랜치는 지우지 않는다 — 미푸시 커밋이 있어도 유실되지 않게 한다.
+ *  - untracked 산출물(.venv·빌드물 등)은 완료된 워크트리에 정상적으로 쌓이므로, force
+ *    없이도 tracked 미커밋 변경만 검사해 없으면 제거한다(untracked 까지 지우려면 git 이
+ *    --force 를 요구하므로 실제 remove 는 --force 로 한다). tracked 미커밋 변경이 있으면
+ *    거부하고 호출부가 --force 를 안내한다 — force=true 면 그 검사도 건너뛴다.
+ */
+async function removeWorktreeDir(
+  root: string,
+  targetPath: string,
+  force: boolean,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!force) {
+    // tracked 미커밋 변경만 본다(untracked 산출물은 완료 워크트리에 정상이라 무시).
+    const status = await run({
+      cmd: 'git',
+      args: ['-C', targetPath, 'status', '--porcelain', '--untracked-files=no'],
+      cwd: root,
+      timeoutMs: 10_000,
+    });
+    const dirty = status.stdout
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (dirty.length > 0) {
+      return { ok: false, error: `커밋되지 않은 변경 ${dirty.length}건 (예: ${dirty[0]})` };
+    }
+  }
+  // untracked 산출물까지 정리하려면 --force 가 필요하다(git worktree remove 는 untracked 도 거부).
+  const r = await run({
+    cmd: 'git',
+    args: ['worktree', 'remove', '--force', targetPath],
+    cwd: root,
+    timeoutMs: 30_000,
+  });
+  if (r.exitCode !== 0) {
+    return { ok: false, error: (r.stderr || r.stdout).trim() };
+  }
+  return { ok: true };
+}
+
+/**
+ * awl work done <id> — 완료된 워크아이템을 정리한다(피드백 editor F-5). 완료 표시 +
+ * state 스냅샷 회수(markWorkitemDone) 후, 워크트리가 있으면 제거를 먼저 시도하고
+ * 성공해야 state 를 저장한다(워크트리는 못 지웠는데 done 으로 기록되는 불일치 방지).
+ */
+export async function runWorkDone(id: string, opts: { force?: boolean } = {}): Promise<void> {
+  const root = requireRoot();
+  const now = new Date().toISOString();
+  const result = markWorkitemDone(loadState(root), id, now);
+  if (result.error) {
+    process.stderr.write(`\n  ${result.error}\n`);
+    process.exit(1);
+  }
+
+  const c = caps();
+  const color = makeColors(c.color);
+
+  // 워크트리가 있으면 먼저 제거를 시도한다 — 성공해야 state 를 저장한다.
+  let worktreeNote: string | null = null;
+  if (result.worktree && fs.existsSync(result.worktree.path)) {
+    const removed = await removeWorktreeDir(root, result.worktree.path, opts.force ?? false);
+    if (!removed.ok) {
+      process.stderr.write(
+        `\n${feedback(c, 'warn', '워크트리를 정리하지 못했습니다', removed.error)}\n  정리되지 않은 변경을 확인하거나 awl work done ${id} --force 로 다시 시도하세요.\n  (브랜치는 지우지 않으므로 커밋된 작업은 안전합니다.)\n`,
+      );
+      process.exit(1);
+    }
+    worktreeNote = `워크트리 제거  ${result.worktree.path}`;
+  }
+
+  writeState(root, result.state);
+  process.stdout.write(
+    `\n${feedback(c, 'ok', `완료 처리  ${color.bold(id)}`, '상태 스냅샷을 회수했습니다 (기록은 남습니다)')}\n`,
+  );
+  if (worktreeNote) {
+    process.stdout.write(`    ${color.dim(worktreeNote)}\n`);
+  }
 }

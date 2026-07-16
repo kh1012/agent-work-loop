@@ -217,6 +217,16 @@ export function buildProgram(): Command {
       const { runWorkAbandon } = await import('./commands/work.js');
       runWorkAbandon(id);
     });
+  work
+    .command('done <id>')
+    .description(
+      '완료된 워크아이템을 정리합니다 (워크트리 제거 + 상태 스냅샷 회수, 기록은 남습니다)',
+    )
+    .option('--force', '정리되지 않은 변경이 있어도 워크트리를 제거합니다')
+    .action(async (id: string, opts: { force?: boolean }) => {
+      const { runWorkDone } = await import('./commands/work.js');
+      await runWorkDone(id, { force: opts.force === true });
+    });
 
   // 사람이 치는 명령: records (기록 조회, 사람이 읽는 목록)
   program
