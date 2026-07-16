@@ -16,6 +16,7 @@
 - awl brief 명령 — KST "오늘"(또는 --date YYYY-MM-DD)의 진행분을 모아 스킬이 소비할 데이터로 낸다(--json). records(UTC at 을 KST+9 로 변환해 그날 경계 재필터)·commits(git log KST 경계)·criteria(진행/완료)·verifyItems(수동검증 명시필드 우선 + UI 파일변경 휴리스틱) 4축. awl 은 판단하지 않고 데이터만 — "오늘 한 일 정리" 가이드는 스킬 몫. 사람용 렌더는 개수 요약만 [awl-brief]
 - records 읽기 범위 질의 — readRecords 에 months?/from/to(YYYY-MM) 를 주면 그 월 파일만 읽는다(전량 로드 회피). 쓰기는 월별(YYYY-MM.jsonl) 분할인데 읽기가 전 파일을 순회하던 걸 순수 selectMonthFiles 로 끊는다. 무범위면 전량(하위호환). evolve --collect 에 --from/--to 를 열어 hot 경로가 기간을 실제로 넘긴다(미지정 시 전량 폴백). 파이프라인 연속 실행 시 records 가 매 호출 O(전체 히스토리)로 자라던 것을 완화 [records-read-scope]
 - critical-only 모드 지원(awl 코어=데이터만) — defer 레코드 타입(severity/what/why, 선택 recommendation/gate/addresses)으로 자율 통과를 보류한 중요 항목을 남긴다. shouldDefer(severity, threshold=high) 순수 술어(high=high만/medium=high+medium/low=전부, unknown severity 는 fail-safe defer)로 스킬이 게이트 defer/권장통과를 판단한다. awl defer-summary 로 완료 시 보류 큐를 severity 순으로 최종 요약(--json/사람용). mode/deferThreshold 는 state 에 D-15 로 보존. 끄면(mode 미설정) 기존 동작 무변화. 자율진행 실행은 스킬 몫 [skip-gate-defer]
+- 실험 측정 지원(experiment-harness) — awl work new --experiment '{"model":..,"mode":..,"taskType":..}' 로 워크아이템에 실험 케이스 메타를 달면(D-15) evolve 가 세대 스냅샷에 실어, awl metrics --compare 가 케이스(model/mode/taskType)별로 지표(시도평균·막힘비율·리뷰지적·소요평균)를 나란히 비교한다(--json). 던지기~완료 소요(workitemCreatedAt~완료 at)를 durationMs 로 집계. 태그 없는 옛 세대는 비교에서 제외·하위호환. awl 은 케이스 기록·집계만, 실험 실행·판단은 사람/스킬 [experiment-harness]
 
 ### 고침
 
