@@ -123,14 +123,25 @@ export function sessionToken(): string {
   return `proc-${process.pid}`;
 }
 
-/** 락 파일의 at(ms). 못 읽으면 0(= 아주 오래됨 = stale 취급). */
+/**
+ * 락 파일의 나이 기준 시각(ms). 내용을 읽으면 그 at 을, 못 읽으면(생성 중 빈 파일/손상)
+ * 파일 mtime 을 돌린다. 예전엔 못 읽을 때 0(=1970)을 돌려, 방금 만들어지는 중인 빈 락을
+ * stale 로 오판해 steal → double-acquire 를 일으켰다(stress F-A).
+ */
 function lockAgeAt(p: string): number {
   try {
     const raw = JSON.parse(fs.readFileSync(p, 'utf8')) as { at?: unknown };
     const at = typeof raw.at === 'string' ? Date.parse(raw.at) : Number.NaN;
-    return Number.isNaN(at) ? 0 : at;
+    if (!Number.isNaN(at)) {
+      return at;
+    }
   } catch {
-    return 0;
+    // 내용 못 읽음 — 아래 mtime 폴백.
+  }
+  try {
+    return fs.statSync(p).mtimeMs;
+  } catch {
+    return Date.now(); // 파일이 이미 없으면 '방금'으로 취급(stale 아님 → steal 안 함).
   }
 }
 
@@ -142,16 +153,25 @@ export function acquireStateLock(projectRoot: string, token: string): boolean {
   const p = stateLockFile(projectRoot);
   fs.mkdirSync(path.dirname(p), { recursive: true });
   const tryCreate = (): boolean => {
+    // 내용을 먼저 완성한 temp 를 만들고 linkSync 로 배타적·원자적으로 락에 연결한다.
+    // openSync('wx')+writeSync 의 "빈 파일 창"을 없앤다 — 락은 존재하는 순간 항상 완전한
+    // 내용을 갖는다(stress F-A: 빈 창을 stale 로 오판해 steal 하던 double-acquire 근절).
+    const tmp = `${p}.${process.pid}.acq`;
     try {
-      const fd = fs.openSync(p, 'wx'); // 이미 있으면 EEXIST
-      fs.writeSync(fd, JSON.stringify({ token, at: new Date().toISOString() }));
-      fs.closeSync(fd);
+      fs.writeFileSync(tmp, JSON.stringify({ token, at: new Date().toISOString() }));
+      fs.linkSync(tmp, p); // 이미 있으면 EEXIST(배타적 생성)
       return true;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === 'EEXIST') {
         return false;
       }
       throw e;
+    } finally {
+      try {
+        fs.unlinkSync(tmp); // link 성공 시 p 는 남는다(temp 이름만 제거).
+      } catch {
+        // temp 정리 실패는 무시.
+      }
     }
   };
   if (tryCreate()) {

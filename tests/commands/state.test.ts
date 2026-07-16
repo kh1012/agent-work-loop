@@ -307,4 +307,14 @@ describe('acquireStateLock / releaseStateLock — 프로젝트 락 헬퍼 (concu
     releaseStateLock(root, 'holder'); // 내 토큰이면 지운다
     expect(readStateLock(root)).toBeNull();
   });
+
+  it('빈(생성 중) 락 파일을 stale 로 오판해 steal 하지 않는다 — F-A 수정 (fix-lock-atomicity)', () => {
+    const root = tmp();
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    // 방금 생성돼 아직 내용을 못 쓴 빈 락 파일(비원자 생성 창)을 흉내낸다.
+    fs.writeFileSync(stateLockFile(root), '');
+    // 방금 만들어진 빈 파일은 stale 이 아니다 — 뺏으면 double-acquire 가 된다.
+    // (예전엔 lockAgeAt 가 parse 실패 시 0=1970 을 돌려 stale 로 오판·steal 했다.)
+    expect(acquireStateLock(root, 'other')).toBe(false);
+  });
 });
