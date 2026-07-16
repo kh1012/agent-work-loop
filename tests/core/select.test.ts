@@ -53,6 +53,14 @@ describe('advanceSelect — 순수 상태 전이 (WI-Y AC-02)', () => {
     expect(unchecked.checked.has(1)).toBe(false);
   });
 
+  it('모두 선택 항목은 전체를 토글하고 개별 선택 시 해제된다', () => {
+    const all = advanceSelect(initSelectState(0), 'space', 3, true, 0);
+    expect([...all.checked].sort()).toEqual([0, 1, 2]);
+
+    const partial = advanceSelect({ ...all, index: 1 }, 'space', 3, true, 0);
+    expect([...partial.checked].sort()).toEqual([2]);
+  });
+
   it('단일선택에서 space 는 아무 변화도 없다', () => {
     const s = initSelectState(0);
     const next = advanceSelect(s, 'space', 3, false);

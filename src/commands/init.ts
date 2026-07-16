@@ -825,7 +825,7 @@ export function buildScreens(projectRoot: string, hasGlobal: boolean, c: Caps): 
         '판단은 이미 쓰고 계신 에이전트가 합니다.',
         '',
         '바로 아래에서 설치할 에이전트를 고릅니다.',
-        'Space 로 여럿 선택하고 Enter 로 확정하세요.',
+        '첫 번째 “모두 설치”를 고르거나, Space 로 필요한 항목만 고를 수 있습니다.',
         `감지됨: Claude Code ${agents.claude ? '있음' : '없음'} · Codex ${agents.codex ? '있음' : '없음'}`,
       ],
       c,
@@ -890,11 +890,13 @@ export async function selectMulti(
   c: Caps,
   useRawMode: boolean,
   title = '선택',
+  selectAllIndex?: number,
 ): Promise<number[]> {
   if (useRawMode) {
     const result = await runInteractiveSelect(options, 0, true, c, defaultChecked, {
       title,
       hint: '↑↓ 또는 j/k 이동 · Space 선택 · Enter 확정 · Esc 기본값 유지',
+      selectAllIndex,
     });
     return result?.checked ?? defaultChecked;
   }
@@ -1067,10 +1069,14 @@ async function interactiveInputs(
     process.stdout.write(`\n${screens.skills}\n`);
     const agents = detectAgents(projectRoot);
     const skillOptions = [
+      '모두 설치 (Claude Code + Codex)',
       'Claude Code (.claude/skills/awl-loop/ 에 설치)',
       'Codex (AGENTS.md 에 추가)',
     ];
-    const defaultChecked = [agents.claude ? 0 : -1, agents.codex ? 1 : -1].filter((i) => i >= 0);
+    const defaultChecked =
+      agents.claude && agents.codex
+        ? [0, 1, 2]
+        : [agents.claude ? 1 : -1, agents.codex ? 2 : -1].filter((i) => i >= 0);
     if (useRawMode && session.rl) {
       session.rl.close();
       session.rl = null;
@@ -1079,6 +1085,7 @@ async function interactiveInputs(
       ? await runInteractiveSelect(skillOptions, 0, true, c, defaultChecked, {
           title: '설치할 에이전트 스킬',
           hint: '↑↓ 또는 j/k 이동 · Space 선택 · Enter 확정 · Esc 기본값 유지',
+          selectAllIndex: 0,
         })
       : null;
     const checked =
@@ -1092,8 +1099,13 @@ async function interactiveInputs(
             c,
             false,
             '설치할 에이전트 스킬',
+            0,
           ));
-    const skills = { claude: checked.includes(0), codex: checked.includes(1) };
+    const installAll = checked.includes(0);
+    const skills = {
+      claude: installAll || checked.includes(1),
+      codex: installAll || checked.includes(2),
+    };
 
     return { project, mainLanguage, character, verify, skills };
   } finally {

@@ -27,6 +27,7 @@ export function advanceSelect(
   key: SelectKey,
   count: number,
   multi: boolean,
+  selectAllIndex?: number,
 ): SelectState {
   if (state.done) {
     return state;
@@ -45,6 +46,18 @@ export function advanceSelect(
         return state;
       }
       const next = new Set(state.checked);
+      // "모두 선택"은 일반 항목 하나가 아니라 목록 전체를 토글하는 특수 항목이다.
+      // 개별 항목을 건드리면 이 표시는 해제해, 현재 체크 상태가 실제 선택을 정확히
+      // 나타내도록 한다.
+      if (state.index === selectAllIndex) {
+        if (next.has(selectAllIndex)) {
+          return { ...state, checked: new Set() };
+        }
+        return { ...state, checked: new Set(Array.from({ length: count }, (_, i) => i)) };
+      }
+      if (selectAllIndex !== undefined) {
+        next.delete(selectAllIndex);
+      }
       if (next.has(state.index)) {
         next.delete(state.index);
       } else {
@@ -135,6 +148,8 @@ export interface InteractiveSelectResult {
 export interface InteractiveSelectPresentation {
   title?: string;
   hint?: string;
+  /** Space 로 전체 항목을 함께 토글할 다중선택의 특수 항목 인덱스. */
+  selectAllIndex?: number;
 }
 
 function renderInteractiveSelect(
@@ -174,7 +189,7 @@ export async function runInteractiveSelect(
   try {
     while (!state.done) {
       const key = await readKey();
-      state = advanceSelect(state, key, options.length, multi);
+      state = advanceSelect(state, key, options.length, multi, presentation.selectAllIndex);
       rendered = renderInteractiveSelect(options, state, multi, c, presentation);
       process.stdout.write(`${moveCursorUp(rendered.lineCount)}${rendered.text}\n`);
     }
