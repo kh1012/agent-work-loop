@@ -677,6 +677,14 @@ describe('selectMonthFiles — 순수 월파일 선택(전량 로드 제거)', (
     expect(selectMonthFiles(files, {})).toEqual(['2026-06.jsonl', '2026-07.jsonl']);
   });
 
+  it('months:[](빈 배열)은 빈 결과 — 전량 폴백이 아님(명시적 빈 필터, AC-04)', () => {
+    const files = ['2026-06.jsonl', '2026-07.jsonl'];
+    // 빈 배열 = "월로 거르는데 그 집합이 비었다" → 0개(전량 아님)
+    expect(selectMonthFiles(files, { months: [] })).toEqual([]);
+    // 키 자체가 없으면(undefined) 전량(하위호환) — 빈 배열과 구분
+    expect(selectMonthFiles(files, {})).toEqual(files);
+  });
+
   it('from/to 범위(YYYY-MM, 포함)로 거른다', () => {
     expect(selectMonthFiles(twelve, { from: '2026-03', to: '2026-05' })).toEqual([
       '2026-03.jsonl',

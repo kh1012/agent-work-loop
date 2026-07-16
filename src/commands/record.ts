@@ -530,11 +530,16 @@ export interface RecordFilter {
  * 쓰기는 monthFile 이 YYYY-MM.jsonl 로 분할하는데 읽기가 전 파일을 순회하던 걸 끊는다.
  * months(명시 목록)가 우선, 없으면 from/to(YYYY-MM 문자열 비교로 포함 범위), 둘 다 없으면
  * 전량(.jsonl 만) — 기존 호출부는 그대로 전량을 받는다(하위호환).
+ *
+ * months 가 배열이면 길이와 무관하게 "월로 거른다"는 뜻이다 — 빈 배열([])은 전량 폴백이
+ * 아니라 매치 0개(명시적 빈 필터)다. "월로 안 거른다(전량)"는 months 를 아예 주지 않는 것
+ * (undefined)으로 표현한다. 월목록을 계산해 넘기는 호출부가 빈 결과를 기대하다 전량 로드로
+ * 역행하는 함정을 막는다(리뷰 지적, AC-04).
  */
 export function selectMonthFiles(files: string[], filter: RecordFilter = {}): string[] {
   const jsonl = files.filter((f) => f.endsWith('.jsonl'));
   const monthOf = (f: string): string => f.slice(0, 7); // 'YYYY-MM.jsonl' → 'YYYY-MM'
-  if (Array.isArray(filter.months) && filter.months.length > 0) {
+  if (Array.isArray(filter.months)) {
     const set = new Set(filter.months);
     return jsonl.filter((f) => set.has(monthOf(f)));
   }
