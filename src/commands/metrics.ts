@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { generationsDir } from '../core/paths.js';
-import { type Caps, caps, makeColors } from '../core/tty.js';
+import { type Caps, caps, card, makeColors } from '../core/tty.js';
 import { requireConfig } from './config.js';
 
 /**
@@ -92,22 +92,22 @@ export function renderMetrics(generations: Generation[], c: Caps): string {
   const color = makeColors(c.color);
   const caveat = color.dim(renderMetricsCaveat());
   if (generations.length === 0) {
-    return `\n  세대 기록이 없습니다.\n\n  ${caveat}\n`;
+    return card('세대 지표', ['세대 기록이 없습니다.', '', caveat], c);
   }
   const idWidth = Math.max(...generations.map((g) => g.workitem.length), 9) + 2;
-  const out: string[] = ['', `  세대 ${generations.length}개 (시간순)`, ''];
+  const out: string[] = [];
   out.push(
-    `  ${'워크아이템'.padEnd(idWidth, ' ')}완료조건  시도평균  막힘비율  리뷰지적  절차실수  gotcha적용  gotcha누락  커버리지`,
+    `${'워크아이템'.padEnd(idWidth, ' ')}완료조건  시도평균  막힘비율  리뷰지적  절차실수  gotcha적용  gotcha누락  커버리지`,
   );
   for (const g of generations) {
     const coverage = `${g.coverage.addressed}/${g.coverage.auditFindingsTotal}`;
     out.push(
-      `  ${g.workitem.padEnd(idWidth, ' ')}${String(g.criteriaTotal).padEnd(10, ' ')}${String(g.avgAttempts).padEnd(10, ' ')}${String(g.blockedRatio).padEnd(10, ' ')}${String(g.reviewRejects).padEnd(10, ' ')}${String(g.proceduralErrors).padEnd(10, ' ')}${String(g.gotchaApplied).padEnd(12, ' ')}${String(g.gotchaMissed).padEnd(12, ' ')}${coverage}`,
+      `${g.workitem.padEnd(idWidth, ' ')}${String(g.criteriaTotal).padEnd(10, ' ')}${String(g.avgAttempts).padEnd(10, ' ')}${String(g.blockedRatio).padEnd(10, ' ')}${String(g.reviewRejects).padEnd(10, ' ')}${String(g.proceduralErrors).padEnd(10, ' ')}${String(g.gotchaApplied).padEnd(12, ' ')}${String(g.gotchaMissed).padEnd(12, ' ')}${coverage}`,
     );
   }
   out.push('');
-  out.push(`  ${caveat}`);
-  return out.join('\n');
+  out.push(caveat);
+  return card(`세대 ${generations.length}개 · 시간순`, out, c);
 }
 
 /** awl metrics */

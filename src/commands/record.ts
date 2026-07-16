@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { recordsDir } from '../core/paths.js';
 import { run } from '../core/runner.js';
-import { type Caps, caps, makeColors } from '../core/tty.js';
+import { type Caps, caps, card, makeColors } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
 import { getCriterion, loadState } from './state.js';
 
@@ -530,18 +530,18 @@ function summaryOf(r: Record<string, unknown>): string {
 export function renderRecords(records: Record<string, unknown>[], c: Caps): string {
   const color = makeColors(c.color);
   if (records.length === 0) {
-    return '\n  기록이 없습니다.\n';
+    return card('기록', ['기록이 없습니다.'], c);
   }
-  const out: string[] = ['', `  기록 ${records.length}개 (최근순)`, ''];
+  const out: string[] = [];
   for (const r of records) {
     const type = String(r.type).padEnd(9, ' ');
     const wi = r.workitem ? `${String(r.workitem)} ` : '';
     const date = String(r.at).slice(0, 10);
-    out.push(`  ${color.dim(date)}  ${color.bold(type)} ${color.dim(wi)}${summaryOf(r)}`);
+    out.push(`${color.dim(date)}  ${color.bold(type)} ${color.dim(wi)}${summaryOf(r)}`);
   }
   out.push('');
-  out.push(`  ${color.dim('상세는 awl records --json 또는 ~/.awl/records/ 를 보세요.')}`);
-  return out.join('\n');
+  out.push(color.dim('상세는 awl records --json 또는 ~/.awl/records/ 를 보세요.'));
+  return card(`기록 ${records.length}개 · 최근순`, out, c);
 }
 
 // ---------------------------------------------------------------------------

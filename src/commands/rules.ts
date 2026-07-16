@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { rulesDir } from '../core/paths.js';
-import { type Caps, caps, makeColors } from '../core/tty.js';
+import { type Caps, caps, card, makeColors } from '../core/tty.js';
 import { type Gotcha, acquireLock, loadGotchaList, releaseLock } from './evolve.js';
 
 /**
@@ -116,27 +116,25 @@ export function filterRules(rules: Rule[], opts: { scope?: string }): Rule[] {
 
 function renderRules(rules: Rule[], warnings: string[], c: Caps): string {
   const color = makeColors(c.color);
-  const out: string[] = [''];
+  const out: string[] = [];
   for (const w of warnings) {
-    out.push(`  ${color.yellow('경고')} ${w}`);
+    out.push(`${color.yellow('경고')} ${w}`);
   }
   if (warnings.length > 0) {
     out.push('');
   }
   if (rules.length === 0) {
-    out.push('  적용되는 규칙이 없습니다.');
+    out.push('적용되는 규칙이 없습니다.');
     out.push('');
-    out.push(`  ${color.dim('규칙은 작업하다 같은 실패를 두 번 할 때 쌓입니다.')}`);
-    return out.join('\n');
+    out.push(color.dim('규칙은 작업하다 같은 실패를 두 번 할 때 쌓입니다.'));
+    return card('규칙', out, c);
   }
-  out.push(`  규칙 ${rules.length}개`);
-  out.push('');
   for (const r of rules) {
     const scope = r.scope ? color.dim(`[${r.scope}]`) : color.dim('[범용]');
-    out.push(`  ${color.bold(r.id)} ${scope}`);
-    out.push(`    ${r.body.split('\n')[0] ?? ''}`);
+    out.push(`${color.bold(r.id)} ${scope}`);
+    out.push(`  ${r.body.split('\n')[0] ?? ''}`);
   }
-  return out.join('\n');
+  return card(`규칙 ${rules.length}개`, out, c);
 }
 
 export function runRules(opts: { scope?: string; json?: boolean; edit?: boolean }): void {

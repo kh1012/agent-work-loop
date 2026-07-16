@@ -1,4 +1,4 @@
-import { type Caps, caps, makeColors } from '../core/tty.js';
+import { type Caps, caps, card, makeColors } from '../core/tty.js';
 import { type Gotcha, loadGotchaList } from './evolve.js';
 
 /**
@@ -21,13 +21,13 @@ export function loadGotchas(): Gotcha[] {
 function renderGotchas(gotchas: Gotcha[], c: Caps): string {
   const color = makeColors(c.color);
   if (gotchas.length === 0) {
-    return '\n  교훈이 없습니다.\n';
+    return card('교훈', ['교훈이 없습니다.'], c);
   }
-  const out: string[] = ['', `  교훈 ${gotchas.length}개 (아직 규칙 아님)`, ''];
+  const out: string[] = [];
   for (const g of gotchas) {
-    out.push(`  ${color.dim('·')} ${g.lesson || '(요약 없음)'}`);
+    out.push(`${color.dim('·')} ${g.lesson || '(요약 없음)'}`);
   }
-  return out.join('\n');
+  return card(`교훈 ${gotchas.length}개 · 아직 규칙 아님`, out, c);
 }
 
 export function runGotchas(opts: { json?: boolean }): void {

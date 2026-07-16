@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { type Caps, caps, makeColors } from '../core/tty.js';
+import { type Caps, caps, card, makeColors } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
 
 /**
@@ -112,14 +112,14 @@ function requireRoot(): string {
 function renderState(state: Record<string, unknown>, c: Caps): string {
   const color = makeColors(c.color);
   if (Object.keys(state).length === 0) {
-    return '\n  상태가 비어 있습니다.\n';
+    return card('현재 상태', ['상태가 비어 있습니다.'], c);
   }
-  const out: string[] = ['', '  현재 상태', ''];
+  const out: string[] = [];
   for (const [k, v] of Object.entries(state)) {
     const val = typeof v === 'object' ? JSON.stringify(v) : String(v);
-    out.push(`    ${k.padEnd(14, ' ')}${color.dim(val)}`);
+    out.push(`${k.padEnd(14, ' ')}${color.dim(val)}`);
   }
-  return out.join('\n');
+  return card('현재 상태', out, c);
 }
 
 export function runStateGet(opts: { json: boolean }): void {

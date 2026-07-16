@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { run } from '../core/runner.js';
-import { type Caps, caps, makeColors } from '../core/tty.js';
+import { type Caps, caps, card, makeColors } from '../core/tty.js';
 import { loadConfig, resolveProjectRoot } from './config.js';
 import { gitBranch } from './doctor.js';
 import { loadState, migrateState, writeState } from './state.js';
@@ -85,19 +85,18 @@ export function summarizeWorkitems(state: Record<string, unknown>): WorkSummary[
 function renderWorkList(list: WorkSummary[], c: Caps): string {
   const color = makeColors(c.color);
   if (list.length === 0) {
-    return [
-      '',
-      '  등록된 워크아이템이 없습니다.',
-      '',
-      `  ${color.dim('awl work new <ID> 로 시작하세요.')}`,
-    ].join('\n');
+    return card(
+      '워크아이템',
+      ['등록된 워크아이템이 없습니다.', '', color.dim('awl work new <ID> 로 시작하세요.')],
+      c,
+    );
   }
   const idWidth = Math.max(...list.map((w) => w.id.length), 2) + 2;
   const statusWidth = Math.max(...list.map((w) => w.status.length), 6) + 2;
-  const out: string[] = ['', `  ${color.bold('워크아이템')}`, ''];
+  const out: string[] = [];
   for (const w of list) {
     const marker = w.current ? color.green('*') : ' ';
-    let line = `  ${marker} ${w.id.padEnd(idWidth, ' ')}${w.status.padEnd(statusWidth, ' ')}${w.passed}/${w.total} 통과`;
+    let line = `${marker} ${w.id.padEnd(idWidth, ' ')}${w.status.padEnd(statusWidth, ' ')}${w.passed}/${w.total} 통과`;
     if (w.branch) {
       line += `  ${color.dim(w.branch)}`;
     }
@@ -106,7 +105,7 @@ function renderWorkList(list: WorkSummary[], c: Caps): string {
     }
     out.push(line);
   }
-  return out.join('\n');
+  return card('워크아이템', out, c);
 }
 
 export interface WorkitemEntry {

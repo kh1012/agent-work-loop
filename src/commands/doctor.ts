@@ -3,7 +3,7 @@ import path from 'node:path';
 import { installedEngineVersion } from '../core/engine.js';
 import { findProjectRoot, globalRoot, projectsFile, rulesDir } from '../core/paths.js';
 import { CommandNotFoundError, run, tokenize } from '../core/runner.js';
-import { type Caps, caps, makeColors, stringWidth } from '../core/tty.js';
+import { type Caps, caps, card, makeColors, stringWidth } from '../core/tty.js';
 import {
   type VersionCheckResult,
   type VersionMismatchKind,
@@ -830,14 +830,14 @@ export function renderText(report: DoctorReport, c: Caps): string {
     }
   };
 
-  const lines: string[] = ['', `  ${color.bold('Agent Work Loop')}  진단`, ''];
+  const lines: string[] = [];
 
   const groups = [...new Set(checks.map((ch) => ch.group))];
   for (const group of groups) {
-    lines.push(`  ${color.bold(group)}`);
+    lines.push(color.bold(group));
     for (const ch of checks.filter((x) => x.group === group)) {
       const status = statusText(ch);
-      let line = `    ${pad(ch.name, nameWidth)}  ${pad(ch.value ?? '', valueWidth)}`;
+      let line = `  ${pad(ch.name, nameWidth)}  ${pad(ch.value ?? '', valueWidth)}`;
       if (status) {
         line += `  ${status}`;
       }
@@ -848,15 +848,15 @@ export function renderText(report: DoctorReport, c: Caps): string {
 
   const problems = report.checks.filter((ch) => ch.status === 'missing' || ch.status === 'fail');
   if (problems.length === 0) {
-    lines.push(`  ${color.green('모두 정상입니다.')}`);
+    lines.push(color.green('모두 정상입니다.'));
   } else {
     const action = problems.some((p) => (p.hint ?? '').includes('init'))
       ? 'awl init 을 실행하세요.'
       : '위 안내를 확인하세요.';
-    lines.push(`  ${color.red(`문제 ${problems.length}개.`)} ${action}`);
+    lines.push(`${color.red(`문제 ${problems.length}개.`)} ${action}`);
   }
 
-  return lines.join('\n');
+  return card('Agent Work Loop · 진단', lines, c);
 }
 
 /** doctor 명령의 실제 실행. 렌더 후 종료 코드를 설정한다. */

@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { run } from '../core/runner.js';
-import { type Caps, caps, makeColors } from '../core/tty.js';
+import { type Caps, caps, card, makeColors } from '../core/tty.js';
 import { type AwlConfig, requireConfig } from './config.js';
 import { filterRules, loadRules } from './rules.js';
 import { loadState } from './state.js';
@@ -123,23 +123,25 @@ export async function assembleReview(
 
 function renderReview(bundle: ReviewBundle, range: string, c: Caps): string {
   const color = makeColors(c.color);
-  const out: string[] = ['', `  리뷰 자료  ${range}`, ''];
-  out.push(`    reviewId     ${bundle.reviewId}`);
-  out.push(`    완료 조건    ${bundle.criteria.length}개`);
-  out.push(`    diff         ${bundle.diff.split('\n').length}줄`);
-  out.push(`    검증         ${bundle.verify.passed ? color.green('통과') : color.red('실패')}`);
-  out.push(`    규칙(review) ${bundle.rules.length}개`);
+  const out: string[] = [];
+  out.push(`reviewId     ${bundle.reviewId}`);
+  out.push(`완료 조건    ${bundle.criteria.length}개`);
+  out.push(`diff         ${bundle.diff.split('\n').length}줄`);
+  out.push(`검증         ${bundle.verify.passed ? color.green('통과') : color.red('실패')}`);
+  out.push(`규칙(review) ${bundle.rules.length}개`);
   out.push('');
-  out.push('  provenance (리뷰어가 교차검증할 위치)');
-  out.push(`    브랜치       ${bundle.provenance.branch}`);
-  out.push(`    커밋         ${bundle.provenance.commit.slice(0, 10)}`);
-  out.push(`    워크트리     ${bundle.provenance.worktree}`);
+  out.push('provenance (리뷰어가 교차검증할 위치)');
+  out.push(`  브랜치       ${bundle.provenance.branch}`);
+  out.push(`  커밋         ${bundle.provenance.commit.slice(0, 10)}`);
+  out.push(`  워크트리     ${bundle.provenance.worktree}`);
   out.push('');
-  out.push(`  ${color.dim(`리뷰어(서브에이전트)에게는 awl review ${range} --json 을 넘기세요.`)}`);
+  out.push(color.dim(`리뷰어(서브에이전트)에게는 awl review ${range} --json 을 넘기세요.`));
   out.push(
-    `  ${color.dim(`판정을 받으면 awl record review --json '{"reviewId":"${bundle.reviewId}",...}' 로 기록하세요.`)}`,
+    color.dim(
+      `판정을 받으면 awl record review --json '{"reviewId":"${bundle.reviewId}",...}' 로 기록하세요.`,
+    ),
   );
-  return out.join('\n');
+  return card(`리뷰 자료 · ${range}`, out, c);
 }
 
 export async function runReview(
