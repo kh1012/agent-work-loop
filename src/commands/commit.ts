@@ -513,6 +513,10 @@ export async function runCommit(
     setCriterion(loadState(root), ac, {
       snapshot: newSnap,
       baseline: outcome.commit,
+      // baseline 은 다음 격리 커밋의 diff 기준점이라 --start 때 HEAD 로 리셋된다.
+      // commit 은 리셋 안 되는 "이 AC 의 마지막 격리 커밋" 전용 필드 — status 의
+      // 캐노니컬 HEAD 검증(wi8-F3)이 이 값이 HEAD 조상인지 대조한다.
+      commit: outcome.commit,
       untrackedAtStart: newUntracked,
     }),
   );

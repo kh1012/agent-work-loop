@@ -3,10 +3,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  getCriterion,
   loadState,
   mergeState,
   migrateState,
   runStateSet,
+  setCriterion,
   writeState,
 } from '../../src/commands/state.js';
 
@@ -168,5 +170,26 @@ describe('runStateSet — phase:loop 전환에 게이트 1 기록 요구 (WI-Q A
     runStateSet('{"phase":"loop"}', { requireGateForLoop: cb });
     expect(cb).toHaveBeenCalledWith('WI-Q');
     void root;
+  });
+});
+
+describe('setCriterion — commit 필드 보존 불변식 (wi8-F3 AC-01)', () => {
+  it('--start 모사 패치(baseline 만, commit 없음)를 재적용해도 기존 commit 을 보존한다', () => {
+    // 성공 격리 커밋이 commit SHA 를 심었다고 가정.
+    let state = setCriterion({}, 'AC-01', {
+      status: 'passed',
+      baseline: 'sha_final',
+      commit: 'sha_final',
+    });
+    // 이후 --start 를 다시 부르면 baseline 만 HEAD 로 리셋되고 patch 에 commit 은 없다.
+    state = setCriterion(state, 'AC-01', {
+      status: 'in_progress',
+      baseline: 'head_sha',
+      snapshot: 'snap',
+      untrackedAtStart: [],
+    });
+    const c = getCriterion(state, 'AC-01');
+    expect(c?.commit).toBe('sha_final'); // 얕은 병합이라 commit 은 살아남는다.
+    expect(c?.baseline).toBe('head_sha'); // baseline 은 리셋됨(다른 목적).
   });
 });

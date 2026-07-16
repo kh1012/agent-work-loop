@@ -443,6 +443,19 @@ describe('firstBaseline (WI-H AC-01) — 재시작/여러 커밋에도 range-sta
     expect(closed?.baseline).not.toBe(commit0); // baseline 은 이 AC 자신의 커밋으로 갱신(기존 동작 유지).
   });
 
+  it('격리 커밋이 성공하면 그 커밋 SHA 를 criterion.commit 에 기록한다 (wi8-F3 AC-01)', async () => {
+    const proj = realGitProject();
+    await runCommit('AC-01', { start: true });
+    fs.writeFileSync(path.join(proj, 'my-change.txt'), 'work\n');
+    await runCommit('AC-01', { message: '작업 완료' });
+
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: proj, encoding: 'utf8' }).trim();
+    const closed = getCriterion(loadState(proj), 'AC-01');
+    // commit 은 baseline 과 달리 --start 로 리셋되지 않는 "이 AC 의 마지막 격리 커밋"
+    // 전용 필드 — status 의 캐노니컬 HEAD 검증(AC-02)이 이 값을 HEAD 와 대조한다.
+    expect(closed?.commit).toBe(head);
+  });
+
   it('runCommit -m 이 실제로 baseline(crit.baseline)을 expectedHead 로 넘겨 HEAD 드리프트를 거부한다 (D-36 배선 확인)', async () => {
     const proj = realGitProject();
     await runCommit('AC-01', { start: true });
