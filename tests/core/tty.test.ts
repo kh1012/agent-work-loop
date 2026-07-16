@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  box,
   card,
   charWidth,
   computeCaps,
@@ -161,48 +160,6 @@ describe('makeSymbols — 유니코드/ASCII 폴백', () => {
   it('상태 이모지는 유니코드 TTY에서만 쓴다', () => {
     expect(signal({ unicode: true, color: false, tty: true }, 'warn')).toBe('⚠️');
     expect(signal({ unicode: false, color: false, tty: false }, 'warn')).toBe('[!]');
-  });
-});
-
-describe('box — 정렬 (한글이 섞여도 깨지지 않는다)', () => {
-  const asciiSym = makeSymbols({ unicode: false, color: false, tty: false });
-  const uniSym = makeSymbols({ unicode: true, color: true, tty: true });
-
-  it('ASCII 모드: 한글이 섞인 모든 줄의 표시 폭이 동일하다', () => {
-    const rendered = box(
-      '검증 결과',
-      ['test 통과', '한글 abc 섞인 줄', 'short', '조금 더 긴 한글 줄입니다'],
-      asciiSym,
-    );
-    const rows = rendered.split('\n');
-    const widths = rows.map(stringWidth);
-    // 모든 줄의 표시 폭이 하나로 같아야 박스가 안 깨진다.
-    expect(new Set(widths).size).toBe(1);
-  });
-
-  it('유니코드 모드도 동일하게 정렬된다', () => {
-    const rendered = box('제목', ['한글 줄', 'x'], uniSym);
-    const widths = rendered.split('\n').map(stringWidth);
-    expect(new Set(widths).size).toBe(1);
-  });
-
-  it('제목이 빈 문자열이면 제목 행/구분선을 생략한다', () => {
-    const rendered = box('', ['한 줄', '두 줄'], asciiSym);
-    const rows = rendered.split('\n');
-    // 상단 + 본문 2줄 + 하단 = 4줄 (제목/구분선 없음)
-    expect(rows.length).toBe(4);
-    const widths = rows.map(stringWidth);
-    expect(new Set(widths).size).toBe(1);
-  });
-
-  it('가장 긴 줄이 한글이어도 폭 기준이 맞는다', () => {
-    const longKo = '아주 긴 한글 제목 줄';
-    const rendered = box(longKo, ['x'], asciiSym);
-    const rows = rendered.split('\n');
-    const widths = rows.map(stringWidth);
-    expect(new Set(widths).size).toBe(1);
-    // 내부 폭은 최소한 가장 긴 한글 줄의 폭 + 좌우 여백/테두리를 담아야 한다.
-    expect(widths[0]).toBeGreaterThanOrEqual(stringWidth(longKo));
   });
 });
 

@@ -385,38 +385,9 @@ export const sym: Symbols = makeSymbols(caps());
 // 박스 그리기
 // ---------------------------------------------------------------------------
 
-/**
- * 박스를 그린다. 한글/CJK가 섞여도 표시 폭으로 정렬한다.
- *
- * @param title 상단 제목. 빈 문자열이면 제목 행과 구분선을 생략한다.
- * @param lines 본문 줄들.
- * @param symbols 기호 세트. 생략하면 현재 능력 기준으로 고른다.
- */
-export function box(title: string, lines: string[], symbols: Symbols = sym): string {
-  const s = symbols;
-  const contentLines = title ? [title, ...lines] : [...lines];
-  const inner = contentLines.reduce((max, line) => Math.max(max, stringWidth(line)), 0);
-  const padding = 1; // 좌우 여백 한 칸씩
-
-  const horizontal = (left: string, right: string): string =>
-    left + s.boxH.repeat(inner + padding * 2) + right;
-
-  const rowOf = (text: string): string => {
-    const gap = inner - stringWidth(text);
-    return `${s.boxV}${' '.repeat(padding)}${text}${' '.repeat(gap)}${' '.repeat(padding)}${s.boxV}`;
-  };
-
-  const out: string[] = [horizontal(s.boxTL, s.boxTR)];
-  if (title) {
-    out.push(rowOf(title));
-    out.push(horizontal(s.midL, s.midR));
-  }
-  for (const line of lines) {
-    out.push(rowOf(line));
-  }
-  out.push(horizontal(s.boxBL, s.boxBR));
-  return out.join('\n');
-}
+// 구형 box() 는 폐기했다(cli-design-tokens F-02) — 호출처가 0건인 죽은 코드였고,
+// 무채색·사각·제목별행이라 신형 card()(컬러·둥근·제목 인레이)와 이질적이었다.
+// 사람용 박스는 card() 하나로 통일한다.
 
 /**
  * 사람용 출력을 위한 공통 카드. JSON 모드는 호출하지 않아 자동화 출력이 섞이지
