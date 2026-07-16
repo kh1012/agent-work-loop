@@ -589,6 +589,14 @@ export async function runWorkNew(
   process.stdout.write(
     `    ${color.dim(worktreePath ? `다음 → cd ${worktreePath} 후 awl-loop 시작` : '다음 → awl-loop 시작')}\n`,
   );
+  if (worktreePath) {
+    // 병렬 세션 방어(concurrency-1): worktree 는 git(워킹트리+state)만 격리한다.
+    // records(~/.awl)는 AWL_HOME 파생이라 전역 공유로 남는다 — 병렬 세션이 같은
+    // 프로젝트를 돌리면 records 가 뒤섞인다. AWL_HOME 을 분리하면 완전히 나뉜다.
+    process.stdout.write(
+      `    ${color.dim('참고 → worktree 는 git 만 격리합니다. records(~/.awl)는 전역 공유이니, 병렬 세션이면 AWL_HOME 을 따로 두세요.')}\n`,
+    );
+  }
 }
 
 export async function runWorkSwitch(id: string): Promise<void> {

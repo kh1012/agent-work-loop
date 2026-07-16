@@ -484,6 +484,38 @@ describe('runWorkNew --worktree (WI-F AC-03, 실제 git 저장소로 통합 확�
     expect(fs.readFileSync(path.join(proj, '.gitignore'), 'utf8')).toContain('.awl-worktrees/');
   });
 
+  it('--worktree 출력에 병렬 세션 hint(AWL_HOME 분리)를 붙이고, --worktree 없으면 안 붙인다 (concurrency-1 AC-01)', async () => {
+    const capture = (): { writes: string[]; restore: () => void } => {
+      const writes: string[] = [];
+      const spy = vi.spyOn(process.stdout, 'write').mockImplementation((s: unknown) => {
+        writes.push(String(s));
+        return true;
+      });
+      return { writes, restore: () => spy.mockRestore() };
+    };
+
+    const proj = realGitProject();
+    const withWt = capture();
+    try {
+      await runWorkNew('WI-HINT', undefined, { worktree: true });
+    } finally {
+      withWt.restore();
+    }
+    const out = withWt.writes.join('');
+    // records(~/.awl)가 전역 공유임을 알리고 AWL_HOME 분리를 안내한다.
+    expect(out).toContain('AWL_HOME');
+    expect(out).toMatch(/전역|병렬/);
+
+    // --worktree 없는 실행에는 이 hint 가 뜨지 않는다.
+    const noWt = capture();
+    try {
+      await runWorkNew('WI-NOHINT', undefined, {});
+    } finally {
+      noWt.restore();
+    }
+    expect(noWt.writes.join('')).not.toContain('AWL_HOME');
+  });
+
   it('runWorkDone — 실제 워크트리를 제거하고 state 를 done 으로 기록한다 (F-5)', async () => {
     const proj = realGitProject();
     await runWorkNew('WI-DONE', undefined, { worktree: true });
