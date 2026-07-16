@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-07-16
+
+### 추가
+
+- polish interactive setup and automate releases
+
 ## [0.5.1] - 2026-07-15
 
 ### 추가
