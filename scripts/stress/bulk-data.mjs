@@ -138,7 +138,12 @@ const doc = spawnSync('node', [CLI, 'doctor'], {
   env: { ...process.env, AWL_HOME: home },
   encoding: 'utf8',
 });
-const clean = (doc.stdout + doc.stderr).replace(/\x1b\[[0-9;]*m/g, '');
+// ANSI 색 코드 제거. ESC(제어문자)를 정규식 리터럴에 직접 쓰면 biome 가 막으므로
+// String.fromCharCode(27) 로 만들어 RegExp 로 넘긴다.
+const clean = (doc.stdout + doc.stderr).replace(
+  new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g'),
+  '',
+);
 log(
   `  state.json ${(afterBytes / 1024).toFixed(0)}KB ${afterBytes > 1024 * 1024 ? '(>1MB, warn 기대)' : '(<1MB, warn 없음 정상)'} — doctor 크기 warn: ${clean.includes('state.json 크기') ? '뜸' : '안 뜸'}`,
 );
