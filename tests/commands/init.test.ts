@@ -18,6 +18,7 @@ import {
   nonInteractiveInputs,
   promptVerifyLocation,
   registerProject,
+  scaffoldGlobal,
   selectMulti,
   selectSingle,
   skillsVersionPath,
@@ -45,6 +46,20 @@ afterEach(() => {
   } else {
     process.env.AWL_HOME = origHome;
   }
+});
+
+describe('scaffoldGlobal', () => {
+  it('awl init 재실행은 기존 홈 엔진 템플릿도 최신으로 갱신한다', () => {
+    const home = path.join(tmp('awl-init-engine-'), 'home');
+    process.env.AWL_HOME = home;
+    expect(scaffoldGlobal().created).toBe(true);
+
+    fs.writeFileSync(path.join(home, 'engine', 'version.json'), '{"engineVersion":"0.0.1"}\n');
+    const refreshed = scaffoldGlobal();
+
+    expect(refreshed.created).toBe(false);
+    expect(refreshed.engineVersion).not.toBe('0.0.1');
+  });
 });
 
 describe('detectLanguage', () => {

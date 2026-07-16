@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { version } from '../package.json';
 import { installedEngineVersion } from './core/engine.js';
-import { type Caps, caps, makeColors } from './core/tty.js';
+import { type Caps, caps, makeColors, signal } from './core/tty.js';
 
 export const BANNER = `
  Agent Work Loop
@@ -41,22 +41,34 @@ export function renderBanner(c: Caps = caps()): string {
 
 /**
  * `awl --version` 이 보여줄 문자열을 만든다. 패키지 버전뿐 아니라 설치된
- * 엔진 버전도 보여준다 — 엔진 버전이 어긋나면 사용자의 doctor 가 아니라
- * 여기서 먼저 알아챌 수 있어야 한다(WI-X). 불일치는 노란색+[!] 마커로
- * 표시한다(색 미지원이면 마커만). 갱신 수단은 `awl update`(엔진)다 —
- * `awl init` 은 프로젝트/스킬 재설치용이라 이 쌍(바이너리 vs 엔진)엔 안 맞다
- * (리뷰 지적으로 예전 문구를 바로잡음).
+ * 엔진 템플릿도 위계로 보여준다. 설치 버전이 어긋나면 경고와 갱신 방법을
+ * 바로 알려줘 doctor까지 들어가지 않아도 원인을 알 수 있다.
  */
 export function versionString(c: Caps = caps()): string {
   const color = makeColors(c.color);
   const engineVer = installedEngineVersion();
+  const heading = `awl v${version}`;
   if (engineVer === null) {
-    return `awl ${version}`;
+    return [
+      heading,
+      `    └── Engine Template: ${color.dim('(설치되지 않음)')}`,
+      '',
+      `    ${signal(c, 'warn')} 엔진 템플릿이 없습니다.`,
+      `        ${color.dim("'awl init'을 실행하여 템플릿을 설치하세요.")}`,
+    ].join('\n');
   }
+  const template = `    └── Engine Template: v${engineVer}`;
   if (engineVer === version) {
-    return `awl ${version} (engine ${engineVer})`;
+    return `${heading}\n${template}`;
   }
-  return `awl ${version} (engine ${engineVer})  ${color.yellow('[!]')} 실행 바이너리와 엔진 버전이 다릅니다\n    ${color.dim('awl update 로 엔진을 갱신하세요')}`;
+  return [
+    heading,
+    template,
+    '',
+    `    ${signal(c, 'warn')} 버전 불일치 감지!`,
+    '        CLI 본체와 홈 디렉토리(~/.awl/engine)의 스킬 템플릿 버전이 다릅니다.',
+    `        ${color.dim("해결하려면 'awl init'을 다시 실행하여 템플릿을 갱신하세요.")}`,
+  ].join('\n');
 }
 
 /**

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { installedEngineVersion } from '../core/engine.js';
 import { findProjectRoot, globalRoot, projectsFile, rulesDir } from '../core/paths.js';
 import { CommandNotFoundError, run, tokenize } from '../core/runner.js';
-import { type Caps, caps, card, makeColors, stringWidth } from '../core/tty.js';
+import { type Caps, caps, card, makeColors, signal, stringWidth } from '../core/tty.js';
 import {
   type VersionCheckResult,
   type VersionMismatchKind,
@@ -819,12 +819,12 @@ export function renderText(report: DoctorReport, c: Caps): string {
   const statusText = (ch: Check): string => {
     switch (ch.status) {
       case 'ok':
-        return color.green('ok');
+        return `${signal(c, 'ok')} ok`;
       case 'missing':
       case 'fail':
-        return color.red(`[!!] ${ch.hint ?? ''}`);
+        return `${signal(c, 'error')} ${ch.hint ?? ''}`;
       case 'warn':
-        return color.yellow(`[!] ${ch.hint ?? ''}`);
+        return `${signal(c, 'warn')} ${ch.hint ?? ''}`;
       default:
         return '';
     }
@@ -848,12 +848,12 @@ export function renderText(report: DoctorReport, c: Caps): string {
 
   const problems = report.checks.filter((ch) => ch.status === 'missing' || ch.status === 'fail');
   if (problems.length === 0) {
-    lines.push(color.green('모두 정상입니다.'));
+    lines.push(`${signal(c, 'ok')} 모두 정상입니다.`);
   } else {
     const action = problems.some((p) => (p.hint ?? '').includes('init'))
       ? 'awl init 을 실행하세요.'
       : '위 안내를 확인하세요.';
-    lines.push(`${color.red(`문제 ${problems.length}개.`)} ${action}`);
+    lines.push(`${signal(c, 'error')} ${color.red(`문제 ${problems.length}개.`)} ${action}`);
   }
 
   return card('Agent Work Loop · 진단', lines, c);

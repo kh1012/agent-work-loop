@@ -12,6 +12,7 @@ import {
   card,
   makeColors,
   rawModeCapable,
+  signal,
   stringWidth,
 } from '../core/tty.js';
 
@@ -384,14 +385,13 @@ export function isGlobalInstalled(): boolean {
 }
 
 /**
- * ~/.awl 골격을 만들고 engine을 복사한다.
- * 이미 있으면 아무것도 하지 않는다(engine 갱신은 update 의 몫).
+ * ~/.awl 골격을 만들고, 패키지에 든 최신 engine 템플릿을 복사한다.
+ * `awl init` 재실행은 프로젝트 설정을 선택적으로 유지하면서도 홈 템플릿은
+ * 갱신한다. 그래서 --version 이 안내하는 복구 경로가 실제 동작과 일치한다.
  */
 export function scaffoldGlobal(): { created: boolean; engineVersion: string } {
   const root = globalRoot();
-  if (exists(root)) {
-    return { created: false, engineVersion: installedEngineVersion() ?? 'unknown' };
-  }
+  const created = !exists(root);
 
   for (const dir of [
     'records',
@@ -403,16 +403,20 @@ export function scaffoldGlobal(): { created: boolean; engineVersion: string } {
   ]) {
     fs.mkdirSync(path.join(root, dir), { recursive: true });
   }
-  writeFileEnsuringDir(path.join(root, 'rules', 'index.json'), '[]\n');
-  writeFileEnsuringDir(path.join(root, 'rules', 'graduated.md'), '');
+  if (!exists(path.join(root, 'rules', 'index.json'))) {
+    writeFileEnsuringDir(path.join(root, 'rules', 'index.json'), '[]\n');
+  }
+  if (!exists(path.join(root, 'rules', 'graduated.md'))) {
+    writeFileEnsuringDir(path.join(root, 'rules', 'graduated.md'), '');
+  }
   if (!exists(projectsFile())) {
     writeFileEnsuringDir(projectsFile(), '[]\n');
   }
 
-  // engine 복사: 패키지의 engine/ -> ~/.awl/engine
+  // engine 복사: 패키지의 engine/ -> ~/.awl/engine (init 재실행 시에도 최신화)
   fs.cpSync(packageEngineDir(), engineDir(), { recursive: true });
 
-  return { created: true, engineVersion: installedEngineVersion() ?? 'unknown' };
+  return { created, engineVersion: installedEngineVersion() ?? 'unknown' };
 }
 
 // ---------------------------------------------------------------------------
@@ -1122,6 +1126,7 @@ async function handleExistingConfig(
 ): Promise<void> {
   const raw = readJson(path.join(projectRoot, '.awl', 'config.json'));
   const config = raw as Partial<AwlConfig> | null;
+  scaffoldGlobal();
   const installedVer = installedEngineVersion();
 
   process.stdout.write('\n  .awl/config.json 이 이미 있습니다. 팀원이 설정해두었군요.\n\n');
@@ -1209,7 +1214,10 @@ export async function runInit(opts: { yes: boolean }): Promise<void> {
 
   if (opts.yes) {
     if (configExists) {
-      process.stdout.write('\n  .awl/config.json 이 이미 있습니다. 그대로 씁니다.\n');
+      const engine = scaffoldGlobal();
+      process.stdout.write(
+        `\n  .awl/config.json 이 이미 있습니다. 그대로 씁니다.\n  ${signal(c, 'ok')} 엔진 템플릿을 ${engine.created ? '설치했습니다.' : '갱신했습니다.'}\n`,
+      );
       return;
     }
     const inputs = nonInteractiveInputs(projectRoot);

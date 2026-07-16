@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { run } from '../core/runner.js';
-import { type Caps, caps, card, makeColors } from '../core/tty.js';
+import { type Caps, caps, card, makeColors, signal } from '../core/tty.js';
 import { loadConfig, resolveProjectRoot } from './config.js';
 import { gitBranch } from './doctor.js';
 import { loadState, migrateState, writeState } from './state.js';
@@ -87,7 +87,11 @@ function renderWorkList(list: WorkSummary[], c: Caps): string {
   if (list.length === 0) {
     return card(
       '워크아이템',
-      ['등록된 워크아이템이 없습니다.', '', color.dim('awl work new <ID> 로 시작하세요.')],
+      [
+        `${signal(c, 'info')} 등록된 워크아이템이 없습니다.`,
+        '',
+        `└── ${color.dim('awl work new <ID> 로 시작하세요.')}`,
+      ],
       c,
     );
   }
@@ -100,10 +104,10 @@ function renderWorkList(list: WorkSummary[], c: Caps): string {
     if (w.branch) {
       line += `  ${color.dim(w.branch)}`;
     }
-    if (w.worktreePath) {
-      line += `  ${color.dim(`(worktree: ${w.worktreePath})`)}`;
-    }
     out.push(line);
+    if (w.worktreePath) {
+      out.push(`  └── ${color.dim(`worktree: ${w.worktreePath}`)}`);
+    }
   }
   return card('워크아이템', out, c);
 }

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { CommandNotFoundError, run } from '../core/runner.js';
-import { type Caps, caps, card, makeColors } from '../core/tty.js';
+import { type Caps, caps, card, makeColors, signal } from '../core/tty.js';
 import { type AwlConfig, VERIFY_ORDER, type VerifyMap, requireConfig } from './config.js';
 import { gitDirtyFiles } from './doctor.js';
 import { loadState } from './state.js';
@@ -115,18 +115,20 @@ function renderVerify(report: VerifyReport, c: Caps): string {
   for (const r of report.results) {
     const mark =
       r.error === 'command_not_found'
-        ? color.red('명령 없음')
+        ? `${signal(c, 'error')} 명령 없음`
         : r.error === 'cwd_not_found'
-          ? color.red('cwd 없음')
+          ? `${signal(c, 'error')} cwd 없음`
           : isCheckPassed(r)
-            ? color.green('통과')
-            : color.red('실패');
+            ? `${signal(c, 'ok')} 통과`
+            : `${signal(c, 'error')} 실패`;
     const dur = r.error ? '' : color.dim(`${r.durationMs}ms`);
     out.push(`${r.name.padEnd(10, ' ')}${mark}  ${dur}`);
   }
   out.push('');
   out.push(
-    report.passed ? color.green('전부 통과했습니다.') : color.red('실패한 검증이 있습니다.'),
+    report.passed
+      ? `${signal(c, 'ok')} 전부 통과했습니다.`
+      : `${signal(c, 'error')} 실패한 검증이 있습니다.`,
   );
   return card('검증 결과', out, c);
 }

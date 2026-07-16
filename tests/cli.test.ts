@@ -31,7 +31,7 @@ function tmpHomeWithEngine(engineVersion: string | null): string {
 describe('awl 프로그램 구성', () => {
   it('버전 정보를 노출한다', () => {
     const program = buildProgram();
-    expect(program.version()).toMatch(/^awl \d+\.\d+\.\d+/);
+    expect(program.version()).toMatch(/^awl v\d+\.\d+\.\d+/);
   });
 
   it('배너에 핵심 문구가 담겨 있다', () => {
@@ -78,22 +78,28 @@ const NO_COLOR: Caps = { unicode: false, color: false, tty: false };
 const COLOR: Caps = { unicode: true, color: true, tty: true };
 
 describe('versionString — engine 버전 표시', () => {
-  it('엔진이 설치 안 됐으면 패키지 버전만', () => {
+  it('엔진이 설치 안 됐으면 템플릿 미설치 경고를 보여준다', () => {
     process.env.AWL_HOME = tmpHomeWithEngine(null);
-    expect(versionString(NO_COLOR)).toBe(`awl ${pkgVersion}`);
+    const s = versionString(NO_COLOR);
+    expect(s).toContain(`awl v${pkgVersion}`);
+    expect(s).toContain('Engine Template: (설치되지 않음)');
+    expect(s).toContain('[!]');
+    expect(s).toContain('awl init');
   });
 
-  it('엔진 버전이 같으면 나란히 보여준다', () => {
+  it('엔진 버전이 같으면 CLI와 템플릿을 위계로 보여준다', () => {
     process.env.AWL_HOME = tmpHomeWithEngine(pkgVersion);
-    expect(versionString(NO_COLOR)).toBe(`awl ${pkgVersion} (engine ${pkgVersion})`);
+    expect(versionString(NO_COLOR)).toBe(
+      `awl v${pkgVersion}\n    └── Engine Template: v${pkgVersion}`,
+    );
   });
 
-  it('엔진 버전이 다르면 [!] 마커와 함께 경고하고 awl update 를 안내한다 (WI-X AC-04, 리뷰 지적 전 awl init 안내는 오답이었음)', () => {
+  it('엔진 버전이 다르면 경고와 awl init 안내를 보여준다', () => {
     process.env.AWL_HOME = tmpHomeWithEngine('0.0.1');
     const s = versionString(NO_COLOR);
-    expect(s).toContain('engine 0.0.1');
+    expect(s).toContain('Engine Template: v0.0.1');
     expect(s).toContain('[!]');
-    expect(s).toContain('awl update');
+    expect(s).toContain('awl init');
   });
 
   it('색 미지원이면 ANSI 코드 없이 마커만 나온다', () => {
@@ -122,7 +128,7 @@ const distCli = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 describe.runIf(existsSync(distCli))('빌드된 CLI 실행', () => {
   it('--version 이 버전을 출력한다', () => {
     const out = execFileSync('node', [distCli, '--version']).toString();
-    expect(out.trim()).toMatch(/^awl \d+\.\d+\.\d+/);
+    expect(out.trim()).toMatch(/^awl v\d+\.\d+\.\d+/);
   });
 
   it('--help 가 배너를 출력한다', () => {

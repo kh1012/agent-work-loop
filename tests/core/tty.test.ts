@@ -7,6 +7,7 @@ import {
   computeRawModeCapable,
   makeColors,
   makeSymbols,
+  signal,
   stringWidth,
   visibleWidth,
 } from '../../src/core/tty.js';
@@ -114,12 +115,9 @@ describe('makeSymbols — 유니코드/ASCII 폴백', () => {
     expect(ascii.checkOn).toBe('[x]');
   });
 
-  it('이모지를 쓰지 않는다', () => {
-    const allSymbols = Object.values({ ...uni, ...ascii }).join('');
-    // 이모지가 주로 사는 범위(U+1F000 이상)가 기호에 없어야 한다.
-    for (const ch of allSymbols) {
-      expect(ch.codePointAt(0) ?? 0).toBeLessThan(0x1f000);
-    }
+  it('상태 이모지는 유니코드 TTY에서만 쓴다', () => {
+    expect(signal({ unicode: true, color: false, tty: true }, 'warn')).toBe('⚠️');
+    expect(signal({ unicode: false, color: false, tty: false }, 'warn')).toBe('[!]');
   });
 });
 

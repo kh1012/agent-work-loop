@@ -308,11 +308,11 @@ describe('renderText — 정렬과 출력', () => {
     expect(/\x1b\[/.test(text)).toBe(true);
   });
 
-  it('warn 은 [!], fail/missing 은 [!!] 로 색 없이도 구분된다(WI-X)', async () => {
+  it('warn 은 [!], fail/missing 은 [x] 로 색 없이도 구분된다', async () => {
     const report = await collectChecks();
     const text = renderText(report, ASCII);
-    // makeInstalledProject 는 lint 검증 명령이 없어(missing) [!!] 가 반드시 하나 있다.
-    expect(text).toContain('[!!]');
+    // makeInstalledProject 는 lint 검증 명령이 없어(missing) [x] 가 반드시 하나 있다.
+    expect(text).toContain('[x]');
   });
 });
 

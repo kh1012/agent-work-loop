@@ -3,7 +3,8 @@
  *
  * 원칙: ASCII를 기본으로 두고, 유니코드는 확실히 감지될 때만 얹는다.
  * 유니코드 박스 문자는 구식 cmd.exe, CI 로그, 일부 SSH 세션에서 깨진다.
- * 이모지는 어디에도 쓰지 않는다. 예외 없다.
+ * 상태 이모지는 유니코드 TTY에서만 쓴다. 파이프·CI·구식 터미널에서는 읽기
+ * 쉬운 ASCII 표기로 폴백해 자동화 로그를 깨지 않는다.
  *
  * 테스트 가능성을 위해 감지 로직은 순수 함수(computeCaps)로 분리한다.
  * process.stdout.isTTY / process.env / process.platform 을 인자로 주입받으므로
@@ -328,6 +329,24 @@ export interface Colors {
   yellow: (s: string) => string;
   cyan: (s: string) => string;
   gray: (s: string) => string;
+}
+
+/** 사람용 상태 신호. 모든 명령이 같은 성공·경고·오류 어휘를 쓰게 한다. */
+export function signal(c: Caps, kind: 'ok' | 'warn' | 'error' | 'info'): string {
+  const color = makeColors(c.color);
+  const raw = c.unicode
+    ? { ok: '✅', warn: '⚠️', error: '❌', info: 'ℹ️' }[kind]
+    : { ok: '[ok]', warn: '[!]', error: '[x]', info: '[i]' }[kind];
+  if (kind === 'ok') {
+    return color.green(raw);
+  }
+  if (kind === 'warn') {
+    return color.yellow(raw);
+  }
+  if (kind === 'error') {
+    return color.red(raw);
+  }
+  return color.cyan(raw);
 }
 
 /** 색 함수 묶음. enabled=false 면 입력을 그대로 통과시킨다. */
