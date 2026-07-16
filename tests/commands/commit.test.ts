@@ -456,6 +456,29 @@ describe('firstBaseline (WI-H AC-01) — 재시작/여러 커밋에도 range-sta
     expect(closed?.commit).toBe(head);
   });
 
+  it('baseline 없이 commit 하면 stash 왕복 복구 경로를 안내한다 (commit-start-rescue AC-01)', async () => {
+    realGitProject();
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    const errs: string[] = [];
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((s: unknown) => {
+      errs.push(String(s));
+      return true;
+    });
+    try {
+      // --start 없이 바로 commit → baseline 부재 거부.
+      await expect(runCommit('AC-9', { message: 'x' })).rejects.toThrow('exit:1');
+    } finally {
+      exitSpy.mockRestore();
+      stderrSpy.mockRestore();
+    }
+    const msg = errs.join('');
+    expect(msg).toContain(`awl commit AC-9 --start`); // 구현 전 경로
+    expect(msg).toContain('git stash push'); // 이미 구현한 경우 복구
+    expect(msg).toContain('git stash pop');
+  });
+
   it('runCommit -m 이 실제로 baseline(crit.baseline)을 expectedHead 로 넘겨 HEAD 드리프트를 거부한다 (D-36 배선 확인)', async () => {
     const proj = realGitProject();
     await runCommit('AC-01', { start: true });
