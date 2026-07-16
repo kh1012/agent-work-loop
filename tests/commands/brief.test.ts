@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildBrief,
+  extractVerifyItems,
   kstDateOf,
   kstDayRange,
   recordsInKstDay,
@@ -91,6 +92,69 @@ describe('summarizeRecord — 타입별 짧은 요약', () => {
   it('마땅한 필드가 없으면 type 을 요약으로', () => {
     expect(summarizeRecord({ type: 'narrative', kind: 'reviewer-caught' })).toBe('reviewer-caught');
     expect(summarizeRecord({ type: 'unknown' })).toBe('unknown');
+  });
+});
+
+describe('extractVerifyItems — 명시필드 우선 + UI 파일 휴리스틱 보조', () => {
+  it('manualVerify:true 레코드/조건을 명시 항목으로(record→criterion 순)', () => {
+    const items = extractVerifyItems(
+      [
+        {
+          manualVerify: true,
+          what: '딥링크 열림 확인',
+          verifyHow: '화면에서 X 클릭',
+          type: 'attempt',
+        },
+      ],
+      [{ id: 'AC-02', 조건: '툴바 정렬', manualVerify: true }],
+      [],
+    );
+    expect(items).toHaveLength(2);
+    expect(items[0]).toEqual({
+      what: '딥링크 열림 확인',
+      how: '화면에서 X 클릭',
+      source: 'record',
+    });
+    expect(items[1]).toMatchObject({ source: 'criterion' });
+    expect(items[1]?.how).toBeUndefined(); // verifyHow 없으면 how 비움
+  });
+
+  it('verifyHow 만 있고 manualVerify 없어도 명시 항목으로 잡는다', () => {
+    const items = extractVerifyItems(
+      [{ what: '스크롤 동작', verifyHow: '길게 스크롤', type: 'attempt' }],
+      [],
+      [],
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0]).toEqual({ what: '스크롤 동작', how: '길게 스크롤', source: 'record' });
+  });
+
+  it('manualVerify 없고 verifyHow 없는 레코드는 무시한다', () => {
+    const items = extractVerifyItems([{ what: '그냥 구현', type: 'attempt' }], [], []);
+    expect(items).toHaveLength(0);
+  });
+
+  it('UI 파일(.tsx/.css)과 editor 경로는 휴리스틱 항목(how 없음), 로직 .ts는 제외', () => {
+    const items = extractVerifyItems(
+      [],
+      [],
+      ['src/editor/Toolbar.tsx', 'src/core/tty.ts', 'styles/app.css', 'src/editor/logic.ts'],
+    );
+    const heur = items.filter((i) => i.source === 'heuristic');
+    // Toolbar.tsx(.tsx+editor), app.css(.css), logic.ts(editor 경로) = 3; tty.ts(core/.ts) 제외
+    expect(heur).toHaveLength(3);
+    expect(heur.every((i) => i.how === undefined)).toBe(true);
+    expect(heur.some((i) => i.what.includes('tty.ts'))).toBe(false);
+  });
+
+  it('명시 항목이 휴리스틱보다 앞에 온다', () => {
+    const items = extractVerifyItems(
+      [{ manualVerify: true, what: '명시', type: 'attempt' }],
+      [],
+      ['a.css'],
+    );
+    expect(items[0]?.source).toBe('record');
+    expect(items.at(-1)?.source).toBe('heuristic');
   });
 });
 

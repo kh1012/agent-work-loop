@@ -102,6 +102,52 @@ export function summarizeRecord(r: Record<string, unknown>): string {
   return s !== '' ? s : type;
 }
 
+/** 시각 확인이 필요한 파일 확장자(변경 시 사람이 눈으로 볼 후보). */
+const UI_EXT_RE = /\.(tsx|jsx|css|scss|sass|less|vue|svelte|html)$/i;
+/** 시각 확인이 필요한 디렉토리(editor/components/views/pages). 로직 .ts 도 포함될 수 있으나 힌트다. */
+const UI_DIR_RE = /(^|\/)(editor|components?|views?|pages?)(\/|$)/i;
+
+function isUiFile(f: string): boolean {
+  return UI_EXT_RE.test(f) || UI_DIR_RE.test(f);
+}
+
+/**
+ * 검증 항목을 추출한다(순수). 명시필드 우선 + UI 파일변경 휴리스틱 보조.
+ *
+ * 명시(records/criteria 의 `manualVerify:true` 또는 `verifyHow` 문자열)를 먼저,
+ * 그다음 UI 파일변경 휴리스틱을 뒤에 붙인다 — 명시가 항상 앞. `how`(방법)는
+ * 명시필드의 `verifyHow` 에서만 오고, 휴리스틱엔 없다(비움). awl 은 무엇을·어떻게
+ * 목록만 낸다 — 실행·큐레이션은 사람/스킬 몫이다.
+ */
+export function extractVerifyItems(
+  records: Record<string, unknown>[],
+  criteria: Record<string, unknown>[],
+  changedFiles: string[],
+): VerifyItem[] {
+  const items: VerifyItem[] = [];
+  const pushExplicit = (o: Record<string, unknown>, source: string): void => {
+    const explicit = o.manualVerify === true || typeof o.verifyHow === 'string';
+    if (!explicit) {
+      return;
+    }
+    const what = String(o.what ?? o.조건 ?? o.condition ?? o.id ?? '(수동 검증 항목)');
+    const how = typeof o.verifyHow === 'string' ? o.verifyHow : undefined;
+    items.push({ what, how, source });
+  };
+  for (const r of records) {
+    pushExplicit(r, 'record');
+  }
+  for (const c of criteria) {
+    pushExplicit(c, 'criterion');
+  }
+  for (const f of changedFiles) {
+    if (isUiFile(f)) {
+      items.push({ what: `UI 변경: ${f}`, source: 'heuristic' });
+    }
+  }
+  return items;
+}
+
 /**
  * 오늘 요약 3축(records/commits/criteria) + verifyItems 를 조립한다(순수).
  *
