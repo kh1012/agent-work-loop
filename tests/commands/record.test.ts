@@ -1523,3 +1523,36 @@ describe('buildRecord — manualVerify/verifyHow 검증 태그 (records-verify-t
     expect(plain.record?.verifyHow).toBeUndefined();
   });
 });
+
+describe('defer 레코드 타입 — critical-only 큐(skip-gate-defer AC-01)', () => {
+  it('severity/what/why 로 defer 기록을 만들고 선택필드를 보존한다', () => {
+    const r = buildRecord(
+      'defer',
+      {
+        severity: 'high',
+        what: '스펙 이탈 가능',
+        why: '되돌리기 어려움',
+        recommendation: '보류',
+        gate: 2,
+      },
+      DEFAULTS,
+    );
+    expect(r.missing).toEqual([]);
+    expect(r.record?.type).toBe('defer');
+    expect(r.record?.severity).toBe('high');
+    expect(r.record?.recommendation).toBe('보류'); // 선택 필드 D-15 spread 보존
+    expect(r.record?.gate).toBe(2);
+  });
+
+  it('severity/what/why 누락은 거부한다', () => {
+    expect(buildRecord('defer', { severity: 'high', what: 'x' }, DEFAULTS).missing).toContain(
+      'why',
+    );
+    expect(buildRecord('defer', { what: 'x', why: 'y' }, DEFAULTS).missing).toContain('severity');
+  });
+
+  it('정해진 값 밖 severity 는 거부한다', () => {
+    const r = buildRecord('defer', { severity: 'urgent', what: 'x', why: 'y' }, DEFAULTS);
+    expect(r.missing.some((m) => m.includes('severity'))).toBe(true);
+  });
+});

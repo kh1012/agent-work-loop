@@ -28,7 +28,8 @@ export type RecordType =
   | 'narrative'
   | 'gate'
   | 'clarify'
-  | 'awl-feedback';
+  | 'awl-feedback'
+  | 'defer';
 
 /**
  * narrative.kind 로 허용되는 값 (WI-P AC-02).
@@ -66,6 +67,12 @@ export const AWL_FEEDBACK_AREAS = [
 ] as const;
 /** awl-feedback.severity 로 허용되는 값 (0.6.x). */
 export const AWL_FEEDBACK_SEVERITIES = ['high', 'medium', 'low'] as const;
+
+/**
+ * severity 척도 — 심각도 내림차순(index 0='high' 가 가장 중요). critical-only 모드의
+ * defer 레코드 severity 검증과 shouldDefer 임계 비교의 단일 출처(skip-gate-defer).
+ */
+export const DEFER_SEVERITIES = ['high', 'medium', 'low'] as const;
 
 interface Schema {
   required: string[];
@@ -110,6 +117,9 @@ export const SCHEMAS: Record<RecordType, Schema> = {
   // 종류다 — records/ 에 쌓이고 gotcha 로 승격되지 않는다. area 가 모으기의 키.
   // suggestion 은 선택(개선 아이디어, 강제 아님 — 번역은 사람 몫).
   'awl-feedback': { required: ['area', 'what', 'impact', 'severity'] },
+  // critical-only 모드에서 자율 통과를 보류하고 사람에게 최종 문의할 중요 항목.
+  // recommendation(자율로 택했을 권장 결정)/gate(어느 게이트)/addresses 는 선택(D-15).
+  defer: { required: ['severity', 'what', 'why'] },
 };
 
 export const RECORD_TYPES = Object.keys(SCHEMAS) as RecordType[];
@@ -325,6 +335,15 @@ export function buildRecord(
       data.severity === undefined || data.severity === null || data.severity === '';
     if (!sevMissing && !(AWL_FEEDBACK_SEVERITIES as readonly unknown[]).includes(data.severity)) {
       missing.push(`severity (다음 중 하나여야 함: ${AWL_FEEDBACK_SEVERITIES.join(', ')})`);
+    }
+  }
+
+  // defer.severity 도 정해진 값 중 하나여야 한다(awl-feedback 과 같은 특수 분기).
+  if (type === 'defer') {
+    const sevMissing =
+      data.severity === undefined || data.severity === null || data.severity === '';
+    if (!sevMissing && !(DEFER_SEVERITIES as readonly unknown[]).includes(data.severity)) {
+      missing.push(`severity (다음 중 하나여야 함: ${DEFER_SEVERITIES.join(', ')})`);
     }
   }
 
