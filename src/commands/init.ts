@@ -452,7 +452,13 @@ export function writeState(projectRoot: string, now: string): string {
  */
 export function ensureGitignore(projectRoot: string): 'added' | 'exists' {
   const gi = path.join(projectRoot, '.gitignore');
-  const targets = ['.awl/state.json', '.awl/verify-baseline.json', '.awl-worktrees/', '.awl-home/'];
+  const targets = [
+    '.awl/state.json',
+    '.awl/verify-baseline.json',
+    '.awl/state.lock',
+    '.awl-worktrees/',
+    '.awl-home/',
+  ];
   let content = exists(gi) ? fs.readFileSync(gi, 'utf8') : '';
   const has = (t: string): boolean => content.split(/\r?\n/).some((line) => line.trim() === t);
   const missing = targets.filter((t) => !has(t));

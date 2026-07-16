@@ -105,6 +105,77 @@ export function writeState(projectRoot: string, state: Record<string, unknown>):
   fs.renameSync(tmp, p);
 }
 
+// ---------------------------------------------------------------------------
+// 프로젝트 state 락 (concurrency-3) — 동시 세션이 loadState→writeState 사이에 끼어들어
+// 서로의 phase/criteria 를 덮는 것을 막는다. evolve.ts 의 전역 O_EXCL 락과 같은 패턴이나,
+// state 는 프로젝트별이라 <projectRoot>/.awl/state.lock 에 잡는다.
+// ---------------------------------------------------------------------------
+
+/** 락을 stale(버려진 락)로 간주하는 나이. state set 은 밀리초 단위라 넉넉해도 안전. */
+const STATE_LOCK_STALE_MS = 10_000;
+
+export function stateLockFile(projectRoot: string): string {
+  return path.join(projectRoot, '.awl', 'state.lock');
+}
+
+/** 현재 프로세스의 세션 토큰. awl 은 명령마다 새 프로세스라 pid 로 락 보유자를 라벨한다. */
+export function sessionToken(): string {
+  return `proc-${process.pid}`;
+}
+
+/** 락 파일의 at(ms). 못 읽으면 0(= 아주 오래됨 = stale 취급). */
+function lockAgeAt(p: string): number {
+  try {
+    const raw = JSON.parse(fs.readFileSync(p, 'utf8')) as { at?: unknown };
+    const at = typeof raw.at === 'string' ? Date.parse(raw.at) : Number.NaN;
+    return Number.isNaN(at) ? 0 : at;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * 프로젝트 state 락을 잡는다(O_EXCL). 이미 잡혀 있으면 false 를 돌린다. 단 stale(오래된
+ * leaked 락 — 크래시/process.exit 로 방치)이면 뺏고 한 번 재시도한다.
+ */
+export function acquireStateLock(projectRoot: string, token: string): boolean {
+  const p = stateLockFile(projectRoot);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  const tryCreate = (): boolean => {
+    try {
+      const fd = fs.openSync(p, 'wx'); // 이미 있으면 EEXIST
+      fs.writeSync(fd, JSON.stringify({ token, at: new Date().toISOString() }));
+      fs.closeSync(fd);
+      return true;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'EEXIST') {
+        return false;
+      }
+      throw e;
+    }
+  };
+  if (tryCreate()) {
+    return true;
+  }
+  if (Date.now() - lockAgeAt(p) > STATE_LOCK_STALE_MS) {
+    try {
+      fs.unlinkSync(p);
+    } catch {
+      // 그 사이 다른 프로세스가 정리했을 수 있다 — 무시하고 재시도한다.
+    }
+    return tryCreate();
+  }
+  return false;
+}
+
+export function releaseStateLock(projectRoot: string): void {
+  try {
+    fs.unlinkSync(stateLockFile(projectRoot));
+  } catch {
+    // 이미 없으면 무시한다.
+  }
+}
+
 /** 검증 결과를 현재 완료 조건에 기계적으로 반영한다. 사람의 blocked 기록과는 구분한다. */
 export function applyVerificationAttempts(
   state: Record<string, unknown>,
@@ -192,18 +263,33 @@ export function runStateSet(jsonPatch: string, opts: RunStateSetOpts = {}): void
     process.stderr.write('\n  갱신은 JSON 객체여야 합니다.\n');
     process.exit(1);
   }
-  const current = loadState(root);
   const p = patch as Record<string, unknown>;
-  if (p.phase === 'loop' && opts.requireGateForLoop) {
-    const workitem = typeof current.workitem === 'string' ? current.workitem : undefined;
-    if (!opts.requireGateForLoop(workitem)) {
-      process.stderr.write(
-        '\n  게이트 1 승인 기록이 없습니다. awl record gate 로 계획을 승인(approved)한 뒤 다시 시도하세요.\n',
-      );
-      process.exit(1);
-    }
+  // read-modify-write 를 프로젝트 락으로 감싼다 — 동시 세션이 그 사이에 끼어들어 서로의
+  // phase/criteria 를 덮는 것을 막는다(F-01). 못 잡으면(다른 세션이 쓰는 중) 조용한
+  // clobber 대신 명시적으로 거부한다.
+  if (!acquireStateLock(root, sessionToken())) {
+    process.stderr.write(
+      '\n  다른 세션이 지금 state 를 쓰는 중입니다(.awl/state.lock). 잠시 후 다시 시도하세요.\n',
+    );
+    process.exit(1);
   }
-  const merged = mergeState(current, p);
-  writeState(root, merged);
-  process.stdout.write(`${JSON.stringify(merged, null, 2)}\n`);
+  try {
+    const current = loadState(root);
+    if (p.phase === 'loop' && opts.requireGateForLoop) {
+      const workitem = typeof current.workitem === 'string' ? current.workitem : undefined;
+      if (!opts.requireGateForLoop(workitem)) {
+        // process.exit 는 finally 를 안 돌리므로 여기서 먼저 해제한다(락 누수 방지).
+        releaseStateLock(root);
+        process.stderr.write(
+          '\n  게이트 1 승인 기록이 없습니다. awl record gate 로 계획을 승인(approved)한 뒤 다시 시도하세요.\n',
+        );
+        process.exit(1);
+      }
+    }
+    const merged = mergeState(current, p);
+    writeState(root, merged);
+    process.stdout.write(`${JSON.stringify(merged, null, 2)}\n`);
+  } finally {
+    releaseStateLock(root);
+  }
 }

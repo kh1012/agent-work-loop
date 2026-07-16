@@ -3,12 +3,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  acquireStateLock,
   getCriterion,
   loadState,
   mergeState,
   migrateState,
+  releaseStateLock,
   runStateSet,
+  sessionToken,
   setCriterion,
+  stateLockFile,
   writeState,
 } from '../../src/commands/state.js';
 
@@ -171,6 +175,46 @@ describe('runStateSet — phase:loop 전환에 게이트 1 기록 요구 (WI-Q A
     expect(cb).toHaveBeenCalledWith('WI-Q');
     void root;
   });
+
+  it('쓰기 후 state.lock 을 남기지 않는다 (concurrency-3 AC-02)', () => {
+    const root = project();
+    runStateSet('{"phase":"awaiting-gate1"}');
+    expect(fs.existsSync(stateLockFile(root))).toBe(false);
+  });
+
+  it('다른 세션이 락을 잡고 있으면(fresh) 거부하고 상태를 안 바꾼다 (concurrency-3 AC-02)', () => {
+    const root = project();
+    acquireStateLock(root, 'other'); // 다른 세션이 잡음
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    expect(() => runStateSet('{"phase":"awaiting-gate1"}')).toThrow('exit:1');
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('다른 세션'))).toBe(true);
+    expect(loadState(root).phase).toBeUndefined(); // 안 바뀜
+
+    exitSpy.mockRestore();
+    stderrSpy.mockRestore();
+    releaseStateLock(root);
+  });
+
+  it('게이트 거부(process.exit)로 끝나도 락을 남기지 않는다 — 누수 방지 (concurrency-3 AC-02)', () => {
+    const root = project();
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    expect(() => runStateSet('{"phase":"loop"}', { requireGateForLoop: () => false })).toThrow(
+      'exit:1',
+    );
+    // 게이트 실패로 exit 했어도 락이 남지 않아야 다음 실행이 안 막힌다.
+    expect(fs.existsSync(stateLockFile(root))).toBe(false);
+
+    exitSpy.mockRestore();
+    stderrSpy.mockRestore();
+  });
 });
 
 describe('setCriterion — commit 필드 보존 불변식 (wi8-F3 AC-01)', () => {
@@ -207,5 +251,32 @@ describe('writeState — 원자적 쓰기 (concurrency-3 AC-01)', () => {
     const files = fs.readdirSync(path.join(root, '.awl'));
     expect(files.filter((f) => f.includes('.tmp'))).toEqual([]);
     expect(files).toContain('state.json');
+  });
+});
+
+describe('acquireStateLock / releaseStateLock — 프로젝트 락 헬퍼 (concurrency-3 AC-02)', () => {
+  it('락이 없으면 획득하고, fresh 하게 잡혀 있으면 실패한다', () => {
+    const root = tmp();
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    expect(acquireStateLock(root, 'tok-a')).toBe(true);
+    expect(acquireStateLock(root, 'tok-b')).toBe(false); // tok-a 가 잡고 있음
+    releaseStateLock(root);
+    expect(acquireStateLock(root, 'tok-c')).toBe(true); // 해제 후 재획득
+    releaseStateLock(root);
+  });
+
+  it('stale(오래된) 락은 뺏는다', () => {
+    const root = tmp();
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      stateLockFile(root),
+      JSON.stringify({ token: 'old', at: '2000-01-01T00:00:00.000Z' }),
+    );
+    expect(acquireStateLock(root, 'new')).toBe(true); // stale → steal
+    releaseStateLock(root);
+  });
+
+  it('sessionToken 은 proc- 접두어를 가진다', () => {
+    expect(sessionToken()).toMatch(/^proc-\d+$/);
   });
 });
