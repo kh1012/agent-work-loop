@@ -11,7 +11,7 @@ import {
   renderMetrics,
   renderMetricsCaveat,
 } from '../../src/commands/metrics.js';
-import { caps } from '../../src/core/tty.js';
+import { caps, visibleWidth } from '../../src/core/tty.js';
 
 const origHome = process.env.AWL_HOME;
 
@@ -352,5 +352,53 @@ describe('experiment-harness AC-04 — 리뷰 후속', () => {
       experiment: ['nope'], // 배열은 experiment 아님
     });
     expect(loadGenerations('p')[0]?.experiment).toBeUndefined();
+  });
+});
+
+describe('renderMetrics/renderCompare 표 정렬 회귀잠금 (cli-design-tokens AC-05, 리뷰)', () => {
+  const origCols = process.env.COLUMNS;
+  afterEach(() => {
+    if (origCols === undefined) delete process.env.COLUMNS;
+    else process.env.COLUMNS = origCols;
+  });
+  const g = (workitem: string) => ({
+    workitem,
+    at: '2026-07-16T09:00:00Z',
+    criteriaTotal: 3,
+    avgAttempts: 1,
+    blockedRatio: 0,
+    reviewRejects: 0,
+    proceduralErrors: 0,
+    gotchaApplied: 0,
+    gotchaMissed: 0,
+    coverage: { auditFindingsTotal: 0, addressed: 0, excluded: 0, excludedApprovedByHuman: false },
+  });
+
+  it('한글 workitem(표시폭≠length)과 ASCII 가 같은 표시폭 열로 정렬된다 — padEnd 되돌리면 실패', () => {
+    process.env.COLUMNS = '200'; // 넓게 둬서 card wrap 없이 원행 유지
+    const out = renderMetrics([g('가나다라'), g('ABCD')], {
+      unicode: true,
+      color: false,
+      tty: true,
+    });
+    const lines = out.split('\n');
+    const rowKo = lines.find((l) => l.includes('가나다라'));
+    const rowAscii = lines.find((l) => l.includes('ABCD'));
+    // 값이 동일하므로, 표시폭 패딩이면 두 데이터 행의 표시폭이 같다(코드유닛 padEnd면 한글 행이 더 넓어져 어긋난다).
+    expect(visibleWidth(rowKo ?? '')).toBe(visibleWidth(rowAscii ?? ''));
+  });
+
+  it('renderCompare 도 한글 케이스키를 표시폭으로 정렬한다', () => {
+    process.env.COLUMNS = '200';
+    const gc = (model: string) => ({
+      ...g('WI'),
+      experiment: { model, mode: 'loop', taskType: 'ui' },
+    });
+    const groups = groupByExperiment([gc('가나다'), gc('abcd')]);
+    const out = renderCompare(groups, 0, { unicode: true, color: false, tty: true });
+    const lines = out.split('\n');
+    const rowKo = lines.find((l) => l.includes('가나다/loop/ui'));
+    const rowAscii = lines.find((l) => l.includes('abcd/loop/ui'));
+    expect(visibleWidth(rowKo ?? '')).toBe(visibleWidth(rowAscii ?? ''));
   });
 });

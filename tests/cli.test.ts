@@ -39,6 +39,9 @@ describe('awl 프로그램 구성', () => {
     expect(BANNER).toContain('같은 실패를 두 번 하지 않게');
     expect(BANNER).toContain('awl 자체는 판단하지 않습니다');
     expect(BANNER).toContain('판단은 Claude Code 나 Codex 가 합니다');
+    // 배너에 임시 진단 문구가 없어야 한다(cli-design-tokens AC-04 회귀잠금) — 재삽입 시 실패.
+    expect(BANNER).not.toContain('/awl-improve-loop');
+    expect(BANNER).not.toContain('임시 피드백');
   });
 
   it('유니코드 TTY 배너는 조밀한 AWL 워드마크와 색상을 쓴다', () => {
