@@ -1386,3 +1386,32 @@ describe('runRecord — attempt 기록 상세도를 diff 크기에 맞춘다 (WI
     expect(records[0]?.diffTier).toBe('minimal');
   });
 });
+
+describe('buildRecord — manualVerify/verifyHow 검증 태그 (records-verify-tag AC-01)', () => {
+  it('attempt 에 붙이면 보존하고, 없으면 무시한다(하위호환)', () => {
+    const tagged = buildRecord(
+      'attempt',
+      {
+        what: 'x',
+        result: 'passed',
+        diffTier: 'minimal',
+        manualVerify: true,
+        verifyHow: '편집기 딥링크에서 레이어 패널 확인',
+      },
+      DEFAULTS,
+    );
+    expect(tagged.missing).toEqual([]);
+    expect(tagged.record?.manualVerify).toBe(true);
+    expect(tagged.record?.verifyHow).toBe('편집기 딥링크에서 레이어 패널 확인');
+
+    // 없이 기록해도 유효(선택 필드 — 하위호환).
+    const plain = buildRecord(
+      'attempt',
+      { what: 'x', result: 'passed', diffTier: 'minimal' },
+      DEFAULTS,
+    );
+    expect(plain.missing).toEqual([]);
+    expect(plain.record?.manualVerify).toBeUndefined();
+    expect(plain.record?.verifyHow).toBeUndefined();
+  });
+});

@@ -176,6 +176,16 @@ export function newRecordId(): string {
 /**
  * 입력 데이터를 검증해 레코드를 만든다. 필수 필드가 없으면 무엇이 빠졌는지 돌려준다.
  * 이것이 구조를 강제하는 방법이다.
+ *
+ * 인식하는 선택 필드(records-verify-tag) — 스키마에 넣지 않아도 spread 로 그대로 보존된다
+ * (D-15: 항목 내부 구조를 강제하지 않는다). `awl record attempt` 등에 붙일 수 있다:
+ *   - `manualVerify: boolean` — 기계검증(awl verify)으로 못 잡고 사람이 눈으로/브라우저로
+ *     직접 재확인해야 하는 항목인가.
+ *   - `verifyHow: string` — 그 방법(딥링크·화면·절차). manualVerify 가 true 일 때 의미 있다.
+ * 둘 다 선택이라 없으면 무시된다(하위호환). **awl brief(별도 일감)는 이 필드를 "직접 볼
+ * 검증 항목(verifyItems)"의 1차 소스로 읽고, 없을 때만 UI 파일 휴리스틱으로 폴백한다** —
+ * brief 가 휴리스틱에만 의존하지 않게 하는 계약. 완료조건(criteria)도 같은 필드를 담을 수
+ * 있다(setCriterion 얕은 병합이 보존 — state.ts).
  */
 export function buildRecord(
   type: RecordType,
