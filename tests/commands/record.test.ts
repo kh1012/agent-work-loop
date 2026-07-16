@@ -15,6 +15,7 @@ import {
   renderRecords,
   resolveBlockedBaseline,
   runRecord,
+  selectMonthFiles,
 } from '../../src/commands/record.js';
 
 const origHome = process.env.AWL_HOME;
@@ -633,6 +634,67 @@ describe('record 저장 — append only', () => {
     );
     expect(readRecords({ type: 'blocked' })).toHaveLength(1);
     expect(readRecords({ workitem: 'WI-3' })).toHaveLength(1);
+  });
+
+  it('months 범위를 주면 그 월 파일만 읽는다(하위호환: 없으면 전량)', () => {
+    // 6월/7월 각각에 기록을 남긴다(월별 파일 분할).
+    appendRecord(
+      buildRecord(
+        'spike',
+        { question: '6월', found: 'f' },
+        { ...DEFAULTS, id: 'jun', at: '2026-06-15T12:00:00.000Z' },
+      ).record ?? {},
+    );
+    appendRecord(
+      buildRecord(
+        'spike',
+        { question: '7월', found: 'f' },
+        { ...DEFAULTS, id: 'jul', at: '2026-07-15T12:00:00.000Z' },
+      ).record ?? {},
+    );
+    // 범위 없음 = 전량(하위호환)
+    expect(readRecords()).toHaveLength(2);
+    // 7월만 = 7월 기록만(6월 파일은 읽지 않음 → 6월 기록이 결과에 없다)
+    const jul = readRecords({ months: ['2026-07'] });
+    expect(jul).toHaveLength(1);
+    expect(jul[0]?.id).toBe('jul');
+    // from/to 범위도 동작
+    expect(readRecords({ from: '2026-06', to: '2026-06' })).toHaveLength(1);
+    expect(readRecords({ from: '2026-06', to: '2026-07' })).toHaveLength(2);
+  });
+});
+
+describe('selectMonthFiles — 순수 월파일 선택(전량 로드 제거)', () => {
+  const twelve = Array.from(
+    { length: 12 },
+    (_, i) => `2026-${String(i + 1).padStart(2, '0')}.jsonl`,
+  );
+
+  it('months 지정 시 해당 월만, diffs 같은 비-jsonl 은 제외', () => {
+    const files = ['2026-06.jsonl', '2026-07.jsonl', 'diffs'];
+    expect(selectMonthFiles(files, { months: ['2026-07'] })).toEqual(['2026-07.jsonl']);
+    // 범위 없음 = 전량(.jsonl 만)
+    expect(selectMonthFiles(files, {})).toEqual(['2026-06.jsonl', '2026-07.jsonl']);
+  });
+
+  it('from/to 범위(YYYY-MM, 포함)로 거른다', () => {
+    expect(selectMonthFiles(twelve, { from: '2026-03', to: '2026-05' })).toEqual([
+      '2026-03.jsonl',
+      '2026-04.jsonl',
+      '2026-05.jsonl',
+    ]);
+    expect(selectMonthFiles(twelve, { from: '2026-11' })).toEqual([
+      '2026-11.jsonl',
+      '2026-12.jsonl',
+    ]);
+  });
+
+  it('성능 가드 — 12개월 중 1개월 질의가 여는 파일 수 < 12(전량)', () => {
+    const selected = selectMonthFiles(twelve, { months: ['2026-07'] });
+    expect(selected).toHaveLength(1);
+    expect(selected.length).toBeLessThan(twelve.length);
+    // 전량(무범위)은 12개 모두
+    expect(selectMonthFiles(twelve, {})).toHaveLength(12);
   });
 });
 

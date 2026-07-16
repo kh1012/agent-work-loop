@@ -516,14 +516,48 @@ export async function captureDiff(id: string, at: string, cwd: string): Promise<
 export interface RecordFilter {
   type?: string;
   workitem?: string;
+  /** 읽을 월 파일(YYYY-MM). 지정하면 이 월만 읽는다(하위호환: 없으면 전량). */
+  months?: string[];
+  /** 기간 시작(YYYY-MM, 포함). from/to 는 months 가 없을 때만 쓰인다. */
+  from?: string;
+  /** 기간 끝(YYYY-MM, 포함). */
+  to?: string;
 }
 
-/** 모든 월별 JSONL 을 읽어 레코드 배열을 돌려준다(파싱 실패 줄은 건너뜀). */
+/**
+ * 월 파일명 배열에서 filter 의 기간에 드는 것만 고른다(순수, I/O 없음).
+ *
+ * 쓰기는 monthFile 이 YYYY-MM.jsonl 로 분할하는데 읽기가 전 파일을 순회하던 걸 끊는다.
+ * months(명시 목록)가 우선, 없으면 from/to(YYYY-MM 문자열 비교로 포함 범위), 둘 다 없으면
+ * 전량(.jsonl 만) — 기존 호출부는 그대로 전량을 받는다(하위호환).
+ */
+export function selectMonthFiles(files: string[], filter: RecordFilter = {}): string[] {
+  const jsonl = files.filter((f) => f.endsWith('.jsonl'));
+  const monthOf = (f: string): string => f.slice(0, 7); // 'YYYY-MM.jsonl' → 'YYYY-MM'
+  if (Array.isArray(filter.months) && filter.months.length > 0) {
+    const set = new Set(filter.months);
+    return jsonl.filter((f) => set.has(monthOf(f)));
+  }
+  if (filter.from !== undefined || filter.to !== undefined) {
+    const from = filter.from ?? '0000-00';
+    const to = filter.to ?? '9999-99';
+    return jsonl.filter((f) => {
+      const m = monthOf(f);
+      return m >= from && m <= to;
+    });
+  }
+  return jsonl;
+}
+
+/**
+ * 월별 JSONL 을 읽어 레코드 배열을 돌려준다(파싱 실패 줄은 건너뜀).
+ * filter 에 months/from/to 가 있으면 그 월 파일만 읽는다(selectMonthFiles) — 전량 로드 회피.
+ */
 export function readRecords(filter: RecordFilter = {}): Record<string, unknown>[] {
   const dir = recordsDir();
   let files: string[];
   try {
-    files = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl'));
+    files = selectMonthFiles(fs.readdirSync(dir), filter);
   } catch {
     return [];
   }
