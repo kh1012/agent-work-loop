@@ -362,5 +362,14 @@ export function makeColors(enabled: boolean): Colors {
   };
 }
 
+/** 여러 줄 워드마크에만 쓰는 절제된 청록→보라 세로 그라데이션. */
+export function gradient(lines: string[], c: Caps): string[] {
+  if (!c.color) {
+    return lines;
+  }
+  const palette = [51, 45, 39, 135];
+  return lines.map((line, index) => `\x1b[38;5;${palette[index % palette.length]}m${line}${RESET}`);
+}
+
 /** 현재 프로세스 능력 기준 색 함수. */
 export const color: Colors = makeColors(caps().color);

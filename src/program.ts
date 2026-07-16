@@ -1,42 +1,45 @@
 import { Command } from 'commander';
 import { version } from '../package.json';
 import { installedEngineVersion } from './core/engine.js';
-import { type Caps, caps, makeColors, signal } from './core/tty.js';
+import { type Caps, caps, gradient, makeColors, signal, stringWidth } from './core/tty.js';
 
-export const BANNER = `
- Agent Work Loop
+export const BANNER = `Agent Work Loop
 
- 같은 실패를 두 번 하지 않게 만드는 도구입니다.
- awl 자체는 판단하지 않습니다. 파일과 상태만 관리합니다.
- 판단은 Claude Code 나 Codex 가 합니다.
+같은 실패를 두 번 하지 않게 만드는 도구입니다.
+awl 자체는 판단하지 않습니다. 파일과 상태만 관리합니다.
+판단은 Claude Code 나 Codex 가 합니다.
 
- 시작하기:
-   1. awl init       이 프로젝트를 설정합니다
-   2. awl status     지금 어디까지 왔는지 봅니다
-   3. awl doctor     설치와 환경을 점검합니다
-`;
+시작하기:
+  1. awl init       이 프로젝트를 설정합니다
+  2. awl status     지금 어디까지 왔는지 봅니다
+  3. awl doctor     설치와 환경을 점검합니다`;
 
-const DENSE_AWL = `
- █████╗ ██╗    ██╗██╗
+const DENSE_AWL = `█████╗ ██╗    ██╗██╗
 ██╔══██╗██║    ██║██║
 ███████║██║ █╗ ██║██║
 ██╔══██║██║███╗██║██║
 ██║  ██║╚███╔███╔╝███████╗
 ╚═╝  ╚═╝ ╚══╝╚══╝ ╚══════╝`;
 
-const ASCII_AWL = `
-    _       __        __
+const ASCII_AWL = `    _       __        __
    / \\      \\ \\      / /
   / _ \\      \\ \\ /\\ / /
  / ___ \\      \\ V  V /
 /_/   \\_\\      \\_/\\_/`;
 
 /** 첫 화면은 Gemini처럼 조밀한 워드마크를 쓰되, 유니코드가 불확실한 환경은
- * 같은 형태의 ASCII 로고로 안전하게 폴백한다. */
+ * 같은 형태의 ASCII 로고로 안전하게 폴백한다. 좌측 마크와 우측 설명을 같은
+ * 행에 배치해 넓은 터미널에서 정보 밀도를 높인다. */
 export function renderBanner(c: Caps = caps()): string {
-  const color = makeColors(c.color);
-  const mark = c.unicode ? DENSE_AWL : ASCII_AWL;
-  return `${color.cyan(mark)}${BANNER}`;
+  const markLines = gradient((c.unicode ? DENSE_AWL : ASCII_AWL).split('\n'), c);
+  const copyLines = BANNER.split('\n');
+  const markWidth = Math.max(...markLines.map(stringWidth));
+  const rowCount = Math.max(markLines.length, copyLines.length);
+  return Array.from({ length: rowCount }, (_, i) => {
+    const mark = markLines[i] ?? '';
+    const copy = copyLines[i] ?? '';
+    return `${mark}${' '.repeat(Math.max(0, markWidth - stringWidth(mark)) + 4)}${copy}`.trimEnd();
+  }).join('\n');
 }
 
 /**

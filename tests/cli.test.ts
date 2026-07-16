@@ -47,6 +47,12 @@ describe('awl 프로그램 구성', () => {
     expect(banner).toContain('\x1b[');
   });
 
+  it('배너는 좌측 워드마크와 우측 안내를 같은 행에 배치한다', () => {
+    const banner = renderBanner({ unicode: false, color: false, tty: false });
+    expect(banner.split('\n')[0]).toContain('Agent Work Loop');
+    expect(banner.startsWith('\n')).toBe(false);
+  });
+
   it('evolve 는 스킬 전용(숨김)이라 최상위 도움말에 안 보인다', () => {
     const program = buildProgram();
     // 'evolve' 를 부분 문자열로 포함하는 다른 명령이 없어 안전하게 단독 검사할 수 있다.

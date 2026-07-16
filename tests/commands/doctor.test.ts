@@ -268,29 +268,11 @@ describe('renderText — 정렬과 출력', () => {
     const report = await collectChecks();
     const text = renderText(report, ASCII);
 
-    const statusCol = (line: string): number | null => {
-      let idx = line.lastIndexOf('[!!] ');
-      if (idx === -1) {
-        idx = line.lastIndexOf('[!] ');
-      }
-      if (idx === -1) {
-        if (/ ok$/.test(line)) {
-          idx = line.length - 2;
-        } else {
-          return null;
-        }
-      }
-      return stringWidth(line.slice(0, idx));
-    };
-
-    const cols = text
-      .split('\n')
-      .map(statusCol)
-      .filter((x): x is number => x !== null);
-
-    expect(cols.length).toBeGreaterThan(1);
-    // 모든 status 마커가 같은 컬럼에서 시작해야 정렬이 안 깨진 것이다.
-    expect(new Set(cols).size).toBe(1);
+    const rows = text.split('\n');
+    // 이제 표 형식이 아니라 트리 형식이다. 긴 경로 하나가 카드 전체 폭을
+    // 키우지 않도록 모든 행을 고정 상한 안에 넣는다.
+    expect(rows.every((line) => stringWidth(line) <= 100)).toBe(true);
+    expect(text).toContain('├──');
   });
 
   it('ASCII 모드는 ANSI 색 코드를 넣지 않는다', async () => {

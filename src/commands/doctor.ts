@@ -3,7 +3,15 @@ import path from 'node:path';
 import { installedEngineVersion } from '../core/engine.js';
 import { findProjectRoot, globalRoot, projectsFile, rulesDir } from '../core/paths.js';
 import { CommandNotFoundError, run, tokenize } from '../core/runner.js';
-import { type Caps, caps, card, makeColors, signal, stringWidth } from '../core/tty.js';
+import {
+  type Caps,
+  caps,
+  card,
+  makeColors,
+  signal,
+  stringWidth,
+  visibleWidth,
+} from '../core/tty.js';
 import {
   type VersionCheckResult,
   type VersionMismatchKind,
@@ -800,9 +808,19 @@ export async function collectChecks(): Promise<DoctorReport> {
 // 렌더링
 // ---------------------------------------------------------------------------
 
-/** 표시 폭 기준으로 오른쪽을 공백으로 채운다(한글이 섞여도 정렬됨). */
-function pad(text: string, width: number): string {
-  return text + ' '.repeat(Math.max(0, width - stringWidth(text)));
+/** 터미널 폭을 넘는 파일 경로·힌트가 카드 전체를 넓히지 않게 자른다. */
+function clip(text: string, maxWidth: number): string {
+  if (stringWidth(text) <= maxWidth) {
+    return text;
+  }
+  let out = '';
+  for (const ch of text) {
+    if (stringWidth(out) + stringWidth(ch) + 1 > maxWidth) {
+      return `${out}…`;
+    }
+    out += ch;
+  }
+  return out;
 }
 
 /** 사람이 읽는 텍스트로 렌더링한다. ASCII 환경에서도 정렬이 깨지지 않는다. */
@@ -810,38 +828,43 @@ export function renderText(report: DoctorReport, c: Caps): string {
   const color = makeColors(c.color);
   const { checks } = report;
 
-  const nameWidth = checks.reduce((m, ch) => Math.max(m, stringWidth(ch.name)), 0);
-  const valueWidth = checks.reduce((m, ch) => Math.max(m, stringWidth(ch.value ?? '')), 0);
-
   // 노란색(주의)과 빨간색(오류)은 색 지원 환경에선 색으로, 색 미지원/CI 에선
   // 마커([!] vs [!!])로 구분한다(WI-X) — 예전엔 둘 다 "-> hint"로 똑같이 보여서
   // 색이 없으면 구분이 안 됐다.
   const statusText = (ch: Check): string => {
+    const hint = clip(ch.hint ?? '', 52);
     switch (ch.status) {
       case 'ok':
         return `${signal(c, 'ok')} ok`;
       case 'missing':
       case 'fail':
-        return `${signal(c, 'error')} ${ch.hint ?? ''}`;
+        return `${signal(c, 'error')} ${hint}`;
       case 'warn':
-        return `${signal(c, 'warn')} ${ch.hint ?? ''}`;
+        return `${signal(c, 'warn')} ${hint}`;
       default:
         return '';
     }
   };
 
   const lines: string[] = [];
+  // 경로 하나가 길어도 카드가 터미널 전체보다 넓어지지 않는다. CI/파이프는
+  // 재현 가능한 96칸을 쓴다.
+  const maxWidth = c.tty ? Math.max(56, Math.min(96, (process.stdout.columns ?? 100) - 4)) : 96;
 
   const groups = [...new Set(checks.map((ch) => ch.group))];
   for (const group of groups) {
     lines.push(color.bold(group));
-    for (const ch of checks.filter((x) => x.group === group)) {
+    const groupChecks = checks.filter((x) => x.group === group);
+    for (let i = 0; i < groupChecks.length; i++) {
+      const ch = groupChecks[i] as Check;
       const status = statusText(ch);
-      let line = `  ${pad(ch.name, nameWidth)}  ${pad(ch.value ?? '', valueWidth)}`;
+      const branch = i === groupChecks.length - 1 ? '└──' : '├──';
+      const base = `${branch} ${ch.name}: ${ch.value ?? '(없음)'}`;
+      let line = clip(base, status ? Math.max(24, maxWidth - visibleWidth(status) - 2) : maxWidth);
       if (status) {
         line += `  ${status}`;
       }
-      lines.push(line.replace(/\s+$/, ''));
+      lines.push(line);
     }
     lines.push('');
   }
