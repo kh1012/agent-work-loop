@@ -481,12 +481,16 @@ export function buildProgram(): Command {
     .option('--record', '교훈을 gotchas 에 기록합니다 (--json 으로 데이터)')
     .option('--json [data]', 'collect: 출력 플래그 / record: 교훈 데이터(JSON 문자열)')
     .option('--workitem <wi>', '워크아이템으로 거릅니다 (--collect)')
+    .option('--from <YYYY-MM>', '기간 시작 월로 읽기를 좁힙니다 (--collect, 없으면 전량)')
+    .option('--to <YYYY-MM>', '기간 끝 월 (--collect)')
     .action(
       async (opts: {
         collect?: boolean;
         record?: boolean;
         json?: string | boolean;
         workitem?: string;
+        from?: string;
+        to?: string;
       }) => {
         const m = await import('./commands/evolve.js');
         if (opts.collect && opts.record) {
@@ -499,7 +503,7 @@ export function buildProgram(): Command {
           }
           m.runEvolveRecord(opts.json);
         } else if (opts.collect) {
-          m.runEvolveCollect({ workitem: opts.workitem, json: true });
+          m.runEvolveCollect({ workitem: opts.workitem, json: true, from: opts.from, to: opts.to });
         } else {
           process.stderr.write('\n  --collect 또는 --record 를 지정하세요.\n');
           process.exit(1);

@@ -203,13 +203,18 @@ export interface EvolveCollection {
   };
 }
 
-/** 이번 워크아이템의 기록을 모은다. 판단하지 않는다. state 는 주입받는다(테스트 가능). */
+/**
+ * 이번 워크아이템의 기록을 모은다. 판단하지 않는다. state 는 주입받는다(테스트 가능).
+ * scope(months/from/to)를 주면 그 월 파일만 읽는다 — 파이프라인 연속 실행 시 전량로드 회피.
+ * scope 미지정이면 전량(하위호환, 오래된 워크아이템 evolve 안전).
+ */
 export function collectEvolve(
   project: string,
   workitem: string | null,
   state: Record<string, unknown>,
+  scope?: { months?: string[]; from?: string; to?: string },
 ): EvolveCollection {
-  const records = readRecords(workitem ? { workitem } : {});
+  const records = readRecords({ ...(workitem ? { workitem } : {}), ...(scope ?? {}) });
   const blocked = records.filter((r) => r.type === 'blocked');
   const reviews = records.filter((r) => r.type === 'review');
   const retried = records.filter(
@@ -363,7 +368,13 @@ function renderRepeatNotice(gotcha: Gotcha, c: Caps): string {
 }
 
 /** awl evolve --collect */
-export function runEvolveCollect(opts: { workitem?: string; json: boolean }): void {
+export function runEvolveCollect(opts: {
+  workitem?: string;
+  json: boolean;
+  from?: string;
+  to?: string;
+  months?: string[];
+}): void {
   const { projectRoot, config } = requireConfig();
   if (!acquireLock()) {
     process.stderr.write(
@@ -374,7 +385,12 @@ export function runEvolveCollect(opts: { workitem?: string; json: boolean }): vo
   try {
     const workitem = opts.workitem ?? null;
     const state = loadState(projectRoot);
-    const collection = collectEvolve(config.project, workitem, state);
+    // 기간 범위가 하나라도 주어지면 그 월만 읽는다(없으면 전량 폴백).
+    const scope =
+      opts.months !== undefined || opts.from !== undefined || opts.to !== undefined
+        ? { months: opts.months, from: opts.from, to: opts.to }
+        : undefined;
+    const collection = collectEvolve(config.project, workitem, state, scope);
     const at = new Date().toISOString();
     writeGeneration(config.project, workitem, collection.metrics, at);
     // collect 는 스킬이 파싱하므로 기본 JSON.

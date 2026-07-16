@@ -36,6 +36,42 @@ afterEach(() => {
   }
 });
 
+describe('collectEvolve — 기간 범위 scope (records-read-scope AC-02)', () => {
+  function seedMonth(month: string, records: Record<string, unknown>[]): void {
+    const dir = path.join(process.env.AWL_HOME as string, 'records');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, `${month}.jsonl`),
+      `${records.map((r) => JSON.stringify(r)).join('\n')}\n`,
+    );
+  }
+  const blk = (id: string, at: string, what: string) => ({
+    id,
+    at,
+    type: 'blocked',
+    workitem: 'WI-6',
+    what,
+    tried: [{ approach: 'a', failed: 'b' }],
+    lesson: 'l',
+  });
+
+  it('scope 없으면 전량(폴백), scope 주면 그 월만 모은다', () => {
+    seedMonth('2026-06', [blk('j6', '2026-06-10T10:00:00Z', '6월막힘')]);
+    seedMonth('2026-07', [blk('j7', '2026-07-10T10:00:00Z', '7월막힘')]);
+    const state = { criteria: [] };
+    // 폴백(scope 없음) = 두 달 다 (기존 동작 보존)
+    expect(collectEvolve('p', 'WI-6', state).blocked).toHaveLength(2);
+    // scope 7월만
+    const scoped = collectEvolve('p', 'WI-6', state, { months: ['2026-07'] });
+    expect(scoped.blocked).toHaveLength(1);
+    expect(scoped.blocked[0]?.what).toBe('7월막힘');
+    // from/to 도 동작
+    expect(
+      collectEvolve('p', 'WI-6', state, { from: '2026-06', to: '2026-06' }).blocked,
+    ).toHaveLength(1);
+  });
+});
+
 describe('collectEvolve — 모으기만 (판단하지 않음)', () => {
   it('blocked/review/retried 를 정확히 모으고 metrics 를 계산한다', () => {
     seedRecords([
