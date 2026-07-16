@@ -221,7 +221,10 @@ export interface GitProjectCandidate {
  * 그 안으로는 더 안 들어간다(서브모듈 무시). 최근 수정(mtime) 내림차순, 최대 GIT_SCAN_LIMIT 개.
  * 순수(부작용 없음).
  */
-export function scanGitProjects(root: string, maxDepth = GIT_SCAN_MAX_DEPTH): GitProjectCandidate[] {
+export function scanGitProjects(
+  root: string,
+  maxDepth = GIT_SCAN_MAX_DEPTH,
+): GitProjectCandidate[] {
   const found: GitProjectCandidate[] = [];
   const walk = (dir: string, depth: number): void => {
     if (depth > maxDepth) {
@@ -1329,6 +1332,52 @@ async function handleExistingConfig(
 // 진입점
 // ---------------------------------------------------------------------------
 
+/**
+ * interactive init 첫 단계: 어느 프로젝트에 awl 을 붙일지 고른다(init-project-picker).
+ * cwd 가 git 프로젝트면 "이 프로젝트/다른 곳/취소", 아니거나 원하면 하위 git 프로젝트를
+ * 최근 수정순 객관식으로 제시한다(끝에 직접 경로 입력·취소). 취소면 null.
+ */
+async function pickProjectRoot(cwd: string, c: Caps): Promise<string | null> {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const raw = rawModeCapable();
+  try {
+    if (exists(path.join(cwd, '.git'))) {
+      const idx = await selectSingle(
+        rl,
+        [`이 프로젝트로 진행  (${cwd})`, '다른 프로젝트 고르기', '취소'],
+        0,
+        c,
+        raw,
+        '어느 프로젝트에 awl 을 붙일까요?',
+      );
+      if (idx === 0) {
+        return cwd;
+      }
+      if (idx !== 1) {
+        return null; // 취소.
+      }
+      // idx === 1 → 하위 스캔으로 내려간다.
+    }
+    const candidates = scanGitProjects(cwd);
+    const labels = [...candidates.map((p) => `${p.name}  (${p.path})`), '직접 경로 입력', '취소'];
+    const title =
+      candidates.length > 0
+        ? '프로젝트를 고르세요 (최근 수정순, 최대 20)'
+        : '하위에 git 프로젝트가 없습니다 — 직접 입력하거나 취소';
+    const idx = await selectSingle(rl, labels, 0, c, raw, title);
+    if (idx < candidates.length) {
+      return candidates[idx]?.path ?? null;
+    }
+    if (idx === candidates.length) {
+      const typed = (await ask(rl, '  프로젝트 경로를 입력하세요: ')).trim();
+      return typed ? path.resolve(typed) : null;
+    }
+    return null; // 취소.
+  } finally {
+    rl.close();
+  }
+}
+
 export async function runInit(opts: { yes: boolean }): Promise<void> {
   const projectRoot = process.cwd();
   const interactive = process.stdin.isTTY === true && process.stdout.isTTY === true;
@@ -1372,7 +1421,24 @@ export async function runInit(opts: { yes: boolean }): Promise<void> {
     return;
   }
 
-  const inputs = await interactiveInputs(projectRoot, isGlobalInstalled(), c);
-  const result = applyInit(projectRoot, inputs, now);
+  // 프로젝트 선정(init-project-picker): cwd 에 config 가 없는 interactive 첫 실행에서만
+  // 어느 프로젝트에 붙일지 고른다. --yes 와 cwd config 존재는 위에서 이미 분기(회귀).
+  const chosenRoot = await pickProjectRoot(projectRoot, c);
+  if (chosenRoot === null) {
+    process.stdout.write('\n  취소했습니다.\n');
+    return;
+  }
+  // 고른 프로젝트에 이미 config 가 있으면 기존 설정 흐름으로 잇는다.
+  if (exists(path.join(chosenRoot, '.awl', 'config.json'))) {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      await handleExistingConfig(rl, chosenRoot, c, now);
+    } finally {
+      rl.close();
+    }
+    return;
+  }
+  const inputs = await interactiveInputs(chosenRoot, isGlobalInstalled(), c);
+  const result = applyInit(chosenRoot, inputs, now);
   process.stdout.write(`\n${renderResult(result, inputs, c)}\n`);
 }
