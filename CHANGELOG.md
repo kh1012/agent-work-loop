@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-07-16
+
+### 추가
+
+- awl 자체 피드백을 area 별로 묶어 보는 awl feedback 명령 [BC-01]
+- awl 자기 피드백(awl-feedback) 기록 타입과 evolve 유도 [AC-01]
+
 ## [0.6.1] - 2026-07-16
 
 ### 추가
