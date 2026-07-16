@@ -437,17 +437,13 @@ export function buildProgram(): Command {
     .requiredOption('--json <patch>', '부분 갱신 (JSON 문자열)')
     .action(async (opts: { json: string }) => {
       const { runStateSet } = await import('./commands/state.js');
-      const { readRecords } = await import('./commands/record.js');
+      const { hasApprovedGate1 } = await import('./commands/record.js');
       runStateSet(opts.json, {
-        // 리뷰 지적(WI-Q AC-01~03): readRecords 는 workitem 이 falsy 면 필터를
-        // 아예 건너뛴다("필터 없음" 시맨틱) — 여기서 그대로 넘기면 현재
-        // 워크아이템이 없을 때 다른 워크아이템의 gate:1 로도 통과해버린다
-        // (fail-open). 워크아이템이 없으면 애초에 확인할 gate 레코드가 없다는
-        // 뜻이므로 명시적으로 거부한다(fail-closed) — status.ts 의 buildGateStatus
-        // 가 같은 경우를 이미 엄격 비교로 안전하게 처리하는 것과 일관되게 맞춘다.
-        requireGateForLoop: (workitem) =>
-          typeof workitem === 'string' &&
-          readRecords({ type: 'gate', workitem }).some((r) => r.gate === 1),
+        // phase:'loop' 로의 전이는 이 워크아이템에 "승인된" 게이트1 레코드가 있을
+        // 때만 허용한다(0.6.3, 적대검증 발견). 예전엔 gate:1 레코드의 존재만 봐서
+        // (decision 무관) 사람이 REJECT 한 계획도 루프에 진입할 수 있었다.
+        // hasApprovedGate1 이 workitem falsy 도 fail-closed 로 처리한다.
+        requireGateForLoop: (workitem) => hasApprovedGate1(workitem),
       });
     });
 

@@ -1,4 +1,4 @@
-import { type Caps, caps, card, makeColors } from '../core/tty.js';
+import { type Caps, caps, card, makeColors, signal } from '../core/tty.js';
 import { readRecords } from './record.js';
 
 /**
@@ -45,10 +45,25 @@ export function loadAwlFeedback(filter: FeedbackFilter = {}): Record<string, unk
     records = records.filter((r) => r.severity === filter.severity);
   }
   if (filter.since) {
-    const since = filter.since;
-    records = records.filter((r) => typeof r.at === 'string' && r.at >= since);
+    // ISO 표기가 서로 다르면(밀리초 없음, 숫자 UTC 오프셋 +09:00 등) 사전식 비교가
+    // 틀린다(적대검증). epoch(ms)로 수치 비교한다. since 파싱 불가면 필터 무시.
+    const sinceMs = new Date(filter.since).getTime();
+    if (!Number.isNaN(sinceMs)) {
+      records = records.filter((r) => {
+        if (typeof r.at !== 'string') {
+          return false;
+        }
+        const atMs = new Date(r.at).getTime();
+        return !Number.isNaN(atMs) && atMs >= sinceMs;
+      });
+    }
   }
   return records;
+}
+
+/** --since 값이 파싱 불가한 날짜인가 (runFeedback 이 안내에 쓴다). */
+export function isInvalidSince(since: string | undefined): boolean {
+  return typeof since === 'string' && since !== '' && Number.isNaN(new Date(since).getTime());
 }
 
 /** area 별로 묶고 count/repeated/severity 정렬만 한다. 판단하지 않는다. */
@@ -125,6 +140,11 @@ export function runFeedback(opts: {
   severity?: string;
   since?: string;
 }): void {
+  if (isInvalidSince(opts.since)) {
+    process.stderr.write(
+      `\n  ${signal(caps(), 'warn')} --since '${opts.since}' 를 날짜로 읽지 못해 무시합니다. 예: 2026-07-01\n`,
+    );
+  }
   const records = loadAwlFeedback({ area: opts.area, severity: opts.severity, since: opts.since });
   const report = buildFeedbackReport(records);
   if (opts.json) {

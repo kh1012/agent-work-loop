@@ -103,12 +103,34 @@ describe('stringWidth — 한글/CJK 폭 계산', () => {
     expect(charWidth(0x1b)).toBe(0);
   });
 
-  it('상태 이모지는 2칸, VS16(이모지 표현 선택자)은 0칸', () => {
+  it('emoji-presentation-default(✅❌)는 2칸, VS16(선택자)은 폭0', () => {
     expect(charWidth('✅'.codePointAt(0) ?? 0)).toBe(2);
     expect(charWidth('❌'.codePointAt(0) ?? 0)).toBe(2);
     expect(charWidth(0xfe0f)).toBe(0);
-    // ⚠️ = ⚠(2칸) + VS16(0칸) = 2칸 (예전엔 1칸으로 세어 카드 테두리가 밀렸다)
+  });
+
+  it('기저문자+VS16 이모지는 2칸(문맥 판정) — 기저문자 단독은 그 표시폭 그대로', () => {
+    // ⚠(26A0)·ℹ(2139)·▶(25B6)·™(2122) 은 단독이면 좁지만 VS16 이 붙으면 2칸으로 렌더된다.
     expect(stringWidth('⚠️')).toBe(2);
+    expect(stringWidth('ℹ️')).toBe(2);
+    expect(stringWidth('▶️')).toBe(2);
+    expect(stringWidth('™️')).toBe(2);
+  });
+
+  it('텍스트-표현 기호와 awl 자체 글리프는 폭1로 센다 (0.6.1 과대계산 회귀 수정)', () => {
+    // 적대검증: 0x2600–0x27bf 전체를 폭2로 넣어 이것들을 과대계산해 테두리가 어긋났다.
+    expect(charWidth('❯'.codePointAt(0) ?? 0)).toBe(1); // U+276F 셀렉터 커서(select.ts)
+    expect(charWidth('☑'.codePointAt(0) ?? 0)).toBe(1); // 체크박스 on
+    expect(charWidth('☐'.codePointAt(0) ?? 0)).toBe(1); // 체크박스 off
+    expect(charWidth('☀'.codePointAt(0) ?? 0)).toBe(1); // 텍스트-표현 기호
+    expect(charWidth('★'.codePointAt(0) ?? 0)).toBe(1);
+  });
+
+  it('card 에 ❯ 를 섞어도 모든 줄의 표시폭이 동일하다 (테두리 정렬)', () => {
+    const c = { unicode: true, color: false, tty: true };
+    const rendered = card('제목', ['❯ 항목 하나', '평범한 줄'], c, 24);
+    const widths = rendered.split('\n').map(visibleWidth);
+    expect(new Set(widths).size).toBe(1);
   });
 });
 

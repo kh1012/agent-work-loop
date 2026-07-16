@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runCommit } from '../../src/commands/commit.js';
-import { runRecord } from '../../src/commands/record.js';
+import { hasApprovedGate1, runRecord } from '../../src/commands/record.js';
 import { loadState, runStateSet } from '../../src/commands/state.js';
 import { runWorkNew } from '../../src/commands/work.js';
 
@@ -118,5 +118,79 @@ describe('게이트 1 흐름 — awaiting-gate1 파이프라인 데드락 방지
     exitSpy.mockRestore();
     stderrSpy.mockRestore();
     stdoutSpy.mockRestore();
+  });
+
+  // 게이트 통과 판정을 phase 문자열이 아니라 "승인된 gate:1 레코드"로 한다(0.6.3, 적대검증).
+  const gateCb = { requireGateForLoop: (wi: string | undefined) => hasApprovedGate1(wi) };
+
+  it('게이트1에서 rejected 된 계획은 state set phase=loop 도 commit 도 통과시키지 않는다 (적대검증 HIGH)', async () => {
+    const proj = realProject();
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('exit');
+    }) as unknown as typeof process.exit);
+    try {
+      await runWorkNew('WI-REJ', undefined, {});
+      // 사람이 거부: gate:1 rejected 레코드는 쌓이지만 '승인'이 아니다(자동전이도 안 함).
+      await runRecord('gate', {
+        json: '{"gate":1,"decision":"rejected","presentedCriteria":["AC-01"],"presentedExclusions":[]}',
+      });
+      expect(loadState(proj).phase).toBe('awaiting-gate1');
+      // state set phase=loop: 승인 레코드가 없어 거부(exit).
+      expect(() => runStateSet('{"phase":"loop"}', gateCb)).toThrow('exit');
+      expect(loadState(proj).phase).toBe('awaiting-gate1');
+      // commit: 승인 레코드가 없어 차단(exit).
+      await expect(runCommit('AC-01', { start: true })).rejects.toThrow('exit');
+    } finally {
+      exitSpy.mockRestore();
+      stderrSpy.mockRestore();
+      stdoutSpy.mockRestore();
+    }
+  });
+
+  it('awaiting-gate1 에서 phase 를 비-loop 값으로 조작해도 승인 레코드 없으면 commit 은 차단된다 (적대검증 MED)', async () => {
+    const proj = realProject();
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('exit');
+    }) as unknown as typeof process.exit);
+    try {
+      await runWorkNew('WI-TAMP', undefined, {});
+      // phase 를 'blocked' 로 조작: requireGateForLoop 는 loop 만 검사하므로 이건 통과한다.
+      runStateSet('{"phase":"blocked"}');
+      expect(loadState(proj).phase).toBe('blocked');
+      // 하지만 승인 gate:1 레코드가 없으므로 commit 은 여전히 차단된다(phase 무관).
+      await expect(runCommit('AC-01', { start: true })).rejects.toThrow('exit');
+      expect(exitSpy).toHaveBeenCalledWith(1);
+    } finally {
+      exitSpy.mockRestore();
+      stderrSpy.mockRestore();
+      stdoutSpy.mockRestore();
+    }
+  });
+
+  it('게이트1 approved 면 state set phase=loop 와 commit 이 통과한다 (해피패스)', async () => {
+    const proj = realProject();
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('exit');
+    }) as unknown as typeof process.exit);
+    try {
+      await runWorkNew('WI-OK', undefined, {});
+      await runRecord('gate', {
+        json: '{"gate":1,"decision":"approved","presentedCriteria":["AC-01"],"presentedExclusions":[]}',
+      });
+      expect(loadState(proj).phase).toBe('loop'); // approved 는 자동전이.
+      runStateSet('{"phase":"loop"}', gateCb); // 승인 레코드가 있어 통과(exit 안 함).
+      await runCommit('AC-01', { start: true }); // 승인 레코드가 있어 통과.
+      expect(exitSpy).not.toHaveBeenCalled();
+    } finally {
+      exitSpy.mockRestore();
+      stderrSpy.mockRestore();
+      stdoutSpy.mockRestore();
+    }
   });
 });

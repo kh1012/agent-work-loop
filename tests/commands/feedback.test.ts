@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   buildFeedbackReport,
+  isInvalidSince,
   loadAwlFeedback,
   renderFeedback,
 } from '../../src/commands/feedback.js';
@@ -120,6 +121,25 @@ describe('loadAwlFeedback — 필터 (BC-04)', () => {
     const r = loadAwlFeedback({ since: '2026-07-01' });
     expect(r).toHaveLength(1);
     expect(r[0]?.at).toBe('2026-07-10T00:00:00Z');
+  });
+
+  it('--since 가 밀리초 없는 표기여도 밀리초 있는 at 을 올바로 포함한다 (적대검증: 사전식이면 틀렸을 케이스)', () => {
+    // 사전식 비교면 '.'(0x2E) < 'Z'(0x5A) 라 .500Z 가 since 이전으로 오판돼 제외됐다.
+    seedRecords([
+      fb({ at: '2026-07-01T00:00:00.500Z' }), // since 직후 — 포함돼야
+      fb({ at: '2026-06-30T23:00:00Z' }), // since 이전 — 제외
+    ]);
+    const r = loadAwlFeedback({ since: '2026-07-01T00:00:00Z' });
+    expect(r).toHaveLength(1);
+    expect(r[0]?.at).toBe('2026-07-01T00:00:00.500Z');
+  });
+
+  it('--since 가 날짜로 안 읽히면 필터를 무시하고 전체를 준다 (+ isInvalidSince)', () => {
+    seedRecords([fb({}), fb({})]);
+    expect(loadAwlFeedback({ since: '이상한값' })).toHaveLength(2);
+    expect(isInvalidSince('이상한값')).toBe(true);
+    expect(isInvalidSince('2026-07-01')).toBe(false);
+    expect(isInvalidSince(undefined)).toBe(false);
   });
 });
 

@@ -156,8 +156,12 @@ export function charWidth(codePoint: number): number {
 /** East Asian Wide/Fullwidth 범위인가 */
 function isWide(cp: number): boolean {
   return (
-    cp === 0x2139 || // ℹ (info, 이모지 표현 시 2칸)
-    (cp >= 0x2600 && cp <= 0x27bf) || // Misc Symbols + Dingbats (⚠ ✅ ❌ 등, 이모지 표현 2칸)
+    // emoji-presentation-default 라 VS16 없이도 2칸으로 렌더되는 것만 명시한다.
+    // ⚠️ ℹ️ ▶️ ™️ 처럼 기저문자가 좁은 것은 stringWidth 가 VS16(0xFE0F) 유무로 판정한다.
+    // (0.6.1 에서 0x2600–0x27bf 전체를 폭2로 넣었더니 텍스트-표현 기호와 awl 자체
+    //  글리프 ❯(U+276F 커서)·☑/☐ 체크박스까지 과대계산해 테두리가 어긋났다 — 적대검증.)
+    cp === 0x2705 || // ✅
+    cp === 0x274c || // ❌
     (cp >= 0x1100 && cp <= 0x115f) || // Hangul Jamo
     (cp >= 0x2e80 && cp <= 0x303e) || // CJK Radicals ~ CJK Symbols
     (cp >= 0x3041 && cp <= 0x33ff) || // Hiragana ~ CJK Compatibility
@@ -177,8 +181,21 @@ function isWide(cp: number): boolean {
 /** 문자열의 표시 폭. for..of 로 코드포인트 단위 순회(서로게이트 안전). */
 export function stringWidth(str: string): number {
   let width = 0;
+  let prevWidth = 0;
   for (const ch of str) {
-    width += charWidth(ch.codePointAt(0) ?? 0);
+    const cp = ch.codePointAt(0) ?? 0;
+    // VS16(0xFE0F)은 직전 문자를 이모지 표현(폭2)으로 승격한다. 직전이 폭1이면
+    // +1 해 2칸으로 만들고(⚠️ ℹ️ ▶️ ™️), 이미 폭2면 가산하지 않는다(✅❌ 등).
+    if (cp === 0xfe0f) {
+      if (prevWidth === 1) {
+        width += 1;
+        prevWidth = 2;
+      }
+      continue;
+    }
+    const w = charWidth(cp);
+    width += w;
+    prevWidth = w;
   }
   return width;
 }
