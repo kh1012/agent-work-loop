@@ -321,7 +321,7 @@ pnpm run lint     # biome 검사
 pnpm run typecheck
 ```
 
-릴리스는 `pnpm release:patch` / `pnpm release:minor`로 합니다 — 검증 통과, CHANGELOG의 `[Unreleased]` 비어있지 않음을 확인한 뒤 버전을 올리고 태그를 답니다. **publish와 push는 하지 않습니다** — 사람이 칠 명령을 마지막에 출력합니다.
+릴리스는 `pnpm release:patch` / `pnpm release:minor` / `pnpm release:major`로 합니다. 검증·빌드·tarball·`npm publish --dry-run`을 통과한 뒤 버전, CHANGELOG, 커밋, 태그, 원격 push를 한 번에 처리합니다. `[Unreleased]`가 비어 있으면 마지막 릴리스 태그 뒤의 conventional commit 제목으로 CHANGELOG를 자동 작성하고, 직접 쓴 내용이 있으면 그대로 보존합니다. **`npm publish`만 사람이 실행합니다.**
 
 ## 라이선스
 

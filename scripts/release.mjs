@@ -5,14 +5,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
- * awl 릴리스 스크립트. `pnpm release:patch` / `pnpm release:minor` 로 실행한다.
+ * awl 릴리스 스크립트. `pnpm release:patch` / `release:minor` / `release:major` 로 실행한다.
  *
- * 순서: 워킹트리 clean 확인 → verify(typecheck/lint/test) → CHANGELOG 확인
+ * 순서: 워킹트리 clean 확인 → verify(typecheck/lint/test) → CHANGELOG 확인/자동 생성
  * (여기까지는 아무 파일도 안 건드린다. 전부 통과해야 다음으로 간다)
  * → package.json/engine/version.json 버전 올림 → CHANGELOG 이동 → build
- * → npm pack 내용물 검증 → npm publish --dry-run → commit + 태그 → 안내 출력.
+ * → npm pack 내용물 검증 → npm publish --dry-run → commit + 태그 + push → 안내 출력.
  *
- * publish 와 push 는 하지 않는다. 사람이 칠 명령만 마지막에 보여준다.
+ * npm publish 만 사람이 한다. 릴리스 커밋·태그·원격 push는 이 스크립트가 끝낸다.
  * 어느 단계든 실패하면, 이미 손댄 파일(package.json/engine/version.json/
  * CHANGELOG.md)을 git checkout 으로 되돌리고 중단한다 — 반쯤 올라간 버전을
  * 남기지 않는다.
@@ -65,6 +65,54 @@ function bumpVersion(current, type) {
   return `${major}.${minor}.${patch}`;
 }
 
+/**
+ * 사람이 Unreleased를 직접 적지 않아도, 마지막 릴리스 태그 뒤의 conventional
+ * commit 제목으로 읽을 만한 Keep a Changelog 초안을 만든다. 직접 적은 내용이
+ * 있으면 아래 자동 경로를 전혀 타지 않아, 긴 설명·수동 분류도 그대로 보존된다.
+ */
+function changelogFromCommits(currentVersion) {
+  let subjects;
+  try {
+    subjects = sh(`git log --format=%s v${currentVersion}..HEAD`)
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  } catch {
+    die(`기준 태그 v${currentVersion} 뒤의 커밋을 읽지 못했습니다.`);
+  }
+
+  const sections = new Map([
+    ['추가', []],
+    ['고침', []],
+    ['변경', []],
+  ]);
+  for (const subject of subjects) {
+    // release 커밋은 이전 태그에 포함되므로 보통 없지만, 수동 태그 누락 같은
+    // 경우에도 CHANGELOG에 중복 기록하지 않는다.
+    if (/^chore\(release\):/i.test(subject)) {
+      continue;
+    }
+    const conventional =
+      /^(feat|fix|perf|refactor|docs|build|chore|test)(?:\([^)]*\))?!?:\s*(.+)$/i.exec(subject);
+    const kind = conventional?.[1]?.toLowerCase();
+    const message = conventional?.[2] ?? subject;
+    const heading = kind === 'feat' ? '추가' : kind === 'fix' ? '고침' : '변경';
+    sections.get(heading).push(`- ${message}`);
+  }
+
+  const body = [...sections.entries()]
+    .filter(([, entries]) => entries.length > 0)
+    .map(([heading, entries]) => `### ${heading}\n\n${entries.join('\n')}`)
+    .join('\n\n');
+  if (body === '') {
+    die(
+      'CHANGELOG.md 의 [Unreleased] 가 비어 있고 기록할 커밋도 없습니다. 변경을 커밋하거나 [Unreleased]에 직접 적으세요.',
+    );
+  }
+  console.log('CHANGELOG.md의 [Unreleased]가 비어 있어 마지막 태그 뒤 커밋으로 자동 작성합니다.');
+  return body;
+}
+
 // ---------------------------------------------------------------------------
 // 2. 워킹트리 clean 확인
 // ---------------------------------------------------------------------------
@@ -100,7 +148,7 @@ try {
 }
 
 // ---------------------------------------------------------------------------
-// 4. 버전 계산 + CHANGELOG 의 Unreleased 가 비어있는지 확인 (아직 아무것도 안 씀)
+// 4. 버전 계산 + CHANGELOG 의 Unreleased 확인/자동 생성 (아직 아무것도 안 씀)
 // ---------------------------------------------------------------------------
 
 const pkg = JSON.parse(fs.readFileSync(PKG_PATH, 'utf8'));
@@ -119,11 +167,8 @@ const nextHeaderMatch = /^## \[/m.exec(rest);
 const nextHeaderIdx = nextHeaderMatch
   ? afterHeaderIdx + nextHeaderMatch.index
   : changelogText.length;
-const unreleasedBody = changelogText.slice(afterHeaderIdx, nextHeaderIdx).trim();
-
-if (unreleasedBody === '') {
-  die('CHANGELOG.md 의 [Unreleased] 섹션이 비어 있습니다. 배포할 변경 내역을 먼저 채우세요.');
-}
+const manualUnreleasedBody = changelogText.slice(afterHeaderIdx, nextHeaderIdx).trim();
+const unreleasedBody = manualUnreleasedBody || changelogFromCommits(currentVersion);
 
 // ---------------------------------------------------------------------------
 // 5~7. 여기부터 파일을 건드린다. 실패하면 전부 되돌린다.
@@ -217,13 +262,30 @@ try {
 }
 
 // ---------------------------------------------------------------------------
-// 11. 안내만 하고 끝낸다. publish 와 push 는 사람이 한다.
+// 11. 원격에 릴리스를 공개한다. npm publish만 사람이 한다.
 // ---------------------------------------------------------------------------
 
-console.log(`
-준비됐습니다. ${currentVersion} -> ${newVersion}. 커밋과 태그(v${newVersion})까지 만들었습니다.
+const branch = sh('git branch --show-current').trim();
+if (branch === '') {
+  die(`v${newVersion} 태그는 만들었지만 detached HEAD라 push할 브랜치를 알 수 없습니다.`);
+}
+try {
+  // 커밋과 lightweight tag를 한 요청으로 원자적으로 보낸다. 둘 중 하나만 원격에
+  // 남는 반쪽 릴리스를 막는다.
+  execFileSync(
+    'git',
+    ['push', '--atomic', 'origin', `HEAD:refs/heads/${branch}`, `refs/tags/v${newVersion}`],
+    { cwd: REPO_ROOT, stdio: 'inherit' },
+  );
+} catch (e) {
+  die(
+    `v${newVersion}의 로컬 커밋과 태그는 만들었지만 원격 push에 실패했습니다. 네트워크/권한을 확인한 뒤 git push origin ${branch} && git push origin v${newVersion} 를 실행하세요.`,
+  );
+}
 
-배포하려면:
+console.log(`
+릴리스했습니다. ${currentVersion} -> ${newVersion}. 커밋·태그(v${newVersion})·원격 push까지 끝냈습니다.
+
+npm 배포만 사람이 실행하세요:
   npm publish
-  git push && git push --tags
 `);

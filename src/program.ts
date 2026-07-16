@@ -3,11 +3,24 @@ import { version } from '../package.json';
 import { installedEngineVersion } from './core/engine.js';
 import { type Caps, caps, makeColors } from './core/tty.js';
 
-export const BANNER = `Agent Work Loop
+export const BANNER = `
+     _       __        __
+    / \\      \\ \\      / /
+   / _ \\      \\ \\ /\\ / /
+  / ___ \\      \\ V  V /
+ /_/   \\_\\      \\_/\\_/
 
-같은 실패를 두 번 하지 않게 만드는 도구입니다.
-awl 자체는 판단하지 않습니다. 파일과 상태만 관리합니다.
-판단은 Claude Code 나 Codex 가 합니다.`;
+ Agent Work Loop
+
+ 같은 실패를 두 번 하지 않게 만드는 도구입니다.
+ awl 자체는 판단하지 않습니다. 파일과 상태만 관리합니다.
+ 판단은 Claude Code 나 Codex 가 합니다.
+
+ 시작하기:
+   1. awl init       이 프로젝트를 설정합니다
+   2. awl status     지금 어디까지 왔는지 봅니다
+   3. awl doctor     설치와 환경을 점검합니다
+`;
 
 /**
  * `awl --version` 이 보여줄 문자열을 만든다. 패키지 버전뿐 아니라 설치된

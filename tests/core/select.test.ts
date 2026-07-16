@@ -34,6 +34,11 @@ describe('advanceSelect — 순수 상태 전이 (WI-Y AC-02)', () => {
     expect(next.index).toBe(2);
   });
 
+  it('Home/End 는 각각 처음/마지막 항목으로 이동한다', () => {
+    expect(advanceSelect(initSelectState(1), 'home', 3, false).index).toBe(0);
+    expect(advanceSelect(initSelectState(1), 'end', 3, false).index).toBe(2);
+  });
+
   it('옵션이 1개면 위/아래를 눌러도 그대로다', () => {
     const s = initSelectState(0);
     expect(advanceSelect(s, 'down', 1, false).index).toBe(0);

@@ -784,11 +784,13 @@ export function buildScreens(projectRoot: string, hasGlobal: boolean, c: Caps): 
         '  등록된 모든 프로젝트에서 함께 쓰입니다.',
       ].join('\n');
 
-  const langLines = ['자동 감지했습니다. 맞으면 Enter.', ''];
-  for (let i = 0; i < LANG_OPTIONS.length; i++) {
-    const marker = i === defLang ? sym.radioOn : sym.radioOff;
-    langLines.push(`${marker} ${i + 1}  ${LANG_OPTIONS[i]}`);
-  }
+  const langLines = [
+    `자동 감지: ${LANG_OPTIONS[defLang] ?? 'TypeScript'}`,
+    '',
+    '바로 아래의 선택기에서 고릅니다.',
+    '화살표 또는 j/k 로 이동하고 Enter 로 확정하세요.',
+    '키 입력을 지원하지 않는 터미널에서는 번호를 입력할 수 있습니다.',
+  ];
 
   return {
     welcome,
@@ -829,8 +831,9 @@ export function buildScreens(projectRoot: string, hasGlobal: boolean, c: Caps): 
         'awl 은 판단하지 않습니다. 파일과 상태만 관리합니다.',
         '판단은 이미 쓰고 계신 에이전트가 합니다.',
         '',
-        `${agents.claude ? sym.checkOn : sym.checkOff} 1  Claude Code   .claude/skills/awl-loop/ 에 설치`,
-        `${agents.codex ? sym.checkOn : sym.checkOff} 2  Codex         AGENTS.md 에 추가`,
+        '바로 아래에서 설치할 에이전트를 고릅니다.',
+        'Space 로 여럿 선택하고 Enter 로 확정하세요.',
+        `감지됨: Claude Code ${agents.claude ? '있음' : '없음'} · Codex ${agents.codex ? '있음' : '없음'}`,
       ],
       sym,
     ),
@@ -868,10 +871,17 @@ export async function selectSingle(
   defaultIndex: number,
   c: Caps,
   useRawMode: boolean,
+  title = '선택',
 ): Promise<number> {
   if (useRawMode) {
-    const result = await runInteractiveSelect(options, defaultIndex, false, c);
+    const result = await runInteractiveSelect(options, defaultIndex, false, c, [], {
+      title,
+      hint: '↑↓ 또는 j/k 이동 · Enter 선택 · Esc 기본값 유지',
+    });
     return result?.index ?? defaultIndex;
+  }
+  for (let i = 0; i < options.length; i++) {
+    process.stdout.write(`    ${i + 1}. ${options[i]}${i === defaultIndex ? ' (기본)' : ''}\n`);
   }
   return promptNumber(rl, defaultIndex, options.length);
 }
@@ -886,10 +896,19 @@ export async function selectMulti(
   defaultChecked: number[],
   c: Caps,
   useRawMode: boolean,
+  title = '선택',
 ): Promise<number[]> {
   if (useRawMode) {
-    const result = await runInteractiveSelect(options, 0, true, c, defaultChecked);
+    const result = await runInteractiveSelect(options, 0, true, c, defaultChecked, {
+      title,
+      hint: '↑↓ 또는 j/k 이동 · Space 선택 · Enter 확정 · Esc 기본값 유지',
+    });
     return result?.checked ?? defaultChecked;
+  }
+  for (let i = 0; i < options.length; i++) {
+    process.stdout.write(
+      `    ${i + 1}. ${options[i]}${defaultChecked.includes(i) ? ' (기본 선택)' : ''}\n`,
+    );
   }
   const def = defaultChecked
     .slice()
@@ -991,6 +1010,7 @@ async function interactiveInputs(
     langDefaultIndex(projectRoot),
     c,
     rawModeCapable(),
+    '주 언어',
   );
   let mainLanguage = LANG_VALUES[langIdx] ?? '';
   if (langIdx === LANG_OPTIONS.length - 1) {
@@ -1036,7 +1056,14 @@ async function interactiveInputs(
     'Codex (AGENTS.md 에 추가)',
   ];
   const defaultChecked = [agents.claude ? 0 : -1, agents.codex ? 1 : -1].filter((i) => i >= 0);
-  const checked = await selectMulti(rl, skillOptions, defaultChecked, c, rawModeCapable());
+  const checked = await selectMulti(
+    rl,
+    skillOptions,
+    defaultChecked,
+    c,
+    rawModeCapable(),
+    '설치할 에이전트 스킬',
+  );
   const skills = { claude: checked.includes(0), codex: checked.includes(1) };
 
   return { project, mainLanguage, character, verify, skills };

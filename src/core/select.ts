@@ -8,7 +8,7 @@ import { type Caps, makeColors, makeSymbols } from './tty.js';
  * 없이도 테스트할 수 있다. 단일선택/다중선택을 같은 상태 타입으로 다룬다.
  */
 
-export type SelectKey = 'up' | 'down' | 'enter' | 'space' | 'escape' | 'other';
+export type SelectKey = 'up' | 'down' | 'enter' | 'space' | 'escape' | 'home' | 'end' | 'other';
 
 export interface SelectState {
   index: number;
@@ -36,6 +36,10 @@ export function advanceSelect(
       return { ...state, index: (state.index - 1 + count) % count };
     case 'down':
       return { ...state, index: (state.index + 1) % count };
+    case 'home':
+      return { ...state, index: 0 };
+    case 'end':
+      return { ...state, index: count - 1 };
     case 'space': {
       if (!multi) {
         return state;
@@ -75,7 +79,9 @@ export function renderSelectOptions(
       : i === state.index
         ? sym.radioOn
         : sym.radioOff;
-    const cursor = i === state.index ? '> ' : '  ';
+    // 유니코드 TTY에서는 Gemini처럼 시선이 바로 걸리는 포인터를 쓴다. 파이프·구식
+    // 터미널은 기존 ASCII `>`로 폴백해 복사한 로그도 읽기 쉽다.
+    const cursor = i === state.index ? (c.unicode ? '❯ ' : '> ') : '  ';
     const line = `${cursor}${marker} ${options[i]}`;
     lines.push(i === state.index ? color.cyan(line) : line);
   }
@@ -98,10 +104,14 @@ export function readKey(): Promise<SelectKey> {
         resolve('enter');
       } else if (s === ' ') {
         resolve('space');
-      } else if (s === '\x1b[A') {
+      } else if (s === '\x1b[A' || s === 'k') {
         resolve('up');
-      } else if (s === '\x1b[B') {
+      } else if (s === '\x1b[B' || s === 'j') {
         resolve('down');
+      } else if (s === '\x1b[H' || s === '\x1bOH' || s === 'g') {
+        resolve('home');
+      } else if (s === '\x1b[F' || s === '\x1bOF' || s === 'G') {
+        resolve('end');
       } else if (s === '\x1b' || s === '\x03') {
         resolve('escape');
       } else {
@@ -120,6 +130,32 @@ export interface InteractiveSelectResult {
   checked: number[];
 }
 
+/** 선택 목록 위·아래에 붙는 작은 안내. 호출부는 화면의 맥락만 주고, 키 처리와
+ * 다시 그리기는 이 모듈이 맡는다. */
+export interface InteractiveSelectPresentation {
+  title?: string;
+  hint?: string;
+}
+
+function renderInteractiveSelect(
+  options: string[],
+  state: SelectState,
+  multi: boolean,
+  c: Caps,
+  presentation: InteractiveSelectPresentation,
+): { text: string; lineCount: number } {
+  const color = makeColors(c.color);
+  const lines: string[] = [];
+  if (presentation.title) {
+    lines.push(`  ${color.bold(presentation.title)}`);
+  }
+  lines.push(renderSelectOptions(options, state, multi, c));
+  if (presentation.hint) {
+    lines.push(`  ${color.dim(presentation.hint)}`);
+  }
+  return { text: lines.join('\n'), lineCount: lines.length + options.length - 1 };
+}
+
 /**
  * raw-mode 를 켜고 방향키 선택 화면을 그 자리에서 갱신한다. Esc/Ctrl+C 로
  * 취소하면 null. 끝나면(성공이든 취소든) raw-mode 를 반드시 되돌린다.
@@ -130,18 +166,19 @@ export async function runInteractiveSelect(
   multi: boolean,
   c: Caps,
   defaultChecked: number[] = [],
+  presentation: InteractiveSelectPresentation = {},
 ): Promise<InteractiveSelectResult | null> {
   let state = initSelectState(defaultIndex, defaultChecked);
   process.stdin.setRawMode(true);
   process.stdin.resume();
-  process.stdout.write(`${renderSelectOptions(options, state, multi, c)}\n`);
+  let rendered = renderInteractiveSelect(options, state, multi, c, presentation);
+  process.stdout.write(`${rendered.text}\n`);
   try {
     while (!state.done) {
       const key = await readKey();
       state = advanceSelect(state, key, options.length, multi);
-      process.stdout.write(
-        `${moveCursorUp(options.length)}${renderSelectOptions(options, state, multi, c)}\n`,
-      );
+      rendered = renderInteractiveSelect(options, state, multi, c, presentation);
+      process.stdout.write(`${moveCursorUp(rendered.lineCount)}${rendered.text}\n`);
     }
   } finally {
     process.stdin.setRawMode(false);
