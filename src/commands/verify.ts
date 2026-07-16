@@ -411,7 +411,7 @@ export async function runVerify(opts: {
   if (!opts.force) {
     const protection = await protectedFilesMessage(projectRoot, config.protectedFiles);
     if (protection) {
-      process.stderr.write(`\n  ${protection}\n`);
+      process.stderr.write(`\n  ${signal(caps(), 'error')} ${protection}\n`);
       process.exit(1);
     }
   }

@@ -382,7 +382,7 @@ export async function runCommit(
   if (!opts.force) {
     const protection = await protectedFilesMessage(root, loadConfig(root).config?.protectedFiles);
     if (protection) {
-      process.stderr.write(`\n  ${protection}\n`);
+      process.stderr.write(`\n  ${signal(c, 'error')} ${protection}\n`);
       process.exit(1);
     }
   }

@@ -328,3 +328,10 @@ describe('wrapToWidth — hanging indent(cli-design-tokens AC-03)', () => {
     }
   });
 });
+
+describe('signal error 폴백(cli-visual-consistency AC-01)', () => {
+  it('유니코드는 ❌, ASCII(CI/파이프)는 [x] — raw 이모지 없음', () => {
+    expect(signal({ unicode: true, color: false, tty: true }, 'error')).toBe('❌');
+    expect(signal({ unicode: false, color: false, tty: false }, 'error')).toBe('[x]');
+  });
+});

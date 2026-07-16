@@ -25,8 +25,10 @@ export async function protectedFilesMessage(
   projectRoot: string,
   protectedFiles: string[] | undefined,
 ): Promise<string | null> {
+  // 상태 마커(❌/[x])는 호출부가 signal(c,'error')로 붙인다(caps 게이트로 유니코드/ASCII
+  // 폴백) — 여기서 raw 이모지를 하드코딩하면 CI·파이프에서 글리프가 깨진다(F-01).
   const changed = await changedProtectedFiles(projectRoot, protectedFiles);
   return changed.length
-    ? `❌ 보호 파일이 변경되었습니다: ${changed.join(', ')}\n  사람이 확인한 경우에만 --force 로 보호 파일 검사를 우회하세요.`
+    ? `보호 파일이 변경되었습니다: ${changed.join(', ')}\n  사람이 확인한 경우에만 --force 로 보호 파일 검사를 우회하세요.`
     : null;
 }
