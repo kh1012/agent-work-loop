@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.6.6] - 2026-07-16
+
 ### 추가
 
 - awl status 가 완료조건 커밋(criterion.commit)이 지금 HEAD 에 없으면 사실로 표시한다 — diverged(다른 계보)/not-found(커밋 없음) 구분. 열등 계보를 최종으로 지목한 인수인계를 잡는다. 격리 커밋 SHA 를 commit 전용 필드에 기록(--start 로 리셋 안 됨)하고 status 가 merge-base --is-ancestor 로 대조. 판단하지 않고 사실만 표시(새 명령 없음) [wi8-F3]
