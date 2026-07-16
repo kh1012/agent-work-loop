@@ -1,4 +1,4 @@
-import { type Caps, makeColors, makeSymbols } from './tty.js';
+import { type Caps, card, makeColors, makeSymbols } from './tty.js';
 
 /**
  * 방향키 선택의 순수 상태 전이 + 렌더 (WI-Y).
@@ -145,15 +145,13 @@ function renderInteractiveSelect(
   presentation: InteractiveSelectPresentation,
 ): { text: string; lineCount: number } {
   const color = makeColors(c.color);
-  const lines: string[] = [];
-  if (presentation.title) {
-    lines.push(`  ${color.bold(presentation.title)}`);
-  }
-  lines.push(renderSelectOptions(options, state, multi, c));
+  const lines = renderSelectOptions(options, state, multi, c).split('\n');
   if (presentation.hint) {
-    lines.push(`  ${color.dim(presentation.hint)}`);
+    lines.push('');
+    lines.push(color.dim(presentation.hint));
   }
-  return { text: lines.join('\n'), lineCount: lines.length + options.length - 1 };
+  const text = card(presentation.title ?? '선택', lines, c);
+  return { text, lineCount: text.split('\n').length };
 }
 
 /**

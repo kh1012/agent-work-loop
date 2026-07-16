@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   box,
+  card,
   charWidth,
   computeCaps,
   computeRawModeCapable,
   makeColors,
   makeSymbols,
   stringWidth,
+  visibleWidth,
 } from '../../src/core/tty.js';
 
 // 테스트용 환경 객체를 만든다.
@@ -160,6 +162,16 @@ describe('box — 정렬 (한글이 섞여도 깨지지 않는다)', () => {
     expect(new Set(widths).size).toBe(1);
     // 내부 폭은 최소한 가장 긴 한글 줄의 폭 + 좌우 여백/테두리를 담아야 한다.
     expect(widths[0]).toBeGreaterThanOrEqual(stringWidth(longKo));
+  });
+});
+
+describe('card — 색이 있어도 폭이 흔들리지 않는 사람용 출력', () => {
+  it('ANSI 색상과 한글을 섞어도 모든 카드 줄의 표시 폭이 같다', () => {
+    const c = { unicode: true, color: true, tty: true };
+    const color = makeColors(true);
+    const rendered = card('설정 완료', [color.green('통과'), '한글 설명'], c, 24);
+    const widths = rendered.split('\n').map(visibleWidth);
+    expect(new Set(widths).size).toBe(1);
   });
 });
 

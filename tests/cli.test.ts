@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { version as pkgVersion } from '../package.json';
 import type { Caps } from '../src/core/tty.js';
-import { BANNER, buildProgram, versionString } from '../src/program.js';
+import { BANNER, buildProgram, renderBanner, versionString } from '../src/program.js';
 
 const origHome = process.env.AWL_HOME;
 
@@ -39,6 +39,12 @@ describe('awl 프로그램 구성', () => {
     expect(BANNER).toContain('같은 실패를 두 번 하지 않게');
     expect(BANNER).toContain('awl 자체는 판단하지 않습니다');
     expect(BANNER).toContain('판단은 Claude Code 나 Codex 가 합니다');
+  });
+
+  it('유니코드 TTY 배너는 조밀한 AWL 워드마크와 색상을 쓴다', () => {
+    const banner = renderBanner({ unicode: true, color: true, tty: true });
+    expect(banner).toContain('███████');
+    expect(banner).toContain('\x1b[');
   });
 
   it('evolve 는 스킬 전용(숨김)이라 최상위 도움말에 안 보인다', () => {

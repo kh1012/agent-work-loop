@@ -174,6 +174,15 @@ export function stringWidth(str: string): number {
   return width;
 }
 
+// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape sequence를 폭 계산에서 제외한다.
+const ANSI_SGR = /\x1b\[[0-9;]*m/g;
+
+/** ANSI SGR 색상 코드는 화면 폭을 차지하지 않는다. 카드 안에 색을 넣어도 테두리가
+ * 흔들리지 않도록, 렌더러는 이 함수를 기준으로 여백을 계산한다. */
+export function visibleWidth(str: string): number {
+  return stringWidth(str.replace(ANSI_SGR, ''));
+}
+
 // ---------------------------------------------------------------------------
 // 기호 세트
 // ---------------------------------------------------------------------------
@@ -272,6 +281,33 @@ export function box(title: string, lines: string[], symbols: Symbols = sym): str
   }
   out.push(horizontal(s.boxBL, s.boxBR));
   return out.join('\n');
+}
+
+/**
+ * 사람용 출력을 위한 공통 카드. JSON 모드는 호출하지 않아 자동화 출력이 섞이지
+ * 않는다. 색을 쓸 수 있는 TTY에서는 프레임·제목만 은은하게 강조하고, 파이프와
+ * 구식 터미널에서는 같은 구조를 ASCII로 그대로 보여준다.
+ */
+export function card(title: string, lines: string[], c: Caps = caps(), minInnerWidth = 0): string {
+  const s = makeSymbols(c);
+  const color = makeColors(c.color);
+  const inner = Math.max(minInnerWidth, visibleWidth(title), ...lines.map(visibleWidth));
+  const frame = (text: string): string => color.cyan(text);
+  const row = (text: string, emphasize = false): string => {
+    const gap = inner - visibleWidth(text);
+    const content = emphasize ? color.bold(text) : text;
+    return `${frame(s.boxV)} ${content}${' '.repeat(gap + 1)}${frame(s.boxV)}`;
+  };
+  const horizontal = (left: string, right: string): string =>
+    frame(`${left}${s.boxH.repeat(inner + 2)}${right}`);
+
+  return [
+    horizontal(s.boxTL, s.boxTR),
+    row(title, true),
+    horizontal(s.midL, s.midR),
+    ...lines.map((line) => row(line)),
+    horizontal(s.boxBL, s.boxBR),
+  ].join('\n');
 }
 
 // ---------------------------------------------------------------------------

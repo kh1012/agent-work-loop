@@ -4,12 +4,6 @@ import { installedEngineVersion } from './core/engine.js';
 import { type Caps, caps, makeColors } from './core/tty.js';
 
 export const BANNER = `
-     _       __        __
-    / \\      \\ \\      / /
-   / _ \\      \\ \\ /\\ / /
-  / ___ \\      \\ V  V /
- /_/   \\_\\      \\_/\\_/
-
  Agent Work Loop
 
  같은 실패를 두 번 하지 않게 만드는 도구입니다.
@@ -21,6 +15,29 @@ export const BANNER = `
    2. awl status     지금 어디까지 왔는지 봅니다
    3. awl doctor     설치와 환경을 점검합니다
 `;
+
+const DENSE_AWL = `
+ █████╗ ██╗    ██╗██╗
+██╔══██╗██║    ██║██║
+███████║██║ █╗ ██║██║
+██╔══██║██║███╗██║██║
+██║  ██║╚███╔███╔╝███████╗
+╚═╝  ╚═╝ ╚══╝╚══╝ ╚══════╝`;
+
+const ASCII_AWL = `
+    _       __        __
+   / \\      \\ \\      / /
+  / _ \\      \\ \\ /\\ / /
+ / ___ \\      \\ V  V /
+/_/   \\_\\      \\_/\\_/`;
+
+/** 첫 화면은 Gemini처럼 조밀한 워드마크를 쓰되, 유니코드가 불확실한 환경은
+ * 같은 형태의 ASCII 로고로 안전하게 폴백한다. */
+export function renderBanner(c: Caps = caps()): string {
+  const color = makeColors(c.color);
+  const mark = c.unicode ? DENSE_AWL : ASCII_AWL;
+  return `${color.cyan(mark)}${BANNER}`;
+}
 
 /**
  * `awl --version` 이 보여줄 문자열을 만든다. 패키지 버전뿐 아니라 설치된
@@ -55,7 +72,7 @@ export function buildProgram(): Command {
     .name('awl')
     .version(versionString(), '-v, --version', '버전을 출력합니다')
     .helpOption('-h, --help', '도움말을 출력합니다')
-    .addHelpText('beforeAll', `${BANNER}\n`)
+    .addHelpText('beforeAll', `${renderBanner()}\n`)
     .showHelpAfterError();
 
   // 사람이 치는 명령: init (처음 설정)

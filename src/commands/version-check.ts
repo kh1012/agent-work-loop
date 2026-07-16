@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { version as packageVersion } from '../../package.json';
 import { installedEngineVersion } from '../core/engine.js';
-import { type Caps, caps, makeColors } from '../core/tty.js';
+import { type Caps, caps, card, makeColors } from '../core/tty.js';
 import { type VersionCheckResult, type VersionInputs, checkVersions } from '../core/versions.js';
 import { resolveProjectRoot } from './config.js';
 import { packageEngineDir, skillsVersionPath } from './init.js';
@@ -72,18 +72,14 @@ export function gatherVersionInputs(projectRoot: string | null): VersionInputs {
 export function renderVersionCheck(result: VersionCheckResult, c: Caps): string {
   const color = makeColors(c.color);
   if (result.ok) {
-    return `\n  ${color.green('버전이 전부 일치합니다.')}\n`;
+    return card('버전 확인', [color.green('버전이 전부 일치합니다.')], c);
   }
-  const out: string[] = [
-    '',
-    `  ${color.yellow('[!]')} 버전 불일치 ${result.mismatches.length}건`,
-    '',
-  ];
+  const out: string[] = [];
   for (const m of result.mismatches) {
-    out.push(`  ${color.yellow('[!]')} ${m.kind}: ${m.a} / ${m.b}`);
-    out.push(`      ${color.dim(m.hint)}`);
+    out.push(`${color.yellow('[!]')} ${m.kind}: ${m.a} / ${m.b}`);
+    out.push(`    ${color.dim(m.hint)}`);
   }
-  return `${out.join('\n')}\n`;
+  return card(`버전 불일치 ${result.mismatches.length}건`, out, c);
 }
 
 export function runVersionCheck(opts: { json: boolean }): void {

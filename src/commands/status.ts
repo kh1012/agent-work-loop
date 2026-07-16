@@ -1,4 +1,4 @@
-import { type Caps, caps, makeColors } from '../core/tty.js';
+import { type Caps, caps, card, makeColors } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
 import { readRecords } from './record.js';
 import { loadState } from './state.js';
@@ -147,12 +147,7 @@ export function renderStatus(report: StatusReport, c: Caps): string {
 
   // 아직 시작 전: 상태도 기록도 없다.
   if (report.phase === null && report.criteria.total === 0 && report.records.total === 0) {
-    return [
-      '',
-      `  ${color.bold('진행 상황')}`,
-      '',
-      '  아직 시작 전입니다. 목표를 주고 awl-loop 를 실행하세요.',
-    ].join('\n');
+    return card('진행 상황', ['아직 시작 전입니다. 목표를 주고 awl-loop 를 실행하세요.'], c);
   }
 
   const cr = report.criteria;
@@ -160,33 +155,31 @@ export function renderStatus(report: StatusReport, c: Caps): string {
     .map(([t, n]) => `${t} ${n}`)
     .join(' · ');
 
-  const out: string[] = ['', `  ${color.bold('진행 상황')}  ${report.generation}세대`, ''];
+  const out: string[] = [];
   out.push(
-    `  단계        ${report.phase ?? '(없음)'}${report.workitem ? `  ${color.dim(report.workitem)}` : ''}`,
+    `단계        ${report.phase ?? '(없음)'}${report.workitem ? `  ${color.dim(report.workitem)}` : ''}`,
   );
   out.push(
-    `  완료 조건   ${color.bold(`${cr.passed}/${cr.total}`)} 통과  ${color.dim(`(막힘 ${cr.blocked}, 진행 ${cr.inProgress}, 대기 ${cr.pending})`)}`,
+    `완료 조건   ${color.bold(`${cr.passed}/${cr.total}`)} 통과  ${color.dim(`(막힘 ${cr.blocked}, 진행 ${cr.inProgress}, 대기 ${cr.pending})`)}`,
   );
   for (const b of cr.blockedByDeps) {
-    out.push(
-      `    ${color.yellow(b.id)}  블록됨  ${color.dim(`(대기: ${b.waitingOn.join(', ')})`)}`,
-    );
+    out.push(`  ${color.yellow(b.id)}  블록됨  ${color.dim(`(대기: ${b.waitingOn.join(', ')})`)}`);
   }
   out.push(
-    `  기록        ${report.records.total}개  ${color.dim(typeSummary ? `(${typeSummary})` : '')}`,
+    `기록        ${report.records.total}개  ${color.dim(typeSummary ? `(${typeSummary})` : '')}`,
   );
-  out.push(`  최근 검증   ${report.lastAttempt ?? color.dim('(없음)')}`);
+  out.push(`최근 검증   ${report.lastAttempt ?? color.dim('(없음)')}`);
   for (const g of report.gates) {
     if (!g.recorded) {
-      out.push(`  게이트 ${g.gate}    ${color.dim('대기중')}`);
+      out.push(`게이트 ${g.gate}    ${color.dim('대기중')}`);
       continue;
     }
     const when = g.at ? g.at.slice(0, 16).replace('T', ' ') : '';
     const summary = `완료조건 ${g.presentedCriteriaCount ?? 0}개, 제외 ${g.presentedExclusionsCount ?? 0}건`;
     const autoTag = g.auto ? color.dim(' (자동)') : '';
-    out.push(`  게이트 ${g.gate}    ${g.decision}${autoTag}   ${when}   ${color.dim(summary)}`);
+    out.push(`게이트 ${g.gate}    ${g.decision}${autoTag}   ${when}   ${color.dim(summary)}`);
   }
-  return out.join('\n');
+  return card(`진행 상황 · ${report.generation}세대`, out, c);
 }
 
 export function runStatus(opts: { json: boolean }): void {

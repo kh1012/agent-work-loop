@@ -8,10 +8,9 @@ import { runInteractiveSelect } from '../core/select.js';
 import {
   type Caps,
   type Colors,
-  type Symbols,
   caps,
+  card,
   makeColors,
-  makeSymbols,
   rawModeCapable,
   stringWidth,
 } from '../core/tty.js';
@@ -629,16 +628,10 @@ export function applyInit(projectRoot: string, inputs: InitInputs, now: string):
 
 const WIDTH = 64;
 
-/** 오른쪽이 열린 L자 박스. 제목은 상단 테두리에 얹는다. 한글 폭을 고려한다. */
-function stepBox(step: string, title: string, lines: string[], sym: Symbols): string {
-  const left = `${sym.boxTL}${sym.boxH} ${step} `;
-  const right = ` ${title}`;
-  const dashes = Math.max(1, WIDTH - stringWidth(left) - stringWidth(right));
-  const out: string[] = [left + sym.boxH.repeat(dashes) + right, sym.boxV];
-  for (const line of lines) {
-    out.push(line ? `${sym.boxV}  ${line}` : sym.boxV);
-  }
-  return out.join('\n');
+/** 모든 init 화면을 같은 카드로 렌더한다. 고정 폭은 넓은 명령행도 정돈해 보이게
+ * 하고, 내용이 더 길면 자연스럽게 확장한다. */
+function stepBox(step: string, title: string, lines: string[], c: Caps): string {
+  return card(`${step}${c.unicode ? ' · ' : ' - '}${title}`, lines, c, WIDTH - 4);
 }
 
 const VERIFY_LABELS: Record<keyof VerifyMap, string> = {
@@ -694,44 +687,45 @@ export function renderNonTtyNotice(): string {
 
 /** 마지막 결과 화면. 다음 행동 하나만 가리킨다. */
 export function renderResult(result: InitResult, inputs: InitInputs, c: Caps): string {
-  const sym = makeSymbols(c);
   const color = makeColors(c.color);
   const line = (name: string, value: string, note = ''): string =>
     `  ${name.padEnd(20, ' ')}${value}${note ? `    ${color.dim(note)}` : ''}`;
 
-  const out: string[] = [''];
-  out.push(line('~/.awl', result.globalCreated ? '생성됨' : '이미 있음'));
-  out.push(line('~/.awl/engine', result.engineVersion));
-  out.push(line('.awl/config.json', '생성됨', '<- 커밋하세요. 팀원은 이 파일을 씁니다'));
-  out.push(
+  const setupLines: string[] = [];
+  setupLines.push(line('~/.awl', result.globalCreated ? '생성됨' : '이미 있음'));
+  setupLines.push(line('~/.awl/engine', result.engineVersion));
+  setupLines.push(line('.awl/config.json', '생성됨', '<- 커밋하세요. 팀원은 이 파일을 씁니다'));
+  setupLines.push(
     line(
       '.awl/state.json',
       result.gitignore === 'added' ? 'gitignore 에 추가함' : '이미 gitignore 에 있음',
     ),
   );
-  out.push(
-    `  ${color.dim(
+  setupLines.push(
+    color.dim(
       `규칙 ${result.ruleCount}개 · 교훈 ${result.lessonCount}개 · 등록된 프로젝트 ${result.projectCount}개 · 1세대`,
-    )}`,
+    ),
   );
-  out.push('');
-  out.push(`  ${sym.boxH.repeat(WIDTH - 2)}`);
-  out.push('');
+
+  const nextLines: string[] = [];
 
   if (inputs.skills.claude) {
-    out.push('  Claude Code 를 열고 이렇게 말하세요.');
-    out.push('');
-    out.push(`    ${color.bold('/awl-loop')}  페이지 편집기에 여백 시스템을 넣고 싶어`);
+    nextLines.push('Claude Code 를 열고 이렇게 말하세요.');
+    nextLines.push('');
+    nextLines.push(`${color.bold('/awl-loop')}  페이지 편집기에 여백 시스템을 넣고 싶어`);
   } else if (inputs.skills.codex) {
-    out.push('  Codex 에게 이렇게 말하세요.');
-    out.push('');
-    out.push(`    ${color.bold('/awl-loop')}  페이지 편집기에 여백 시스템을 넣고 싶어`);
+    nextLines.push('Codex 에게 이렇게 말하세요.');
+    nextLines.push('');
+    nextLines.push(`${color.bold('/awl-loop')}  페이지 편집기에 여백 시스템을 넣고 싶어`);
   } else {
-    out.push('  나중에 스킬을 설치하려면 awl init 을 다시 실행하세요.');
+    nextLines.push('나중에 스킬을 설치하려면 awl init 을 다시 실행하세요.');
   }
-  out.push('');
-  out.push(`  ${sym.boxH.repeat(WIDTH - 2)}`);
-  return out.join('\n');
+  return [
+    '',
+    card('설정 완료', setupLines, c, WIDTH - 4),
+    '',
+    card('다음 단계', nextLines, c, WIDTH - 4),
+  ].join('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -761,7 +755,6 @@ function langDefaultIndex(projectRoot: string): number {
  * 데모/보고가 똑같은 화면을 쓴다(화면이 코드와 따로 놀지 않게).
  */
 export function buildScreens(projectRoot: string, hasGlobal: boolean, c: Caps): InteractiveScreens {
-  const sym = makeSymbols(c);
   const project = path.basename(projectRoot);
   const defLang = langDefaultIndex(projectRoot);
   const verify = detectVerify(projectRoot);
@@ -794,8 +787,8 @@ export function buildScreens(projectRoot: string, hasGlobal: boolean, c: Caps): 
 
   return {
     welcome,
-    lang: stepBox('1/4', '주 언어', langLines, sym),
-    verify: stepBox('2/4', '검증 명령어', verifyStepLines(verify), sym),
+    lang: stepBox('1/4', '주 언어', langLines, c),
+    verify: stepBox('2/4', '검증 명령어', verifyStepLines(verify), c),
     rules: stepBox(
       '3/4',
       '규칙이란',
@@ -810,7 +803,7 @@ export function buildScreens(projectRoot: string, hasGlobal: boolean, c: Caps): 
         '',
         '그걸 판단하려면 이 프로젝트가 어떤 곳인지 알아야 합니다.',
       ],
-      sym,
+      c,
     ),
     character: stepBox(
       '4/4',
@@ -822,7 +815,7 @@ export function buildScreens(projectRoot: string, hasGlobal: boolean, c: Caps): 
         '비워둬도 됩니다. 다만 적어두면, 다른 프로젝트의 규칙이',
         '여기로 잘못 끌려오지 않습니다.',
       ],
-      sym,
+      c,
     ),
     skills: stepBox(
       '스킬',
@@ -835,7 +828,7 @@ export function buildScreens(projectRoot: string, hasGlobal: boolean, c: Caps): 
         'Space 로 여럿 선택하고 Enter 로 확정하세요.',
         `감지됨: Claude Code ${agents.claude ? '있음' : '없음'} · Codex ${agents.codex ? '있음' : '없음'}`,
       ],
-      sym,
+      c,
     ),
   };
 }
@@ -989,84 +982,123 @@ export function applyVerifyCwd(verify: VerifyMap, cwd: string | undefined): Veri
 }
 
 async function interactiveInputs(
-  rl: readline.Interface,
   projectRoot: string,
   hasGlobal: boolean,
   c: Caps,
 ): Promise<InitInputs> {
   const screens = buildScreens(projectRoot, hasGlobal, c);
   const project = path.basename(projectRoot);
-
-  // 1. 프로젝트 등록 안내
-  if (screens.welcome) {
-    process.stdout.write(`${screens.welcome}\n`);
-  }
-
-  // 2. [1/4] 주 언어 (WI-Y: raw-mode 가능하면 방향키, 아니면 기존 번호 입력)
-  process.stdout.write(`\n${screens.lang}\n`);
-  const langIdx = await selectSingle(
-    rl,
-    LANG_OPTIONS,
-    langDefaultIndex(projectRoot),
-    c,
-    rawModeCapable(),
-    '주 언어',
-  );
-  let mainLanguage = LANG_VALUES[langIdx] ?? '';
-  if (langIdx === LANG_OPTIONS.length - 1) {
-    mainLanguage = (await ask(rl, '  주 언어를 입력하세요: ')).trim();
-  }
-
-  // 3. [2/4] 검증 명령어 (WI-B: 모노레포면 워크스페이스 패키지를 물어볼 수 있다)
-  const rootVerify = detectVerify(projectRoot);
-  const located = await promptVerifyLocation(rl, projectRoot, rootVerify, makeColors(c.color));
-  const verify = located.verify;
-  if (located.cwd) {
-    // 패키지를 새로 골랐으면 그 패키지에서 감지한 값으로 화면도 다시 그린다
-    // (buildScreens 가 만든 screens.verify 는 루트 기준이라 여기선 쓰지 않는다).
-    process.stdout.write(
-      `\n${stepBox('2/4', '검증 명령어', verifyStepLines(verify), makeSymbols(c))}\n`,
-    );
-  } else {
-    process.stdout.write(`\n${screens.verify}\n`);
-  }
-  for (const k of Object.keys(VERIFY_LABELS) as (keyof VerifyMap)[]) {
-    const cur = verify[k];
-    const shown = cur ? cur.cmd : '(없음)';
-    const answer = (await ask(rl, `  ${VERIFY_LABELS[k]} [${shown}]: `)).trim();
-    if (answer !== '') {
-      verify[k] = answer.toLowerCase() === '없음' || answer === '-' ? null : splitEnv(answer);
+  const useRawMode = rawModeCapable();
+  const session: { rl: readline.Interface | null } = { rl: null };
+  const prompt = (): readline.Interface => {
+    if (!session.rl) {
+      session.rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     }
+    return session.rl;
+  };
+
+  try {
+    // 1. 프로젝트 등록 안내
+    if (screens.welcome) {
+      process.stdout.write(`${screens.welcome}\n`);
+    }
+
+    // readline은 raw-mode 키 입력을 동시에 읽어 화면을 망가뜨린다. 따라서 첫
+    // 선택기는 readline을 만들기 전에 실행하고, 이후 텍스트 질문 때만 만든다.
+    process.stdout.write(`\n${screens.lang}\n`);
+    const rawLanguage = useRawMode
+      ? await runInteractiveSelect(LANG_OPTIONS, langDefaultIndex(projectRoot), false, c, [], {
+          title: '주 언어',
+          hint: '↑↓ 또는 j/k 이동 · Enter 선택 · Esc 기본값 유지',
+        })
+      : null;
+    const langIdx =
+      rawLanguage?.index ??
+      (useRawMode
+        ? langDefaultIndex(projectRoot)
+        : await selectSingle(
+            prompt(),
+            LANG_OPTIONS,
+            langDefaultIndex(projectRoot),
+            c,
+            false,
+            '주 언어',
+          ));
+    let mainLanguage = LANG_VALUES[langIdx] ?? '';
+    if (langIdx === LANG_OPTIONS.length - 1) {
+      mainLanguage = (await ask(prompt(), '  주 언어를 입력하세요: ')).trim();
+    }
+
+    // 3. [2/4] 검증 명령어 (WI-B: 모노레포면 워크스페이스 패키지를 물어볼 수 있다)
+    const rootVerify = detectVerify(projectRoot);
+    const located = await promptVerifyLocation(
+      prompt(),
+      projectRoot,
+      rootVerify,
+      makeColors(c.color),
+    );
+    const verify = located.verify;
+    if (located.cwd) {
+      // 패키지를 새로 골랐으면 그 패키지에서 감지한 값으로 화면도 다시 그린다.
+      process.stdout.write(`\n${stepBox('2/4', '검증 명령어', verifyStepLines(verify), c)}\n`);
+    } else {
+      process.stdout.write(`\n${screens.verify}\n`);
+    }
+    for (const k of Object.keys(VERIFY_LABELS) as (keyof VerifyMap)[]) {
+      const cur = verify[k];
+      const shown = cur ? cur.cmd : '(없음)';
+      const answer = (await ask(prompt(), `  ${VERIFY_LABELS[k]} [${shown}]: `)).trim();
+      if (answer !== '') {
+        verify[k] = answer.toLowerCase() === '없음' || answer === '-' ? null : splitEnv(answer);
+      }
+    }
+    applyVerifyCwd(verify, located.cwd);
+
+    // 4. [3/4] 규칙이란 (설명 화면)
+    process.stdout.write(`\n${screens.rules}\n`);
+    await ask(prompt(), '  Enter 로 계속: ');
+
+    // 5. [4/4] 이 프로젝트는 어떤 곳입니까
+    process.stdout.write(`\n${screens.character}\n`);
+    const character = (await ask(prompt(), '  > ')).trim();
+
+    // 6. 마지막 선택기만 다시 raw-mode를 쓸 수 있다. readline을 먼저 완전히 닫아
+    // stdin의 유일한 소비자가 선택기라는 것을 보장한다.
+    process.stdout.write(`\n${screens.skills}\n`);
+    const agents = detectAgents(projectRoot);
+    const skillOptions = [
+      'Claude Code (.claude/skills/awl-loop/ 에 설치)',
+      'Codex (AGENTS.md 에 추가)',
+    ];
+    const defaultChecked = [agents.claude ? 0 : -1, agents.codex ? 1 : -1].filter((i) => i >= 0);
+    if (useRawMode && session.rl) {
+      session.rl.close();
+      session.rl = null;
+    }
+    const rawSkills = useRawMode
+      ? await runInteractiveSelect(skillOptions, 0, true, c, defaultChecked, {
+          title: '설치할 에이전트 스킬',
+          hint: '↑↓ 또는 j/k 이동 · Space 선택 · Enter 확정 · Esc 기본값 유지',
+        })
+      : null;
+    const checked =
+      rawSkills?.checked ??
+      (useRawMode
+        ? defaultChecked
+        : await selectMulti(
+            prompt(),
+            skillOptions,
+            defaultChecked,
+            c,
+            false,
+            '설치할 에이전트 스킬',
+          ));
+    const skills = { claude: checked.includes(0), codex: checked.includes(1) };
+
+    return { project, mainLanguage, character, verify, skills };
+  } finally {
+    session.rl?.close();
   }
-  applyVerifyCwd(verify, located.cwd);
-
-  // 4. [3/4] 규칙이란 (설명 화면)
-  process.stdout.write(`\n${screens.rules}\n`);
-  await ask(rl, '  Enter 로 계속: ');
-
-  // 5. [4/4] 이 프로젝트는 어떤 곳입니까
-  process.stdout.write(`\n${screens.character}\n`);
-  const character = (await ask(rl, '  > ')).trim();
-
-  // 6. 스킬 설치 (WI-Y: raw-mode 가능하면 방향키+Space 다중선택, 아니면 쉼표 입력)
-  process.stdout.write(`\n${screens.skills}\n`);
-  const agents = detectAgents(projectRoot);
-  const skillOptions = [
-    'Claude Code (.claude/skills/awl-loop/ 에 설치)',
-    'Codex (AGENTS.md 에 추가)',
-  ];
-  const defaultChecked = [agents.claude ? 0 : -1, agents.codex ? 1 : -1].filter((i) => i >= 0);
-  const checked = await selectMulti(
-    rl,
-    skillOptions,
-    defaultChecked,
-    c,
-    rawModeCapable(),
-    '설치할 에이전트 스킬',
-  );
-  const skills = { claude: checked.includes(0), codex: checked.includes(1) };
-
-  return { project, mainLanguage, character, verify, skills };
 }
 
 /** 이미 config가 있을 때의 짧은 확인 흐름. */
@@ -1076,7 +1108,6 @@ async function handleExistingConfig(
   c: Caps,
   now: string,
 ): Promise<void> {
-  const sym = makeSymbols(c);
   const raw = readJson(path.join(projectRoot, '.awl', 'config.json'));
   const config = raw as Partial<AwlConfig> | null;
   const installedVer = installedEngineVersion();
@@ -1102,7 +1133,11 @@ async function handleExistingConfig(
 
   const options = ['그대로 쓴다', '검증 명령어만 고친다', '처음부터 다시'];
   process.stdout.write(
-    `  ${sym.radioOn} 1  ${options[0]}      ${sym.radioOff} 2  ${options[1]}      ${sym.radioOff} 3  ${options[2]}\n`,
+    `${card(
+      '기존 설정',
+      options.map((option, i) => `${i + 1}. ${option}`),
+      c,
+    )}\n`,
   );
   const choice = await promptNumber(rl, 0, options.length);
 
@@ -1136,7 +1171,9 @@ async function handleExistingConfig(
     return;
   }
   // 처음부터 다시
-  const inputs = await interactiveInputs(rl, projectRoot, isGlobalInstalled(), c);
+  // raw-mode 선택기와 readline이 경쟁하지 않게 기존 인터페이스를 닫는다.
+  rl.close();
+  const inputs = await interactiveInputs(projectRoot, isGlobalInstalled(), c);
   const result = applyInit(projectRoot, inputs, now);
   process.stdout.write(`\n${renderResult(result, inputs, c)}\n`);
 }
@@ -1169,17 +1206,17 @@ export async function runInit(opts: { yes: boolean }): Promise<void> {
     return;
   }
 
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    if (configExists) {
+  if (configExists) {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    try {
       await handleExistingConfig(rl, projectRoot, c, now);
-    } else {
-      const hasGlobal = isGlobalInstalled();
-      const inputs = await interactiveInputs(rl, projectRoot, hasGlobal, c);
-      const result = applyInit(projectRoot, inputs, now);
-      process.stdout.write(`\n${renderResult(result, inputs, c)}\n`);
+    } finally {
+      rl.close();
     }
-  } finally {
-    rl.close();
+    return;
   }
+
+  const inputs = await interactiveInputs(projectRoot, isGlobalInstalled(), c);
+  const result = applyInit(projectRoot, inputs, now);
+  process.stdout.write(`\n${renderResult(result, inputs, c)}\n`);
 }
