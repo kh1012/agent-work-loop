@@ -22,6 +22,7 @@
 
 ### 고침
 
+- 보호 파일 변경 경고의 하드코딩 ❌ 를 signal(error)로 — commit/verify 가 caps 게이트를 타 CI·파이프에서 유니코드 ❌/ASCII [x] 로 폴백(글리프 깨짐 차단). 유일하게 signal 을 우회하던 상태 마커 [cli-visual-consistency AC-01]
 - doctor 교훈 수를 gotchas/ 의 .json 만 센다 — 비-json 아티팩트가 섞여도 awl gotchas 와 카운트가 어긋나지 않음 [B1 후속, 검증 세션 지적]
 
 ## [0.6.5] - 2026-07-16
