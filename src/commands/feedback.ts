@@ -112,7 +112,7 @@ export function renderFeedback(report: FeedbackReport, c: Caps): string {
   }
   const out: string[] = [];
   for (const [area, g] of entries) {
-    const tag = g.repeated ? `  ${color.yellow('[!] 반복')}` : '';
+    const tag = g.repeated ? `  ${signal(c, 'warn')} 반복` : ''; // 하드코딩 [!] 대신 caps 폴백(F-07)
     out.push(`${color.bold(area)}   ${g.count}건${tag}`);
     for (const item of g.items) {
       const wi = typeof item.workitem === 'string' ? item.workitem : '?';

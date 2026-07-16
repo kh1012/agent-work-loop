@@ -158,4 +158,10 @@ describe('renderFeedback — 해법 미제시 (BC-05)', () => {
     const text = renderFeedback(buildFeedbackReport([]), ASCII);
     expect(text).toContain('아직 수집된 awl-feedback 이 없습니다');
   });
+
+  it('반복 태그가 하드코딩 [!] 가 아니라 signal(warn) 로 caps 폴백한다 (cli-visual-consistency AC-05)', () => {
+    const rep = buildFeedbackReport([fb({ area: 'commit' }), fb({ area: 'commit' })]);
+    expect(renderFeedback(rep, ASCII)).toContain('[!] 반복'); // ASCII 폴백
+    expect(renderFeedback(rep, { unicode: true, color: false, tty: true })).toContain('⚠️ 반복'); // 유니코드
+  });
 });
