@@ -481,10 +481,9 @@ async function removeGitWorktree(
   return { ok: true };
 }
 
-/** .awl-worktrees/ 를 .gitignore 에 추가한다(없으면). init.ts 의 ensureGitignore 와 같은 패턴. */
-function ensureWorktreesGitignored(root: string): void {
+/** target 을 .gitignore 에 추가한다(없으면). init.ts 의 ensureGitignore 와 같은 패턴. */
+function ensureGitignored(root: string, target: string): void {
   const gi = path.join(root, '.gitignore');
-  const target = '.awl-worktrees/';
   const content = fs.existsSync(gi) ? fs.readFileSync(gi, 'utf8') : '';
   if (content.split(/\r?\n/).some((line) => line.trim() === target)) {
     return;
@@ -522,18 +521,22 @@ export async function runWorkNew(
       process.stderr.write(`\n  워크트리를 만들지 못했습니다: ${created.error}\n`);
       process.exit(1);
     }
-    ensureWorktreesGitignored(root);
+    ensureGitignored(root, '.awl-worktrees/');
   }
 
   // --isolated(concurrency-2): 이 워크아이템 전용 AWL_HOME 을 만든다. records(~/.awl)는
   // AWL_HOME 파생이라, worktree(state 격리) + 이 전용 home(records 격리)이 합쳐지면
   // 병렬 루프가 완전히 나뉜다. 미래 셸 env 는 못 바꾸므로 경로만 만들고 export 를
-  // 안내한다(실제 격리는 세션이 그 export 를 적용할 때 발생). 워크트리별 경로라
-  // 두 --isolated 세션이 같은 home 을 공유하지 않는다.
+  // 안내한다(실제 격리는 세션이 그 export 를 적용할 때 발생). --worktree 와 함께 쓰면
+  // 워크트리별 경로라 두 세션이 같은 home 을 공유하지 않는다.
   let isolatedHome: string | undefined;
   if (opts.isolated) {
     isolatedHome = path.join(worktreePath ?? root, '.awl-home');
     fs.mkdirSync(isolatedHome, { recursive: true });
+    // .awl-worktrees/ 와 같은 이중 방어: gitignore(여기) + commit self-filter(commit.ts).
+    // 패턴 .awl-home/ 은 root/.awl-home 과 워크트리 하위 .awl-home 을 모두 무시해,
+    // awl 밖 표준 git 조작(git add -A/status)에도 records 가 안 새게 한다.
+    ensureGitignored(root, '.awl-home/');
   }
 
   const result = createWorkitem(loadState(root), id, now, branch, description, worktreePath);

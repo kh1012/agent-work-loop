@@ -534,9 +534,11 @@ describe('runWorkNew --worktree (WI-F AC-03, 실제 git 저장소로 통합 확�
     const out = writes.join('');
     expect(out).toContain('export AWL_HOME=');
     expect(out).toContain(homeDir);
+    // 이중 방어(AC-04): self-filter 뿐 아니라 gitignore 에도 넣어 표준 git 조작 오염 차단.
+    expect(fs.readFileSync(path.join(proj, '.gitignore'), 'utf8')).toContain('.awl-home/');
   });
 
-  it('--isolated 없이는 .awl-home 을 만들지 않는다 (concurrency-2 AC-03 회귀)', async () => {
+  it('--isolated 없이는 .awl-home 을 만들지 않는다 (concurrency-2 AC-02 회귀)', async () => {
     const proj = realGitProject();
     await runWorkNew('WI-NOISO', undefined, {});
     expect(fs.existsSync(path.join(proj, '.awl-home'))).toBe(false);
