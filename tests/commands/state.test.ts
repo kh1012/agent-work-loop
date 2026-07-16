@@ -193,3 +193,19 @@ describe('setCriterion — commit 필드 보존 불변식 (wi8-F3 AC-01)', () =>
     expect(c?.baseline).toBe('head_sha'); // baseline 은 리셋됨(다른 목적).
   });
 });
+
+describe('writeState — 원자적 쓰기 (concurrency-3 AC-01)', () => {
+  // 원자성(temp+rename) 자체는 크래시를 시뮬레이션해야 검증되고 fs 는 esbuild interop 상
+  // spy 로 가로챌 수 없어(코드베이스에 fs spy 패턴 부재), 여기서는 관찰 가능한 계약을
+  // 가드한다: 산출물이 유효 JSON 이고 중간 temp 가 잔존하지 않는다. rename 의 원자성은
+  // POSIX 보장 + 코드 리뷰로 확인한다.
+  it('유효 JSON 을 남기고 중간 temp 를 잔존시키지 않는다(덮어쓰기 포함)', () => {
+    const root = tmp();
+    writeState(root, { phase: 'awaiting-gate1' });
+    writeState(root, { phase: 'loop', x: 1 }); // 덮어쓰기도 온전해야 한다.
+    expect(loadState(root)).toMatchObject({ phase: 'loop', x: 1 });
+    const files = fs.readdirSync(path.join(root, '.awl'));
+    expect(files.filter((f) => f.includes('.tmp'))).toEqual([]);
+    expect(files).toContain('state.json');
+  });
+});

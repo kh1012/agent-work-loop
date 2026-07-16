@@ -97,7 +97,12 @@ export function setCriterion(
 export function writeState(projectRoot: string, state: Record<string, unknown>): void {
   const p = statePath(projectRoot);
   fs.mkdirSync(path.dirname(p), { recursive: true });
-  fs.writeFileSync(p, `${JSON.stringify(state, null, 2)}\n`);
+  // 원자적 쓰기: temp 에 쓰고 rename 으로 교체한다 — 부분 쓰기가 중단돼도(디스크 full,
+  // 크래시, 동시 세션) state.json 이 빈 파일/반쪽 JSON 으로 남지 않는다. rename 은
+  // 같은 파일시스템에서 원자적이다(POSIX). temp 이름에 pid 를 넣어 프로세스 간 충돌 방지.
+  const tmp = `${p}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`);
+  fs.renameSync(tmp, p);
 }
 
 /** 검증 결과를 현재 완료 조건에 기계적으로 반영한다. 사람의 blocked 기록과는 구분한다. */
