@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { protectedFilesMessage } from '../core/protected-files.js';
 import { run } from '../core/runner.js';
-import { type Caps, caps, makeColors, signal } from '../core/tty.js';
+import { type Caps, caps, feedback, makeColors, makeTokens, signal } from '../core/tty.js';
 import { loadConfig, resolveProjectRoot } from './config.js';
 import { hasApprovedGate1 } from './record.js';
 import { getCriterion, loadState, setCriterion, writeState } from './state.js';
@@ -355,7 +355,9 @@ export async function checkBaseDrift(
 function requireRoot(): string {
   const root = resolveProjectRoot();
   if (!root) {
-    process.stderr.write('\n  프로젝트 루트를 찾을 수 없습니다. awl init 을 실행하세요.\n');
+    process.stderr.write(
+      `\n  ${signal(caps(), 'error')} 프로젝트 루트를 찾을 수 없습니다. awl init 을 실행하세요.\n`,
+    );
     process.exit(1);
   }
   return root;
@@ -416,7 +418,9 @@ export async function runCommit(
   }
 
   if (!opts.message) {
-    process.stderr.write(`\n  커밋 메시지가 필요합니다: awl commit ${ac} -m "..."\n`);
+    process.stderr.write(
+      `\n  ${signal(c, 'error')} 커밋 메시지가 필요합니다: awl commit ${ac} -m "..."\n`,
+    );
     process.exit(1);
   }
 
@@ -481,7 +485,7 @@ export async function runCommit(
   }
 
   if (!outcome.committed) {
-    process.stderr.write(`\n  ${color.red('커밋하지 않았습니다.')} ${outcome.reason}\n`);
+    process.stderr.write(`\n  ${signal(c, 'error')} 커밋하지 않았습니다. ${outcome.reason}\n`);
     const guidance = buildRescueGuidance(outcome.reason);
     if (guidance) {
       process.stderr.write(`${guidance}\n`);
@@ -489,10 +493,13 @@ export async function runCommit(
     process.exit(1);
   }
 
-  process.stdout.write(`\n  커밋됨: ${outcome.commit?.slice(0, 10)}  ${opts.message}\n`);
+  // 성공: ok 신호 + 커밋 해시는 강조(emphasis) — feedback 유틸의 첫 사용처(F-06).
+  process.stdout.write(
+    `\n${feedback(c, 'ok', `커밋됨: ${makeTokens(c).emphasis(outcome.commit?.slice(0, 10) ?? '')}`, opts.message)}\n`,
+  );
   if (!outcome.selfCheckOk) {
     process.stderr.write(
-      `  ${color.red('내부 검증 경고')}: 스테이징한 파일과 실제 커밋 내용이 다릅니다: ${outcome.extraFiles.join(', ')}\n`,
+      `  ${signal(c, 'warn')} 내부 검증 경고: 스테이징한 파일과 실제 커밋 내용이 다릅니다: ${outcome.extraFiles.join(', ')}\n`,
     );
   } else {
     // D-36: 이건 "커밋 = 스테이징 내용"이라는 내부 일관성만 확인한다(항상 참인
