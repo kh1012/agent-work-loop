@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.6.8] - 2026-07-16
+
 ### 추가
 
 - 파이프라인 상태 배지 + status --pipeline (pipeline-status-tracking) — tty.ts 에 statusBadge(pending/executing/reviewing/complete/blocked)를 signal 패턴(색 토큰 + 유니코드 글리프 폭1 / ASCII 폴백)으로 추가해 상태 어휘를 한 곳에서 관리한다. awl status --pipeline 이 temp-loop 하네스의 .tasks/{plan,exec,review} 파일명만으로(내용 안 엶) 레인별 workitem 상태를 배지로 낸다(review .pass=complete, 미반영 수정요구=blocked, exec 핸드오프=reviewing, plan .hold=blocked, 착수 ㅍ=executing, 신규=pending). --pipeline opt-in 이라 일반 status 는 무영향, .tasks 가 없으면 빈 뷰(awl 은 하네스 유무를 판단하지 않는다). 세션 상태-요약 규칙(AC-04)과 review 의 .pass emit(AC-03)은 프로젝트 밖 스킬 계약이라 로드맵 P4(engine/skills 편입)로 미룸 [pipeline-status-tracking]
