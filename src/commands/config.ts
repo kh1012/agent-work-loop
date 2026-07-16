@@ -3,7 +3,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { findProjectRoot } from '../core/paths.js';
 import { CommandNotFoundError, run } from '../core/runner.js';
-import { type Caps, caps, card, makeColors, signal } from '../core/tty.js';
+import { type Caps, caps, card, makeColors, makeSymbols, signal } from '../core/tty.js';
 import { LANG_OPTIONS, LANG_VALUES, ask, buildScreens, promptNumber } from './init.js';
 
 /**
@@ -484,23 +484,26 @@ export async function applyConfigValue(
 
 function renderConfig(config: AwlConfig, c: Caps): string {
   const color = makeColors(c.color);
+  const s = makeSymbols(c);
   const out: string[] = [];
-  out.push(`├── 주 언어  ${config.mainLanguage || '(없음)'}`);
-  out.push(`├── 성격     ${config.character || '(없음)'}`);
-  out.push(`├── 엔진     ${config.engineVersion}`);
+  out.push(`${s.branch} 주 언어  ${config.mainLanguage || '(없음)'}`);
+  out.push(`${s.branch} 성격     ${config.character || '(없음)'}`);
+  out.push(`${s.branch} 엔진     ${config.engineVersion}`);
   out.push('');
   for (const k of VERIFY_ORDER) {
     const entry = config.verify[k];
-    out.push(`├── ${k.padEnd(10, ' ')}${entry ? entry.cmd : '(없음)'}`);
+    out.push(`${s.branch} ${k.padEnd(10, ' ')}${entry ? entry.cmd : '(없음)'}`);
     if (entry?.cwd) {
-      out.push(`│   └── cwd: ${entry.cwd}`);
+      out.push(`${s.vGuide}   ${s.lastBranch} cwd: ${entry.cwd}`);
     }
     if (entry?.env && Object.keys(entry.env).length > 0) {
-      out.push(`│   └── env: ${JSON.stringify(entry.env)}`);
+      out.push(`${s.vGuide}   ${s.lastBranch} env: ${JSON.stringify(entry.env)}`);
     }
   }
   out.push('');
-  out.push(`└── ${color.dim('명령을 바꾸려면: awl config set verify.lint.cmd "biome check ."')}`);
+  out.push(
+    `${s.lastBranch} ${color.dim('명령을 바꾸려면: awl config set verify.lint.cmd "biome check ."')}`,
+  );
   out.push(`    ${color.dim('직접 편집도 됩니다: .awl/config.json')}`);
   return card(`${config.project} 설정`, out, c);
 }

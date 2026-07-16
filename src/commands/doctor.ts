@@ -8,6 +8,7 @@ import {
   caps,
   card,
   makeColors,
+  makeSymbols,
   signal,
   stringWidth,
   visibleWidth,
@@ -831,11 +832,13 @@ export function renderText(report: DoctorReport, c: Caps): string {
   // 노란색(주의)과 빨간색(오류)은 색 지원 환경에선 색으로, 색 미지원/CI 에선
   // 마커([!] vs [!!])로 구분한다(WI-X) — 예전엔 둘 다 "-> hint"로 똑같이 보여서
   // 색이 없으면 구분이 안 됐다.
+  const s = makeSymbols(c);
   const statusText = (ch: Check): string => {
     const hint = clip(ch.hint ?? '', 52);
     switch (ch.status) {
       case 'ok':
-        return `${signal(c, 'ok')} ok`;
+        // 아이콘만으로 정상을 전한다 — 예전엔 "✅ ok"처럼 단어가 중복됐다.
+        return signal(c, 'ok');
       case 'missing':
       case 'fail':
         return `${signal(c, 'error')} ${hint}`;
@@ -858,7 +861,7 @@ export function renderText(report: DoctorReport, c: Caps): string {
     for (let i = 0; i < groupChecks.length; i++) {
       const ch = groupChecks[i] as Check;
       const status = statusText(ch);
-      const branch = i === groupChecks.length - 1 ? '└──' : '├──';
+      const branch = i === groupChecks.length - 1 ? s.lastBranch : s.branch;
       const base = `${branch} ${ch.name}: ${ch.value ?? '(없음)'}`;
       let line = clip(base, status ? Math.max(24, maxWidth - visibleWidth(status) - 2) : maxWidth);
       if (status) {

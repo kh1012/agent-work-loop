@@ -272,7 +272,9 @@ describe('renderText — 정렬과 출력', () => {
     // 이제 표 형식이 아니라 트리 형식이다. 긴 경로 하나가 카드 전체 폭을
     // 키우지 않도록 모든 행을 고정 상한 안에 넣는다.
     expect(rows.every((line) => stringWidth(line) <= 100)).toBe(true);
-    expect(text).toContain('├──');
+    // 트리 글리프도 ASCII 로 degrade 한다(예전엔 테두리만 ASCII, 트리는 유니코드 잔존).
+    expect(text).toContain('|--');
+    expect(text).not.toContain('├──');
   });
 
   it('ASCII 모드는 ANSI 색 코드를 넣지 않는다', async () => {

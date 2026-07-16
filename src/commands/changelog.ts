@@ -1,3 +1,4 @@
+import { caps, signal } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
 import { readRecords } from './record.js';
 import { loadState } from './state.js';
@@ -20,7 +21,9 @@ export function runChangelogDraft(opts: { workitem?: string; json?: boolean }): 
     return r.type === 'gate' && data.gate === 2 && data.decision === 'approved';
   });
   if (!gate2) {
-    process.stderr.write('\n  ⚠️  Gate 2 승인 뒤에만 CHANGELOG 초안을 만듭니다.\n');
+    process.stderr.write(
+      `\n  ${signal(caps(), 'warn')} Gate 2 승인 뒤에만 CHANGELOG 초안을 만듭니다.\n`,
+    );
     process.exit(1);
   }
   const entries = records

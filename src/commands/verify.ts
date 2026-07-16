@@ -474,7 +474,7 @@ function persistVerificationAttempts(projectRoot: string, passed: boolean): void
   writeState(projectRoot, attempted.state);
   if (attempted.blocked.length > 0) {
     process.stderr.write(
-      `\n  ⚠️  검증 3회 실패: ${attempted.blocked.join(', ')} 을(를) 자동 차단했습니다. (autoBlocked)\n`,
+      `\n  ${signal(caps(), 'warn')} 검증 3회 실패: ${attempted.blocked.join(', ')} 을(를) 자동 차단했습니다. (autoBlocked)\n`,
     );
   }
 }

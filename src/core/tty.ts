@@ -41,6 +41,11 @@ function detectColor(env: NodeJS.ProcessEnv, tty: boolean, ci: boolean): boolean
   if (env.TERM === 'dumb') {
     return false;
   }
+  // FORCE_COLOR 는 tty 감지를 덮어쓴다(문서 스크린샷·데모에서 파이프로도 색을 얻음).
+  // 단 위의 NO_COLOR/CI/dumb 는 여전히 우선한다(로그·CI 안전).
+  if (isTruthy(env.FORCE_COLOR)) {
+    return true;
+  }
   // 파이프로 리다이렉트되면(!isTTY) 색 없음.
   if (!tty) {
     return false;
@@ -140,7 +145,8 @@ export function charWidth(codePoint: number): number {
   // 결합용 기호(주요 범위)는 폭 0.
   if (
     (codePoint >= 0x0300 && codePoint <= 0x036f) || // Combining Diacritical Marks
-    (codePoint >= 0x200b && codePoint <= 0x200f) // Zero-width space 등
+    (codePoint >= 0x200b && codePoint <= 0x200f) || // Zero-width space 등
+    (codePoint >= 0xfe00 && codePoint <= 0xfe0f) // Variation Selectors (VS16 = 이모지 표현)
   ) {
     return 0;
   }
@@ -150,6 +156,8 @@ export function charWidth(codePoint: number): number {
 /** East Asian Wide/Fullwidth 범위인가 */
 function isWide(cp: number): boolean {
   return (
+    cp === 0x2139 || // ℹ (info, 이모지 표현 시 2칸)
+    (cp >= 0x2600 && cp <= 0x27bf) || // Misc Symbols + Dingbats (⚠ ✅ ❌ 등, 이모지 표현 2칸)
     (cp >= 0x1100 && cp <= 0x115f) || // Hangul Jamo
     (cp >= 0x2e80 && cp <= 0x303e) || // CJK Radicals ~ CJK Symbols
     (cp >= 0x3041 && cp <= 0x33ff) || // Hiragana ~ CJK Compatibility
@@ -184,6 +192,107 @@ export function visibleWidth(str: string): number {
   return stringWidth(str.replace(ANSI_SGR, ''));
 }
 
+/**
+ * 표시 폭 기준으로 한 줄을 width 칸 이내로 접는다(ANSI 색 인지). 공백 경계를
+ * 우선하되, 한 단어가 width 를 넘으면 강제로 자른다. 색이 걸린 줄도 시퀀스를
+ * 끊지 않고 줄마다 열린 색을 닫았다가 다시 여는 방식으로 안전하게 접는다.
+ * card 본문이 뷰포트를 넘겨 박스가 화면 밖까지 늘어나는 것을 막는 데 쓴다.
+ */
+export function wrapToWidth(text: string, width: number): string[] {
+  if (width <= 0 || visibleWidth(text) <= width) {
+    return [text];
+  }
+  // 1) 문자 단위로 (활성 스타일, 글자, 폭) 분해. SGR 은 폭 0, 스타일만 바꾼다.
+  const cells: { style: string; ch: string; w: number }[] = [];
+  let style = '';
+  let i = 0;
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI SGR 시퀀스를 스타일 경계로 인식한다.
+  const sgr = /^\x1b\[[0-9;]*m/;
+  while (i < text.length) {
+    const seq = sgr.exec(text.slice(i))?.[0];
+    if (seq) {
+      style = seq === RESET ? '' : style + seq;
+      i += seq.length;
+      continue;
+    }
+    const cp = text.codePointAt(i) ?? 0;
+    const ch = String.fromCodePoint(cp);
+    cells.push({ style, ch, w: charWidth(cp) });
+    i += ch.length;
+  }
+
+  // 2) 줄을 렌더할 때 열린 색을 최소 시퀀스로 다시 감싼다.
+  const render = (arr: { style: string; ch: string }[]): string => {
+    let out = '';
+    let open = '';
+    for (const cell of arr) {
+      if (cell.style !== open) {
+        if (open) out += RESET;
+        out += cell.style;
+        open = cell.style;
+      }
+      out += cell.ch;
+    }
+    return open ? out + RESET : out;
+  };
+
+  // 3) 표시 폭 기준 그리디 워드랩.
+  const lines: string[] = [];
+  let cur: { style: string; ch: string; w: number }[] = [];
+  let curW = 0;
+  const flush = (): void => {
+    let end = cur.length;
+    while (end > 0 && cur[end - 1]?.ch === ' ') end--;
+    lines.push(render(cur.slice(0, end)));
+    cur = [];
+    curW = 0;
+  };
+  for (const cell of cells) {
+    if (curW + cell.w > width && curW > 0) {
+      let br = -1;
+      for (let k = cur.length - 1; k >= 0; k--) {
+        if (cur[k]?.ch === ' ') {
+          br = k;
+          break;
+        }
+      }
+      if (br > 0) {
+        const carry = cur.slice(br + 1);
+        cur = cur.slice(0, br);
+        flush();
+        cur = carry;
+        curW = carry.reduce((s, x) => s + x.w, 0);
+      } else {
+        flush();
+      }
+    }
+    cur.push(cell);
+    curW += cell.w;
+  }
+  if (cur.length) flush();
+  return lines.length ? lines : [''];
+}
+
+/** 한 줄을 width 칸으로 자르고 넘치면 … 를 붙인다. 제목 등 평문에 쓴다. */
+export function truncateToWidth(text: string, width: number): string {
+  if (width <= 0) {
+    return '';
+  }
+  const plain = text.replace(ANSI_SGR, '');
+  if (stringWidth(plain) <= width) {
+    return plain;
+  }
+  let out = '';
+  let w = 0;
+  for (const ch of plain) {
+    const cw = charWidth(ch.codePointAt(0) ?? 0);
+    if (w + cw + 1 > width) break; // … 자리 확보
+    out += ch;
+    w += cw;
+  }
+  return `${out}…`;
+}
+
 // ---------------------------------------------------------------------------
 // 기호 세트
 // ---------------------------------------------------------------------------
@@ -197,8 +306,12 @@ export interface Symbols {
   boxV: string;
   midL: string;
   midR: string;
-  ok: string;
-  fail: string;
+  /** 트리 중간 가지 (├──) */
+  branch: string;
+  /** 트리 마지막 가지 (╰──) */
+  lastBranch: string;
+  /** 트리 세로 가이드 (│) */
+  vGuide: string;
   radioOn: string;
   radioOff: string;
   checkOn: string;
@@ -206,16 +319,19 @@ export interface Symbols {
 }
 
 const UNICODE_SYMBOLS: Symbols = {
-  boxTL: '┌',
-  boxTR: '┐',
-  boxBL: '└',
-  boxBR: '┘',
+  boxTL: '╭',
+  boxTR: '╮',
+  boxBL: '╰',
+  boxBR: '╯',
   boxH: '─',
   boxV: '│',
   midL: '├',
   midR: '┤',
-  ok: '✓',
-  fail: '✗',
+  branch: '├──',
+  // 트리 연결자는 사각으로 둔다 — 박스 모서리(둥근 ╭╮╰╯)와 역할이 다르고,
+  // 코드베이스 전반이 이미 사각 └── 를 쓰므로 한 벌로 일관되게 맞춘다.
+  lastBranch: '└──',
+  vGuide: '│',
   radioOn: '●',
   radioOff: '○',
   checkOn: '☑',
@@ -231,8 +347,9 @@ const ASCII_SYMBOLS: Symbols = {
   boxV: '|',
   midL: '+',
   midR: '+',
-  ok: '[ok]',
-  fail: '[!!]',
+  branch: '|--',
+  lastBranch: '`--',
+  vGuide: '|',
   radioOn: '(*)',
   radioOff: '( )',
   checkOn: '[x]',
@@ -289,26 +406,60 @@ export function box(title: string, lines: string[], symbols: Symbols = sym): str
  * 않는다. 색을 쓸 수 있는 TTY에서는 프레임·제목만 은은하게 강조하고, 파이프와
  * 구식 터미널에서는 같은 구조를 ASCII로 그대로 보여준다.
  */
+/** 카드/구분선의 절대 상한 폭. 아주 넓은 터미널에서도 가독선을 유지한다. */
+const HARD_MAX_WIDTH = 100;
+
+/**
+ * 뷰포트(터미널) 폭. 실제 TTY 면 stdout.columns, 아니면 COLUMNS 환경변수(셸 관례),
+ * 둘 다 없으면 하드맥스로 폴백한다. 파이프·리다이렉트에서 박스가 최장 줄까지
+ * 무한정 늘어나던 문제를 이 상한이 막는다.
+ */
+function viewportWidth(): number {
+  const envCols = Number(process.env.COLUMNS);
+  if (process.stdout.columns && process.stdout.columns > 0) {
+    return process.stdout.columns;
+  }
+  if (Number.isFinite(envCols) && envCols > 0) {
+    return envCols;
+  }
+  return HARD_MAX_WIDTH;
+}
+
 export function card(title: string, lines: string[], c: Caps = caps(), minInnerWidth = 0): string {
   const s = makeSymbols(c);
   const color = makeColors(c.color);
-  const inner = Math.max(minInnerWidth, visibleWidth(title), ...lines.map(visibleWidth));
-  const frame = (text: string): string => color.cyan(text);
-  const row = (text: string, emphasize = false): string => {
-    const gap = inner - visibleWidth(text);
-    const content = emphasize ? color.bold(text) : text;
-    return `${frame(s.boxV)} ${content}${' '.repeat(gap + 1)}${frame(s.boxV)}`;
-  };
-  const horizontal = (left: string, right: string): string =>
-    frame(`${left}${s.boxH.repeat(inner + 2)}${right}`);
+  const pad = 2; // 좌우 여백(호흡)
 
-  return [
-    horizontal(s.boxTL, s.boxTR),
-    row(title, true),
-    horizontal(s.midL, s.midR),
-    ...lines.map((line) => row(line)),
-    horizontal(s.boxBL, s.boxBR),
-  ].join('\n');
+  // 폭 상한: 뷰포트에서 프레임(2)+여백(pad*2)을 뺀 값. minInnerWidth 는 하한(init 화면).
+  const maxInner = Math.max(
+    minInnerWidth,
+    Math.min(HARD_MAX_WIDTH, viewportWidth() - (2 + pad * 2)),
+  );
+
+  // 본문을 폭에 맞게 접는다(표시폭 기준, 색 인지) — 박스가 화면 밖까지 늘어나는 것 방지.
+  const wrapped = lines.flatMap((line) => wrapToWidth(line, maxInner));
+  const inner = Math.min(
+    maxInner,
+    Math.max(minInnerWidth, visibleWidth(title), ...wrapped.map(visibleWidth), 0),
+  );
+
+  const frame = (text: string): string => color.gray(text); // 테두리는 은은히 뒤로
+  const row = (text: string): string => {
+    const gap = Math.max(0, inner - visibleWidth(text));
+    return `${frame(s.boxV)}${' '.repeat(pad)}${text}${' '.repeat(gap + pad)}${frame(s.boxV)}`;
+  };
+
+  // 상단 테두리에 제목을 심는다: ╭─ 제목 ─────╮ (제목은 cyan bold 로 강조)
+  const safeTitle = truncateToWidth(title, inner);
+  const tvis = visibleWidth(safeTitle);
+  const dash = Math.max(1, inner + pad * 2 - 3 - tvis);
+  const top =
+    frame(`${s.boxTL}${s.boxH} `) +
+    color.bold(color.cyan(safeTitle)) +
+    frame(` ${s.boxH.repeat(dash)}${s.boxTR}`);
+  const bottom = frame(`${s.boxBL}${s.boxH.repeat(inner + pad * 2)}${s.boxBR}`);
+
+  return [top, ...wrapped.map(row), bottom].join('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -347,6 +498,25 @@ export function signal(c: Caps, kind: 'ok' | 'warn' | 'error' | 'info'): string 
     return color.red(raw);
   }
   return color.cyan(raw);
+}
+
+// ---------------------------------------------------------------------------
+// 경량 레이아웃 (박스 없이 색·여백으로 — 액션 결과용)
+// ---------------------------------------------------------------------------
+
+/**
+ * 액션 결과 한 줄: `  {신호} {제목}` + 선택적 dim 상세(둘째 줄). work new/switch
+ * 같은 짧은 피드백을 박스 없이 일관된 어휘로 보여준다.
+ */
+export function feedback(
+  c: Caps,
+  kind: 'ok' | 'warn' | 'error' | 'info',
+  title: string,
+  detail?: string,
+): string {
+  const color = makeColors(c.color);
+  const head = `  ${signal(c, kind)} ${title}`;
+  return detail ? `${head}\n    ${color.dim(detail)}` : head;
 }
 
 /** 색 함수 묶음. enabled=false 면 입력을 그대로 통과시킨다. */

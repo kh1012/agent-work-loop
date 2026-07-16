@@ -1,7 +1,15 @@
 import { Command } from 'commander';
 import { version } from '../package.json';
 import { installedEngineVersion } from './core/engine.js';
-import { type Caps, caps, gradient, makeColors, signal, stringWidth } from './core/tty.js';
+import {
+  type Caps,
+  caps,
+  gradient,
+  makeColors,
+  makeSymbols,
+  signal,
+  stringWidth,
+} from './core/tty.js';
 
 export const BANNER = `Agent Work Loop
 
@@ -52,18 +60,19 @@ export function renderBanner(c: Caps = caps()): string {
  */
 export function versionString(c: Caps = caps()): string {
   const color = makeColors(c.color);
+  const s = makeSymbols(c);
   const engineVer = installedEngineVersion();
   const heading = `awl v${version}`;
   if (engineVer === null) {
     return [
       heading,
-      `    └── Engine Template: ${color.dim('(설치되지 않음)')}`,
+      `    ${s.lastBranch} Engine Template: ${color.dim('(설치되지 않음)')}`,
       '',
       `    ${signal(c, 'warn')} 엔진 템플릿이 없습니다.`,
       `        ${color.dim("'awl init'을 실행하여 템플릿을 설치하세요.")}`,
     ].join('\n');
   }
-  const template = `    └── Engine Template: v${engineVer}`;
+  const template = `    ${s.lastBranch} Engine Template: v${engineVer}`;
   if (engineVer === version) {
     return `${heading}\n${template}`;
   }
@@ -90,7 +99,9 @@ export function buildProgram(): Command {
     .name('awl')
     .version(versionString(), '-v, --version', '버전을 출력합니다')
     .helpOption('-h, --help', '도움말을 출력합니다')
-    .addHelpText('beforeAll', `${renderBanner()}\n`)
+    // 배너는 루트(awl / awl --help)에서만 보여준다. 예전엔 beforeAll 이 모든
+    // 서브커맨드 help(work --help 등)에도 배너를 반복 출력했다.
+    .addHelpText('beforeAll', (ctx) => (ctx.command === program ? `${renderBanner()}\n` : ''))
     .showHelpAfterError();
 
   // 사람이 치는 명령: init (처음 설정)

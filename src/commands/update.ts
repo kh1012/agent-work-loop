@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { installedEngineVersion } from '../core/engine.js';
 import { engineDir } from '../core/paths.js';
-import { caps, card, signal } from '../core/tty.js';
+import { caps, card, makeSymbols, signal } from '../core/tty.js';
 import { packageEngineDir } from './init.js';
 
 /**
@@ -31,15 +31,17 @@ export function applyUpdate(): UpdateResult {
 
 export function runUpdate(): void {
   const result = applyUpdate();
+  const c = caps();
+  const s = makeSymbols(c);
   if (!result.updated) {
     process.stdout.write(
-      `\n${card('엔진 템플릿', [`${signal(caps(), 'warn')} ~/.awl 에 설치된 엔진이 없습니다.`, '└── awl init 을 먼저 실행하세요.'], caps())}\n`,
+      `\n${card('엔진 템플릿', [`${signal(c, 'warn')} ~/.awl 에 설치된 엔진이 없습니다.`, `${s.lastBranch} awl init 을 먼저 실행하세요.`], c)}\n`,
     );
     return;
   }
   if (result.fromVersion === result.toVersion) {
     process.stdout.write(
-      `\n${card('엔진 템플릿', [`${signal(caps(), 'ok')} 이미 최신입니다.`, `└── Engine Template: v${result.toVersion}`], caps())}\n`,
+      `\n${card('엔진 템플릿', [`${signal(c, 'ok')} 이미 최신입니다.`, `${s.lastBranch} Engine Template: v${result.toVersion}`], c)}\n`,
     );
     return;
   }
@@ -47,11 +49,11 @@ export function runUpdate(): void {
     `\n${card(
       '엔진 템플릿',
       [
-        `${signal(caps(), 'ok')} 엔진을 갱신했습니다.`,
-        `├── v${result.fromVersion ?? '(없음)'} → v${result.toVersion}`,
-        '└── 프로젝트별 설정/스킬은 각 프로젝트에서 awl init 으로 갱신하세요.',
+        `${signal(c, 'ok')} 엔진을 갱신했습니다.`,
+        `${s.branch} v${result.fromVersion ?? '(없음)'} → v${result.toVersion}`,
+        `${s.lastBranch} 프로젝트별 설정/스킬은 각 프로젝트에서 awl init 으로 갱신하세요.`,
       ],
-      caps(),
+      c,
     )}\n`,
   );
 }

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { version as packageVersion } from '../../package.json';
 import { installedEngineVersion } from '../core/engine.js';
-import { type Caps, caps, card, makeColors, signal } from '../core/tty.js';
+import { type Caps, caps, card, makeColors, makeSymbols, signal } from '../core/tty.js';
 import { type VersionCheckResult, type VersionInputs, checkVersions } from '../core/versions.js';
 import { resolveProjectRoot } from './config.js';
 import { packageEngineDir, skillsVersionPath } from './init.js';
@@ -71,13 +71,14 @@ export function gatherVersionInputs(projectRoot: string | null): VersionInputs {
 /** 사람용 출력. 불일치는 노란색+[!] 마커(색 미지원/CI 는 마커만). */
 export function renderVersionCheck(result: VersionCheckResult, c: Caps): string {
   const color = makeColors(c.color);
+  const s = makeSymbols(c);
   if (result.ok) {
     return card('버전 확인', [`${signal(c, 'ok')} 버전이 전부 일치합니다.`], c);
   }
   const out: string[] = [];
   for (const m of result.mismatches) {
     out.push(`${signal(c, 'warn')} ${m.kind}: ${m.a} / ${m.b}`);
-    out.push(`└── ${color.dim(m.hint)}`);
+    out.push(`${s.lastBranch} ${color.dim(m.hint)}`);
   }
   return card(`버전 불일치 ${result.mismatches.length}건`, out, c);
 }

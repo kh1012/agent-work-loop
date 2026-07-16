@@ -10,6 +10,7 @@ import {
   signal,
   stringWidth,
   visibleWidth,
+  wrapToWidth,
 } from '../../src/core/tty.js';
 
 // 테스트용 환경 객체를 만든다.
@@ -42,6 +43,16 @@ describe('computeCaps — 능력 감지와 폴백', () => {
     const c = computeCaps(env({ NO_COLOR: '1', LANG: 'ko_KR.UTF-8' }), 'darwin', true);
     expect(c.color).toBe(false);
     expect(c.unicode).toBe(true);
+  });
+
+  it('FORCE_COLOR 는 파이프(!isTTY)여도 색을 켠다', () => {
+    const c = computeCaps(env({ FORCE_COLOR: '1' }), 'darwin', false);
+    expect(c.color).toBe(true);
+  });
+
+  it('FORCE_COLOR 가 있어도 NO_COLOR/CI 는 여전히 우선한다', () => {
+    expect(computeCaps(env({ FORCE_COLOR: '1', NO_COLOR: '1' }), 'darwin', true).color).toBe(false);
+    expect(computeCaps(env({ FORCE_COLOR: '1', CI: 'true' }), 'darwin', true).color).toBe(false);
   });
 
   it('POSIX + UTF-8 로케일 + TTY 면 유니코드/색 모두 켜짐', () => {
@@ -91,16 +102,25 @@ describe('stringWidth — 한글/CJK 폭 계산', () => {
     expect(charWidth(0)).toBe(0);
     expect(charWidth(0x1b)).toBe(0);
   });
+
+  it('상태 이모지는 2칸, VS16(이모지 표현 선택자)은 0칸', () => {
+    expect(charWidth('✅'.codePointAt(0) ?? 0)).toBe(2);
+    expect(charWidth('❌'.codePointAt(0) ?? 0)).toBe(2);
+    expect(charWidth(0xfe0f)).toBe(0);
+    // ⚠️ = ⚠(2칸) + VS16(0칸) = 2칸 (예전엔 1칸으로 세어 카드 테두리가 밀렸다)
+    expect(stringWidth('⚠️')).toBe(2);
+  });
 });
 
 describe('makeSymbols — 유니코드/ASCII 폴백', () => {
   const uni = makeSymbols({ unicode: true, color: true, tty: true });
   const ascii = makeSymbols({ unicode: false, color: false, tty: false });
 
-  it('유니코드 기호', () => {
-    expect(uni.boxTL).toBe('┌');
-    expect(uni.ok).toBe('✓');
-    expect(uni.fail).toBe('✗');
+  it('유니코드 기호(둥근 모서리·트리 글리프)', () => {
+    expect(uni.boxTL).toBe('╭');
+    expect(uni.boxBR).toBe('╯');
+    expect(uni.branch).toBe('├──');
+    expect(uni.lastBranch).toBe('└──');
     expect(uni.radioOn).toBe('●');
     expect(uni.checkOn).toBe('☑');
   });
@@ -109,8 +129,8 @@ describe('makeSymbols — 유니코드/ASCII 폴백', () => {
     expect(ascii.boxTL).toBe('+');
     expect(ascii.boxH).toBe('-');
     expect(ascii.boxV).toBe('|');
-    expect(ascii.ok).toBe('[ok]');
-    expect(ascii.fail).toBe('[!!]');
+    expect(ascii.branch).toBe('|--');
+    expect(ascii.lastBranch).toBe('`--');
     expect(ascii.radioOn).toBe('(*)');
     expect(ascii.checkOn).toBe('[x]');
   });
@@ -170,6 +190,41 @@ describe('card — 색이 있어도 폭이 흔들리지 않는 사람용 출력'
     const rendered = card('설정 완료', [color.green('통과'), '한글 설명'], c, 24);
     const widths = rendered.split('\n').map(visibleWidth);
     expect(new Set(widths).size).toBe(1);
+  });
+});
+
+describe('wrapToWidth — 표시폭 기준 색 인지 워드랩', () => {
+  it('폭 이내면 그대로 한 줄', () => {
+    expect(wrapToWidth('짧은 줄', 40)).toEqual(['짧은 줄']);
+  });
+
+  it('공백 경계에서 접고 각 줄이 폭을 넘지 않는다', () => {
+    const lines = wrapToWidth('aaaa bbbb cccc dddd', 9);
+    expect(lines.length).toBeGreaterThan(1);
+    for (const l of lines) {
+      expect(visibleWidth(l)).toBeLessThanOrEqual(9);
+    }
+  });
+
+  it('한 단어가 폭보다 길면 강제로 자른다(무한루프 없음)', () => {
+    const lines = wrapToWidth('aaaaaaaaaaaaaaaaaa', 5);
+    expect(lines.length).toBeGreaterThan(1);
+    for (const l of lines) {
+      expect(visibleWidth(l)).toBeLessThanOrEqual(5);
+    }
+  });
+
+  it('색이 걸린 줄도 시퀀스를 끊지 않고 접는다(각 줄 폭 유지)', () => {
+    const dim = makeColors(true).dim;
+    const lines = wrapToWidth(dim('가나다라마바사아'), 8); // CJK 2칸 × 8 = 16폭
+    expect(lines.length).toBe(2);
+    for (const l of lines) {
+      expect(visibleWidth(l)).toBeLessThanOrEqual(8);
+      // 색이 열렸으면 리셋으로 닫혀 있어야 다음 출력이 오염되지 않는다.
+      if (l.includes('\x1b[2m')) {
+        expect(l.endsWith('\x1b[0m')).toBe(true);
+      }
+    }
   });
 });
 

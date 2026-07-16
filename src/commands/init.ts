@@ -680,7 +680,7 @@ function verifyLines(v: VerifyMap): string[] {
 }
 
 /**
- * "[2/4] 검증 명령어" 화면의 본문 줄들. buildScreens(루트 기준)와 interactiveInputs
+ * "[2/3] 검증 명령어" 화면의 본문 줄들. buildScreens(루트 기준)와 interactiveInputs
  * 가 모노레포에서 패키지를 다시 골랐을 때(화면 재구성) 둘 다 이 함수로 만든다
  * (리뷰 지적 AC-09: 예전엔 리터럴 배열이 두 곳에 복사돼 있어 고치면 한쪽만 바뀌었다).
  */
@@ -1044,7 +1044,7 @@ async function interactiveInputs(
       mainLanguage = (await ask(prompt(), '  주 언어를 입력하세요: ')).trim();
     }
 
-    // 3. [2/4] 검증 명령어 (WI-B: 모노레포면 워크스페이스 패키지를 물어볼 수 있다)
+    // 3. [2/3] 검증 명령어 (WI-B: 모노레포면 워크스페이스 패키지를 물어볼 수 있다)
     const rootVerify = detectVerify(projectRoot);
     const located = await promptVerifyLocation(
       prompt(),

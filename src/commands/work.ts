@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { run } from '../core/runner.js';
-import { type Caps, caps, card, makeColors, signal } from '../core/tty.js';
+import { type Caps, caps, card, feedback, makeColors, makeSymbols, signal } from '../core/tty.js';
 import { loadConfig, resolveProjectRoot } from './config.js';
 import { gitBranch } from './doctor.js';
 import { loadState, migrateState, writeState } from './state.js';
@@ -84,13 +84,14 @@ export function summarizeWorkitems(state: Record<string, unknown>): WorkSummary[
 
 function renderWorkList(list: WorkSummary[], c: Caps): string {
   const color = makeColors(c.color);
+  const s = makeSymbols(c);
   if (list.length === 0) {
     return card(
       '워크아이템',
       [
         `${signal(c, 'info')} 등록된 워크아이템이 없습니다.`,
         '',
-        `└── ${color.dim('awl work new <ID> 로 시작하세요.')}`,
+        `${s.lastBranch} ${color.dim('awl work new <ID> 로 시작하세요.')}`,
       ],
       c,
     );
@@ -106,7 +107,7 @@ function renderWorkList(list: WorkSummary[], c: Caps): string {
     }
     out.push(line);
     if (w.worktreePath) {
-      out.push(`  └── ${color.dim(`worktree: ${w.worktreePath}`)}`);
+      out.push(`  ${s.lastBranch} ${color.dim(`worktree: ${w.worktreePath}`)}`);
     }
   }
   return card('워크아이템', out, c);
@@ -474,9 +475,11 @@ export async function runWorkNew(
     process.exit(1);
   }
   writeState(root, result.state);
-  process.stdout.write(`\n  워크아이템을 만들었습니다: ${id}\n`);
+  const c = caps();
+  const color = makeColors(c.color);
+  process.stdout.write(`\n${feedback(c, 'ok', `워크아이템 생성  ${color.bold(id)}`)}\n`);
   if (worktreePath) {
-    process.stdout.write(`  워크트리: ${worktreePath}\n`);
+    process.stdout.write(`    ${color.dim(`워크트리  ${worktreePath}`)}\n`);
   }
 
   // 검증 베이스라인 캡처(WI-G AC-01) — 이 워크아이템을 시작하는 시점의 체크별
@@ -488,7 +491,7 @@ export async function runWorkNew(
   const verifyRoot = worktreePath ?? root;
   if (opts.skipBaseline) {
     process.stdout.write(
-      '  --skip-baseline: 검증 베이스라인을 건너뛰었습니다. 나중에 awl verify --since-baseline 을 못 씁니다.\n',
+      `    ${color.dim('--skip-baseline: 검증 베이스라인 생략 (나중에 awl verify --since-baseline 을 못 씁니다)')}\n`,
     );
   } else {
     const loaded = loadConfig(verifyRoot);
@@ -499,27 +502,25 @@ export async function runWorkNew(
         // 정확히 일치해야 나중에 resolveSinceBaseline 의 workitem 비교가 맞는다.
         writeVerifyBaseline(verifyRoot, buildVerifyBaseline(report, now, id.trim()));
         process.stdout.write(
-          `  검증 베이스라인을 저장했습니다 (${report.results.map((r) => `${r.name}:${isCheckPassed(r) ? '통과' : '실패'}`).join(', ')}).\n`,
+          `    ${color.dim(`검증 베이스라인 저장  ${report.results.map((r) => `${r.name}:${isCheckPassed(r) ? '통과' : '실패'}`).join(', ')}`)}\n`,
         );
       } catch (e) {
         // 베이스라인은 부가 기능이다 — 저장이 실패해도(디스크/권한 등) 워크아이템
         // 생성 자체는 이미 끝났으니 크래시시키지 않는다(WI-H 스파이크 지적, AC-03).
         process.stderr.write(
-          `\n  검증 베이스라인 저장에 실패했습니다: ${String(e)}\n  나중에 awl verify --since-baseline 을 못 씁니다.\n`,
+          `\n${feedback(c, 'warn', '검증 베이스라인 저장 실패', `${String(e)} — 나중에 awl verify --since-baseline 을 못 씁니다`)}\n`,
         );
       }
     } else {
       process.stdout.write(
-        '  config 를 못 읽어 검증 베이스라인을 건너뛰었습니다. 나중에 awl verify --since-baseline 을 못 씁니다.\n',
+        `    ${color.dim('config 없음 — 검증 베이스라인 생략 (나중에 awl verify --since-baseline 을 못 씁니다)')}\n`,
       );
     }
   }
 
-  if (worktreePath) {
-    process.stdout.write(`  cd ${worktreePath} 로 이동해 거기서 awl-loop 를 시작하세요.\n`);
-  } else {
-    process.stdout.write('  awl-loop 를 시작하세요.\n');
-  }
+  process.stdout.write(
+    `    ${color.dim(worktreePath ? `다음 → cd ${worktreePath} 후 awl-loop 시작` : '다음 → awl-loop 시작')}\n`,
+  );
 }
 
 export async function runWorkSwitch(id: string): Promise<void> {
@@ -532,7 +533,8 @@ export async function runWorkSwitch(id: string): Promise<void> {
     process.exit(1);
   }
   writeState(root, result.state);
-  process.stdout.write(`\n  전환했습니다: ${id}\n`);
+  const c = caps();
+  process.stdout.write(`\n${feedback(c, 'ok', `전환  ${id}`)}\n`);
   if (result.warning) {
     process.stderr.write(`  ${result.warning}\n`);
   }
@@ -547,6 +549,8 @@ export function runWorkAbandon(id: string): void {
     process.exit(1);
   }
   writeState(root, result.state);
-  process.stdout.write(`\n  중단 처리했습니다: ${id}\n`);
-  process.stdout.write('  기록은 남아 있습니다(삭제되지 않습니다).\n');
+  const c = caps();
+  process.stdout.write(
+    `\n${feedback(c, 'ok', `중단 처리  ${id}`, '기록은 남아 있습니다 (삭제되지 않습니다)')}\n`,
+  );
 }

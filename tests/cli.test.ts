@@ -95,9 +95,12 @@ describe('versionString — engine 버전 표시', () => {
 
   it('엔진 버전이 같으면 CLI와 템플릿을 위계로 보여준다', () => {
     process.env.AWL_HOME = tmpHomeWithEngine(pkgVersion);
-    expect(versionString(NO_COLOR)).toBe(
-      `awl v${pkgVersion}\n    └── Engine Template: v${pkgVersion}`,
-    );
+    const s = versionString(NO_COLOR);
+    expect(s).toContain(`awl v${pkgVersion}`);
+    expect(s).toContain(`Engine Template: v${pkgVersion}`);
+    // 유니코드 미지원이면 트리 글리프도 ASCII 로 degrade 한다(예전엔 └── 가 그대로 새어나왔다).
+    expect(s).toContain('`--');
+    expect(s).not.toContain('└──');
   });
 
   it('엔진 버전이 다르면 경고와 awl init 안내를 보여준다', () => {

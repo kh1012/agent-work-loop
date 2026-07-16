@@ -1,4 +1,4 @@
-import { type Caps, caps, card, makeColors, signal } from '../core/tty.js';
+import { type Caps, caps, card, makeColors, makeSymbols, signal } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
 import { readRecords } from './record.js';
 import { loadState } from './state.js';
@@ -144,12 +144,16 @@ export function buildStatus(projectRoot: string): StatusReport {
 
 export function renderStatus(report: StatusReport, c: Caps): string {
   const color = makeColors(c.color);
+  const s = makeSymbols(c);
 
   // 아직 시작 전: 상태도 기록도 없다.
   if (report.phase === null && report.criteria.total === 0 && report.records.total === 0) {
     return card(
       '진행 상황',
-      [`${signal(c, 'info')} 아직 시작 전입니다.`, '└── 목표를 주고 awl-loop 를 실행하세요.'],
+      [
+        `${signal(c, 'info')} 아직 시작 전입니다.`,
+        `${s.lastBranch} 목표를 주고 awl-loop 를 실행하세요.`,
+      ],
       c,
     );
   }
@@ -164,26 +168,28 @@ export function renderStatus(report: StatusReport, c: Caps): string {
     `단계  ${report.phase ?? '(없음)'}${report.workitem ? `  ${color.dim(report.workitem)}` : ''}`,
   );
   out.push(
-    `├── 완료 조건  ${color.bold(`${cr.passed}/${cr.total}`)} 통과  ${color.dim(`(막힘 ${cr.blocked}, 진행 ${cr.inProgress}, 대기 ${cr.pending})`)}`,
+    `${s.branch} 완료 조건  ${color.bold(`${cr.passed}/${cr.total}`)} 통과  ${color.dim(`(막힘 ${cr.blocked}, 진행 ${cr.inProgress}, 대기 ${cr.pending})`)}`,
   );
   for (const b of cr.blockedByDeps) {
     out.push(
-      `│   └── ${signal(c, 'warn')} ${color.yellow(b.id)} 블록됨  ${color.dim(`(대기: ${b.waitingOn.join(', ')})`)}`,
+      `${s.vGuide}   ${s.lastBranch} ${signal(c, 'warn')} ${color.yellow(b.id)} 블록됨  ${color.dim(`(대기: ${b.waitingOn.join(', ')})`)}`,
     );
   }
   out.push(
-    `├── 기록       ${report.records.total}개  ${color.dim(typeSummary ? `(${typeSummary})` : '')}`,
+    `${s.branch} 기록       ${report.records.total}개  ${color.dim(typeSummary ? `(${typeSummary})` : '')}`,
   );
-  out.push(`└── 최근 검증  ${report.lastAttempt ?? color.dim('(없음)')}`);
+  out.push(`${s.lastBranch} 최근 검증  ${report.lastAttempt ?? color.dim('(없음)')}`);
   for (const g of report.gates) {
     if (!g.recorded) {
-      out.push(`    └── ${signal(c, 'info')} 게이트 ${g.gate}  ${color.dim('대기중')}`);
+      out.push(`    ${s.lastBranch} ${signal(c, 'info')} 게이트 ${g.gate}  ${color.dim('대기중')}`);
       continue;
     }
     const when = g.at ? g.at.slice(0, 16).replace('T', ' ') : '';
     const summary = `완료조건 ${g.presentedCriteriaCount ?? 0}개, 제외 ${g.presentedExclusionsCount ?? 0}건`;
     const autoTag = g.auto ? color.dim(' (자동)') : '';
-    out.push(`    └── 게이트 ${g.gate}  ${g.decision}${autoTag}   ${when}   ${color.dim(summary)}`);
+    out.push(
+      `    ${s.lastBranch} 게이트 ${g.gate}  ${g.decision}${autoTag}   ${when}   ${color.dim(summary)}`,
+    );
   }
   return card(`진행 상황 · ${report.generation}세대`, out, c);
 }
@@ -191,8 +197,9 @@ export function renderStatus(report: StatusReport, c: Caps): string {
 export function runStatus(opts: { json: boolean }): void {
   const root = resolveProjectRoot();
   if (!root) {
+    const cc = caps();
     process.stderr.write(
-      `\n  ${signal(caps(), 'error')} 프로젝트 루트를 찾을 수 없습니다.\n      └── awl init 을 실행하세요.\n`,
+      `\n  ${signal(cc, 'error')} 프로젝트 루트를 찾을 수 없습니다.\n      ${makeSymbols(cc).lastBranch} awl init 을 실행하세요.\n`,
     );
     process.exit(1);
   }
