@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-07-16
+
+### 고침
+
+- stabilize raw input and card rendering
+
 ## [0.5.2] - 2026-07-16
 
 ### 추가
