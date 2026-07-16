@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { generationsDir } from '../core/paths.js';
-import { type Caps, caps, card, makeColors } from '../core/tty.js';
+import { type Caps, caps, card, makeColors, padEndDisplay, stringWidth } from '../core/tty.js';
 import { requireConfig } from './config.js';
 
 /**
@@ -126,12 +126,12 @@ export function renderMetrics(generations: Generation[], c: Caps): string {
   const idWidth = Math.max(...generations.map((g) => g.workitem.length), 9) + 2;
   const out: string[] = [];
   out.push(
-    `${'워크아이템'.padEnd(idWidth, ' ')}완료조건  시도평균  막힘비율  리뷰지적  절차실수  gotcha적용  gotcha누락  커버리지`,
+    `${padEndDisplay('워크아이템', idWidth)}완료조건  시도평균  막힘비율  리뷰지적  절차실수  gotcha적용  gotcha누락  커버리지`,
   );
   for (const g of generations) {
     const coverage = `${g.coverage.addressed}/${g.coverage.auditFindingsTotal}`;
     out.push(
-      `${g.workitem.padEnd(idWidth, ' ')}${String(g.criteriaTotal).padEnd(10, ' ')}${String(g.avgAttempts).padEnd(10, ' ')}${String(g.blockedRatio).padEnd(10, ' ')}${String(g.reviewRejects).padEnd(10, ' ')}${String(g.proceduralErrors).padEnd(10, ' ')}${String(g.gotchaApplied).padEnd(12, ' ')}${String(g.gotchaMissed).padEnd(12, ' ')}${coverage}`,
+      `${padEndDisplay(g.workitem, idWidth)}${padEndDisplay(String(g.criteriaTotal), 10)}${padEndDisplay(String(g.avgAttempts), 10)}${padEndDisplay(String(g.blockedRatio), 10)}${padEndDisplay(String(g.reviewRejects), 10)}${padEndDisplay(String(g.proceduralErrors), 10)}${padEndDisplay(String(g.gotchaApplied), 12)}${padEndDisplay(String(g.gotchaMissed), 12)}${coverage}`,
     );
   }
   out.push('');
@@ -223,13 +223,14 @@ export function renderCompare(groups: CaseGroup[], untagged: number, c: Caps): s
       c,
     );
   }
-  const keyWidth = Math.max(...groups.map((g) => g.key.length), 12) + 2;
+  const keyWidth =
+    Math.max(stringWidth('케이스(model/mode/task)'), ...groups.map((g) => stringWidth(g.key))) + 2;
   const out: string[] = [
-    `${'케이스(model/mode/task)'.padEnd(keyWidth, ' ')}n   시도평균  막힘비율  리뷰지적  소요평균`,
+    `${padEndDisplay('케이스(model/mode/task)', keyWidth)}n   시도평균  막힘비율  리뷰지적  소요평균`,
   ];
   for (const g of groups) {
     out.push(
-      `${g.key.padEnd(keyWidth, ' ')}${String(g.count).padEnd(4, ' ')}${String(g.avgAttempts).padEnd(10, ' ')}${String(g.blockedRatio).padEnd(10, ' ')}${String(g.reviewRejects).padEnd(10, ' ')}${fmtDuration(g.avgDurationMs)}`,
+      `${padEndDisplay(g.key, keyWidth)}${padEndDisplay(String(g.count), 4)}${padEndDisplay(String(g.avgAttempts), 10)}${padEndDisplay(String(g.blockedRatio), 10)}${padEndDisplay(String(g.reviewRejects), 10)}${fmtDuration(g.avgDurationMs)}`,
     );
   }
   if (untagged > 0) {

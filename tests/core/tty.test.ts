@@ -7,6 +7,7 @@ import {
   makeColors,
   makeSymbols,
   makeTokens,
+  padEndDisplay,
   signal,
   stringWidth,
   visibleWidth,
@@ -266,5 +267,22 @@ describe('signal info — accent(cyan)와 색 분리(cli-design-tokens AC-01)', 
     const s = signal(cc, 'info');
     expect(s).toContain('\x1b[34m'); // blue
     expect(s).not.toContain('\x1b[36m'); // cyan 아님
+  });
+});
+
+describe('padEndDisplay — 표시폭 기준 패딩(cli-design-tokens AC-04)', () => {
+  it('한글(폭2)을 표시폭 기준으로 채운다 — 코드유닛 아님', () => {
+    // '가'는 표시폭 2 → 5칸 채우면 공백 3개(표시폭 5). String.padEnd(5)면 공백 4개(표시폭 6)로 어긋남.
+    expect(visibleWidth(padEndDisplay('가', 5))).toBe(5);
+    expect(visibleWidth(padEndDisplay('워크아이템', 15))).toBe(15);
+    expect(visibleWidth(padEndDisplay('WI-1', 15))).toBe(15);
+  });
+  it('한글 헤더와 ASCII 값이 같은 표시폭으로 맞는다(열 정렬)', () => {
+    expect(visibleWidth(padEndDisplay('워크아이템', 20))).toBe(
+      visibleWidth(padEndDisplay('WI-1', 20)),
+    );
+  });
+  it('폭보다 길면 그대로(음수 패딩 없음)', () => {
+    expect(padEndDisplay('toolong', 3)).toBe('toolong');
   });
 });

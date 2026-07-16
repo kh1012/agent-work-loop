@@ -310,6 +310,15 @@ export function truncateToWidth(text: string, width: number): string {
   return `${out}…`;
 }
 
+/**
+ * 표시 폭(stringWidth) 기준으로 오른쪽을 공백으로 채운다(cli-design-tokens F-05).
+ * String.padEnd 는 UTF-16 코드유닛을 세어 한글(음절 1유닛·표시 2칸)이 섞이면 열이
+ * 어긋난다. 표 정렬은 이걸 써서 한글 헤더와 ASCII 값이 같은 열에 맞게 한다.
+ */
+export function padEndDisplay(text: string, width: number): string {
+  return text + ' '.repeat(Math.max(0, width - stringWidth(text)));
+}
+
 // ---------------------------------------------------------------------------
 // 기호 세트
 // ---------------------------------------------------------------------------

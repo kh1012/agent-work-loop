@@ -11,6 +11,7 @@ import {
   caps,
   card,
   makeColors,
+  padEndDisplay,
   rawModeCapable,
   signal,
   stringWidth,
@@ -787,16 +788,12 @@ const VERIFY_LABELS: Record<keyof VerifyMap, string> = {
 };
 
 /** 표시 폭(한글=2) 기준으로 오른쪽을 공백으로 채운다. */
-function padDisplay(text: string, width: number): string {
-  return text + ' '.repeat(Math.max(0, width - stringWidth(text)));
-}
-
 function verifyLines(v: VerifyMap): string[] {
   const keys = Object.keys(VERIFY_LABELS) as (keyof VerifyMap)[];
   const labelWidth = Math.max(...keys.map((k) => stringWidth(VERIFY_LABELS[k]))) + 2;
   return keys.map((k) => {
     const entry = v[k];
-    return `  ${padDisplay(VERIFY_LABELS[k], labelWidth)}${entry ? entry.cmd : '(없음)'}`;
+    return `  ${padEndDisplay(VERIFY_LABELS[k], labelWidth)}${entry ? entry.cmd : '(없음)'}`;
   });
 }
 
@@ -834,7 +831,7 @@ export function renderNonTtyNotice(): string {
 export function renderResult(result: InitResult, inputs: InitInputs, c: Caps): string {
   const color = makeColors(c.color);
   const line = (name: string, value: string, note = ''): string =>
-    `  ${name.padEnd(20, ' ')}${value}${note ? `    ${color.dim(note)}` : ''}`;
+    `  ${padEndDisplay(name, 20)}${value}${note ? `    ${color.dim(note)}` : ''}`;
 
   const setupLines: string[] = [];
   setupLines.push(line('~/.awl', result.globalCreated ? '생성됨' : '이미 있음'));
