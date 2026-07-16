@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { version as packageVersion } from '../../package.json';
 import { installedEngineVersion } from '../core/engine.js';
-import { type Caps, caps, card, makeColors, makeSymbols, signal } from '../core/tty.js';
+import { type Caps, caps, card, makeColors, makeSymbols, makeTokens, signal } from '../core/tty.js';
 import { type VersionCheckResult, type VersionInputs, checkVersions } from '../core/versions.js';
 import { resolveProjectRoot } from './config.js';
 import { packageEngineDir, skillsVersionPath } from './init.js';
@@ -72,12 +72,14 @@ export function gatherVersionInputs(projectRoot: string | null): VersionInputs {
 export function renderVersionCheck(result: VersionCheckResult, c: Caps): string {
   const color = makeColors(c.color);
   const s = makeSymbols(c);
+  const t = makeTokens(c);
   if (result.ok) {
     return card('버전 확인', [`${signal(c, 'ok')} 버전이 전부 일치합니다.`], c);
   }
   const out: string[] = [];
   for (const m of result.mismatches) {
-    out.push(`${signal(c, 'warn')} ${m.kind}: ${m.a} / ${m.b}`);
+    // 버전 값(핵심 값)은 emphasis 강조 — 무엇이 어긋났는지 한눈에(F-04).
+    out.push(`${signal(c, 'warn')} ${m.kind}: ${t.emphasis(m.a)} / ${t.emphasis(m.b)}`);
     out.push(`${s.lastBranch} ${color.dim(m.hint)}`);
   }
   return card(`버전 불일치 ${result.mismatches.length}건`, out, c);

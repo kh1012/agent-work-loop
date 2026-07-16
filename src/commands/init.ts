@@ -11,6 +11,7 @@ import {
   caps,
   card,
   makeColors,
+  makeTokens,
   padEndDisplay,
   rawModeCapable,
   signal,
@@ -830,8 +831,10 @@ export function renderNonTtyNotice(): string {
 /** 마지막 결과 화면. 다음 행동 하나만 가리킨다. */
 export function renderResult(result: InitResult, inputs: InitInputs, c: Caps): string {
   const color = makeColors(c.color);
+  const t = makeTokens(c);
+  // 값(핵심)은 emphasis 강조, 이름은 그대로 — status.ts 패턴(F-04).
   const line = (name: string, value: string, note = ''): string =>
-    `  ${padEndDisplay(name, 20)}${value}${note ? `    ${color.dim(note)}` : ''}`;
+    `  ${padEndDisplay(name, 20)}${t.emphasis(value)}${note ? `    ${color.dim(note)}` : ''}`;
 
   const setupLines: string[] = [];
   setupLines.push(line('~/.awl', result.globalCreated ? '생성됨' : '이미 있음'));

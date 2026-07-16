@@ -1,5 +1,5 @@
 import { run } from '../core/runner.js';
-import { type Caps, caps, card, makeColors, makeSymbols, signal } from '../core/tty.js';
+import { type Caps, caps, card, makeColors, makeSymbols, makeTokens, signal } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
 import { readRecords } from './record.js';
 import { loadState } from './state.js';
@@ -229,8 +229,23 @@ export async function checkMissingAcCommits(projectRoot: string): Promise<Missin
   }
 }
 
+/** 게이트 decision 상태값 색코딩(F-05): 승인=green, 거부/중단=danger, 수정/추가작업=warning. */
+function decisionColored(t: ReturnType<typeof makeTokens>, decision: string): string {
+  if (decision === 'approved') {
+    return t.success(decision);
+  }
+  if (decision === 'rejected' || decision === 'abandoned') {
+    return t.danger(decision);
+  }
+  if (decision === 'modified' || decision === 'more-work' || decision === 'split') {
+    return t.warning(decision);
+  }
+  return decision;
+}
+
 export function renderStatus(report: StatusReport, c: Caps): string {
   const color = makeColors(c.color);
+  const t = makeTokens(c);
   const s = makeSymbols(c);
 
   // 아직 시작 전: 상태도 기록도 없다.
@@ -282,7 +297,7 @@ export function renderStatus(report: StatusReport, c: Caps): string {
     const summary = `완료조건 ${g.presentedCriteriaCount ?? 0}개, 제외 ${g.presentedExclusionsCount ?? 0}건`;
     const autoTag = g.auto ? color.dim(' (자동)') : '';
     out.push(
-      `    ${s.lastBranch} 게이트 ${g.gate}  ${g.decision}${autoTag}   ${when}   ${color.dim(summary)}`,
+      `    ${s.lastBranch} 게이트 ${g.gate}  ${decisionColored(t, g.decision ?? '')}${autoTag}   ${when}   ${color.dim(summary)}`,
     );
   }
   return card(`진행 상황 · ${report.generation}세대`, out, c);

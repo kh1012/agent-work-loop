@@ -1,7 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { run } from '../core/runner.js';
-import { type Caps, caps, card, feedback, makeColors, makeSymbols, signal } from '../core/tty.js';
+import {
+  type Caps,
+  caps,
+  card,
+  feedback,
+  makeColors,
+  makeSymbols,
+  makeTokens,
+  signal,
+} from '../core/tty.js';
 import { loadConfig, resolveProjectRoot } from './config.js';
 import { gitBranch } from './doctor.js';
 import { loadState, migrateState, writeState } from './state.js';
@@ -82,8 +91,23 @@ export function summarizeWorkitems(state: Record<string, unknown>): WorkSummary[
   return out;
 }
 
+/** 워크아이템 상태값 색코딩(status.ts 패턴): 진행/완료=green, 보류=warning, 중단=muted. */
+function statusColored(t: ReturnType<typeof makeTokens>, status: string): string {
+  if (status === 'active' || status === 'done') {
+    return t.success(status);
+  }
+  if (status === 'paused') {
+    return t.warning(status);
+  }
+  if (status === 'abandoned') {
+    return t.muted(status);
+  }
+  return status;
+}
+
 function renderWorkList(list: WorkSummary[], c: Caps): string {
   const color = makeColors(c.color);
+  const t = makeTokens(c);
   const s = makeSymbols(c);
   if (list.length === 0) {
     return card(
@@ -101,7 +125,9 @@ function renderWorkList(list: WorkSummary[], c: Caps): string {
   const out: string[] = [];
   for (const w of list) {
     const marker = w.current ? color.green('*') : ' ';
-    let line = `${marker} ${w.id.padEnd(idWidth, ' ')}${w.status.padEnd(statusWidth, ' ')}${w.passed}/${w.total} 통과`;
+    // 상태값은 색코딩, passed/total 은 emphasis(핵심 값 강조) — status.ts 패턴(F-04/F-05).
+    const statusPad = ' '.repeat(Math.max(0, statusWidth - w.status.length));
+    let line = `${marker} ${w.id.padEnd(idWidth, ' ')}${statusColored(t, w.status)}${statusPad}${t.emphasis(`${w.passed}/${w.total}`)} 통과`;
     if (w.branch) {
       line += `  ${color.dim(w.branch)}`;
     }

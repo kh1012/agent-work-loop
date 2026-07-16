@@ -237,6 +237,26 @@ describe('게이트 이력 (WI-Q AC-03)', () => {
     expect(g2?.recorded).toBe(false);
   });
 
+  it('게이트 decision 을 상태값으로 색코딩한다 — approved=green, rejected=red (cli-visual-consistency AC-04)', () => {
+    const mk = (decision: string) => {
+      const root = tmpProject({ phase: 'loop', workitem: 'WI-9', criteria: [] });
+      tmpHomeWithRecords([
+        {
+          id: '1',
+          at: '2026-07-15T13:44:00Z',
+          type: 'gate',
+          workitem: 'WI-9',
+          gate: 1,
+          decision,
+          presentedCriteria: ['AC-01'],
+        },
+      ]);
+      return renderStatus(buildStatus(root), { unicode: true, color: true, tty: true });
+    };
+    expect(mk('approved')).toContain('\x1b[32mapproved'); // green
+    expect(mk('rejected')).toContain('\x1b[31mrejected'); // red
+  });
+
   it('같은 게이트 번호로 여러 번 기록되면(재승인 등) 가장 최근 것을 쓴다', () => {
     const root = tmpProject({ phase: 'loop', workitem: 'WI-9', criteria: [] });
     tmpHomeWithRecords([
