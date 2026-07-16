@@ -5,6 +5,16 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-16
+
+### 추가
+
+- add v0.6 safety and recovery controls
+
+### 변경
+
+- style: format v0.6 implementation
+
 ## [0.5.5] - 2026-07-16
 
 ### 고침
