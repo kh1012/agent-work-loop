@@ -3,6 +3,7 @@ import path from 'node:path';
 import { generationsDir, gotchasDir, legacyDeltasDir, lockFile } from '../core/paths.js';
 import { type Caps, caps, makeColors } from '../core/tty.js';
 import { requireConfig } from './config.js';
+import { computeDurationMs } from './metrics.js';
 import { computeCoverage, readRecords } from './record.js';
 import { loadState } from './state.js';
 
@@ -400,6 +401,14 @@ export function runEvolveCollect(opts: {
     const extra: Record<string, unknown> = {};
     if (state.workitemExperiment !== undefined) {
       extra.experiment = state.workitemExperiment;
+    }
+    // 던지기~완료 소요(AC-03). workitemCreatedAt(던지기)와 완료 at 차이.
+    if (typeof state.workitemCreatedAt === 'string') {
+      extra.startedAt = state.workitemCreatedAt;
+      const dur = computeDurationMs(state.workitemCreatedAt, at);
+      if (dur !== undefined) {
+        extra.durationMs = dur;
+      }
     }
     writeGeneration(config.project, workitem, collection.metrics, at, extra);
     // collect 는 스킬이 파싱하므로 기본 JSON.

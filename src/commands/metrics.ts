@@ -32,6 +32,24 @@ export interface Generation {
   coverage: CoverageSnapshot;
   /** 실험 케이스 메타(model/mode/taskType). 없으면 undefined(하위호환, experiment-harness). */
   experiment?: Record<string, unknown>;
+  /** 던지기 시각(workitemCreatedAt). 없으면 undefined(옛 스냅샷). */
+  startedAt?: string;
+  /** 던지기~완료 소요 ms. 없으면 undefined. */
+  durationMs?: number;
+}
+
+/**
+ * 던지기(startedAt)~완료(closeAt) 소요 ms 를 잰다(순수, experiment-harness AC-03).
+ * 어느 쪽이든 파싱 불가거나 음수(시계 역전)면 undefined — 신뢰 못 하는 값을 만들지 않는다.
+ */
+export function computeDurationMs(startedAt: unknown, closeAt: unknown): number | undefined {
+  const s = Date.parse(String(startedAt));
+  const e = Date.parse(String(closeAt));
+  if (Number.isNaN(s) || Number.isNaN(e)) {
+    return undefined;
+  }
+  const d = e - s;
+  return d >= 0 ? d : undefined;
 }
 
 /** 워크아이템마다 난이도가 다르다는 경고 — 사람용/JSON 양쪽에 항상 포함한다. */
@@ -86,6 +104,8 @@ export function loadGenerations(project: string): Generation[] {
       ...(raw.experiment !== null && typeof raw.experiment === 'object'
         ? { experiment: raw.experiment as Record<string, unknown> }
         : {}),
+      ...(typeof raw.startedAt === 'string' ? { startedAt: raw.startedAt } : {}),
+      ...(typeof raw.durationMs === 'number' ? { durationMs: raw.durationMs } : {}),
     });
   }
   generations.sort((a, b) => a.at.localeCompare(b.at));

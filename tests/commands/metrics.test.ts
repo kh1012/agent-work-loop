@@ -2,7 +2,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { loadGenerations, renderMetrics, renderMetricsCaveat } from '../../src/commands/metrics.js';
+import {
+  computeDurationMs,
+  loadGenerations,
+  renderMetrics,
+  renderMetricsCaveat,
+} from '../../src/commands/metrics.js';
 import { caps } from '../../src/core/tty.js';
 
 const origHome = process.env.AWL_HOME;
@@ -53,6 +58,19 @@ describe('loadGenerations (WI-P AC-04)', () => {
     });
     const gens = loadGenerations('p');
     expect(gens.map((g) => g.workitem)).toEqual(['WI-Z', 'WI-A']);
+  });
+
+  it('startedAt/durationMs 를 읽는다 (experiment-harness AC-03)', () => {
+    seedGeneration('p', 'WI-D', {
+      workitem: 'WI-D',
+      at: '2026-07-16T12:00:00Z',
+      criteriaTotal: 3,
+      startedAt: '2026-07-16T10:00:00Z',
+      durationMs: 7_200_000,
+    });
+    const g = loadGenerations('p')[0];
+    expect(g?.startedAt).toBe('2026-07-16T10:00:00Z');
+    expect(g?.durationMs).toBe(7_200_000);
   });
 
   it('experiment 케이스 메타를 읽고, 없는 옛 스냅샷은 undefined (experiment-harness AC-01)', () => {
@@ -201,5 +219,18 @@ describe('renderMetrics — 사람용 표 (WI-P 리뷰 지적: criteriaTotal 누
     const out = renderMetrics([], caps());
     expect(out).toContain('세대 기록이 없습니다');
     expect(out).toContain('난이도');
+  });
+});
+
+describe('computeDurationMs — 던지기~완료 소요(experiment-harness AC-03)', () => {
+  it('정상 범위는 ms 차이', () => {
+    expect(computeDurationMs('2026-07-16T00:00:00Z', '2026-07-16T01:00:00Z')).toBe(3_600_000);
+  });
+  it('파싱 불가면 undefined', () => {
+    expect(computeDurationMs('nope', '2026-07-16T01:00:00Z')).toBeUndefined();
+    expect(computeDurationMs('2026-07-16T00:00:00Z', undefined)).toBeUndefined();
+  });
+  it('음수(시계 역전)는 undefined', () => {
+    expect(computeDurationMs('2026-07-16T02:00:00Z', '2026-07-16T01:00:00Z')).toBeUndefined();
   });
 });
