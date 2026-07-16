@@ -8,6 +8,7 @@ import {
   loadState,
   mergeState,
   migrateState,
+  readStateLock,
   releaseStateLock,
   runStateSet,
   sessionToken,
@@ -278,5 +279,22 @@ describe('acquireStateLock / releaseStateLock — 프로젝트 락 헬퍼 (concu
 
   it('sessionToken 은 proc- 접두어를 가진다', () => {
     expect(sessionToken()).toMatch(/^proc-\d+$/);
+  });
+
+  it('readStateLock 은 live 락의 토큰을 돌려주고 stale/부재면 null (concurrency-3 AC-03)', () => {
+    const root = tmp();
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    expect(readStateLock(root)).toBeNull(); // 락 없음
+    acquireStateLock(root, 'proc-123');
+    expect(readStateLock(root)).toMatchObject({ token: 'proc-123' }); // live
+    releaseStateLock(root);
+    expect(readStateLock(root)).toBeNull(); // 해제 후
+    // stale 락은 없는 것과 같이 null.
+    fs.writeFileSync(
+      stateLockFile(root),
+      JSON.stringify({ token: 'old', at: '2000-01-01T00:00:00.000Z' }),
+    );
+    expect(readStateLock(root)).toBeNull();
+    releaseStateLock(root);
   });
 });

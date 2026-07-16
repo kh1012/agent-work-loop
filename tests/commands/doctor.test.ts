@@ -163,6 +163,21 @@ describe('collectChecks — 설치됨 흉내', () => {
     const report = await collectChecks();
     expect(find(report.checks, '최근 활동')).toBeUndefined();
   });
+
+  it('live state.lock 이 있으면 다른 세션 토큰을 warn 으로 표시한다 (concurrency-3 AC-03)', async () => {
+    fs.writeFileSync(
+      path.join(process.cwd(), '.awl', 'state.lock'),
+      JSON.stringify({ token: 'proc-999', at: new Date().toISOString() }),
+    );
+    const report = await collectChecks();
+    const check = find(report.checks, '최근 활동');
+    expect(check?.status).toBe('warn'); // live 락 = 다른 세션이 지금 쓰는 중
+    expect(check?.value).toContain('다른 세션이 state 쓰는 중');
+    expect(check?.value).toContain('proc-999');
+    // warn 이어도 doctor 종료코드(problems)에는 안 걸린다.
+    const problems = report.checks.filter((c) => c.status === 'missing' || c.status === 'fail');
+    expect(problems.some((c) => c.name === '최근 활동')).toBe(false);
+  });
 });
 
 describe('collectChecks — 프로젝트 루트/브랜치 표시 (WI-C)', () => {

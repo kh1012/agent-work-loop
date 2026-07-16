@@ -176,6 +176,27 @@ export function releaseStateLock(projectRoot: string): void {
   }
 }
 
+/**
+ * 지금 잡혀 있는(stale 아닌) state 락의 페이로드를 돌려준다. 없거나 stale 이면 null.
+ * doctor 가 "다른 세션이 지금 state 를 쓰는 중"을 사실로 표시하는 데 쓴다(concurrency-3).
+ */
+export function readStateLock(projectRoot: string): { token: string; at: string } | null {
+  try {
+    const raw = JSON.parse(fs.readFileSync(stateLockFile(projectRoot), 'utf8')) as {
+      token?: unknown;
+      at?: unknown;
+    };
+    const at = typeof raw.at === 'string' ? raw.at : '';
+    const atMs = at ? Date.parse(at) : Number.NaN;
+    if (Number.isNaN(atMs) || Date.now() - atMs > STATE_LOCK_STALE_MS) {
+      return null; // stale — 없는 것과 같이 취급한다.
+    }
+    return { token: typeof raw.token === 'string' ? raw.token : '', at };
+  } catch {
+    return null;
+  }
+}
+
 /** 검증 결과를 현재 완료 조건에 기계적으로 반영한다. 사람의 blocked 기록과는 구분한다. */
 export function applyVerificationAttempts(
   state: Record<string, unknown>,

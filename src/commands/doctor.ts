@@ -19,6 +19,7 @@ import {
   checkVersions,
 } from '../core/versions.js';
 import { readRecords } from './record.js';
+import { readStateLock } from './state.js';
 import { gatherVersionInputs } from './version-check.js';
 
 /**
@@ -796,14 +797,20 @@ async function collectProject(
     } catch {
       // state.json 이 없으면 mtime 도 없다.
     }
-    if (lastAt || stateMtime) {
+    // concurrency-3: 지금 잡혀 있는 state 락이 있으면 다른 awl 프로세스가 state 를 쓰는
+    // 중이라는 정확한 사실이다(concurrency-1 의 시각 heuristic 보다 확실). 토큰으로 표시.
+    const lock = readStateLock(projectRoot);
+    if (lastAt || stateMtime || lock) {
       const fmt = (iso: string): string => (iso ? iso.slice(0, 16).replace('T', ' ') : '없음');
+      const lockNote = lock ? ` · 다른 세션이 state 쓰는 중(${lock.token})` : '';
       checks.push({
         group: '이 프로젝트',
         name: '최근 활동',
-        status: 'info',
-        value: `기록 ${fmt(lastAt)} · state ${fmt(stateMtime)}`,
-        hint: '여러 세션이 같은 프로젝트에서 awl 을 돌리면 records(전역 공유)·state 가 뒤섞일 수 있습니다. 병렬로 작업 중이면 AWL_HOME 을 분리하세요.',
+        status: lock ? 'warn' : 'info',
+        value: `기록 ${fmt(lastAt)} · state ${fmt(stateMtime)}${lockNote}`,
+        hint: lock
+          ? `지금 다른 awl 프로세스(${lock.token})가 state 를 쓰는 중입니다(.awl/state.lock). 병렬 세션이면 AWL_HOME 을 분리하세요.`
+          : '여러 세션이 같은 프로젝트에서 awl 을 돌리면 records(전역 공유)·state 가 뒤섞일 수 있습니다. 병렬로 작업 중이면 AWL_HOME 을 분리하세요.',
       });
     }
   } catch {
