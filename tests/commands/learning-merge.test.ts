@@ -115,6 +115,11 @@ describe('mergeGotchaLists (순수 병합 코어)', () => {
     expect(from[0]?.id).toBe('G-001');
     expect(from[0]?.relations?.[0]?.target).toBe('G-009');
   });
+
+  it('빈/공백 lesson 은 dedup 키로 뭉치지 않고 각각 재부여된다(빈 키 가드)', () => {
+    const { added } = mergeGotchaLists([g('G-001', '  '), g('G-002', '')], [g('G-005', '')]);
+    expect(added).toHaveLength(2);
+  });
 });
 
 // --- fs 병합 -----------------------------------------------------------------
@@ -365,5 +370,33 @@ describe('teardown 통합 — 격리 학습이 전역으로 이어진다(실제 
 
     expect(fs.existsSync(wtPath)).toBe(false);
     expect(readGotchaFiles(global).some((x) => x.lesson === 'workdone 격리교훈')).toBe(true);
+  });
+
+  it('work done: 진짜 --isolated(비워크트리) 학습을 root/.awl-home 에서 전역으로 병합한다', async () => {
+    // --isolated 만(워크트리 없음): state·홈 모두 root, work done 이 root state 에서 찾는다.
+    // root/.awl-home 은 삭제되지 않지만 완료 시 전역으로 학습을 이어야 한다(AC-01 워크아이템).
+    const { proj, global } = realGitProject();
+
+    const restoreErr = silenceStderr();
+    const restoreOut = silenceStdout();
+    try {
+      await runWorkNew('WI-ISO-NWT', undefined, { isolated: true });
+    } finally {
+      restoreOut();
+    }
+    const isoHome = path.join(proj, '.awl-home');
+    // 진짜 --isolated 가 root/.awl-home + 부모전역 마커를 만든다(글루 확인).
+    expect(fs.readFileSync(path.join(isoHome, PARENT_MARKER), 'utf8').trim()).toBe(global);
+    writeGotchaFile(isoHome, g('G-001', 'isolated 비워크트리 교훈'));
+
+    const restoreOut2 = silenceStdout();
+    try {
+      await runWorkDone('WI-ISO-NWT', {});
+    } finally {
+      restoreOut2();
+      restoreErr();
+    }
+
+    expect(readGotchaFiles(global).some((x) => x.lesson === 'isolated 비워크트리 교훈')).toBe(true);
   });
 });

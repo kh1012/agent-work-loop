@@ -3,7 +3,7 @@ import path from 'node:path';
 import { run } from '../core/runner.js';
 import { type Caps, caps, card, feedback, makeColors, signal } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
-import { mergeIsolatedHome } from './learning-merge.js';
+import { type MergeLearningResult, mergeIsolatedHome } from './learning-merge.js';
 import { loadState, writeState } from './state.js';
 import {
   removeGitWorktree,
@@ -318,8 +318,17 @@ export async function runLaneRemove(name: string, opts: { force?: boolean } = {}
 
   // 격리(.awl-home) 학습을 전역으로 병합한다 — 워크트리(=.awl-home) 삭제 전에. 안전
   // 검사를 모두 통과해 제거가 확정된 지점이다. gotchas/rules/generations 만 전역으로
-  // 이으며 records/state 는 안 건드린다(격리 유지). 없거나 자기 자신이면 no-op.
-  const merged = mergeIsolatedHome(path.join(lanePath, '.awl-home'));
+  // 이으며 records/state 는 안 건드린다(격리 유지). 없거나 자기 자신이면 no-op. 병합이
+  // 실패하면(전역 쓰기 오류 등) 깔끔히 중단해 학습을 보존한다 — 삭제 전이라 재시도로 복구된다.
+  let merged: MergeLearningResult | null = null;
+  try {
+    merged = mergeIsolatedHome(path.join(lanePath, '.awl-home'));
+  } catch (e) {
+    process.stderr.write(
+      `\n${feedback(c, 'error', '격리 학습 전역 병합 실패 — 레인을 보존합니다', e instanceof Error ? e.message : String(e))}\n`,
+    );
+    process.exit(1);
+  }
 
   const removed = await removeGitWorktree(root, lanePath, branch);
   if (!removed.ok) {

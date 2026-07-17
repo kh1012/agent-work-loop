@@ -18,6 +18,14 @@ import { parseRuleFile } from './rules.js';
  *   그 락 신설은 concurrency(P0) 몫이라, 여기서는 teardown 때 로컬→전역으로 병합만 한다.
  *   records/state 는 병합하지 않는다 — 로컬 격리·폐기 그대로다(병렬 안전 유지).
  *
+ * 동시성 한계(P0 로 미룸): 전역 쓰기(mergeIsolatedLearning)는 락 없이 read-then-write 한다.
+ *   직렬 teardown(정상 오케스트레이션 — git worktree remove 는 워크트리 내부에서 못 돌아
+ *   오케스트레이터가 lane 을 순차 회수)에서 안전하다. 두 teardown 이 전역을 동시에 병합하거나
+ *   teardown 이 awl evolve --record 와 경합하면 같은 전역 max 를 읽어 lost-update 가 날 수 있다.
+ *   기존 ~/.awl/.lock(evolve/rules)은 globalRoot() 기준이라 여기 목적지(마커 부모전역)와
+ *   어긋나 그대로는 못 쓴다 — 목적지 기준 락은 전역 동시쓰기 안전(P0)에서 신설한다.
+ *   [valid_concurrency: 동시성은 정적추론으로 합격시키지 않는다 — 스트레스 실측은 P0 몫.]
+ *
  * ID 충돌: fresh .awl-home 의 gotcha 는 G-001 부터 매겨져 전역 G-001..G-0NN 과 겹친다.
  *   파일 이름으로 복사하면 전역 교훈을 덮어쓴다 — content(lesson) 로 dedup 하고, 새 교훈은
  *   전역 시퀀스의 새 ID 로 재부여한다. relations/sameAs/rule source 는 그 재ID 로 remap 한다.
@@ -53,13 +61,18 @@ export function mergeGotchaLists(from: Gotcha[], to: Gotcha[]): MergeGotchaResul
   const idMap: Record<string, string> = {};
   const byLesson = new Map<string, Gotcha>();
   for (const g of to) {
-    byLesson.set(lessonKey(g), g);
+    const k = lessonKey(g);
+    if (k !== '') {
+      byLesson.set(k, g);
+    }
   }
   // id 순으로 결정적 처리 — 재부여가 안정적이게.
   const fromSorted = [...from].sort((a, b) => a.id.localeCompare(b.id));
   for (const g of fromSorted) {
     const key = lessonKey(g);
-    const dup = byLesson.get(key);
+    // 빈 lesson 은 dedup 키로 쓰지 않는다 — 서로 다른 빈-lesson gotcha 가 하나로 뭉치거나
+    // remap 이 엉뚱한 전역 gotcha 로 풀리는 걸 막는다(빈 lesson 은 모두 새로 재부여).
+    const dup = key !== '' ? byLesson.get(key) : undefined;
     if (dup) {
       idMap[g.id] = dup.id; // 이미 전역에 있음 — 멱등 skip.
       continue;
@@ -68,7 +81,9 @@ export function mergeGotchaLists(from: Gotcha[], to: Gotcha[]): MergeGotchaResul
     idMap[g.id] = newId;
     const shell: Gotcha = { ...g, id: newId };
     merged.push(shell);
-    byLesson.set(key, shell);
+    if (key !== '') {
+      byLesson.set(key, shell);
+    }
     added.push(shell);
   }
   // 추가분의 참조를 remap — target/sameAs 가 from-로컬 id 면 전역 id 로.
