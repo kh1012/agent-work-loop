@@ -38,3 +38,33 @@ describe('pipeline-mode-skip-gate — mode 세트·기본값·축약 (AC-01)', (
     expect(text).toMatch(/`sg`.*`--sg`.*`skip-gate`/);
   });
 });
+
+describe('pipeline-mode-skip-gate — 3모드 설명·오해방지 (AC-02)', () => {
+  it('skip-gate: 권장값 자동 진행 + critical(high) 최종 요약·기록으로 설명한다', () => {
+    const text = skill();
+    expect(text).toContain('권장값으로 자동 진행');
+    // critical=high 는 자율 처리 안 하고 defer 큐→최종 요약·기록
+    expect(text).toMatch(/critical\(severity `?high`?\)/);
+    expect(text).toMatch(/최종에 별도 요약.기록/);
+    expect(text).toMatch(/awl record defer|awl defer-summary/);
+  });
+
+  it('skip-gate 오해방지: awl 게이트=판단 정지점, 도구 권한 아님(--dangerously-skip-permissions 와 다른 층위)', () => {
+    const text = skill();
+    expect(text).toContain('판단 정지점');
+    expect(text).toContain('--dangerously-skip-permissions');
+    expect(text).toContain('다른 층위');
+    // 도구 실행 권한과 판단 게이트를 구분(권한이 아니다)
+    expect(text).toMatch(/도구 (실행 )?권한이 아니/);
+  });
+
+  it('gate: 매 게이트 사람 승인(개입 최대), auto: critical 자율(개입 최소)', () => {
+    const text = skill();
+    // gate — 매 게이트 승인·개입 최대
+    expect(text).toMatch(/매 게이트 사람에게 물어|매 결정.*사람 승인/);
+    expect(text).toContain('개입 최대');
+    // auto — critical 포함 최종 문의 없이 자율·개입 최소
+    expect(text).toContain('최종 문의 없이 자율');
+    expect(text).toContain('개입 최소');
+  });
+});
