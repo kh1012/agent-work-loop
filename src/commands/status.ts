@@ -14,6 +14,7 @@ import {
   statusBadge,
 } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
+import { WORKTREES_DIR } from './lane.js';
 import { readRecords } from './record.js';
 import { loadState } from './state.js';
 
@@ -389,6 +390,74 @@ function readDirNames(dir: string): string[] {
   }
 }
 
+/**
+ * 한 레인(워크트리)의 workitem 롤업(pipeline-status-view AC-01). name 은 레인
+ * (`.awl-worktrees/<name>`) 디렉토리명, workitems 는 그 레인의 .tasks/ 를
+ * pipelineLanes 로 판정한 결과다. 기존 PipelineLane({name,status})은 workitem 하나다.
+ */
+export interface PipelineLaneGroup {
+  name: string;
+  workitems: PipelineLane[];
+}
+
+/**
+ * `.awl-worktrees/*`(레인 진실원천, F-05)를 순회해 레인마다 pipelineLanes 를 재적용한다
+ * (AC-01). 순수 판정(pipelineLanes)은 재사용하고 레인 그룹핑 계층만 얹는다 — 파일명만
+ * 보고 내용은 안 엶(기존 방식 유지). `.awl-worktrees/` 자체가 없으면 빈 배열이라
+ * 호출부가 단일 .tasks/ 폴백을 스스로 정한다(AC-02). git 을 쓰지 않아 status 는
+ * 절대 크래시하지 않는다(readDirNames 원칙과 동일).
+ */
+export function collectPipelineLaneGroups(root: string): PipelineLaneGroup[] {
+  const base = path.join(root, WORKTREES_DIR);
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(base, { withFileTypes: true });
+  } catch {
+    return []; // .awl-worktrees/ 부재 = 레인 없음 → 폴백.
+  }
+  const groups: PipelineLaneGroup[] = [];
+  for (const e of entries) {
+    if (!e.isDirectory()) {
+      continue;
+    }
+    const tasks = path.join(base, e.name, '.tasks');
+    const workitems = pipelineLanes(
+      readDirNames(path.join(tasks, 'plan')),
+      readDirNames(path.join(tasks, 'exec')),
+      readDirNames(path.join(tasks, 'review')),
+    );
+    groups.push({ name: e.name, workitems });
+  }
+  groups.sort((a, b) => a.name.localeCompare(b.name));
+  return groups;
+}
+
+/**
+ * 교차 레인 롤업을 레인 헤더로 그룹핑해 렌더한다(AC-01). renderPipeline 과 같은 배지
+ * (statusBadge)·열 맞춤(padEndDisplay)을 쓰되, 레인마다 헤더를 얹고 그 아래 workitem
+ * 을 들여쓴다. 열 폭은 전 레인의 workitem 이름 기준으로 통일한다.
+ */
+export function renderPipelineGroups(groups: PipelineLaneGroup[], c: Caps): string {
+  const color = makeColors(c.color);
+  const allNames = groups.flatMap((g) => g.workitems.map((w) => w.name));
+  const nameWidth = Math.max(...allNames.map((n) => n.length), 4) + 2;
+  const out: string[] = [];
+  groups.forEach((g, i) => {
+    if (i > 0) {
+      out.push('');
+    }
+    out.push(color.bold(g.name));
+    if (g.workitems.length === 0) {
+      out.push(`  ${color.dim('(workitem 없음)')}`);
+      return;
+    }
+    for (const w of g.workitems) {
+      out.push(`  ${statusBadge(c, w.status)}  ${padEndDisplay(w.name, nameWidth)}${w.status}`);
+    }
+  });
+  return card(`파이프라인 ${groups.length}개 레인`, out, c);
+}
+
 export async function runStatus(opts: { json: boolean; pipeline?: boolean }): Promise<void> {
   const root = resolveProjectRoot();
   if (!root) {
@@ -401,6 +470,17 @@ export async function runStatus(opts: { json: boolean; pipeline?: boolean }): Pr
   // --pipeline: temp-loop 하네스의 .tasks/{plan,exec,review} 레인 상태를 배지로 낸다(opt-in).
   // awl 코어의 일반 status 와 분리 — .tasks 가 없으면 빈 뷰다(awl 은 하네스 유무를 판단 안 함).
   if (opts.pipeline === true) {
+    // 교차 레인 롤업(AC-01): .awl-worktrees/* 각 레인의 .tasks/ 를 레인별로 집계한다.
+    const groups = collectPipelineLaneGroups(root);
+    if (groups.length > 0) {
+      if (opts.json) {
+        process.stdout.write(`${JSON.stringify({ lanes: groups }, null, 2)}\n`);
+      } else {
+        process.stdout.write(`${renderPipelineGroups(groups, caps())}\n`);
+      }
+      return;
+    }
+    // 폴백(AC-02): .awl-worktrees/ 부재(단일 프로젝트) → 기존 단일 .tasks/ 동작 불변.
     const tasks = path.join(root, '.tasks');
     const lanes = pipelineLanes(
       readDirNames(path.join(tasks, 'plan')),

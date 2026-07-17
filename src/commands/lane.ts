@@ -12,7 +12,8 @@ import { removeGitWorktree, runWorkNew, sanitizeForGit, worktreeDirtyTracked } f
  * 재사용한다. lane 은 그 조립 + 레인 어휘의 기동 안내만 얹는다.
  */
 
-const WORKTREES_DIR = '.awl-worktrees';
+/** 레인 진실원천 디렉토리(F-05). status --pipeline 교차 레인 롤업도 이 단일 출처를 쓴다. */
+export const WORKTREES_DIR = '.awl-worktrees';
 
 // 레인의 각 역할 세션이 실행할 파이프라인 스킬 트리거(engine/skills/claude/ 에 대응).
 const PIPELINE_TRIGGERS = ['/awl-pipeline-plan', '/awl-pipeline-exec', '/awl-pipeline-review'];
