@@ -569,16 +569,46 @@ export function registerProject(entry: {
 // 스킬 설치
 // ---------------------------------------------------------------------------
 
-/** Claude Code 스킬을 .claude/skills/awl-loop/ 에 설치한다. */
-export function installClaudeSkill(projectRoot: string): boolean {
-  const src = path.join(engineDir(), 'skills', 'claude', 'awl-loop');
-  if (!exists(src)) {
-    return false;
+/**
+ * engine/skills/claude/ 아래 스킬 디렉토리 이름들. 없으면 빈 배열.
+ * 스킬 이름을 하드코딩하지 않는다 — 디렉토리 구조가 곧 설치 목록이다(다중-스킬).
+ */
+function claudeSkillNames(): string[] {
+  const dir = path.join(engineDir(), 'skills', 'claude');
+  try {
+    return fs
+      .readdirSync(dir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+      .sort();
+  } catch {
+    return [];
   }
-  const dest = path.join(projectRoot, '.claude', 'skills', 'awl-loop');
-  fs.mkdirSync(path.dirname(dest), { recursive: true });
-  fs.cpSync(src, dest, { recursive: true });
-  return true;
+}
+
+/**
+ * engine/skills/claude/ 의 서브디렉토리 중 filter 를 통과하는 것을 각각
+ * .claude/skills/<name>/ 로 복사한다. 복사한 스킬 이름 목록을 돌려준다.
+ * filter 로 "전부"(신규 설치)와 "이미 깔린 것만"(재실행)을 한 함수로 처리한다.
+ */
+function copyClaudeSkills(projectRoot: string, filter: (name: string) => boolean): string[] {
+  const copied: string[] = [];
+  for (const name of claudeSkillNames()) {
+    if (!filter(name)) {
+      continue;
+    }
+    const src = path.join(engineDir(), 'skills', 'claude', name);
+    const dest = path.join(projectRoot, '.claude', 'skills', name);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.cpSync(src, dest, { recursive: true });
+    copied.push(name);
+  }
+  return copied;
+}
+
+/** Claude Code 스킬을 .claude/skills/ 에 설치한다 — engine 의 모든 스킬 디렉토리를 복사한다. */
+export function installClaudeSkill(projectRoot: string): boolean {
+  return copyClaudeSkills(projectRoot, () => true).length > 0;
 }
 
 /** Codex 지침을 AGENTS.md 에 추가한다. 마커로 중복을 막는다. */

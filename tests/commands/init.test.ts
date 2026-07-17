@@ -15,6 +15,7 @@ import {
   detectVerify,
   detectWorkspacePackages,
   ensureGitignore,
+  installClaudeSkill,
   nonInteractiveInputs,
   promptVerifyLocation,
   registerProject,
@@ -670,6 +671,47 @@ describe('applyInit — 전체 산출물', () => {
       registeredAt: '2026-01-01T00:00:00.000Z',
     });
     expect(count).toBe(1);
+  });
+
+  // ---- 다중-스킬 설치기 (pipeline-multi-skill-installer) ----
+
+  it('installClaudeSkill — engine 의 모든 스킬 디렉토리를 설치한다 (AC-01). 함수 수정 없이 픽스처 2개가 다 깔린다', () => {
+    // scaffoldGlobal 이 engine 을 home/engine 으로 복사한다 — 그 위에 더미 스킬을 추가한다.
+    scaffoldGlobal();
+    const engineClaude = path.join(home, 'engine', 'skills', 'claude');
+    const dummyDir = path.join(engineClaude, 'awl-fixture-skill');
+    fs.mkdirSync(dummyDir, { recursive: true });
+    fs.writeFileSync(path.join(dummyDir, 'SKILL.md'), '# fixture\n');
+
+    const ok = installClaudeSkill(proj);
+
+    expect(ok).toBe(true);
+    // 하드코딩된 awl-loop 뿐 아니라 픽스처 스킬도 설치돼야 한다(순회 증명).
+    expect(fs.existsSync(path.join(proj, '.claude', 'skills', 'awl-loop', 'SKILL.md'))).toBe(true);
+    expect(
+      fs.existsSync(path.join(proj, '.claude', 'skills', 'awl-fixture-skill', 'SKILL.md')),
+    ).toBe(true);
+  });
+
+  it('installClaudeSkill — 스킬 하나도 없으면 false (engine skills/claude 비어있음)', () => {
+    scaffoldGlobal();
+    const engineClaude = path.join(home, 'engine', 'skills', 'claude');
+    fs.rmSync(engineClaude, { recursive: true, force: true });
+    fs.mkdirSync(engineClaude, { recursive: true });
+
+    expect(installClaudeSkill(proj)).toBe(false);
+  });
+
+  it('installClaudeSkill 소스에 스킬 이름 하드코딩이 없다 (AC-01, grep 뮤테이션 가드)', () => {
+    const src = fs.readFileSync(path.join(origCwd, 'src', 'commands', 'init.ts'), 'utf8');
+    // Claude 설치 로직 구간만 잘라 검사한다 — installCodexSkill 은 'awl-loop:start'
+    // 마커를 정당하게 참조하므로 제외한다.
+    const start = src.indexOf('function claudeSkillNames');
+    const end = src.indexOf('export function installCodexSkill');
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const region = src.slice(start, end);
+    expect(region).not.toContain('awl-loop');
   });
 });
 
