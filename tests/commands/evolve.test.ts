@@ -3,8 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  type Gotcha,
   acquireLock,
   collectEvolve,
+  gotchaCluster,
   loadGotchaList,
   migrateDeltasToGotchas,
   normalizeRelations,
@@ -280,6 +282,59 @@ describe('gotcha 관계 필드 relations (AC-01)', () => {
     );
     const loaded = loadGotchaList();
     expect(loaded[0]?.relations).toEqual([{ type: 'supersedes', target: 'G-003' }]);
+  });
+});
+
+describe('gotchaCluster — 관계 클러스터 순회 (AC-02)', () => {
+  const mk = (id: string, extra: Partial<Gotcha> = {}): Gotcha => ({
+    id,
+    lesson: id,
+    count: 1,
+    ...extra,
+  });
+
+  it('relations/sameAs 엣지를 따라 관련 교훈을 모은다(시드 제외)', () => {
+    const list = [
+      mk('G-001', { relations: [{ type: 'refines', target: 'G-002' }] }),
+      mk('G-002', { sameAs: 'G-003' }),
+      mk('G-003'),
+      mk('G-009'), // 무관 — 클러스터에 안 들어감
+    ];
+    const cluster = gotchaCluster('G-001', list)
+      .map((x) => x.id)
+      .sort();
+    expect(cluster).toEqual(['G-002', 'G-003']);
+  });
+
+  it('엣지 없는 시드는 빈 클러스터', () => {
+    expect(gotchaCluster('G-001', [mk('G-001'), mk('G-002')])).toEqual([]);
+  });
+
+  it('순환(G-001↔G-002)에서 무한루프 없이 종료', () => {
+    const list = [
+      mk('G-001', { relations: [{ type: 'refines', target: 'G-002' }] }),
+      mk('G-002', { relations: [{ type: 'refines', target: 'G-001' }] }),
+    ];
+    expect(gotchaCluster('G-001', list).map((x) => x.id)).toEqual(['G-002']);
+  });
+
+  it('maxHops 로 순회 깊이를 제한한다', () => {
+    const list = [
+      mk('G-001', { relations: [{ type: 'refines', target: 'G-002' }] }),
+      mk('G-002', { sameAs: 'G-003' }),
+      mk('G-003'),
+    ];
+    expect(gotchaCluster('G-001', list, 1).map((x) => x.id)).toEqual(['G-002']);
+    expect(
+      gotchaCluster('G-001', list, 2)
+        .map((x) => x.id)
+        .sort(),
+    ).toEqual(['G-002', 'G-003']);
+  });
+
+  it('실재하지 않는 target(dangling)은 결과에서 뺀다', () => {
+    const list = [mk('G-001', { relations: [{ type: 'supersedes', target: 'G-999' }] })];
+    expect(gotchaCluster('G-001', list)).toEqual([]);
   });
 });
 

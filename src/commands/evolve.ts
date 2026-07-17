@@ -214,6 +214,59 @@ function nextGotchaId(gotchas: Gotcha[]): string {
   return `G-${String(max + 1).padStart(3, '0')}`;
 }
 
+/**
+ * 시드 gotcha 에서 relations/sameAs 엣지를 **무방향**으로 순회해 관련 교훈 클러스터를 낸다
+ * (gotcha-graph AC-02). "이 상황에 쓸 교훈 묶음"을 관계를 따라 모은다.
+ *
+ * - 엣지는 무방향으로 다룬다 — A refines B 면 B 도 A 와 관련. sameAs 도 관계 엣지로 본다.
+ * - maxHops 로 순회 깊이를 제한(기본 무제한 = 연결 컴포넌트 전체). visited 로 순환 가드.
+ * - 시드 자신과 실재하지 않는 target(dangling)은 결과에서 뺀다.
+ * awl 은 관계를 판단하지 않는다 — 저장된 엣지를 순회만 한다.
+ */
+export function gotchaCluster(
+  seedId: string,
+  gotchas: Gotcha[],
+  maxHops = Number.POSITIVE_INFINITY,
+): Gotcha[] {
+  const byId = new Map(gotchas.map((g) => [g.id, g]));
+  // 무방향 인접: relations.target + sameAs 를 양방향 엣지로.
+  const adj = new Map<string, Set<string>>();
+  const link = (a: string, b: string): void => {
+    if (!adj.has(a)) adj.set(a, new Set());
+    if (!adj.has(b)) adj.set(b, new Set());
+    adj.get(a)?.add(b);
+    adj.get(b)?.add(a);
+  };
+  for (const g of gotchas) {
+    if (g.sameAs) link(g.id, g.sameAs);
+    for (const r of g.relations ?? []) link(g.id, r.target);
+  }
+  // BFS: 시드에서 홉 단위로 넓힌다. visited 가 순환 가드.
+  const visited = new Set<string>([seedId]);
+  let frontier = [seedId];
+  let hop = 0;
+  while (frontier.length > 0 && hop < maxHops) {
+    const next: string[] = [];
+    for (const id of frontier) {
+      for (const nb of adj.get(id) ?? []) {
+        if (!visited.has(nb)) {
+          visited.add(nb);
+          next.push(nb);
+        }
+      }
+    }
+    frontier = next;
+    hop += 1;
+  }
+  visited.delete(seedId); // 시드 자신은 "관련 교훈"에서 제외
+  const out: Gotcha[] = [];
+  for (const id of visited) {
+    const g = byId.get(id);
+    if (g) out.push(g); // 실재하는 gotcha 만(dangling target 무시)
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // collect
 // ---------------------------------------------------------------------------
