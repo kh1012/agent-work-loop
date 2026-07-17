@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { version as pkgVersion } from '../package.json';
-import type { Caps } from '../src/core/tty.js';
+import { type Caps, visibleWidth } from '../src/core/tty.js';
 import {
   BANNER,
   buildProgram,
@@ -60,6 +60,40 @@ describe('awl 프로그램 구성', () => {
     const banner = renderBanner({ unicode: false, color: false, tty: false });
     expect(banner.split('\n')[0]).toContain('Agent Work Loop');
     expect(banner.startsWith('\n')).toBe(false);
+  });
+
+  // cli-banner-align AC-03: 색 켜짐에서 열계산이 ANSI 를 폭에 포함하면(stringWidth)
+  // 로고 없는 설명줄이 우측으로 밀리고(+12), 3자리 팔레트(135) 로고행은 -1칸 어긋난다.
+  // 각 설명줄이 시작하는 "표시 열"을 재서 전부 같은지 잠근다. visibleWidth 로 고쳐야만
+  // 통과하고, stringWidth 로 되돌리면 색 켜짐에서 열이 갈라져 fail 한다(뮤테이션-저항).
+  function copyStartColumns(c: Caps): number[] {
+    const rendered = renderBanner(c).split('\n');
+    const copyLines = BANNER.split('\n');
+    const cols: number[] = [];
+    for (let i = 0; i < copyLines.length; i++) {
+      const copy = copyLines[i];
+      if (copy === undefined || copy.trim() === '') continue; // 빈 줄은 정렬 대상 아님
+      const line = rendered[i] ?? '';
+      // 렌더 줄 = 로고 + 패딩 + 설명. 설명은 마지막이고 색코드가 없다.
+      // 설명 시작 열 = (색 벗긴 전체폭) - (설명폭). visibleWidth 가 ANSI 를 폭 0 으로 친다.
+      // stringWidth 로 되돌리면 로고 없는 줄의 패딩이 +12, 135 팔레트 로고행이 -1 되어 열이 갈라진다.
+      expect(line.endsWith(copy)).toBe(true); // 설명이 줄 끝에 그대로 있어야 한다
+      cols.push(visibleWidth(line) - visibleWidth(copy));
+    }
+    return cols;
+  }
+
+  it('색 켜짐 배너의 모든 설명줄은 같은 열에서 시작한다 (renderBanner 정렬, AC-03)', () => {
+    const cols = copyStartColumns({ unicode: true, color: true, tty: true });
+    expect(cols.length).toBeGreaterThan(1);
+    // 전부 첫 열과 같아야 한다. stringWidth 로 되돌리면 로고 없는 줄(+12)과 135행(-1)이 갈라진다.
+    for (const col of cols) expect(col).toBe(cols[0]);
+  });
+
+  it('배너 정렬은 색 꺼짐/켜짐이 동일하다 (회귀 방지, AC-03)', () => {
+    const on = copyStartColumns({ unicode: true, color: true, tty: true });
+    const off = copyStartColumns({ unicode: true, color: false, tty: false });
+    expect(on).toEqual(off);
   });
 
   it('evolve 는 스킬 전용(숨김)이라 최상위 도움말에 안 보인다', () => {
