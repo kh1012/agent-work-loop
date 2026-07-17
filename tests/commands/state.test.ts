@@ -35,13 +35,14 @@ describe('mergeState — 부분 갱신 병합', () => {
     expect(merged.tags).toEqual(['c']);
   });
 
-  it('skip-gate 모드 필드(mode/deferThreshold)를 D-15 로 보존한다(skip-gate-defer AC-01)', () => {
+  it('mode 필드(mode/deferThreshold)를 D-15 로 보존한다 — 엔진은 모드명 불문 그대로 흘린다(skip-gate-defer AC-01)', () => {
     // awl 은 스키마를 강제하지 않는다 — 자유 top-level 필드가 그대로 흐른다.
+    // 모드명은 스킬 개념이라 엔진은 값을 해석하지 않고 보존만 한다(graded 값도 동일).
     const merged = mergeState(
       { phase: 'loop', workitem: 'WI-3' },
-      { mode: 'skip-gate', deferThreshold: 'medium' },
+      { mode: 'gate-medium', deferThreshold: 'medium' },
     );
-    expect(merged.mode).toBe('skip-gate');
+    expect(merged.mode).toBe('gate-medium');
     expect(merged.deferThreshold).toBe('medium');
     expect(merged.phase).toBe('loop'); // 기존 필드 보존
   });

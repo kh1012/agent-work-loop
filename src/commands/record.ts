@@ -84,13 +84,13 @@ export const REFACTOR_KINDS = [
 ] as const;
 
 /**
- * severity 척도 — 심각도 내림차순(index 0='high' 가 가장 중요). skip-gate 모드의
- * defer 레코드 severity 검증과 shouldDefer 임계 비교의 단일 출처(skip-gate-defer).
+ * severity 척도 — 심각도 내림차순(index 0='high' 가 가장 중요). 보류(defer)
+ * 레코드 severity 검증과 shouldDefer 임계 비교의 단일 출처(skip-gate-defer).
  */
 export const DEFER_SEVERITIES = ['high', 'medium', 'low'] as const;
 
 /**
- * skip-gate 모드에서 이 severity 를 사람에게 defer 할지 판정한다(순수, skip-gate-defer AC-03).
+ * 이 severity 를 사람에게 defer(보류)할지 판정한다(순수, skip-gate-defer AC-03).
  *
  * 판정 기준: severity 가 임계 이상으로 "중요"하면 defer(사람 최종 문의), 아니면 스킬이
  * "권장 통과"한다. threshold 'high'(기본)=high 만, 'medium'=high+medium, 'low'=전부 defer.
@@ -154,7 +154,7 @@ export const SCHEMAS: Record<RecordType, Schema> = {
   // 종류다 — records/ 에 쌓이고 gotcha 로 승격되지 않는다. area 가 모으기의 키.
   // suggestion 은 선택(개선 아이디어, 강제 아님 — 번역은 사람 몫).
   'awl-feedback': { required: ['area', 'what', 'impact', 'severity'] },
-  // skip-gate 모드에서 자율 통과를 보류하고 사람에게 최종 문의할 중요 항목.
+  // 자율 통과를 보류하고 사람에게 최종 문의할 중요 항목(보류 큐).
   // recommendation(자율로 택했을 권장 결정)/gate(어느 게이트)/addresses 는 선택(D-15).
   defer: { required: ['severity', 'what', 'why'] },
   // 반복 루프 리팩토링 체크포인트에서 실제 리팩토링이 일어났을 때 남긴다
@@ -666,7 +666,7 @@ export function readRecords(filter: RecordFilter = {}): Record<string, unknown>[
   return filtered;
 }
 
-/** skip-gate 모드에서 사람에게 최종 문의할 보류 항목(skip-gate-defer AC-02). */
+/** 사람에게 최종 문의할 보류 항목(보류 큐, skip-gate-defer AC-02). */
 export interface DeferItem {
   severity: string;
   what: string;
@@ -708,9 +708,9 @@ export function collectDeferred(records: Record<string, unknown>[]): DeferItem[]
 /** defer 큐를 사람용으로 렌더한다(최종 요약). 가이드가 아니라 목록이다. */
 export function renderDeferSummary(items: DeferItem[]): string {
   if (items.length === 0) {
-    return 'skip-gate 보류 큐가 비어있습니다(사람 확인이 필요한 중요 항목 없음).';
+    return '보류 큐가 비어있습니다(사람 확인이 필요한 중요 항목 없음).';
   }
-  const lines = [`skip-gate 보류 ${items.length}건 — 사람 최종 확인 필요:`];
+  const lines = [`보류 ${items.length}건 — 사람 최종 확인 필요:`];
   for (const it of items) {
     lines.push(`  [${it.severity}] ${it.what}`);
     lines.push(`      왜 중요: ${it.why}`);
@@ -722,7 +722,7 @@ export function renderDeferSummary(items: DeferItem[]): string {
 }
 
 /**
- * awl defer-summary — skip-gate 모드에서 보류한 중요 항목을 최종 요약한다.
+ * awl defer-summary — 보류 큐(사람 최종 확인 항목)를 최종 요약한다.
  * workitem 미지정이면 state 의 현재 워크아이템. awl 은 요약만 낸다 — 판단은 사람.
  */
 export function runDeferSummary(opts: { json?: boolean; workitem?: string }): void {
