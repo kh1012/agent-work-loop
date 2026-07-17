@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.6.9] - 2026-07-17
+
 ### 고침
 
 - doctor 체크 값(value)도 emphasis(bold)로 강조 — cli-visual-consistency AC-04 완결. tty 에 clipToWidth(색 ANSI 를 보존하며 표시폭으로 자르고 잘린 끝에서 색을 닫는 절단)를 신설해, doctor 의 로컬 clip(stringWidth 기반, ANSI 미인지)을 대체하고 값에 색을 입혀도 truncation/색번짐 없이 살아남게 했다(이전엔 이 한계로 group 헤더 bold 만 유지했음). rules 락 경고의 signal(caps()) 를 signal(c) 로 정정 [cli-visual-consistency]
