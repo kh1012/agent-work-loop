@@ -451,7 +451,7 @@ export function runWorkList(opts: { json: boolean }): void {
 }
 
 /** git ref/디렉토리 이름에 안전한 문자만 남긴다(commit.ts 의 sanitizeRefComponent 와 같은 이유 — 공백 등 잘못된 문자를 _ 로). */
-function sanitizeForGit(s: string): string {
+export function sanitizeForGit(s: string): string {
   return s
     .trim()
     .replace(/[^A-Za-z0-9._-]/g, '_')
@@ -486,7 +486,7 @@ async function createGitWorktree(
  * 바꾸는 좁은 레이스 창)에 검증이 실패하면 이미 만든 git 자원이 orphan 으로 남는다 —
  * 이걸 되돌린다. 정리 자체가 실패해도 무음으로 삼키지 않는다(D-26 의 교훈과 같은 원칙).
  */
-async function removeGitWorktree(
+export async function removeGitWorktree(
   root: string,
   targetPath: string,
   branchName: string,
@@ -723,6 +723,28 @@ export function runWorkAbandon(id: string): void {
  *    --force 를 요구하므로 실제 remove 는 --force 로 한다). tracked 미커밋 변경이 있으면
  *    거부하고 호출부가 --force 를 안내한다 — force=true 면 그 검사도 건너뛴다.
  */
+/**
+ * 워크트리의 tracked 미커밋 변경을 조사한다(untracked 산출물은 무시). work done
+ * 과 lane rm 이 "더러운 트리는 force 없이 제거하지 않는다"를 같은 기준으로 판정하려
+ * 공유한다(F-04) — 중복 로직을 두 곳에 두지 않는다.
+ */
+export async function worktreeDirtyTracked(
+  root: string,
+  targetPath: string,
+): Promise<{ dirty: boolean; count: number; first?: string }> {
+  const status = await run({
+    cmd: 'git',
+    args: ['-C', targetPath, 'status', '--porcelain', '--untracked-files=no'],
+    cwd: root,
+    timeoutMs: 10_000,
+  });
+  const lines = status.stdout
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  return { dirty: lines.length > 0, count: lines.length, first: lines[0] };
+}
+
 async function removeWorktreeDir(
   root: string,
   targetPath: string,
@@ -730,18 +752,9 @@ async function removeWorktreeDir(
 ): Promise<{ ok: boolean; error?: string }> {
   if (!force) {
     // tracked 미커밋 변경만 본다(untracked 산출물은 완료 워크트리에 정상이라 무시).
-    const status = await run({
-      cmd: 'git',
-      args: ['-C', targetPath, 'status', '--porcelain', '--untracked-files=no'],
-      cwd: root,
-      timeoutMs: 10_000,
-    });
-    const dirty = status.stdout
-      .split('\n')
-      .map((l) => l.trim())
-      .filter(Boolean);
-    if (dirty.length > 0) {
-      return { ok: false, error: `커밋되지 않은 변경 ${dirty.length}건 (예: ${dirty[0]})` };
+    const d = await worktreeDirtyTracked(root, targetPath);
+    if (d.dirty) {
+      return { ok: false, error: `커밋되지 않은 변경 ${d.count}건 (예: ${d.first})` };
     }
   }
   // untracked 산출물까지 정리하려면 --force 가 필요하다(git worktree remove 는 untracked 도 거부).

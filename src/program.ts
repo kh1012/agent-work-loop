@@ -278,6 +278,38 @@ export function buildProgram(): Command {
       await runWorkDone(id, { force: opts.force === true });
     });
 
+  // 사람이 치는 명령: lane (격리 레인 = worktree + 전용 AWL_HOME + 스킬 + 기동 안내, P1 멀티레인)
+  const lane = program.command('lane').description('격리 레인(worktree)을 만들고 조회·정리합니다');
+  lane
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .action(async (opts: { json?: boolean }) => {
+      const { runLaneList } = await import('./commands/lane.js');
+      await runLaneList({ json: opts.json === true });
+    });
+  lane
+    .command('new <name> [description]')
+    .description('격리 레인을 만듭니다 (worktree + 전용 AWL_HOME + 스킬 재설치 + 기동 안내)')
+    .action(async (name: string, description: string | undefined) => {
+      const { runLaneNew } = await import('./commands/lane.js');
+      await runLaneNew(name, description);
+    });
+  lane
+    .command('ls')
+    .description('현존 레인을 이름·경로·브랜치와 함께 나열합니다')
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .action(async (opts: { json?: boolean }) => {
+      const { runLaneList } = await import('./commands/lane.js');
+      await runLaneList({ json: opts.json === true });
+    });
+  lane
+    .command('rm <name>')
+    .description('레인의 워크트리를 회수하고 디렉토리를 제거합니다')
+    .option('--force', '커밋되지 않은 변경이 있어도 제거합니다')
+    .action(async (name: string, opts: { force?: boolean }) => {
+      const { runLaneRemove } = await import('./commands/lane.js');
+      await runLaneRemove(name, { force: opts.force === true });
+    });
+
   // 사람이 치는 명령: records (기록 조회, 사람이 읽는 목록)
   program
     .command('records')
