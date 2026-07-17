@@ -743,8 +743,10 @@ describe('applyInit — 전체 산출물', () => {
     ).toBe('fixture-v2\n');
   });
 
-  it('syncExistingInstall — 설치 안 된 스킬은 재실행이 새로 깔지 않는다 (AC-02)', () => {
-    // awl-loop 만 설치한 상태에서 engine 에 픽스처 스킬을 새로 추가한다.
+  it('syncExistingInstall — 재실행이 엔진에 나중 추가된 스킬을 새로 설치한다 (AC-01, 0.6.13 가드 반전)', () => {
+    // awl-loop 만 설치한 상태에서 engine 에 픽스처 스킬을 새로 추가한다(엔진에 나중
+    // 편입된 awl-pipeline* 을 모사). 0.6.13 은 여기서 미설치를 단언했다 — 이제 반전한다:
+    // 업그레이드 경로에서 기존 사용자가 새 엔진 스킬을 재실행만으로 받아야 한다.
     const inputs = nonInteractiveInputs(proj);
     inputs.skills = { claude: true, codex: false };
     const result = applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
@@ -752,11 +754,39 @@ describe('applyInit — 전체 산출물', () => {
     fs.mkdirSync(path.join(engineClaude, 'awl-fixture-skill'), { recursive: true });
     fs.writeFileSync(path.join(engineClaude, 'awl-fixture-skill', 'SKILL.md'), 'v1\n');
 
-    // 프로젝트에는 픽스처가 설치 안 됨 — 재실행이 멋대로 추가하면 안 된다.
-    syncExistingInstall(proj, result.engineVersion);
+    const synced = syncExistingInstall(proj, result.engineVersion);
 
+    expect(synced.skills).toContain('claude');
+    // 기존 스킬은 그대로.
     expect(fs.existsSync(path.join(proj, '.claude', 'skills', 'awl-loop'))).toBe(true);
-    expect(fs.existsSync(path.join(proj, '.claude', 'skills', 'awl-fixture-skill'))).toBe(false);
+    // engine 에 있으나 .claude/skills 에 없던 스킬이 이제 내용까지 설치된다(반전).
+    expect(
+      fs.readFileSync(
+        path.join(proj, '.claude', 'skills', 'awl-fixture-skill', 'SKILL.md'),
+        'utf8',
+      ),
+    ).toBe('v1\n');
+  });
+
+  it('runInit --yes 재실행이 엔진 신규 스킬을 프로젝트에 설치한다 (AC-01 CLI 배선)', async () => {
+    // awl-loop 만 설치. 재실행 진입점(runInit --yes 그대로 경로)이 실제로 신규 스킬을
+    // 까는지 — syncExistingInstall 단위 테스트가 못 잡는 배선을 잠근다.
+    const inputs = nonInteractiveInputs(proj);
+    inputs.skills = { claude: true, codex: false };
+    applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
+    const engineClaude = path.join(home, 'engine', 'skills', 'claude');
+    fs.mkdirSync(path.join(engineClaude, 'awl-fixture-skill'), { recursive: true });
+    fs.writeFileSync(path.join(engineClaude, 'awl-fixture-skill', 'SKILL.md'), 'v1\n');
+
+    // proj 가 cwd(beforeEach 에서 chdir)이고 config 가 있으므로 --yes 재실행 경로를 탄다.
+    await runInit({ yes: true });
+
+    expect(
+      fs.readFileSync(
+        path.join(proj, '.claude', 'skills', 'awl-fixture-skill', 'SKILL.md'),
+        'utf8',
+      ),
+    ).toBe('v1\n');
   });
 });
 

@@ -676,8 +676,9 @@ export function writeSkillsVersionStamp(
  * 이미 설정된 프로젝트를 재실행(그대로 쓰기)할 때 버전 마커를 설치된 엔진에 맞춰
  * 동기화한다(피드백 F-2). `config.engineVersion` 과 이미 설치된 스킬의
  * `skills-version.json` 을 갱신하고, 스킬 파일 자체도 재설치해 "마커만 올리고 내용은
- * 옛날" 인 거짓 동기화를 피한다. 설치 안 된 스킬은 새로 깔지 않는다(재실행이 멋대로
- * 스킬을 추가하지 않게 한다). 반환값은 무엇을 동기화했는지 — 로그용.
+ * 옛날" 인 거짓 동기화를 피한다. claude 스킬을 쓰는 프로젝트면 엔진에 나중 추가된
+ * 스킬도 함께 설치한다(업그레이드 경로) — claude 를 안 쓰는 프로젝트엔 새로 깔지
+ * 않는다. 반환값은 무엇을 동기화했는지 — 로그용.
  */
 export function syncExistingInstall(
   projectRoot: string,
@@ -692,13 +693,16 @@ export function syncExistingInstall(
     configUpdated = true;
   }
 
-  // 2) 이미 설치된 스킬만 재설치(내용 갱신)하고 마커를 동기화한다. 재실행이 멋대로
-  //    새 스킬을 추가하지 않도록, .claude/skills/<name> 이 이미 있는 것만 재복사한다.
+  // 2) claude 스킬이 하나라도 설치된 프로젝트면(=claude 를 쓰는 프로젝트) 엔진의 모든
+  //    claude 스킬을 재설치한다 — 기존 것은 내용 갱신, 엔진에 나중 추가됐지만 아직 없는
+  //    것은 새로 설치한다(업그레이드 경로: 기존 사용자가 재실행만으로 새 파이프라인
+  //    스킬을 받는다). claude 를 아예 안 쓰는 프로젝트(codex-only 등)에는 새로 깔지
+  //    않는다 — "그대로" 경로가 스킬 사용 여부(config 결정)를 뒤집지 않게 한다.
   const skills: string[] = [];
-  const reinstalled = copyClaudeSkills(projectRoot, (name) =>
+  const claudeInUse = claudeSkillNames().some((name) =>
     exists(path.join(projectRoot, '.claude', 'skills', name)),
   );
-  if (reinstalled.length > 0) {
+  if (claudeInUse && copyClaudeSkills(projectRoot, () => true).length > 0) {
     skills.push('claude');
   }
   const agentsMd = path.join(projectRoot, 'AGENTS.md');
