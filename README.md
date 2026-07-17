@@ -150,9 +150,12 @@ awl evolve  ← 실패에서 재사용 가능한 교훈을 뽑습니다
 
 ```bash
 awl status    # 지금 어디까지 왔는지 한눈에
+awl brief     # 오늘(KST) 진행분을 모아서 봅니다 (--json 은 스킬이 읽습니다)
 awl records   # 쌓인 기록 (사람이 읽는 목록)
 awl rules     # 이 프로젝트에 적용되는 규칙
 awl gotchas   # 아직 규칙이 되지 않은 교훈
+awl metrics   # 워크아이템 세대별 지표 추세 (--compare 로 실험 케이스 비교)
+awl feedback  # awl 도구 자체에 대한 피드백 모아보기
 ```
 
 ---
@@ -286,10 +289,7 @@ awl rules promote D-003 \
 `pnpm setup`을 실행하고 터미널을 새로 엽니다. pnpm 전역 bin이 PATH에 없어서입니다.
 
 **`awl --version`이 엔진 버전 불일치를 경고한다**
-```
-awl 0.2.0 (engine 0.1.4 — 버전이 다릅니다. awl init 을 다시 실행하세요)
-```
-`awl`을 업그레이드했는데 `~/.awl/engine`은 예전 버전 그대로일 때 나옵니다. `awl init`을 다시 실행하면 `~/.awl/engine`이 갱신됩니다(프로젝트 설정은 안 건드립니다).
+`awl`을 업그레이드했는데 `~/.awl/engine`은 예전 버전 그대로일 때 나옵니다. 실행 바이너리와 설치된 엔진이 어긋난 것이므로, `awl update`로 엔진을 갱신하면 맞춰집니다(프로젝트 설정은 안 건드립니다). 어긋난 버전 쌍을 직접 보려면 `awl version-check`를 씁니다 — package.json, 설치된 엔진, 프로젝트 config, 설치된 스킬 사이의 불일치를 짚어줍니다. 프로젝트 config가 엔진보다 낡았다면 그때는 `awl init`을 다시 실행합니다.
 
 **`awl doctor`가 검증 명령을 "명령을 찾을 수 없습니다"라고 한다**
 `node_modules/.bin`이 지금 셸의 PATH에 없을 수 있습니다(에디터 내장 터미널이 아닌 별도 셸에서 흔합니다). `cwd`를 지정했다면 그 디렉토리 자체가 없는 건 아닌지도 확인하세요 — `doctor`가 "cwd 없음"으로 구분해 알려줍니다.
