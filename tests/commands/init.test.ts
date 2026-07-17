@@ -836,6 +836,7 @@ describe('renderResult — 결과 값 emphasis 강조 (cli-visual-consistency AC
   it('색 없음이면 값은 평문(no-op)', () => {
     const text = renderResult(result, inputs, { unicode: false, color: false, tty: false });
     expect(text).toContain('0.6.8');
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI 이스케이프 부재 확인
     expect(/\x1b\[/.test(text)).toBe(false);
   });
 });

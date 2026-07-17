@@ -378,6 +378,7 @@ describe('renderMetrics/renderCompare 표 정렬 회귀잠금 (cli-design-tokens
   // 둘째 열이 시작하는 표시폭 오프셋(=첫 열의 실제 채움 폭). card 는 행 전체를 상수 폭으로
   // gap-fill 정규화하므로 "행 전체 폭"은 항상 같다 — 정렬 회귀는 열 시작 오프셋으로만 잡힌다.
   const col2Offset = (row: string, firstColText: string): number => {
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI SGR 제거용
     const plain = row.replace(/\x1b\[[0-9;]*m/g, '');
     const wEnd = plain.indexOf(firstColText) + firstColText.length;
     const col2Rel = plain.slice(wEnd).search(/\S/); // 첫 열 뒤 공백들 다음의 첫 글자 = 둘째 열

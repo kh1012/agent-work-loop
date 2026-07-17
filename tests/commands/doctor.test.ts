@@ -356,6 +356,7 @@ describe('renderText — 정렬과 출력', () => {
     expect(text).toContain('\x1b[1m테스트값\x1b[0m');
     // 색 없음이면 emphasis 는 no-op(평문).
     expect(renderText(report, ASCII)).toContain('테스트값');
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI 이스케이프 부재 확인
     expect(/\x1b\[/.test(renderText(report, ASCII))).toBe(false);
   });
 
