@@ -613,6 +613,31 @@ describe('renderPipelineGroups — 레인 헤더 그룹핑 렌더(pipeline-statu
     expect(out).toContain('idle');
     expect(out).toContain('workitem 없음');
   });
+  it('AC-03: 한글 workitem 이름이어도 status 열이 표시폭 기준으로 정렬된다', () => {
+    // 한 그룹에 ASCII 짧은 이름 + 한글 긴 이름. .length(UTF-16)로 폭을 재면 한글 셀이
+    // nameWidth 를 넘쳐(한글=표시폭 2) status 라벨이 어긋난다. stringWidth 로 재야 정렬.
+    const out = renderPipelineGroups(
+      [
+        {
+          name: 'lane',
+          workitems: [
+            { name: 'zz', status: 'pending' as const },
+            { name: '로그인화면개선', status: 'pending' as const },
+          ],
+        },
+      ],
+      ASCII,
+    );
+    const lines = out.split('\n');
+    const asciiLine = lines.find((l) => l.includes('zz') && l.includes('pending'));
+    const krLine = lines.find((l) => l.includes('로그인화면개선') && l.includes('pending'));
+    expect(asciiLine).toBeDefined();
+    expect(krLine).toBeDefined();
+    // status 라벨 시작 표시열 = 라벨 앞부분의 visibleWidth. .length 로 재면 한글 셀이 넘쳐
+    // 두 값이 어긋난다 — nameWidth 를 .length 로 되돌리면 이 단언이 깨진다(뮤테이션-저항).
+    const statusCol = (line: string) => visibleWidth(line.slice(0, line.lastIndexOf('pending')));
+    expect(statusCol(krLine as string)).toBe(statusCol(asciiLine as string));
+  });
 });
 
 describe('runStatus --pipeline 교차 레인(pipeline-status-view AC-02/03)', () => {

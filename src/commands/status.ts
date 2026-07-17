@@ -12,6 +12,7 @@ import {
   padEndDisplay,
   signal,
   statusBadge,
+  stringWidth,
 } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
 import { WORKTREES_DIR } from './lane.js';
@@ -369,12 +370,20 @@ export function pipelineLanes(
   return lanes;
 }
 
+/**
+ * workitem/레인 이름 열 폭 — 표시폭(stringWidth) 기준이라 한글(표시폭 2)도 정렬된다(F-03).
+ * .length(UTF-16)로 재면 padEndDisplay(표시폭 기준)와 어긋나 한글 이름의 status 열이 밀린다.
+ */
+function nameColWidth(names: string[]): number {
+  return Math.max(...names.map(stringWidth), 4) + 2;
+}
+
 /** 파이프라인 레인 뷰를 렌더한다(statusBadge 사용). */
 export function renderPipeline(lanes: PipelineLane[], c: Caps): string {
   if (lanes.length === 0) {
     return card('파이프라인', ['.tasks 레인이 비어있습니다.'], c);
   }
-  const nameWidth = Math.max(...lanes.map((l) => l.name.length), 4) + 2;
+  const nameWidth = nameColWidth(lanes.map((l) => l.name));
   const out = lanes.map(
     (l) => `${statusBadge(c, l.status)}  ${padEndDisplay(l.name, nameWidth)}${l.status}`,
   );
@@ -458,7 +467,7 @@ function mainTreeGroup(root: string): PipelineLaneGroup {
 export function renderPipelineGroups(groups: PipelineLaneGroup[], c: Caps): string {
   const color = makeColors(c.color);
   const allNames = groups.flatMap((g) => g.workitems.map((w) => w.name));
-  const nameWidth = Math.max(...allNames.map((n) => n.length), 4) + 2;
+  const nameWidth = nameColWidth(allNames);
   const out: string[] = [];
   groups.forEach((g, i) => {
     if (i > 0) {
