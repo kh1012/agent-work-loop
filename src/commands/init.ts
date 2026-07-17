@@ -684,10 +684,13 @@ export function syncExistingInstall(
     configUpdated = true;
   }
 
-  // 2) 이미 설치된 스킬만 재설치(내용 갱신)하고 마커를 동기화한다.
+  // 2) 이미 설치된 스킬만 재설치(내용 갱신)하고 마커를 동기화한다. 재실행이 멋대로
+  //    새 스킬을 추가하지 않도록, .claude/skills/<name> 이 이미 있는 것만 재복사한다.
   const skills: string[] = [];
-  const claudeSkillDir = path.join(projectRoot, '.claude', 'skills', 'awl-loop');
-  if (exists(claudeSkillDir) && installClaudeSkill(projectRoot)) {
+  const reinstalled = copyClaudeSkills(projectRoot, (name) =>
+    exists(path.join(projectRoot, '.claude', 'skills', name)),
+  );
+  if (reinstalled.length > 0) {
     skills.push('claude');
   }
   const agentsMd = path.join(projectRoot, 'AGENTS.md');

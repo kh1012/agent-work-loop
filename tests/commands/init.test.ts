@@ -713,6 +713,50 @@ describe('applyInit — 전체 산출물', () => {
     const region = src.slice(start, end);
     expect(region).not.toContain('awl-loop');
   });
+
+  it('syncExistingInstall — 설치된 N개 스킬을 모두 재복사한다 (AC-02). engine 원본 변경이 둘 다 반영', () => {
+    // 두 스킬(awl-loop + 픽스처)을 engine 에 두고 프로젝트에 설치한다.
+    const inputs = nonInteractiveInputs(proj);
+    inputs.skills = { claude: true, codex: false };
+    const result = applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
+    const engineClaude = path.join(home, 'engine', 'skills', 'claude');
+    fs.mkdirSync(path.join(engineClaude, 'awl-fixture-skill'), { recursive: true });
+    fs.writeFileSync(path.join(engineClaude, 'awl-fixture-skill', 'SKILL.md'), 'v1\n');
+    installClaudeSkill(proj); // 픽스처까지 설치(둘 다 .claude/skills 에 존재)
+
+    // engine 원본 내용을 바꾼다(둘 다) — 재실행이 갱신하는지 본다.
+    fs.writeFileSync(path.join(engineClaude, 'awl-loop', 'SKILL.md'), 'awl-loop-v2\n');
+    fs.writeFileSync(path.join(engineClaude, 'awl-fixture-skill', 'SKILL.md'), 'fixture-v2\n');
+
+    const synced = syncExistingInstall(proj, result.engineVersion);
+
+    expect(synced.skills).toContain('claude');
+    expect(
+      fs.readFileSync(path.join(proj, '.claude', 'skills', 'awl-loop', 'SKILL.md'), 'utf8'),
+    ).toBe('awl-loop-v2\n');
+    expect(
+      fs.readFileSync(
+        path.join(proj, '.claude', 'skills', 'awl-fixture-skill', 'SKILL.md'),
+        'utf8',
+      ),
+    ).toBe('fixture-v2\n');
+  });
+
+  it('syncExistingInstall — 설치 안 된 스킬은 재실행이 새로 깔지 않는다 (AC-02)', () => {
+    // awl-loop 만 설치한 상태에서 engine 에 픽스처 스킬을 새로 추가한다.
+    const inputs = nonInteractiveInputs(proj);
+    inputs.skills = { claude: true, codex: false };
+    const result = applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
+    const engineClaude = path.join(home, 'engine', 'skills', 'claude');
+    fs.mkdirSync(path.join(engineClaude, 'awl-fixture-skill'), { recursive: true });
+    fs.writeFileSync(path.join(engineClaude, 'awl-fixture-skill', 'SKILL.md'), 'v1\n');
+
+    // 프로젝트에는 픽스처가 설치 안 됨 — 재실행이 멋대로 추가하면 안 된다.
+    syncExistingInstall(proj, result.engineVersion);
+
+    expect(fs.existsSync(path.join(proj, '.claude', 'skills', 'awl-loop'))).toBe(true);
+    expect(fs.existsSync(path.join(proj, '.claude', 'skills', 'awl-fixture-skill'))).toBe(false);
+  });
 });
 
 describe('selectSingle/selectMulti — useRawMode:true 배선 (WI-Y AC-08, 리뷰 rev_b9f3bb4b93ede055f5 finding #2)', () => {
