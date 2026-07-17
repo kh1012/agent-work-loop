@@ -8,7 +8,7 @@ import {
   makeColors,
   makeSymbols,
   signal,
-  stringWidth,
+  visibleWidth,
 } from './core/tty.js';
 
 export const BANNER = `Agent Work Loop
@@ -41,12 +41,12 @@ const ASCII_AWL = `    _       __        __
 export function renderBanner(c: Caps = caps()): string {
   const markLines = gradient((c.unicode ? DENSE_AWL : ASCII_AWL).split('\n'), c);
   const copyLines = BANNER.split('\n');
-  const markWidth = Math.max(...markLines.map(stringWidth));
+  const markWidth = Math.max(...markLines.map(visibleWidth));
   const rowCount = Math.max(markLines.length, copyLines.length);
   return Array.from({ length: rowCount }, (_, i) => {
     const mark = markLines[i] ?? '';
     const copy = copyLines[i] ?? '';
-    return `${mark}${' '.repeat(Math.max(0, markWidth - stringWidth(mark)) + 4)}${copy}`.trimEnd();
+    return `${mark}${' '.repeat(Math.max(0, markWidth - visibleWidth(mark)) + 4)}${copy}`.trimEnd();
   }).join('\n');
 }
 
