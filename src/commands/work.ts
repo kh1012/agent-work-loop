@@ -13,6 +13,7 @@ import {
 } from '../core/tty.js';
 import { loadConfig, resolveProjectRoot } from './config.js';
 import { gitBranch } from './doctor.js';
+import { installClaudeSkill } from './init.js';
 import { loadState, migrateState, writeState } from './state.js';
 import {
   buildVerifyBaseline,
@@ -605,6 +606,26 @@ export async function runWorkNew(
   process.stdout.write(`\n${feedback(c, 'ok', `워크아이템 생성  ${color.bold(id)}`)}\n`);
   if (worktreePath) {
     process.stdout.write(`    ${color.dim(`워크트리  ${worktreePath}`)}\n`);
+    // 워크트리에 engine Claude 스킬을 재설치한다(pipeline-lane-skill-reinstall AC-01).
+    // .claude/ 는 gitignore(.gitignore) 라 worktree 체크아웃에 안 따라온다 —
+    // 이 워크트리 세션이 awl-loop 등 파이프라인 스킬을 로드하려면 루트에 직접 깔아야 한다.
+    // installClaudeSkill 은 이미 projectRoot 파라미터화+engine 전 스킬 순회라 호출만 하면 된다.
+    // best-effort(AC-02): 재설치 실패가 워크트리·workitem 생성을 롤백/중단시키지 않는다.
+    // engine 원본 부재는 throw 가 아니라 false 반환이라(claudeSkillNames 가 readdir 에러를
+    // 삼킨다), false 와 예외 양쪽 모두 경고 1줄로 처리한다 — 워크트리는 이미 생성 완료다.
+    try {
+      if (installClaudeSkill(worktreePath)) {
+        process.stdout.write(`    ${color.dim('스킬 재설치  .claude/skills/ (engine)')}\n`);
+      } else {
+        process.stderr.write(
+          `\n${feedback(c, 'warn', '워크트리 스킬 재설치 생략', 'engine 스킬 원본을 찾지 못했습니다 — 이 워크트리에서 awl init 로 수동 설치하세요')}\n`,
+        );
+      }
+    } catch (e) {
+      process.stderr.write(
+        `\n${feedback(c, 'warn', '워크트리 스킬 재설치 실패', `${String(e)} — 이 워크트리에서 awl init 로 수동 설치하세요`)}\n`,
+      );
+    }
   }
 
   // 검증 베이스라인 캡처(WI-G AC-01) — 이 워크아이템을 시작하는 시점의 체크별
