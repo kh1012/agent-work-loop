@@ -702,7 +702,7 @@ export function syncExistingInstall(
   const claudeInUse = claudeSkillNames().some((name) =>
     exists(path.join(projectRoot, '.claude', 'skills', name)),
   );
-  if (claudeInUse && copyClaudeSkills(projectRoot, () => true).length > 0) {
+  if (claudeInUse && installClaudeSkill(projectRoot)) {
     skills.push('claude');
   }
   const agentsMd = path.join(projectRoot, 'AGENTS.md');
