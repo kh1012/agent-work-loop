@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.6.11] - 2026-07-17
+
 ### 추가
 
 - 반복 루프 리팩토링 체크포인트(loop-refactor-checkpoint) — awl-loop 스킬 반복 절에 "완료 조건 하나가 verify 를 통과할 때마다 코드 스플리팅·추상화 레벨을 점검한다"는 상시 단계를 넣었다. 예전엔 완료 조건 3개마다 도는 리뷰에서만 구조를 봤다. 점검 신호는 `awl doctor` 의 파일 크기 이상치(IQR)와 리뷰어 "구조 판정" 기준을 재활용하되 숫자 임계로 강제하지 않는다(판단은 에이전트, awl 은 신호만). 작은 정리는 그 자리에서 격리 커밋하고, 큰 구조 변경은 완료 조건으로 편입해 게이트를 거친다. 실제 리팩토링은 `awl record refactor`(kind: split/dedup/abstraction/rename/inline/기타)로 남기고, `awl metrics` 세대 표에 리팩토링 열을 더해 추세로 본다 [loop-refactor-checkpoint]
