@@ -11,6 +11,7 @@ import {
   applyVerifyCwd,
   buildConfig,
   buildScreens,
+  claudeSkillLabel,
   detectLanguage,
   detectVerify,
   detectWorkspacePackages,
@@ -756,6 +757,55 @@ describe('applyInit — 전체 산출물', () => {
 
     expect(fs.existsSync(path.join(proj, '.claude', 'skills', 'awl-loop'))).toBe(true);
     expect(fs.existsSync(path.join(proj, '.claude', 'skills', 'awl-fixture-skill'))).toBe(false);
+  });
+});
+
+describe('claudeSkillLabel — 설치 메뉴 라벨을 실제 스킬 집합에서 파생 (cli-install-menu-label AC-01/02/03)', () => {
+  let home: string;
+
+  beforeEach(() => {
+    home = tmp('awl-label-home-');
+    fs.rmSync(home, { recursive: true, force: true });
+    process.env.AWL_HOME = home;
+  });
+
+  it('AC-01/AC-03 스킬 2개 픽스처면 라벨이 2개를 표기한다', () => {
+    expect(claudeSkillLabel(['awl-loop', 'awl-pipeline-plan'])).toContain('2개');
+  });
+
+  it('AC-02/AC-03 개수가 바뀌면 라벨 개수도 바뀐다 — 4개 픽스처는 4개, 2개 아님', () => {
+    const label = claudeSkillLabel(['s1', 's2', 's3', 's4']);
+    expect(label).toContain('4개');
+    expect(label).not.toContain('2개');
+  });
+
+  it('AC-01 라벨에 단일 스킬명 하드코딩이 없다 — 목록에 그 이름이 있어도 개수만 표기(뮤테이션 저항)', () => {
+    // 스킬 목록에 대표 스킬이 들어 있어도 라벨엔 개수만 나온다.
+    const label = claudeSkillLabel(['awl-loop', 'awl-pipeline-exec', 'awl-pipeline-plan']);
+    expect(label).not.toContain('awl-loop');
+    expect(label).toContain('3개');
+  });
+
+  it('AC-02 인자 없이 부르면 claudeSkillNames()(engine/skills/claude)의 실제 개수를 읽는다 — 하드코딩 상수 아님', () => {
+    scaffoldGlobal(); // engine → home/engine 복사
+    const engineClaude = path.join(home, 'engine', 'skills', 'claude');
+    fs.rmSync(engineClaude, { recursive: true, force: true });
+    fs.mkdirSync(engineClaude, { recursive: true });
+    for (const n of ['a1', 'a2', 'a3']) {
+      fs.mkdirSync(path.join(engineClaude, n));
+    }
+    expect(claudeSkillLabel()).toContain('3개');
+  });
+
+  it('AC-01/AC-03 skillOptions 메뉴 라벨 구간에 awl-loop 리터럴이 없고 claudeSkillLabel 을 쓴다 (grep 뮤테이션 가드)', () => {
+    const src = fs.readFileSync(path.join(origCwd, 'src', 'commands', 'init.ts'), 'utf8');
+    const start = src.indexOf('const skillOptions = [');
+    expect(start).toBeGreaterThanOrEqual(0);
+    const end = src.indexOf('];', start);
+    expect(end).toBeGreaterThan(start);
+    const region = src.slice(start, end);
+    expect(region).not.toContain('awl-loop');
+    expect(region).toContain('claudeSkillLabel(');
   });
 });
 

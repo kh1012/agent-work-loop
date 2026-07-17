@@ -611,6 +611,14 @@ export function installClaudeSkill(projectRoot: string): boolean {
   return copyClaudeSkills(projectRoot, () => true).length > 0;
 }
 
+/**
+ * 설치 메뉴에 보여줄 Claude Code 항목 라벨. 실제로 설치될 스킬 집합(claudeSkillNames)에서
+ * 개수를 파생한다 — 스킬이 추가/제거되면 라벨도 따라 변한다(단일 이름 하드코딩 금지).
+ */
+export function claudeSkillLabel(names: string[] = claudeSkillNames()): string {
+  return `Claude Code (.claude/skills/ 에 ${names.length}개 스킬 설치)`;
+}
+
 /** Codex 지침을 AGENTS.md 에 추가한다. 마커로 중복을 막는다. */
 export function installCodexSkill(projectRoot: string): boolean {
   const src = path.join(engineDir(), 'skills', 'codex', 'AGENTS.awl.md');
@@ -1233,7 +1241,7 @@ async function interactiveInputs(
     const agents = detectAgents(projectRoot);
     const skillOptions = [
       '모두 설치 (Claude Code + Codex)',
-      'Claude Code (.claude/skills/awl-loop/ 에 설치)',
+      claudeSkillLabel(),
       'Codex (AGENTS.md 에 추가)',
     ];
     const defaultChecked =
