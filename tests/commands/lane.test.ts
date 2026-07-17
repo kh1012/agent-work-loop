@@ -263,4 +263,68 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
     expect(combined).toMatch(/찾을 수 없습니다/);
     expect(combined).toContain('ghost');
   });
+
+  it('lane rm: 병합되지 않은 커밋이 있으면 --force 없이 거부하고 워크트리를 보존한다 (AC-05, 리뷰 지적)', async () => {
+    const proj = realGitProject();
+    await runLaneNew('probe');
+    const lanePath = path.join(proj, '.awl-worktrees', 'probe');
+    // 레인 워크트리(work/probe 브랜치)에서 커밋을 만든다 — main 에 병합되지 않은 커밋.
+    fs.writeFileSync(path.join(lanePath, 'lane-work.txt'), 'lane\n');
+    execFileSync('git', ['add', '-A'], { cwd: lanePath });
+    execFileSync('git', ['commit', '-q', '-m', 'lane commit'], { cwd: lanePath });
+
+    const warns: string[] = [];
+    const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation((s: unknown) => {
+      warns.push(String(s));
+      return true;
+    });
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('exit');
+    }) as unknown as typeof process.exit);
+    await expect(runLaneRemove('probe', {})).rejects.toThrow('exit');
+    const combined = warns.join('');
+    exitSpy.mockRestore();
+    errSpy.mockRestore();
+
+    // 거부됐으니 워크트리·브랜치는 그대로 남는다(커밋 손실 방지).
+    expect(combined).toMatch(/병합되지 않은/);
+    expect(fs.existsSync(lanePath)).toBe(true);
+    const branches = execFileSync('git', ['branch', '--list'], { cwd: proj, encoding: 'utf8' });
+    expect(branches).toContain('work/probe');
+
+    // --force 면 미머지 커밋이 있어도 제거한다.
+    await runLaneRemove('probe', { force: true });
+    expect(fs.existsSync(lanePath)).toBe(false);
+  });
+
+  it('lane rm: 빈 이름은 거부한다 (AC-05, runLaneNew 와 대칭)', async () => {
+    realGitProject();
+    const warns: string[] = [];
+    const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation((s: unknown) => {
+      warns.push(String(s));
+      return true;
+    });
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('exit');
+    }) as unknown as typeof process.exit);
+    await expect(runLaneRemove('   ', {})).rejects.toThrow('exit');
+    const combined = warns.join('');
+    exitSpy.mockRestore();
+    errSpy.mockRestore();
+    expect(combined).toMatch(/이름/);
+  });
+
+  it('collectLanes: 심링크 루트에서도 브랜치를 해석한다 — branchOf realpath 폴백 (AC-05, 리뷰 지적)', async () => {
+    const proj = realGitProject();
+    await runLaneNew('probe');
+    // resolveProjectRoot 는 realpath 하지 않으므로 심링크 경로 루트를 재현한다.
+    const link = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-lane-link-')), 'proj');
+    fs.symlinkSync(proj, link);
+
+    // 심링크 경로를 root 로 넘기면 .awl-worktrees/probe 는 심링크 경로,
+    // git worktree list 는 realpath 를 돌려준다 — realpath 폴백이 있어야 매칭된다.
+    const lanes = await collectLanes(link);
+    const probe = lanes.find((l) => l.name === 'probe');
+    expect(probe?.branch).toBe('work/probe'); // 폴백 제거 시 '(detached)' 로 떨어져 RED.
+  });
 });

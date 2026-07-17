@@ -126,6 +126,25 @@ async function laneBranchMap(root: string): Promise<Map<string, string>> {
   return parseWorktreeBranches(r.stdout);
 }
 
+/**
+ * lane 브랜치가 root HEAD(메인라인)에 없는 커밋을 몇 개 갖는지 센다. removeGitWorktree
+ * 가 branch -D 로 그 커밋을 파기하면 손실이라, --force 없는 rm 이 이걸로 막는다(AC-05).
+ * 측정 불가(브랜치 부재 등)면 0 을 반환한다 — 없는 브랜치엔 잃을 커밋도 없다.
+ */
+async function unmergedCommitCount(root: string, branch: string): Promise<number> {
+  const r = await run({
+    cmd: 'git',
+    args: ['rev-list', '--count', `HEAD..${branch}`],
+    cwd: root,
+    timeoutMs: 10_000,
+  });
+  if (r.exitCode !== 0) {
+    return 0;
+  }
+  const n = Number.parseInt(r.stdout.trim(), 10);
+  return Number.isNaN(n) ? 0 : n;
+}
+
 /** 워크트리 경로의 브랜치를 맵에서 찾는다. git 은 realpath 를 돌려주므로 심링크 루트에서도 맞도록 realpath 도 시도한다. */
 function branchOf(branches: Map<string, string>, lanePath: string): string | undefined {
   const direct = branches.get(lanePath);
@@ -204,6 +223,10 @@ export async function runLaneRemove(name: string, opts: { force?: boolean } = {}
   const c = caps();
   const color = makeColors(c.color);
   const laneName = sanitizeForGit(name);
+  if (!laneName) {
+    process.stderr.write(`\n${feedback(c, 'error', '레인 이름을 입력하세요')}\n`);
+    process.exit(1);
+  }
   const lanePath = path.join(root, WORKTREES_DIR, laneName);
 
   if (!fs.existsSync(lanePath)) {
@@ -213,7 +236,14 @@ export async function runLaneRemove(name: string, opts: { force?: boolean } = {}
     process.exit(1);
   }
 
-  // 안전(AC-03): tracked 미커밋 변경이 있으면 --force 없이는 거부한다.
+  // 회수할 브랜치: git worktree list 에서 이 경로의 브랜치를 찾는다(폴백 work/<name>).
+  const branches = await laneBranchMap(root);
+  const branch = branchOf(branches, lanePath) ?? `work/${laneName}`;
+
+  // 안전(AC-03, AC-05): --force 없이는 잃을 게 있으면 거부한다. 두 가지를 본다 —
+  //  (1) tracked 미커밋 변경(uncommitted), (2) 브랜치의 미머지 커밋(committed 이지만
+  //  removeGitWorktree 의 branch -D 로 파기될 것). work done 은 브랜치를 보존하지만
+  //  lane 은 브랜치까지 회수하므로 이 커밋 손실을 명시적으로 막아야 한다(리뷰 지적).
   if (!opts.force) {
     const d = await worktreeDirtyTracked(root, lanePath);
     if (d.dirty) {
@@ -222,11 +252,14 @@ export async function runLaneRemove(name: string, opts: { force?: boolean } = {}
       );
       process.exit(1);
     }
+    const unmerged = await unmergedCommitCount(root, branch);
+    if (unmerged > 0) {
+      process.stderr.write(
+        `\n${feedback(c, 'error', `레인 브랜치 ${branch} 에 병합되지 않은 커밋 ${unmerged}개 (rm 하면 파기됩니다)`, '먼저 병합·푸시하거나 --force 로 강제 제거하세요')}\n`,
+      );
+      process.exit(1);
+    }
   }
-
-  // 회수할 브랜치: git worktree list 에서 이 경로의 브랜치를 찾는다(폴백 work/<name>).
-  const branches = await laneBranchMap(root);
-  const branch = branchOf(branches, lanePath) ?? `work/${laneName}`;
 
   const removed = await removeGitWorktree(root, lanePath, branch);
   if (!removed.ok) {
