@@ -71,3 +71,16 @@ describe('README 0.6.x 개념 정확성 (readme-refresh AC-02)', () => {
     expect(md).toMatch(/promote G-\d/);
   });
 });
+
+describe('README 파이프라인/퀵스타트 정확성 (readme-refresh AC-03)', () => {
+  it('파이프라인 다이어그램에 조사→설계→명료화→스파이크→완료 조건이 순서대로 있다', () => {
+    const md = read('README.md');
+    const stages = ['[조사]', '[설계]', '[명료화]', '[스파이크]', '[완료 조건]'];
+    let cursor = 0;
+    for (const s of stages) {
+      const idx = md.indexOf(s, cursor);
+      expect(idx).toBeGreaterThan(-1); // 각 단계가 존재
+      cursor = idx + s.length; // 순서 보장
+    }
+  });
+});
