@@ -104,6 +104,15 @@ describe('오케스트레이션 파이프라인 노출 (cli-pipeline-surface)', 
     // auto-spawn 미탑재는 로드맵으로만 표기(탑재된 척 금지)
     expect(md).toContain('로드맵');
   });
+
+  it('두 pipeline 의미를 구분된 용어로 지칭한다 (AC-03)', () => {
+    const md = read('README.md');
+    // ① 단일 워크아이템 흐름과 ② 다중 레인을 서로 다른 용어로 부른다.
+    expect(md).toContain('작업 루프'); // ① 워크플로우 라벨
+    expect(md).toContain('오케스트레이션'); // ② 다중 레인 라벨
+    // ① 라벨이 워크플로우 다이어그램 자리에서 먼저 등장한다(② 섹션보다 앞).
+    expect(md.indexOf('작업 루프')).toBeLessThan(md.indexOf('## 오케스트레이션'));
+  });
 });
 
 describe('README 담백한 사람 문체 — 금지어 (readme-refresh AC-04)', () => {
