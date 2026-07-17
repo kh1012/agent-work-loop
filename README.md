@@ -272,7 +272,7 @@ $ awl work list
 세 조각으로 씁니다.
 
 - **`awl lane`** — 격리 레인을 만듭니다. `awl lane new <이름>`은 전용 워크트리와 별도 `AWL_HOME`, 스킬 한 벌을 깔고 기동 안내를 찍습니다. 레인끼리 상태가 섞이지 않습니다. `awl lane ls`로 현존 레인을 보고, `awl lane rm <이름>`으로 정리합니다.
-- **`awl status --pipeline`** — 레인별 진행을 한 화면에 모읍니다. plan/exec/review 레인의 워크아이템 상태를 배지로 훑어, 어느 단계가 밀렸는지 봅니다.
+- **`awl status --pipeline`** — 레인별 진행을 한 화면에 모읍니다. 각 레인 안의 plan/exec/review 단계 상태를 배지로 훑어, 어느 단계가 밀렸는지 봅니다.
 - **역할 스킬(`awl-pipeline-plan` / `awl-pipeline-exec` / `awl-pipeline-review`)** — 파이프라인을 세 역할로 나눕니다. plan은 목표를 완료 조건으로, exec는 자율 구현, review는 검증을 맡습니다. `awl init`에서 함께 설치되고, 각 레인에서 해당 역할 세션을 엽니다.
 
 지금은 **역할별 세션을 사람이 직접 엽니다.** 레인을 만들고, 그 레인에서 plan/exec/review 세션을 각각 기동하는 흐름입니다 — 레인 격리와 역할 분리까지가 현재 범위입니다.

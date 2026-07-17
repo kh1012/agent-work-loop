@@ -97,12 +97,15 @@ describe('오케스트레이션 파이프라인 노출 (cli-pipeline-surface)', 
 
   it('README 에 오케스트레이션 파이프라인 섹션과 3요소가 있다 (AC-01)', () => {
     const md = read('README.md');
-    expect(md).toContain('오케스트레이션'); // ② 다중 레인 개념 이름
-    expect(md).toContain('awl lane'); // 요소 1: 격리 레인
-    expect(md).toContain('--pipeline'); // 요소 2: awl status --pipeline 롤업
-    expect(md).toContain('awl-pipeline'); // 요소 3: 역할 스킬(plan/exec/review)
+    const head = md.indexOf('## 오케스트레이션');
+    expect(head).toBeGreaterThan(-1); // ② 다중 레인 섹션 존재
+    // 3요소가 섹션 안(앵커 뒤)에 공존한다 — 섹션이 비면 실패한다(AC-04 강화).
+    const section = md.slice(head);
+    expect(section).toContain('awl lane'); // 요소 1: 격리 레인
+    expect(section).toContain('--pipeline'); // 요소 2: awl status --pipeline 롤업
+    expect(section).toContain('awl-pipeline'); // 요소 3: 역할 스킬(plan/exec/review)
     // auto-spawn 미탑재는 로드맵으로만 표기(탑재된 척 금지)
-    expect(md).toContain('로드맵');
+    expect(section).toContain('로드맵');
   });
 
   it('두 pipeline 의미를 구분된 용어로 지칭한다 (AC-03)', () => {
