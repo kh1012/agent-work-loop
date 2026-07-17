@@ -346,6 +346,19 @@ describe('renderText — 정렬과 출력', () => {
     expect(text).toContain('Agent Work Loop');
   });
 
+  it('색 모드에서 체크 값(value)을 emphasis(bold)로 강조한다 (cli-visual-consistency AC-07, 리뷰)', () => {
+    const report = {
+      ok: true,
+      checks: [{ group: '환경', name: '항목', status: 'ok', value: '테스트값' } as Check],
+    };
+    const text = renderText(report, UNICODE);
+    // 값이 bold 로 감싸진다 — clipToWidth 가 색을 보존하므로 emphasis 가 살아남는다.
+    expect(text).toContain('\x1b[1m테스트값\x1b[0m');
+    // 색 없음이면 emphasis 는 no-op(평문).
+    expect(renderText(report, ASCII)).toContain('테스트값');
+    expect(/\x1b\[/.test(renderText(report, ASCII))).toBe(false);
+  });
+
   it('유니코드+색 모드는 ANSI 색 코드를 넣는다', async () => {
     const report = await collectChecks();
     const text = renderText(report, UNICODE);

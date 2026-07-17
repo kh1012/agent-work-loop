@@ -7,8 +7,10 @@ import {
   type Caps,
   caps,
   card,
+  clipToWidth,
   makeColors,
   makeSymbols,
+  makeTokens,
   signal,
   stringWidth,
   visibleWidth,
@@ -894,23 +896,11 @@ export async function collectChecks(): Promise<DoctorReport> {
 // ---------------------------------------------------------------------------
 
 /** 터미널 폭을 넘는 파일 경로·힌트가 카드 전체를 넓히지 않게 자른다. */
-function clip(text: string, maxWidth: number): string {
-  if (stringWidth(text) <= maxWidth) {
-    return text;
-  }
-  let out = '';
-  for (const ch of text) {
-    if (stringWidth(out) + stringWidth(ch) + 1 > maxWidth) {
-      return `${out}…`;
-    }
-    out += ch;
-  }
-  return out;
-}
 
 /** 사람이 읽는 텍스트로 렌더링한다. ASCII 환경에서도 정렬이 깨지지 않는다. */
 export function renderText(report: DoctorReport, c: Caps): string {
   const color = makeColors(c.color);
+  const t = makeTokens(c);
   const { checks } = report;
 
   // 노란색(주의)과 빨간색(오류)은 색 지원 환경에선 색으로, 색 미지원/CI 에선
@@ -918,7 +908,7 @@ export function renderText(report: DoctorReport, c: Caps): string {
   // 색이 없으면 구분이 안 됐다.
   const s = makeSymbols(c);
   const statusText = (ch: Check): string => {
-    const hint = clip(ch.hint ?? '', 52);
+    const hint = clipToWidth(ch.hint ?? '', 52);
     switch (ch.status) {
       case 'ok':
         // 아이콘만으로 정상을 전한다 — 예전엔 "✅ ok"처럼 단어가 중복됐다.
@@ -946,8 +936,12 @@ export function renderText(report: DoctorReport, c: Caps): string {
       const ch = groupChecks[i] as Check;
       const status = statusText(ch);
       const branch = i === groupChecks.length - 1 ? s.lastBranch : s.branch;
-      const base = `${branch} ${ch.name}: ${ch.value ?? '(없음)'}`;
-      let line = clip(base, status ? Math.max(24, maxWidth - visibleWidth(status) - 2) : maxWidth);
+      // 값(핵심)은 emphasis 강조 — clipToWidth 가 색을 보존·닫으며 표시폭으로 자른다(AC-04, F-04).
+      const base = `${branch} ${ch.name}: ${t.emphasis(ch.value ?? '(없음)')}`;
+      let line = clipToWidth(
+        base,
+        status ? Math.max(24, maxWidth - visibleWidth(status) - 2) : maxWidth,
+      );
       if (status) {
         line += `  ${status}`;
       }

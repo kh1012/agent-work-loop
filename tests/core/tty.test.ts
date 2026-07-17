@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   card,
   charWidth,
+  clipToWidth,
   computeCaps,
   computeRawModeCapable,
   makeColors,
@@ -358,5 +359,23 @@ describe('statusBadge — 파이프라인 상태 배지(pipeline-status-tracking
     for (const s of ['pending', 'executing', 'reviewing', 'complete', 'blocked'] as const) {
       expect(visibleWidth(statusBadge(CC, s))).toBe(1);
     }
+  });
+});
+
+describe('clipToWidth — 색 보존 표시폭 절단(cli-visual-consistency AC-07)', () => {
+  it('폭 이내면 그대로', () => {
+    expect(clipToWidth('짧은', 10)).toBe('짧은');
+  });
+  it('넘치면 …로 자르고 표시폭을 넘지 않는다', () => {
+    const out = clipToWidth('가나다라마바사', 8); // 각 2폭
+    expect(visibleWidth(out)).toBeLessThanOrEqual(8);
+    expect(out.endsWith('…')).toBe(true);
+  });
+  it('색(ANSI)을 벗기지 않고 보존하며, 잘린 끝에서 열린 색을 닫는다', () => {
+    const bold = makeColors(true).bold;
+    const out = clipToWidth(bold('가나다라마바사아자차'), 6);
+    expect(out).toContain('\x1b[1m'); // bold 시작 보존
+    expect(out.endsWith('\x1b[0m')).toBe(true); // 잘린 끝에서 색 닫힘(오염 방지)
+    expect(visibleWidth(out)).toBeLessThanOrEqual(6);
   });
 });

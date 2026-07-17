@@ -279,7 +279,7 @@ export function runRulesPromote(
 
   if (!acquireLock()) {
     process.stderr.write(
-      `\n  ${signal(caps(), 'warn')} 다른 evolve/promote 가 실행 중입니다(~/.awl/.lock).\n`,
+      `\n  ${signal(c, 'warn')} 다른 evolve/promote 가 실행 중입니다(~/.awl/.lock).\n`,
     );
     process.exit(1);
   }

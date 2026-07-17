@@ -335,6 +335,45 @@ export function truncateToWidth(text: string, width: number): string {
 }
 
 /**
+ * 색(ANSI SGR)을 보존하며 표시 폭 기준으로 자르고 넘치면 … 를 붙인다(cli-visual-consistency AC-07).
+ * truncateToWidth 는 색을 벗겨 평문 제목에 쓰지만, 이건 카드 안의 색 있는 값(doctor 등)을 자를 때
+ * 쓴다 — SGR 시퀀스를 중간에 끊지 않고, 잘린 끝에서 열린 색을 닫아 뒤 출력이 오염되지 않게 한다.
+ */
+export function clipToWidth(text: string, width: number): string {
+  if (width <= 0) {
+    return '';
+  }
+  if (visibleWidth(text) <= width) {
+    return text;
+  }
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI SGR 시퀀스를 경계로 인식한다.
+  const sgr = /^\x1b\[[0-9;]*m/;
+  let out = '';
+  let w = 0;
+  let open = '';
+  let i = 0;
+  while (i < text.length) {
+    const seq = sgr.exec(text.slice(i))?.[0];
+    if (seq) {
+      out += seq;
+      open = seq === RESET ? '' : open + seq;
+      i += seq.length;
+      continue;
+    }
+    const cp = text.codePointAt(i) ?? 0;
+    const ch = String.fromCodePoint(cp);
+    const cw = charWidth(cp);
+    if (w + cw + 1 > width) {
+      break; // … 자리 확보
+    }
+    out += ch;
+    w += cw;
+    i += ch.length;
+  }
+  return `${out}…${open ? RESET : ''}`;
+}
+
+/**
  * 표시 폭(stringWidth) 기준으로 오른쪽을 공백으로 채운다(cli-design-tokens F-05).
  * String.padEnd 는 UTF-16 코드유닛을 세어 한글(음절 1유닛·표시 2칸)이 섞이면 열이
  * 어긋난다. 표 정렬은 이걸 써서 한글 헤더와 ASCII 값이 같은 열에 맞게 한다.
