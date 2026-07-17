@@ -181,6 +181,43 @@ describe('collectEvolve — 모으기만 (판단하지 않음)', () => {
     expect(col.metrics.gotchaMissed).toBe(1);
   });
 
+  it('refactor 기록 수를 워크아이템 기준으로 센다 (loop-refactor-checkpoint AC-03)', () => {
+    seedRecords([
+      {
+        id: '1',
+        at: '2026-07-14T10:00:00Z',
+        type: 'refactor',
+        workitem: 'WI-6',
+        what: 'a',
+        kind: 'split',
+      },
+      {
+        id: '2',
+        at: '2026-07-14T09:00:00Z',
+        type: 'refactor',
+        workitem: 'WI-6',
+        what: 'b',
+        kind: 'dedup',
+      },
+      {
+        id: '3',
+        at: '2026-07-14T08:00:00Z',
+        type: 'refactor',
+        workitem: 'WI-9',
+        what: 'c',
+        kind: 'rename',
+      }, // 다른 워크아이템
+    ]);
+    expect(collectEvolve('agent-work-loop', 'WI-6', { criteria: [] }).metrics.refactorCount).toBe(
+      2,
+    );
+    // 레거시(refactor 기록 없음)는 0 — 하위호환
+    seedRecords([]);
+    expect(collectEvolve('agent-work-loop', 'WI-6', { criteria: [] }).metrics.refactorCount).toBe(
+      0,
+    );
+  });
+
   it('gotcha-applied/gotcha-missed 기록이 없으면 0이다', () => {
     seedRecords([]);
     const col = collectEvolve('agent-work-loop', 'WI-6', { criteria: [] });
@@ -458,6 +495,7 @@ describe('writeGeneration — 프로젝트별 디렉토리', () => {
       proceduralErrors: 2,
       gotchaApplied: 3,
       gotchaMissed: 1,
+      refactorCount: 0,
       coverage: { auditFindingsTotal: 4, addressed: 2, excluded: 2, excludedApprovedByHuman: true },
     };
     const file = writeGeneration('agent-work-loop', 'WI-6', metrics, '2026-07-14T00:00:00Z');
@@ -484,6 +522,7 @@ describe('writeGeneration — 프로젝트별 디렉토리', () => {
       proceduralErrors: 0,
       gotchaApplied: 0,
       gotchaMissed: 0,
+      refactorCount: 0,
       coverage: {
         auditFindingsTotal: 0,
         addressed: 0,

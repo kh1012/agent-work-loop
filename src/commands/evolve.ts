@@ -297,6 +297,8 @@ export interface EvolveMetrics {
   proceduralErrors: number;
   gotchaApplied: number;
   gotchaMissed: number;
+  /** 이 워크아이템에서 실제로 남긴 리팩토링 기록 수(loop-refactor-checkpoint). */
+  refactorCount: number;
   coverage: CoverageMetrics;
 }
 
@@ -345,6 +347,7 @@ export function collectEvolve(
   );
   const gotchaApplied = records.filter((r) => r.type === 'gotcha-applied').length;
   const gotchaMissed = records.filter((r) => r.type === 'gotcha-missed').length;
+  const refactorCount = records.filter((r) => r.type === 'refactor').length;
   // awl 도구 자체 피드백 — 이번 워크아이템에서 이미 남긴 것. gotcha 추출 자료와
   // 섞지 않는다(다른 종류다). 없으면 빈 배열.
   const awlFeedbackRecords = records.filter((r) => r.type === 'awl-feedback');
@@ -405,6 +408,7 @@ export function collectEvolve(
     proceduralErrors,
     gotchaApplied,
     gotchaMissed,
+    refactorCount,
     coverage: coverageMetrics,
   };
 

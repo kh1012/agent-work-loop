@@ -29,7 +29,8 @@ export type RecordType =
   | 'gate'
   | 'clarify'
   | 'awl-feedback'
-  | 'defer';
+  | 'defer'
+  | 'refactor';
 
 /**
  * narrative.kind 로 허용되는 값 (WI-P AC-02).
@@ -67,6 +68,20 @@ export const AWL_FEEDBACK_AREAS = [
 ] as const;
 /** awl-feedback.severity 로 허용되는 값 (0.6.x). */
 export const AWL_FEEDBACK_SEVERITIES = ['high', 'medium', 'low'] as const;
+
+/**
+ * refactor.kind 로 허용되는 값 (loop-refactor-checkpoint). 리팩토링의 성격 —
+ * metrics/evolve 가 "어떤 리팩토링이 실제로 일어났나"를 이 종류로 센다. awl 은
+ * 종류가 유효한지 구조만 보고, 무엇을 split/dedup 으로 볼지는 판단하지 않는다.
+ */
+export const REFACTOR_KINDS = [
+  'split',
+  'dedup',
+  'abstraction',
+  'rename',
+  'inline',
+  '기타',
+] as const;
 
 /**
  * severity 척도 — 심각도 내림차순(index 0='high' 가 가장 중요). critical-only 모드의
@@ -142,6 +157,9 @@ export const SCHEMAS: Record<RecordType, Schema> = {
   // critical-only 모드에서 자율 통과를 보류하고 사람에게 최종 문의할 중요 항목.
   // recommendation(자율로 택했을 권장 결정)/gate(어느 게이트)/addresses 는 선택(D-15).
   defer: { required: ['severity', 'what', 'why'] },
+  // 반복 루프 리팩토링 체크포인트에서 실제 리팩토링이 일어났을 때 남긴다
+  // (loop-refactor-checkpoint). kind 가 성격, what 이 무엇을 정리했나.
+  refactor: { required: ['what', 'kind'] },
 };
 
 export const RECORD_TYPES = Object.keys(SCHEMAS) as RecordType[];
@@ -366,6 +384,14 @@ export function buildRecord(
       data.severity === undefined || data.severity === null || data.severity === '';
     if (!sevMissing && !(DEFER_SEVERITIES as readonly unknown[]).includes(data.severity)) {
       missing.push(`severity (다음 중 하나여야 함: ${DEFER_SEVERITIES.join(', ')})`);
+    }
+  }
+
+  // refactor.kind 도 정해진 값 중 하나여야 한다(narrative.kind 와 같은 특수 분기).
+  if (type === 'refactor') {
+    const kindMissing = data.kind === undefined || data.kind === null || data.kind === '';
+    if (!kindMissing && !(REFACTOR_KINDS as readonly unknown[]).includes(data.kind)) {
+      missing.push(`kind (다음 중 하나여야 함: ${REFACTOR_KINDS.join(', ')})`);
     }
   }
 

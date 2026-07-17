@@ -84,6 +84,30 @@ describe('buildRecord — awl-feedback (0.6.x, AC-01)', () => {
   });
 });
 
+describe('buildRecord — refactor (loop-refactor-checkpoint AC-03)', () => {
+  it('what/kind 가 다 있으면 기록을 만든다', () => {
+    const r = buildRecord(
+      'refactor',
+      { what: 'gotchaCluster 인접구성을 헬퍼로 추출', kind: 'split' },
+      DEFAULTS,
+    );
+    expect(r.missing).toEqual([]);
+    expect(r.record).toMatchObject({ type: 'refactor', kind: 'split' });
+  });
+
+  it('필수 필드(what/kind)가 없으면 무엇이 빠졌는지 돌려준다', () => {
+    const r = buildRecord('refactor', { what: 'x' }, DEFAULTS);
+    expect(r.record).toBeUndefined();
+    expect(r.missing).toContain('kind');
+  });
+
+  it('kind 가 허용값이 아니면 거부한다', () => {
+    const r = buildRecord('refactor', { what: 'x', kind: '없는종류' }, DEFAULTS);
+    expect(r.record).toBeUndefined();
+    expect(r.missing.some((m) => m.startsWith('kind'))).toBe(true);
+  });
+});
+
 describe('buildRecord — 구조 강제', () => {
   it('attempt 의 필수 필드가 없으면 무엇이 빠졌는지 돌려준다', () => {
     const r = buildRecord('attempt', { what: 'x' }, DEFAULTS);
