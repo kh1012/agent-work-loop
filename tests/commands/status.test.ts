@@ -9,9 +9,11 @@ import {
   checkMissingAcCommits,
   classifyAncestorExit,
   pipelineLanes,
+  renderPipeline,
   renderStatus,
   runStatus,
 } from '../../src/commands/status.js';
+import { visibleWidth } from '../../src/core/tty.js';
 
 const origHome = process.env.AWL_HOME;
 
@@ -504,5 +506,30 @@ describe('runStatus --pipeline 핸들러 (pipeline-status-tracking AC-02, glue �
     );
     expect(by.donewi).toBe('complete');
     expect(by.freshwi).toBe('pending');
+  });
+});
+
+describe('renderPipeline — 텍스트 렌더(pipeline-status-tracking AC-05, 리뷰)', () => {
+  const ASCII = { unicode: false, color: false, tty: false };
+  it('populated: 배지 + name + status label 을 담고 정렬된다', () => {
+    const out = renderPipeline(
+      [
+        { name: 'wiA', status: 'complete' as const },
+        { name: 'wi-longer', status: 'pending' as const },
+      ],
+      ASCII,
+    );
+    expect(out).toContain('[ok]'); // complete 배지(ASCII)
+    expect(out).toContain('[.]'); // pending 배지
+    expect(out).toContain('wiA');
+    expect(out).toContain('complete'); // status label
+    expect(out).toContain('pending');
+    // 배지+name 정렬 — 카드 줄 표시폭 균일
+    const widths = out.split('\n').map(visibleWidth);
+    expect(new Set(widths).size).toBe(1);
+  });
+  it('empty: 레인이 없으면 안내 카드', () => {
+    const out = renderPipeline([], ASCII);
+    expect(out).toContain('.tasks 레인이 비어있습니다');
   });
 });
