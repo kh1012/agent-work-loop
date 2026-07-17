@@ -35,13 +35,13 @@ describe('mergeState — 부분 갱신 병합', () => {
     expect(merged.tags).toEqual(['c']);
   });
 
-  it('critical-only 모드 필드(mode/deferThreshold)를 D-15 로 보존한다(skip-gate-defer AC-01)', () => {
+  it('skip-gate 모드 필드(mode/deferThreshold)를 D-15 로 보존한다(skip-gate-defer AC-01)', () => {
     // awl 은 스키마를 강제하지 않는다 — 자유 top-level 필드가 그대로 흐른다.
     const merged = mergeState(
       { phase: 'loop', workitem: 'WI-3' },
-      { mode: 'critical-only', deferThreshold: 'medium' },
+      { mode: 'skip-gate', deferThreshold: 'medium' },
     );
-    expect(merged.mode).toBe('critical-only');
+    expect(merged.mode).toBe('skip-gate');
     expect(merged.deferThreshold).toBe('medium');
     expect(merged.phase).toBe('loop'); // 기존 필드 보존
   });
