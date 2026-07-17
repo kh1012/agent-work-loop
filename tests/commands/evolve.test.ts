@@ -7,9 +7,11 @@ import {
   collectEvolve,
   loadGotchaList,
   migrateDeltasToGotchas,
+  normalizeRelations,
   recordGotcha,
   releaseLock,
   runEvolveCollect,
+  runEvolveRecord,
   writeGeneration,
 } from '../../src/commands/evolve.js';
 import { loadGenerations } from '../../src/commands/metrics.js';
@@ -225,6 +227,59 @@ describe('recordGotcha — 쓰고 세기만 (승격 안 함)', () => {
     expect(fs.existsSync(rulesActive)).toBe(false);
     // history 에 처음/이번이 남는다
     expect(loadGotchaList()[0]?.history).toHaveLength(2);
+  });
+});
+
+describe('gotcha 관계 필드 relations (AC-01)', () => {
+  it('relations 를 넣어 기록하면 로드 왕복에서 보존된다', () => {
+    recordGotcha(
+      {
+        lesson: '축 파라미터화 전 좌표계 확인',
+        source: { workitem: 'WI-4' },
+        relations: [{ type: 'refines', target: 'G-005' }],
+      },
+      'now',
+    );
+    const loaded = loadGotchaList();
+    expect(loaded[0]?.relations).toEqual([{ type: 'refines', target: 'G-005' }]);
+  });
+
+  it('relations 없는 레거시 gotcha 는 그대로 로드된다(relations undefined)', () => {
+    const dir = path.join(process.env.AWL_HOME as string, 'gotchas');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'G-001.json'),
+      JSON.stringify({ id: 'G-001', lesson: '레거시', count: 1 }),
+    );
+    const loaded = loadGotchaList();
+    expect(loaded[0]?.id).toBe('G-001');
+    expect(loaded[0]?.relations).toBeUndefined();
+  });
+
+  it('normalizeRelations 는 구조만 검증한다(의미는 판단 안 함)', () => {
+    expect(normalizeRelations(undefined)).toEqual({ ok: true });
+    expect(normalizeRelations([{ type: 'refines', target: 'G-002' }])).toEqual({
+      ok: true,
+      relations: [{ type: 'refines', target: 'G-002' }],
+    });
+    // 배열 아님 → 거부
+    expect(normalizeRelations({ type: 'refines' }).ok).toBe(false);
+    // 허용 안 된 type → 거부
+    expect(normalizeRelations([{ type: 'causes', target: 'G-002' }]).ok).toBe(false);
+    // target 없음 → 거부
+    expect(normalizeRelations([{ type: 'refines' }]).ok).toBe(false);
+  });
+
+  it('runEvolveRecord 가 relations JSON 을 파싱해 기록한다(WRITE 경로)', () => {
+    runEvolveRecord(
+      JSON.stringify({
+        lesson: '관계 있는 교훈',
+        source: { workitem: 'WI-9', project: 'p' },
+        relations: [{ type: 'supersedes', target: 'G-003' }],
+      }),
+    );
+    const loaded = loadGotchaList();
+    expect(loaded[0]?.relations).toEqual([{ type: 'supersedes', target: 'G-003' }]);
   });
 });
 

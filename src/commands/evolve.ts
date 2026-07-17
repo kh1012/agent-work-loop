@@ -48,15 +48,67 @@ export function releaseLock(): void {
 // gotchas 저장/로드 (WI-O — 예전 이름 delta 를 개명함)
 // ---------------------------------------------------------------------------
 
+/**
+ * gotcha 간 관계 타입(gotcha-graph). awl 은 관계를 판단하지 않는다 — 무엇이 무엇을
+ * refine/supersede 하는지는 LLM(evolve/스킬)이 매긴다. awl 은 이 필드를 저장·순회만 한다.
+ * - duplicates: 같은 교훈(sameAs 와 같은 축, 명시 엣지로도 표현 가능)
+ * - refines: target 을 더 정밀하게 다듬음
+ * - supersedes: target 을 대체(옛 교훈 폐기)
+ */
+export type GotchaRelationType = 'duplicates' | 'refines' | 'supersedes';
+export interface GotchaRelation {
+  type: GotchaRelationType;
+  target: string;
+}
+export const GOTCHA_RELATION_TYPES: GotchaRelationType[] = ['duplicates', 'refines', 'supersedes'];
+
 export interface Gotcha {
   id: string;
   lesson: string;
   context?: string;
   source?: Record<string, unknown>;
   sameAs?: string;
+  /** 관계 엣지(gotcha-graph). 없으면 레거시 gotcha — 무시하고 그대로 로드한다. */
+  relations?: GotchaRelation[];
   count: number;
   createdAt?: string;
   history?: Record<string, unknown>[];
+}
+
+/**
+ * relations 원본(JSON 입력 등)을 구조 검증한다. awl 은 의미를 판단하지 않는다 —
+ * type 이 허용된 3종인지, target 이 비지 않은 문자열인지 구조만 본다.
+ */
+export function normalizeRelations(
+  raw: unknown,
+): { ok: true; relations?: GotchaRelation[] } | { ok: false; error: string } {
+  if (raw === undefined || raw === null) {
+    return { ok: true };
+  }
+  if (!Array.isArray(raw)) {
+    return { ok: false, error: 'relations 는 배열이어야 합니다.' };
+  }
+  const out: GotchaRelation[] = [];
+  for (const item of raw) {
+    if (typeof item !== 'object' || item === null) {
+      return { ok: false, error: 'relations 항목은 {type,target} 객체여야 합니다.' };
+    }
+    const r = item as Record<string, unknown>;
+    if (
+      typeof r.type !== 'string' ||
+      !GOTCHA_RELATION_TYPES.includes(r.type as GotchaRelationType)
+    ) {
+      return {
+        ok: false,
+        error: `relations.type 은 ${GOTCHA_RELATION_TYPES.join('/')} 중 하나여야 합니다.`,
+      };
+    }
+    if (typeof r.target !== 'string' || r.target.trim() === '') {
+      return { ok: false, error: 'relations.target(대상 gotcha id)이 필요합니다.' };
+    }
+    out.push({ type: r.type as GotchaRelationType, target: r.target });
+  }
+  return { ok: true, relations: out.length > 0 ? out : undefined };
 }
 
 /** D-0XX 형식 ID 를 G-0XX 로 바꾼다. 이미 다른 형식이면(또는 문자열이 아니면) 그대로 둔다. */
@@ -307,6 +359,7 @@ export interface RecordGotchaInput {
   context?: string;
   source?: Record<string, unknown>;
   sameAs?: string;
+  relations?: GotchaRelation[];
 }
 
 export interface RecordGotchaResult {
@@ -337,6 +390,7 @@ export function recordGotcha(input: RecordGotchaInput, at: string): RecordGotcha
     context: input.context,
     source: input.source,
     sameAs: input.sameAs,
+    ...(input.relations && input.relations.length > 0 ? { relations: input.relations } : {}),
     count: 1,
     createdAt: at,
     history: [{ at, source: input.source }],
@@ -454,6 +508,12 @@ export function runEvolveRecord(jsonInput: string): void {
     };
   }
 
+  const rel = normalizeRelations(data.relations);
+  if (!rel.ok) {
+    process.stderr.write(`\n  ${signal(caps(), 'error')} ${rel.error}\n`);
+    process.exit(1);
+  }
+
   if (!acquireLock()) {
     process.stderr.write(
       `\n  ${signal(caps(), 'warn')} 다른 evolve 가 실행 중입니다(~/.awl/.lock).\n`,
@@ -466,6 +526,7 @@ export function runEvolveRecord(jsonInput: string): void {
       context: typeof data.context === 'string' ? data.context : undefined,
       source,
       sameAs: typeof data.sameAs === 'string' ? data.sameAs : undefined,
+      ...(rel.relations ? { relations: rel.relations } : {}),
     };
     const result = recordGotcha(input, new Date().toISOString());
     if (result.repeated) {
