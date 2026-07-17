@@ -649,7 +649,7 @@ describe('runStatus --pipeline 교차 레인(pipeline-status-view AC-02/03)', ()
     fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
     // 메인 트리 .tasks/ 에 실작업 workitem 1개.
     fs.mkdirSync(path.join(root, '.tasks', 'plan'), { recursive: true });
-    fs.writeFileSync(path.join(root, '.tasks', 'plan', 'maintask.md'), '');
+    fs.writeFileSync(path.join(root, '.tasks', 'plan', 'alpha.md'), '');
     // 빈 레인 1개(레인 워크트리 .tasks/ 는 gitignore 라 빈 껍데기).
     seedLane(root, 'fe', { plan: [], exec: [], review: [] });
     process.chdir(root);
@@ -660,15 +660,16 @@ describe('runStatus --pipeline 교차 레인(pipeline-status-view AC-02/03)', ()
       j.lanes.map((g: { name: string; workitems: unknown }) => [g.name, g]),
     );
     // 레인(fe)이 생겨도 메인이 통째 숨으면 안 된다 — main 그룹이 존재하고 실작업을 담는다.
-    expect(byName.main.workitems).toEqual([{ name: 'maintask', status: 'pending' }]);
+    expect(byName.main.workitems).toEqual([{ name: 'alpha', status: 'pending' }]);
     // 빈 레인도 명확히 표기(workitems 빈 배열).
     expect(byName.fe.workitems).toEqual([]);
 
-    // 텍스트 렌더 글루도 메인·레인 헤더를 둘 다 담는다.
+    // 텍스트 렌더 글루도 메인·레인 헤더를 둘 다 담는다. workitem 이름(alpha)에 부분문자열
+    // 'main'/'fe' 가 없어, 이 단언은 헤더가 실제로 렌더돼야만 통과한다(공허 통과 방지).
     const text = capture(() => void runStatus({ json: false, pipeline: true }));
     expect(text).toContain('main');
     expect(text).toContain('fe');
-    expect(text).toContain('maintask');
+    expect(text).toContain('alpha');
   });
 
   it('AC-02: 폴백(레인 없음)·다중(레인 있음) --json 이 동형 {name,workitems[]} 스키마', () => {
