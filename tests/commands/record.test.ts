@@ -1578,7 +1578,7 @@ describe('buildRecord — manualVerify/verifyHow 검증 태그 (records-verify-t
   });
 });
 
-describe('defer 레코드 타입 — critical-only 큐(skip-gate-defer AC-01)', () => {
+describe('defer 레코드 타입 — skip-gate 큐(skip-gate-defer AC-01)', () => {
   it('severity/what/why 로 defer 기록을 만들고 선택필드를 보존한다', () => {
     const r = buildRecord(
       'defer',
@@ -1611,7 +1611,7 @@ describe('defer 레코드 타입 — critical-only 큐(skip-gate-defer AC-01)', 
   });
 });
 
-describe('shouldDefer — critical-only 임계 술어(skip-gate-defer AC-03)', () => {
+describe('shouldDefer — skip-gate 임계 술어(skip-gate-defer AC-03)', () => {
   it('기본 임계 high: high 만 defer, medium/low 는 통과', () => {
     expect(shouldDefer('high')).toBe(true);
     expect(shouldDefer('medium')).toBe(false);
@@ -1641,7 +1641,7 @@ describe('shouldDefer — critical-only 임계 술어(skip-gate-defer AC-03)', (
   });
 });
 
-describe('collectDeferred — critical-only defer 큐 수집(skip-gate-defer AC-02)', () => {
+describe('collectDeferred — skip-gate defer 큐 수집(skip-gate-defer AC-02)', () => {
   it('defer 만 골라 severity 높은 순으로 정렬한다', () => {
     const recs = [
       { type: 'defer', severity: 'low', what: 'L', why: 'wl', at: '2026-07-16T01:00:00Z' },
@@ -1694,9 +1694,12 @@ describe('collectDeferred — 리뷰 후속(skip-gate-defer AC-04)', () => {
 });
 
 describe('renderDeferSummary — 최종 요약 렌더(skip-gate-defer AC-06, 리뷰 후속)', () => {
-  it('빈 큐는 안내 메시지', () => {
+  it('빈 큐는 안내 메시지 — skip-gate 헤더(critical-only 잔존 아님)', () => {
     const out = renderDeferSummary([]);
     expect(out).toContain('비어있습니다');
+    // AC-03: 사용자대면 헤더가 skip-gate 로 통일됨(뮤테이션 저항: 옛 명칭 부재도 단언)
+    expect(out).toContain('skip-gate');
+    expect(out).not.toContain('critical-only');
   });
 
   it('항목을 [severity] what·왜 중요·권장 라인으로 낸다(recommendation 유무 반영)', () => {
@@ -1716,6 +1719,9 @@ describe('renderDeferSummary — 최종 요약 렌더(skip-gate-defer AC-06, 리
     // recommendation 없는 항목엔 권장 라인이 그 항목에 안 붙는다
     const lowIdx = out.indexOf('[low] 사소');
     expect(out.slice(lowIdx)).not.toContain('권장(자율 시)');
+    // AC-03: 헤더가 "skip-gate 보류 …" 로 통일(G-061: 픽스처 값에 skip-gate 없어 헤더만 매칭)
+    expect(out).toContain('skip-gate 보류');
+    expect(out).not.toContain('critical-only');
   });
 });
 
