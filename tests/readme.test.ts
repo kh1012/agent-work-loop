@@ -84,3 +84,24 @@ describe('README 파이프라인/퀵스타트 정확성 (readme-refresh AC-03)',
     }
   });
 });
+
+describe('README 담백한 사람 문체 — 금지어 (readme-refresh AC-04)', () => {
+  // AI스러운 과장·번역투 마커. 사람 관점 판정(소리내 읽기)은 review 몫이고,
+  // 여기서는 기계로 잡히는 금지어만 0건으로 잠근다.
+  const BANNED = [
+    '혁신적',
+    '강력한',
+    '원활한',
+    '손쉽게',
+    '성공적으로',
+    '을 통해',
+    '를 통해',
+    '제공합니다',
+  ];
+
+  it('금지어가 grep 0건이다', () => {
+    const md = read('README.md');
+    const hits = BANNED.filter((w) => md.includes(w));
+    expect(hits).toEqual([]);
+  });
+});
