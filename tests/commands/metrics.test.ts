@@ -375,7 +375,16 @@ describe('renderMetrics/renderCompare 표 정렬 회귀잠금 (cli-design-tokens
     coverage: { auditFindingsTotal: 0, addressed: 0, excluded: 0, excludedApprovedByHuman: false },
   });
 
-  it('한글 workitem(표시폭≠length)과 ASCII 가 같은 표시폭 열로 정렬된다 — padEnd 되돌리면 실패', () => {
+  // 둘째 열이 시작하는 표시폭 오프셋(=첫 열의 실제 채움 폭). card 는 행 전체를 상수 폭으로
+  // gap-fill 정규화하므로 "행 전체 폭"은 항상 같다 — 정렬 회귀는 열 시작 오프셋으로만 잡힌다.
+  const col2Offset = (row: string, firstColText: string): number => {
+    const plain = row.replace(/\x1b\[[0-9;]*m/g, '');
+    const wEnd = plain.indexOf(firstColText) + firstColText.length;
+    const col2Rel = plain.slice(wEnd).search(/\S/); // 첫 열 뒤 공백들 다음의 첫 글자 = 둘째 열
+    return visibleWidth(plain.slice(0, wEnd + col2Rel));
+  };
+
+  it('한글 workitem(표시폭≠length)과 ASCII 의 둘째 열이 같은 표시폭 오프셋에서 시작한다 — padEnd 되돌리면 실패', () => {
     process.env.COLUMNS = '200'; // 넓게 둬서 card wrap 없이 원행 유지
     const out = renderMetrics([g('가나다라'), g('ABCD')], {
       unicode: true,
@@ -383,13 +392,14 @@ describe('renderMetrics/renderCompare 표 정렬 회귀잠금 (cli-design-tokens
       tty: true,
     });
     const lines = out.split('\n');
-    const rowKo = lines.find((l) => l.includes('가나다라'));
-    const rowAscii = lines.find((l) => l.includes('ABCD'));
-    // 값이 동일하므로, 표시폭 패딩이면 두 데이터 행의 표시폭이 같다(코드유닛 padEnd면 한글 행이 더 넓어져 어긋난다).
-    expect(visibleWidth(rowKo ?? '')).toBe(visibleWidth(rowAscii ?? ''));
+    const rowKo = lines.find((l) => l.includes('가나다라')) ?? '';
+    const rowAscii = lines.find((l) => l.includes('ABCD')) ?? '';
+    // 표시폭 패딩이면 둘째 열(criteriaTotal)이 같은 오프셋에서 시작한다.
+    // 코드유닛 padEnd 면 한글 첫 열이 과다 채움돼 오프셋이 어긋난다(뮤테이션 킬).
+    expect(col2Offset(rowKo, '가나다라')).toBe(col2Offset(rowAscii, 'ABCD'));
   });
 
-  it('renderCompare 도 한글 케이스키를 표시폭으로 정렬한다', () => {
+  it('renderCompare 도 한글 케이스키의 둘째 열 오프셋이 ASCII 와 일치한다', () => {
     process.env.COLUMNS = '200';
     const gc = (model: string) => ({
       ...g('WI'),
@@ -398,9 +408,9 @@ describe('renderMetrics/renderCompare 표 정렬 회귀잠금 (cli-design-tokens
     const groups = groupByExperiment([gc('가나다'), gc('abcd')]);
     const out = renderCompare(groups, 0, { unicode: true, color: false, tty: true });
     const lines = out.split('\n');
-    const rowKo = lines.find((l) => l.includes('가나다/loop/ui'));
-    const rowAscii = lines.find((l) => l.includes('abcd/loop/ui'));
-    expect(visibleWidth(rowKo ?? '')).toBe(visibleWidth(rowAscii ?? ''));
+    const rowKo = lines.find((l) => l.includes('가나다/loop/ui')) ?? '';
+    const rowAscii = lines.find((l) => l.includes('abcd/loop/ui')) ?? '';
+    expect(col2Offset(rowKo, '가나다/loop/ui')).toBe(col2Offset(rowAscii, 'abcd/loop/ui'));
   });
 });
 
