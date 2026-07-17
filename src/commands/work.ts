@@ -14,6 +14,7 @@ import {
 import { loadConfig, resolveProjectRoot } from './config.js';
 import { gitBranch } from './doctor.js';
 import { installClaudeSkill } from './init.js';
+import { mergeIsolatedHome, writeParentMarker } from './learning-merge.js';
 import { loadState, migrateState, writeState } from './state.js';
 import {
   buildVerifyBaseline,
@@ -637,6 +638,9 @@ export async function runWorkNew(
   if (opts.isolated) {
     isolatedHome = path.join(worktreePath ?? root, '.awl-home');
     fs.mkdirSync(isolatedHome, { recursive: true });
+    // 생성 시점(AWL_HOME 오버라이드 전)의 부모 전역을 마커로 남긴다 — teardown 이 이 값을
+    // 목적지로 읽어 격리 학습을 전역으로 병합한다(teardown 시점 env 에 의존하지 않음).
+    writeParentMarker(isolatedHome);
     // .awl-worktrees/ 와 같은 이중 방어: gitignore(여기) + commit self-filter(commit.ts).
     // 패턴 .awl-home/ 은 root/.awl-home 과 워크트리 하위 .awl-home 을 모두 무시해,
     // awl 밖 표준 git 조작(git add -A/status)에도 records 가 안 새게 한다.
@@ -857,7 +861,17 @@ export async function runWorkDone(id: string, opts: { force?: boolean } = {}): P
 
   // 워크트리가 있으면 먼저 제거를 시도한다 — 성공해야 state 를 저장한다.
   let worktreeNote: string | null = null;
+  let mergeNote: string | null = null;
   if (result.worktree && fs.existsSync(result.worktree.path)) {
+    // 격리(.awl-home) 학습을 전역으로 병합한다 — 워크트리(=.awl-home) 삭제 전에. 격리가
+    // 아니면(.awl-home 부재) no-op. 멱등이라 --force 재시도에도 중복되지 않는다.
+    const merged = mergeIsolatedHome(path.join(result.worktree.path, '.awl-home'));
+    if (
+      merged &&
+      (merged.gotchasAdded > 0 || merged.rulesAdded > 0 || merged.generationsAdded > 0)
+    ) {
+      mergeNote = `학습 전역 병합  gotcha ${merged.gotchasAdded} · rule ${merged.rulesAdded} · generation ${merged.generationsAdded}`;
+    }
     const removed = await removeWorktreeDir(root, result.worktree.path, opts.force ?? false);
     if (!removed.ok) {
       process.stderr.write(
@@ -874,5 +888,8 @@ export async function runWorkDone(id: string, opts: { force?: boolean } = {}): P
   );
   if (worktreeNote) {
     process.stdout.write(`    ${color.dim(worktreeNote)}\n`);
+  }
+  if (mergeNote) {
+    process.stdout.write(`    ${color.dim(mergeNote)}\n`);
   }
 }

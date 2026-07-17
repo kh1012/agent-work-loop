@@ -203,7 +203,7 @@ function writeGotcha(g: Gotcha): void {
   fs.writeFileSync(path.join(gotchasDir(), `${g.id}.json`), `${JSON.stringify(g, null, 2)}\n`);
 }
 
-function nextGotchaId(gotchas: Gotcha[]): string {
+export function nextGotchaId(gotchas: Gotcha[]): string {
   let max = 0;
   for (const g of gotchas) {
     const m = /^G-(\d+)$/.exec(g.id);

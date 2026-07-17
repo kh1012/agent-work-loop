@@ -3,6 +3,7 @@ import path from 'node:path';
 import { run } from '../core/runner.js';
 import { type Caps, caps, card, feedback, makeColors, signal } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
+import { mergeIsolatedHome } from './learning-merge.js';
 import { loadState, writeState } from './state.js';
 import {
   removeGitWorktree,
@@ -315,6 +316,11 @@ export async function runLaneRemove(name: string, opts: { force?: boolean } = {}
     }
   }
 
+  // 격리(.awl-home) 학습을 전역으로 병합한다 — 워크트리(=.awl-home) 삭제 전에. 안전
+  // 검사를 모두 통과해 제거가 확정된 지점이다. gotchas/rules/generations 만 전역으로
+  // 이으며 records/state 는 안 건드린다(격리 유지). 없거나 자기 자신이면 no-op.
+  const merged = mergeIsolatedHome(path.join(lanePath, '.awl-home'));
+
   const removed = await removeGitWorktree(root, lanePath, branch);
   if (!removed.ok) {
     process.stderr.write(`\n${feedback(c, 'error', '레인 제거 실패', removed.error ?? '')}\n`);
@@ -333,4 +339,9 @@ export async function runLaneRemove(name: string, opts: { force?: boolean } = {}
     writeState(root, cleaned.state);
   }
   process.stdout.write(`\n${feedback(c, 'ok', `레인 제거  ${color.bold(laneName)}`, branch)}\n`);
+  if (merged && (merged.gotchasAdded > 0 || merged.rulesAdded > 0 || merged.generationsAdded > 0)) {
+    process.stdout.write(
+      `    ${color.dim(`학습 전역 병합  gotcha ${merged.gotchasAdded} · rule ${merged.rulesAdded} · generation ${merged.generationsAdded}`)}\n`,
+    );
+  }
 }
