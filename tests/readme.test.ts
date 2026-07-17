@@ -85,6 +85,17 @@ describe('README 파이프라인/퀵스타트 정확성 (readme-refresh AC-03)',
   });
 });
 
+describe('오케스트레이션 파이프라인 노출 (cli-pipeline-surface)', () => {
+  it('top-level lane 설명에 파이프라인 맥락이 있다 (AC-02)', () => {
+    const src = read('src/program.ts');
+    // program.command('lane').description(...) 의 top-level 설명을 뽑는다.
+    const m = src.match(/\.command\('lane'\)\s*\.description\(\s*'([^']*)'/);
+    expect(m).not.toBeNull();
+    const desc = m?.[1] ?? '';
+    expect(desc).toContain('파이프라인'); // --help 명령목록 lane 줄에서 발견 가능
+  });
+});
+
 describe('README 담백한 사람 문체 — 금지어 (readme-refresh AC-04)', () => {
   // AI스러운 과장·번역투 마커. 사람 관점 판정(소리내 읽기)은 review 몫이고,
   // 여기서는 기계로 잡히는 금지어만 0건으로 잠근다. 활용형 우회(제공한다/통한/강력함)를

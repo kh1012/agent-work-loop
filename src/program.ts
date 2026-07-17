@@ -279,7 +279,9 @@ export function buildProgram(): Command {
     });
 
   // 사람이 치는 명령: lane (격리 레인 = worktree + 전용 AWL_HOME + 스킬 + 기동 안내, P1 멀티레인)
-  const lane = program.command('lane').description('격리 레인(worktree)을 만들고 조회·정리합니다');
+  const lane = program
+    .command('lane')
+    .description('격리 레인(worktree)으로 파이프라인을 병렬 실행합니다 (레인 생성·조회·정리)');
   lane
     .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
     .action(async (opts: { json?: boolean }) => {
