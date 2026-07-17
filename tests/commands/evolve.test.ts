@@ -7,6 +7,7 @@ import {
   acquireLock,
   collectEvolve,
   gotchaCluster,
+  gotchasBySource,
   loadGotchaList,
   migrateDeltasToGotchas,
   normalizeRelations,
@@ -335,6 +336,56 @@ describe('gotchaCluster — 관계 클러스터 순회 (AC-02)', () => {
   it('실재하지 않는 target(dangling)은 결과에서 뺀다', () => {
     const list = [mk('G-001', { relations: [{ type: 'supersedes', target: 'G-999' }] })];
     expect(gotchaCluster('G-001', list)).toEqual([]);
+  });
+});
+
+describe('gotchasBySource + collectEvolve relatedGotchas (AC-03)', () => {
+  const mk = (id: string, extra: Partial<Gotcha> = {}): Gotcha => ({
+    id,
+    lesson: id,
+    count: 1,
+    ...extra,
+  });
+  const writeGotchaFile = (g: Gotcha): void => {
+    const dir = path.join(process.env.AWL_HOME as string, 'gotchas');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `${g.id}.json`), JSON.stringify(g));
+  };
+
+  it('gotchasBySource 는 source.workitem 으로 뒤조회한다', () => {
+    const list = [
+      mk('G-001', { source: { workitem: 'WI-X' } }),
+      mk('G-002', { source: { workitem: 'WI-Y' } }),
+      mk('G-003', { source: { workitem: 'WI-X' } }),
+    ];
+    const found = gotchasBySource('WI-X', list)
+      .map((g) => g.id)
+      .sort();
+    expect(found).toEqual(['G-001', 'G-003']);
+  });
+
+  it('collectEvolve 가 출처 + 관계 클러스터를 relatedGotchas 로 노출한다', () => {
+    seedRecords([]);
+    writeGotchaFile(
+      mk('G-001', {
+        source: { workitem: 'WI-6' },
+        relations: [{ type: 'refines', target: 'G-002' }],
+      }),
+    );
+    writeGotchaFile(mk('G-002', { source: { workitem: 'WI-9' } })); // 다른 워크아이템이나 G-001 관계로 딸려옴
+    writeGotchaFile(mk('G-003', { source: { workitem: 'WI-6' } })); // 같은 워크아이템, 관계 없음
+    writeGotchaFile(mk('G-009', { source: { workitem: 'WI-9' } })); // 무관
+    const col = collectEvolve('p', 'WI-6', { criteria: [] });
+    expect(col.relatedGotchas.map((g) => g.id).sort()).toEqual(['G-001', 'G-002', 'G-003']);
+    // existingGotchas 는 여전히 전량(회귀 없음)
+    expect(col.existingGotchas).toHaveLength(4);
+  });
+
+  it('workitem 이 null 이거나 관련 교훈이 없으면 relatedGotchas 는 빈 배열', () => {
+    seedRecords([]);
+    writeGotchaFile(mk('G-001', { source: { workitem: 'WI-9' } }));
+    expect(collectEvolve('p', null, { criteria: [] }).relatedGotchas).toEqual([]);
+    expect(collectEvolve('p', 'WI-6', { criteria: [] }).relatedGotchas).toEqual([]);
   });
 });
 

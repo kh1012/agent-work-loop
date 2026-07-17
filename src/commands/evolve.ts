@@ -267,6 +267,17 @@ export function gotchaCluster(
   return out;
 }
 
+/**
+ * 출처 역인덱스(gotcha-graph AC-03) — source.workitem 이 주어진 workitem 인 gotcha 를 찾는다.
+ * "이 워크아이템/상황에서 나온 교훈"을 뒤로 조회한다. source 는 record 가 자동 태깅한다.
+ */
+export function gotchasBySource(workitem: string, gotchas: Gotcha[]): Gotcha[] {
+  return gotchas.filter((g) => {
+    const src = g.source;
+    return src !== undefined && (src as Record<string, unknown>).workitem === workitem;
+  });
+}
+
 // ---------------------------------------------------------------------------
 // collect
 // ---------------------------------------------------------------------------
@@ -296,6 +307,12 @@ export interface EvolveCollection {
   reviews: Record<string, unknown>[];
   retried: Record<string, unknown>[];
   existingGotchas: { id: string; lesson: string; count: number }[];
+  /**
+   * 이 워크아이템 출처 교훈 + 관계 클러스터(gotcha-graph AC-03). 출처 역인덱스로 이 워크아이템에서
+   * 나온 gotcha 를 찾고, 각각의 관계 엣지를 따라 관련 교훈까지 넓힌다. workitem 이 없거나 관련
+   * 교훈이 없으면 빈 배열. existingGotchas(전량)와 별도로, 상황에 특히 가까운 묶음만 추린다.
+   */
+  relatedGotchas: { id: string; lesson: string; count: number }[];
   metrics: EvolveMetrics;
   /**
    * awl 도구 자체 피드백 유도 (0.6.x). awl 은 판단하지 않는다 — 리마인더(prompt)와
@@ -341,11 +358,27 @@ export function collectEvolve(
   const blockedCount = criteria.filter((c) => c.status === 'blocked').length;
   const proceduralErrors = criteria.reduce((s, c) => s + num(c.proceduralErrors), 0);
 
-  const existingGotchas = loadGotchaList().map((g) => ({
+  const allGotchas = loadGotchaList();
+  const existingGotchas = allGotchas.map((g) => ({
     id: g.id,
     lesson: g.lesson,
     count: g.count,
   }));
+
+  // 이 워크아이템 출처 교훈 + 관계 클러스터(AC-03). 출처로 뒤조회한 gotcha 를 시드로
+  // 관계 엣지를 따라 넓힌다. workitem 없으면 빈 묶음.
+  const relatedIds = new Set<string>();
+  if (workitem) {
+    for (const g of gotchasBySource(workitem, allGotchas)) {
+      relatedIds.add(g.id);
+      for (const rel of gotchaCluster(g.id, allGotchas)) {
+        relatedIds.add(rel.id);
+      }
+    }
+  }
+  const relatedGotchas = allGotchas
+    .filter((g) => relatedIds.has(g.id))
+    .map((g) => ({ id: g.id, lesson: g.lesson, count: g.count }));
 
   // 커버리지 (WI-T AC-04) — computeCoverage(AC-02) 를 재사용해 조사에서 발견한
   // 문제 중 몇 건을 완료 조건이 실제로 다뤘는지 센다. excludedApprovedByHuman 은
@@ -382,7 +415,17 @@ export function collectEvolve(
     recorded: awlFeedbackRecords,
   };
 
-  return { workitem, project, blocked, reviews, retried, existingGotchas, metrics, awlFeedback };
+  return {
+    workitem,
+    project,
+    blocked,
+    reviews,
+    retried,
+    existingGotchas,
+    relatedGotchas,
+    metrics,
+    awlFeedback,
+  };
 }
 
 /** 세대 지표를 프로젝트별 디렉토리에 기록한다. */
