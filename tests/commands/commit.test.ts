@@ -525,3 +525,46 @@ describe('firstBaseline (WI-H AC-01) — 재시작/여러 커밋에도 range-sta
     expect(log).not.toContain('작업 완료');
   });
 });
+
+describe('runCommit 성공 라인 — feedback(ok) + 커밋 해시 강조 (cli-visual-consistency AC-08, 리뷰)', () => {
+  const origCwd = process.cwd();
+  const origHome = process.env.AWL_HOME;
+  afterEach(() => {
+    process.chdir(origCwd);
+    if (origHome === undefined) delete process.env.AWL_HOME;
+    else process.env.AWL_HOME = origHome;
+  });
+  function realGitProject(): string {
+    const proj = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-cfb-')));
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: proj });
+    execFileSync('git', ['config', 'user.email', 't@t.com'], { cwd: proj });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: proj });
+    fs.writeFileSync(path.join(proj, 'f.txt'), 'base\n');
+    fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+    execFileSync('git', ['add', '-A'], { cwd: proj });
+    execFileSync('git', ['commit', '-q', '-m', 'base'], { cwd: proj });
+    process.chdir(proj);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-cfb-home-'));
+    return proj;
+  }
+  it('성공 stdout 에 feedback(ok) 마커 + 커밋됨 + 10자 해시 (feedback 첫 사용처, F-06)', async () => {
+    realGitProject();
+    await runCommit('AC-01', { start: true });
+    fs.writeFileSync(path.join(process.cwd(), 'my-change.txt'), 'work\n');
+    let buf = '';
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((c: unknown) => {
+      buf += String(c);
+      return true;
+    });
+    try {
+      await runCommit('AC-01', { message: '작업 완료' });
+    } finally {
+      spy.mockRestore();
+    }
+    // feedback(c,'ok',...) 로 렌더됨 — 비-TTY라 [ok] 마커. 성공 라인 자체를 검증(기존엔 state만 봄).
+    expect(buf).toContain('[ok]');
+    expect(buf).toContain('커밋됨');
+    expect(buf).toContain('작업 완료');
+    expect(/커밋됨: [0-9a-f]{10}/.test(buf)).toBe(true); // emphasis 는 no-op(비색)이나 해시 10자
+  });
+});

@@ -18,6 +18,7 @@ import {
   nonInteractiveInputs,
   promptVerifyLocation,
   registerProject,
+  renderResult,
   resolveProjectChoice,
   runInit,
   scaffoldGlobal,
@@ -805,5 +806,36 @@ describe('resolveProjectChoice — 셀렉터 인덱스 해석 (init-project-pick
   it('후보 0개면 0 = 직접입력, 1 = 취소', () => {
     expect(resolveProjectChoice(0, [])).toEqual({ kind: 'type' });
     expect(resolveProjectChoice(1, [])).toEqual({ kind: 'cancel' });
+  });
+});
+
+describe('renderResult — 결과 값 emphasis 강조 (cli-visual-consistency AC-08, 리뷰)', () => {
+  const inputs: InitInputs = {
+    project: 'proj',
+    mainLanguage: 'typescript',
+    character: 'x',
+    verify: { typecheck: null, lint: null, test: null, e2e: null },
+    skills: { claude: true, codex: false },
+  };
+  const result = {
+    globalCreated: true,
+    engineVersion: '0.6.8',
+    configPath: '/p/.awl/config.json',
+    statePath: '/p/.awl/state.json',
+    gitignore: 'added' as const,
+    skills: ['claude'],
+    projectCount: 1,
+    ruleCount: 0,
+    lessonCount: 0,
+    safetyHook: { installed: true },
+  };
+  it('색 모드에서 결과 값(engineVersion 등)을 bold 로 강조한다', () => {
+    const text = renderResult(result, inputs, { unicode: true, color: true, tty: true });
+    expect(text).toContain('\x1b[1m0.6.8\x1b[0m'); // 값 bold
+  });
+  it('색 없음이면 값은 평문(no-op)', () => {
+    const text = renderResult(result, inputs, { unicode: false, color: false, tty: false });
+    expect(text).toContain('0.6.8');
+    expect(/\x1b\[/.test(text)).toBe(false);
   });
 });

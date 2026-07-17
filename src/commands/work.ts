@@ -105,7 +105,7 @@ function statusColored(t: ReturnType<typeof makeTokens>, status: string): string
   return status;
 }
 
-function renderWorkList(list: WorkSummary[], c: Caps): string {
+export function renderWorkList(list: WorkSummary[], c: Caps): string {
   const color = makeColors(c.color);
   const t = makeTokens(c);
   const s = makeSymbols(c);

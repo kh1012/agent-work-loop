@@ -127,13 +127,14 @@ describe('renderVersionCheck — 사람용 출력 (WI-X AC-03)', () => {
     expect(text).toContain('[!]');
   });
 
-  it('색 지원이면 ANSI 코드가 포함된다', () => {
+  it('색 지원이면 불일치 버전 값(a/b)을 emphasis(bold)로 감싼다 (cli-visual-consistency AC-08, 리뷰)', () => {
     const text = renderVersionCheck(
       { ok: false, mismatches: [{ kind: 'build', a: 'x', b: 'y', hint: 'h' }] },
       { unicode: true, color: true, tty: true },
     );
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI 이스케이프 존재 확인용
-    expect(/\x1b\[/.test(text)).toBe(true);
+    // 값 강조가 실효하는지 — signal(warn)만으론 만족 못 하는 특정 emphasis 단언(emphasis 제거 시 실패).
+    expect(text).toContain('\x1b[1mx\x1b[0m'); // a=bold
+    expect(text).toContain('\x1b[1my\x1b[0m'); // b=bold
   });
 
   it('현재 프로세스 caps() 로도 크래시 없이 렌더된다', () => {

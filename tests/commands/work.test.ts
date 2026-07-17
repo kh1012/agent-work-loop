@@ -12,12 +12,14 @@ import {
   abandonWorkitem,
   createWorkitem,
   markWorkitemDone,
+  renderWorkList,
   restoreWorkitem,
   runWorkDone,
   runWorkNew,
   runWorkSwitch,
   summarizeWorkitems,
 } from '../../src/commands/work.js';
+import { visibleWidth } from '../../src/core/tty.js';
 
 describe('summarizeWorkitems (WI-D AC-02)', () => {
   it('현재 워크아이템 + 레지스트리를 하나의 목록으로 합친다', () => {
@@ -932,5 +934,43 @@ describe('runWorkNew — 검증 베이스라인 캡처 (WI-G AC-01)', () => {
     const stillOthers = readVerifyBaseline(root);
     expect(stillOthers?.workitem).toBe('WI-Other');
     expect(stillOthers?.workitem).not.toBe(state.workitem);
+  });
+});
+
+describe('renderWorkList — 상태 색코딩 + 값 강조 + 정렬 (cli-visual-consistency AC-08, 리뷰)', () => {
+  const CC = { unicode: true, color: true, tty: true };
+  const ws = (id: string, status: string, passed = 1, total = 2, current = false) => ({
+    id,
+    status,
+    passed,
+    total,
+    current,
+  });
+
+  it('상태값을 색코딩한다 — done/active=green, paused=yellow, abandoned=muted(dim)', () => {
+    const out = renderWorkList(
+      [
+        ws('WI-A', 'done'),
+        ws('WI-B', 'paused'),
+        ws('WI-C', 'abandoned'),
+        ws('WI-D', 'active', 0, 0, true),
+      ],
+      CC,
+    );
+    expect(out).toContain('\x1b[32mdone'); // green
+    expect(out).toContain('\x1b[33mpaused'); // yellow
+    expect(out).toContain('\x1b[2mabandoned'); // muted(dim)
+    expect(out).toContain('\x1b[32mactive'); // green
+  });
+
+  it('passed/total 을 emphasis(bold)로 강조한다', () => {
+    const out = renderWorkList([ws('WI-A', 'active', 3, 5)], CC);
+    expect(out).toContain('\x1b[1m3/5\x1b[0m'); // bold
+  });
+
+  it('색코딩·강조를 넣어도 카드 테두리 표시폭이 균일하다(statusPad가 plain 기준)', () => {
+    const out = renderWorkList([ws('WI-longname', 'done', 2, 2), ws('WI-x', 'paused', 0, 1)], CC);
+    const widths = out.split('\n').map(visibleWidth);
+    expect(new Set(widths).size).toBe(1); // 색이 padEnd 폭을 안 깬다
   });
 });
