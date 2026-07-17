@@ -366,7 +366,8 @@ export function collectEvolve(
   }));
 
   // 이 워크아이템 출처 교훈 + 관계 클러스터(AC-03). 출처로 뒤조회한 gotcha 를 시드로
-  // 관계 엣지를 따라 넓힌다. workitem 없으면 빈 묶음.
+  // 관계 엣지를 따라 넓힌다. workitem 없으면 빈 묶음. gotcha 는 손큐레이션 지식이라
+  // 규모가 작다(수십~수백) — 소스마다 gotchaCluster 를 부르는 O(소스수·전체수)는 무해하다.
   const relatedIds = new Set<string>();
   if (workitem) {
     for (const g of gotchasBySource(workitem, allGotchas)) {

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type Gotcha,
   acquireLock,
@@ -284,6 +284,45 @@ describe('gotcha 관계 필드 relations (AC-01)', () => {
     const loaded = loadGotchaList();
     expect(loaded[0]?.relations).toEqual([{ type: 'supersedes', target: 'G-003' }]);
   });
+
+  it('빈 배열 relations 는 relations undefined 로 정규화되고 파일에 키를 안 남긴다', () => {
+    // 빈 배열 → ok:true, relations undefined (out.length>0 경계)
+    expect(normalizeRelations([])).toEqual({ ok: true });
+    // recordGotcha 가 빈 relations 를 파일에 안 남긴다(length>0 가드)
+    recordGotcha({ lesson: '빈 엣지 교훈', source: { workitem: 'W' }, relations: [] }, 'now');
+    const dir = path.join(process.env.AWL_HOME as string, 'gotchas');
+    const raw = fs.readFileSync(path.join(dir, 'G-001.json'), 'utf8');
+    expect(raw).not.toContain('relations');
+    expect(loadGotchaList()[0]?.relations).toBeUndefined();
+  });
+
+  it('runEvolveRecord 가 불량 relations 를 거부한다(거부 글루 — exit 1)', () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    const errs: string[] = [];
+    const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation((s: unknown) => {
+      errs.push(String(s));
+      return true;
+    });
+    try {
+      expect(() =>
+        runEvolveRecord(
+          JSON.stringify({
+            lesson: 'x',
+            source: { workitem: 'W', project: 'p' },
+            relations: [{ type: 'bad-type', target: 'G-1' }],
+          }),
+        ),
+      ).toThrow('exit:1');
+    } finally {
+      exitSpy.mockRestore();
+      errSpy.mockRestore();
+    }
+    expect(errs.join('')).toContain('relations.type');
+    // 거부됐으니 gotcha 파일이 안 생긴다
+    expect(loadGotchaList()).toHaveLength(0);
+  });
 });
 
 describe('gotchaCluster — 관계 클러스터 순회 (AC-02)', () => {
@@ -336,6 +375,16 @@ describe('gotchaCluster — 관계 클러스터 순회 (AC-02)', () => {
   it('실재하지 않는 target(dangling)은 결과에서 뺀다', () => {
     const list = [mk('G-001', { relations: [{ type: 'supersedes', target: 'G-999' }] })];
     expect(gotchaCluster('G-001', list)).toEqual([]);
+  });
+
+  it('시드가 엣지의 target 이어도 무방향으로 source 를 찾는다(방향판이면 실패)', () => {
+    // G-001 은 엣지가 없다. G-002 가 G-001 을 가리킨다. 무방향이면 시드 G-001 이
+    // G-002 를 찾아야 한다 — link 의 역엣지(adj.get(b).add(a))를 지운 방향판은 [] 를 낸다.
+    const list = [mk('G-001'), mk('G-002', { relations: [{ type: 'refines', target: 'G-001' }] })];
+    expect(gotchaCluster('G-001', list).map((x) => x.id)).toEqual(['G-002']);
+    // sameAs 도 무방향 — G-003 만 sameAs 를 갖고 시드 G-004 는 안 가리켜도 서로 찾는다
+    const list2 = [mk('G-004'), mk('G-003', { sameAs: 'G-004' })];
+    expect(gotchaCluster('G-004', list2).map((x) => x.id)).toEqual(['G-003']);
   });
 });
 
