@@ -193,6 +193,37 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
     expect(fs.existsSync(path.join(proj, '.awl-worktrees'))).toBe(false);
   });
 
+  it('lane new: root 의 현재 workitem 을 pause 안 하고 root state 불변 — 레인 state 는 worktree 에 (AC-03, F-03)', async () => {
+    const proj = realGitProject();
+    // root 에서 작업 중인 상태 시뮬레이션: 활성 workitem 을 root state 에 심는다.
+    const rootStatePath = path.join(proj, '.awl', 'state.json');
+    fs.mkdirSync(path.dirname(rootStatePath), { recursive: true });
+    fs.writeFileSync(
+      rootStatePath,
+      JSON.stringify({
+        workitem: 'root-task',
+        phase: 'loop',
+        criteria: [{ id: 'X', status: 'in_progress' }],
+        workitems: {},
+      }),
+    );
+
+    await runLaneNew('sidecar');
+
+    // root state 불변: 현재 workitem 이 여전히 root-task(sidecar 로 안 바뀌고 pause 안 됨).
+    const rootState = JSON.parse(fs.readFileSync(rootStatePath, 'utf8'));
+    expect(rootState.workitem).toBe('root-task');
+    expect(rootState.phase).toBe('loop');
+    // sidecar 가 root 에 없다(유령 근원 제거, F-02) & root-task 가 레지스트리로 안 밀렸다.
+    expect(rootState.workitems.sidecar).toBeUndefined();
+    expect(rootState.workitems['root-task']).toBeUndefined();
+
+    // 레인 state 는 worktree 에 기록됐다(레인 세션이 자기 워크아이템을 본다).
+    const laneStatePath = path.join(proj, '.awl-worktrees', 'sidecar', '.awl', 'state.json');
+    expect(fs.existsSync(laneStatePath)).toBe(true);
+    expect(JSON.parse(fs.readFileSync(laneStatePath, 'utf8')).workitem).toBe('sidecar');
+  });
+
   it('lane ls / collectLanes: 레인 2개를 이름·경로·브랜치와 함께 나열한다 (AC-02)', async () => {
     const proj = realGitProject();
     await runLaneNew('alpha');

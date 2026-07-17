@@ -537,21 +537,33 @@ export async function runWorkNew(
   const now = new Date().toISOString();
   const branch = await gitBranch(root);
 
-  // 먼저 검증한다(리뷰 지적 AC-06 — 실제 버그였다). git worktree/브랜치를 실제로
-  // 만들기 전에 ID 가 유효한지(중복 아님 등) 확인해야, 검증에 실패했을 때
-  // orphan 워크트리/브랜치가 안 남는다. createWorkitem 은 순수 함수라 이 사전
-  // 검증 호출은 아무 부작용도 없다.
-  const precheck = createWorkitem(loadState(root), id, now, branch, description);
-  if (precheck.error) {
-    process.stderr.write(`\n  ${precheck.error}\n`);
-    process.exit(1);
-  }
-
+  // worktree 경로/브랜치를 먼저 계산한다 — precheck 이 어느 state 를 볼지(root vs 레인
+  // worktree)가 worktreePath 에 달렸다. 실제 git worktree 생성은 precheck 뒤로 미룬다.
   let worktreePath: string | undefined;
   let branchName: string | undefined;
   if (opts.worktree) {
     branchName = typeof opts.worktree === 'string' ? opts.worktree : `work/${sanitizeForGit(id)}`;
     worktreePath = path.join(root, '.awl-worktrees', sanitizeForGit(id));
+  }
+
+  // 격리 레인(worktree+isolated)의 state 는 그 워크트리에 둔다(F-02/F-03). 레인은
+  // findProjectRoot 가 자기 자신을 root 로 해석하는 독립 워크트리라, root state 를
+  // 건드리면 root 의 현재 워크아이템이 조용히 pause 되고(F-03) 삭제 후 유령이 남는다
+  // (F-02). isolated 레인만 해당 — 일반 --worktree(비isolated)·비worktree 는 root
+  // state 그대로다(회귀 없음: work new --worktree 는 여전히 root 의 현재를 전환한다).
+  const stateRoot = opts.isolated && worktreePath ? worktreePath : root;
+
+  // 먼저 검증한다(리뷰 지적 AC-06 — 실제 버그였다). git worktree/브랜치를 실제로
+  // 만들기 전에 ID 가 유효한지(중복 아님 등) 확인해야, 검증에 실패했을 때
+  // orphan 워크트리/브랜치가 안 남는다. createWorkitem 은 순수 함수라 이 사전
+  // 검증 호출은 아무 부작용도 없다. 레인이면 아직 없는 worktree state(=빈 state)를 본다.
+  const precheck = createWorkitem(loadState(stateRoot), id, now, branch, description);
+  if (precheck.error) {
+    process.stderr.write(`\n  ${precheck.error}\n`);
+    process.exit(1);
+  }
+
+  if (opts.worktree && worktreePath && branchName) {
     const created = await createGitWorktree(root, worktreePath, branchName);
     if (!created.ok) {
       process.stderr.write(`\n  워크트리를 만들지 못했습니다: ${created.error}\n`);
@@ -576,7 +588,7 @@ export async function runWorkNew(
   }
 
   const result = createWorkitem(
-    loadState(root),
+    loadState(stateRoot),
     id,
     now,
     branch,
@@ -600,7 +612,7 @@ export async function runWorkNew(
     process.stderr.write(`\n  ${result.error}\n`);
     process.exit(1);
   }
-  writeState(root, result.state);
+  writeState(stateRoot, result.state);
   const c = caps();
   const color = makeColors(c.color);
   process.stdout.write(`\n${feedback(c, 'ok', `워크아이템 생성  ${color.bold(id)}`)}\n`);
