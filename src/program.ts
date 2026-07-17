@@ -79,7 +79,7 @@ export function versionString(c: Caps = caps()): string {
     '',
     `    ${signal(c, 'warn')} 버전 불일치 감지!`,
     '        CLI 본체와 홈 디렉토리(~/.awl/engine)의 스킬 템플릿 버전이 다릅니다.',
-    `        ${color.dim("해결하려면 'awl init'을 다시 실행하여 템플릿을 갱신하세요.")}`,
+    `        ${color.dim('해결하려면 awl update 로 엔진을 갱신하세요.')}`,
   ].join('\n');
 }
 

@@ -137,12 +137,13 @@ describe('versionString — engine 버전 표시', () => {
     expect(s).not.toContain('└──');
   });
 
-  it('엔진 버전이 다르면 경고와 awl init 안내를 보여준다', () => {
+  it('엔진 버전이 다르면 경고와 awl update 안내를 보여준다(불일치는 엔진 갱신이지 프로젝트 재설정이 아님)', () => {
     process.env.AWL_HOME = tmpHomeWithEngine('0.0.1');
     const s = versionString(NO_COLOR);
     expect(s).toContain('Engine Template: v0.0.1');
     expect(s).toContain('[!]');
-    expect(s).toContain('awl init');
+    expect(s).toContain('awl update'); // version-check 힌트(binary-vs-engine)와 일치
+    expect(s).not.toContain('awl init'); // 불일치 브랜치는 더 이상 awl init 을 지시하지 않는다
   });
 
   it('색 미지원이면 ANSI 코드 없이 마커만 나온다', () => {
