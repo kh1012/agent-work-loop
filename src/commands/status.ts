@@ -433,6 +433,24 @@ export function collectPipelineLaneGroups(root: string): PipelineLaneGroup[] {
 }
 
 /**
+ * 메인 트리 .tasks/ 를 하나의 레인 그룹('main')으로 롤업한다(F-01). 레인 워크트리의 .tasks/
+ * 는 gitignore 라 빈 껍데기이므로, 레인이 하나라도 있으면 collectPipelineLaneGroups 만으론
+ * 메인의 실작업이 통째 숨는다 — 이 그룹을 앞에 붙여 메인을 항상 포함한다. 파일명만 보고
+ * 내용은 안 엶(pipelineLanes 재사용).
+ */
+function mainTreeGroup(root: string): PipelineLaneGroup {
+  const tasks = path.join(root, '.tasks');
+  return {
+    name: 'main',
+    workitems: pipelineLanes(
+      readDirNames(path.join(tasks, 'plan')),
+      readDirNames(path.join(tasks, 'exec')),
+      readDirNames(path.join(tasks, 'review')),
+    ),
+  };
+}
+
+/**
  * 교차 레인 롤업을 레인 헤더로 그룹핑해 렌더한다(AC-01). renderPipeline 과 같은 배지
  * (statusBadge)·열 맞춤(padEndDisplay)을 쓰되, 레인마다 헤더를 얹고 그 아래 workitem
  * 을 들여쓴다. 열 폭은 전 레인의 workitem 이름 기준으로 통일한다.
@@ -471,8 +489,10 @@ export async function runStatus(opts: { json: boolean; pipeline?: boolean }): Pr
   // awl 코어의 일반 status 와 분리 — .tasks 가 없으면 빈 뷰다(awl 은 하네스 유무를 판단 안 함).
   if (opts.pipeline === true) {
     // 교차 레인 롤업(AC-01): .awl-worktrees/* 각 레인의 .tasks/ 를 레인별로 집계한다.
-    const groups = collectPipelineLaneGroups(root);
-    if (groups.length > 0) {
+    const laneGroups = collectPipelineLaneGroups(root);
+    if (laneGroups.length > 0) {
+      // 메인 트리 .tasks/ 를 항상 앞에 포함한다(F-01: 레인이 생겨도 메인 안 숨김).
+      const groups = [mainTreeGroup(root), ...laneGroups];
       if (opts.json) {
         process.stdout.write(`${JSON.stringify({ lanes: groups }, null, 2)}\n`);
       } else {

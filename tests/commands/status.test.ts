@@ -646,6 +646,33 @@ describe('runStatus --pipeline 교차 레인(pipeline-status-view AC-02/03)', ()
     expect(by.be.workitems).toEqual([{ name: 'migrate', status: 'complete' }]);
   });
 
+  it('AC-01: 메인 .tasks/ workitem + 빈 레인 1개 → 메인 안 숨김(둘 다 --json·텍스트에)', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-plv-run-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    // 메인 트리 .tasks/ 에 실작업 workitem 1개.
+    fs.mkdirSync(path.join(root, '.tasks', 'plan'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.tasks', 'plan', 'maintask.md'), '');
+    // 빈 레인 1개(레인 워크트리 .tasks/ 는 gitignore 라 빈 껍데기).
+    seedLane(root, 'fe', { plan: [], exec: [], review: [] });
+    process.chdir(root);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-plv-home-'));
+
+    const j = JSON.parse(capture(() => void runStatus({ json: true, pipeline: true })));
+    const byName = Object.fromEntries(
+      j.lanes.map((g: { name: string; workitems: unknown }) => [g.name, g]),
+    );
+    // 레인(fe)이 생겨도 메인이 통째 숨으면 안 된다 — main 그룹이 존재하고 실작업을 담는다.
+    expect(byName.main.workitems).toEqual([{ name: 'maintask', status: 'pending' }]);
+    // 빈 레인도 명확히 표기(workitems 빈 배열).
+    expect(byName.fe.workitems).toEqual([]);
+
+    // 텍스트 렌더 글루도 메인·레인 헤더를 둘 다 담는다.
+    const text = capture(() => void runStatus({ json: false, pipeline: true }));
+    expect(text).toContain('main');
+    expect(text).toContain('fe');
+    expect(text).toContain('maintask');
+  });
+
   it('AC-02: 레인 없으면 기존 단일 .tasks/ 평탄 lanes[] 로 폴백한다', () => {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-plv-run-')));
     fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
