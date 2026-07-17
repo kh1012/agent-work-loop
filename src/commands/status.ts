@@ -488,29 +488,14 @@ export async function runStatus(opts: { json: boolean; pipeline?: boolean }): Pr
   // --pipeline: temp-loop 하네스의 .tasks/{plan,exec,review} 레인 상태를 배지로 낸다(opt-in).
   // awl 코어의 일반 status 와 분리 — .tasks 가 없으면 빈 뷰다(awl 은 하네스 유무를 판단 안 함).
   if (opts.pipeline === true) {
-    // 교차 레인 롤업(AC-01): .awl-worktrees/* 각 레인의 .tasks/ 를 레인별로 집계한다.
-    const laneGroups = collectPipelineLaneGroups(root);
-    if (laneGroups.length > 0) {
-      // 메인 트리 .tasks/ 를 항상 앞에 포함한다(F-01: 레인이 생겨도 메인 안 숨김).
-      const groups = [mainTreeGroup(root), ...laneGroups];
-      if (opts.json) {
-        process.stdout.write(`${JSON.stringify({ lanes: groups }, null, 2)}\n`);
-      } else {
-        process.stdout.write(`${renderPipelineGroups(groups, caps())}\n`);
-      }
-      return;
-    }
-    // 폴백(AC-02): .awl-worktrees/ 부재(단일 프로젝트) → 기존 단일 .tasks/ 동작 불변.
-    const tasks = path.join(root, '.tasks');
-    const lanes = pipelineLanes(
-      readDirNames(path.join(tasks, 'plan')),
-      readDirNames(path.join(tasks, 'exec')),
-      readDirNames(path.join(tasks, 'review')),
-    );
+    // 교차 레인 롤업: 메인 트리 .tasks/ 를 항상 'main' 그룹으로 앞에 두고(F-01: 레인이 생겨도
+    // 메인 안 숨김), .awl-worktrees/* 레인 그룹을 잇는다. 폴백(레인 없음)·다중(레인 있음)이
+    // 같은 {name,workitems[]} 스키마라 --json 소비자가 런타임 상태로 갈리지 않는다(F-02).
+    const groups = [mainTreeGroup(root), ...collectPipelineLaneGroups(root)];
     if (opts.json) {
-      process.stdout.write(`${JSON.stringify({ lanes }, null, 2)}\n`);
+      process.stdout.write(`${JSON.stringify({ lanes: groups }, null, 2)}\n`);
     } else {
-      process.stdout.write(`${renderPipeline(lanes, caps())}\n`);
+      process.stdout.write(`${renderPipelineGroups(groups, caps())}\n`);
     }
     return;
   }
