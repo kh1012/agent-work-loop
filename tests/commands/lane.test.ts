@@ -303,6 +303,49 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
     expect(fs.existsSync(lanePath)).toBe(false);
   });
 
+  it('lane rm: 미add untracked WIP 가 있으면 --force 없이 거부하고 파일을 보존한다 (AC-01, F-01)', async () => {
+    const proj = realGitProject();
+    await runLaneNew('probe');
+    const lanePath = path.join(proj, '.awl-worktrees', 'probe');
+    // 미add 신규 파일(genuine WIP) — worktreeDirtyTracked(--untracked-files=no)는 못 본다.
+    const wip = path.join(lanePath, 'wip.txt');
+    fs.writeFileSync(wip, '미저장 작업\n');
+
+    const warns: string[] = [];
+    const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation((s: unknown) => {
+      warns.push(String(s));
+      return true;
+    });
+    const exitCap = spyProcessExit();
+    await expect(runLaneRemove('probe', {})).rejects.toThrow('exit');
+    const combined = warns.join('');
+    exitCap.restore();
+    errSpy.mockRestore();
+
+    expect(exitCap.code()).toBe(1);
+    // 거부됐으니 워크트리와 미add 파일이 보존된다(untracked 검사 제거 시 파괴돼 RED).
+    expect(fs.existsSync(lanePath)).toBe(true);
+    expect(fs.existsSync(wip)).toBe(true);
+    expect(combined).toMatch(/새 파일/);
+
+    // --force 면 untracked 가 있어도 제거한다.
+    await runLaneRemove('probe', { force: true });
+    expect(fs.existsSync(lanePath)).toBe(false);
+  });
+
+  it('lane rm: awl 자신의 산출물(.awl/·.awl-home/)만 untracked 면 정상 제거한다 (AC-01 필터, G-034)', async () => {
+    const proj = realGitProject();
+    await runLaneNew('probe');
+    const lanePath = path.join(proj, '.awl-worktrees', 'probe');
+    // awl 산출물을 흉내 — 필터가 이걸 WIP 로 오판하면 rm 이 막혀(throw) RED.
+    fs.mkdirSync(path.join(lanePath, '.awl'), { recursive: true });
+    fs.writeFileSync(path.join(lanePath, '.awl', 'state.json'), '{}\n');
+    fs.writeFileSync(path.join(lanePath, '.awl-home', 'rec.jsonl'), 'x\n');
+
+    await runLaneRemove('probe', {}); // 막히지 않아야 한다(필터가 awl 산출물 제외).
+    expect(fs.existsSync(lanePath)).toBe(false);
+  });
+
   it('lane rm: 미머지 커밋 수를 확인 못 하면(없는/detached 브랜치) --force 없이 차단하고 워크트리를 보존한다 (AC-04, fail-open 수정)', async () => {
     const proj = realGitProject();
     // work/x 브랜치 없이 detached 워크트리를 만든다 — unmergedCommitCount 의 rev-list 가

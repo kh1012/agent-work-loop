@@ -149,6 +149,34 @@ async function unmergedCommitCount(root: string, branch: string): Promise<number
   return Number.isNaN(n) ? null : n;
 }
 
+/** awl/도구가 워크트리에 만드는 산출물 경로(진짜 WIP 아님, worktreeUntracked 에서 제외). */
+const AWL_INTERNAL_DIRS = new Set(['.awl', '.awl-home', '.awl-worktrees', '.claude']);
+
+/**
+ * 레인 워크트리의 genuine untracked 파일(미add 신규)을 조사한다(AC-01, F-01). work done
+ * 과 공유하는 worktreeDirtyTracked 는 --untracked-files=no 라 이걸 못 본다 — lane rm 은
+ * 워크트리를 통째로 파기하므로 미커밋 신규 파일도 손실이다. awl 자신의 산출물
+ * (.awl/·.awl-home/ state·verify-baseline·isolated records, .awl-worktrees/, lane new 가
+ * 재설치하는 .claude/)은 WIP 가 아니므로 제외한다(G-034: 도구 산출물은 도구 필터로 무시).
+ */
+async function worktreeUntracked(
+  root: string,
+  targetPath: string,
+): Promise<{ untracked: boolean; count: number; first?: string }> {
+  const r = await run({
+    cmd: 'git',
+    args: ['-C', targetPath, 'ls-files', '--others', '--exclude-standard'],
+    cwd: root,
+    timeoutMs: 10_000,
+  });
+  const files = r.stdout
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .filter((f) => !AWL_INTERNAL_DIRS.has(f.split('/')[0] ?? ''));
+  return { untracked: files.length > 0, count: files.length, first: files[0] };
+}
+
 /** 워크트리 경로의 브랜치를 맵에서 찾는다. git 은 realpath 를 돌려주므로 심링크 루트에서도 맞도록 realpath 도 시도한다. */
 function branchOf(branches: Map<string, string>, lanePath: string): string | undefined {
   const direct = branches.get(lanePath);
@@ -253,6 +281,15 @@ export async function runLaneRemove(name: string, opts: { force?: boolean } = {}
     if (d.dirty) {
       process.stderr.write(
         `\n${feedback(c, 'error', `레인에 커밋되지 않은 변경 ${d.count}건 (예: ${d.first})`, '--force 로 강제 제거할 수 있습니다')}\n`,
+      );
+      process.exit(1);
+    }
+    // untracked 신규 파일(미add WIP)도 파기 대상이라 별도로 본다(F-01) — worktreeDirtyTracked
+    // 는 work done 과 공유라 --untracked-files=no 를 유지하고, 여기서만 untracked 를 막는다.
+    const u = await worktreeUntracked(root, lanePath);
+    if (u.untracked) {
+      process.stderr.write(
+        `\n${feedback(c, 'error', `레인에 커밋되지 않은 새 파일 ${u.count}건 (예: ${u.first})`, 'git add·커밋하거나 --force 로 강제 제거하세요')}\n`,
       );
       process.exit(1);
     }
