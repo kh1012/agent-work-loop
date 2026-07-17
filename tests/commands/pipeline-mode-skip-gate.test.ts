@@ -8,34 +8,43 @@ import { describe, expect, it } from 'vitest';
 const rel = 'engine/skills/claude/awl-pipeline/SKILL.md';
 const skill = (): string => fs.readFileSync(path.join(process.cwd(), rel), 'utf8');
 
-describe('pipeline-mode-skip-gate — mode 세트·기본값·축약 (AC-01)', () => {
-  it('gate/skip-gate/auto 3상태를 mode 토큰으로 나열한다', () => {
-    // G-061: 맨 skip-gate 부분문자열은 기존 "skip-gate-defer" 로 공허 통과한다 —
-    // 모드 토큰 파이프 나열(원본엔 `critical-only` 라 부재)로 실제 리네임을 잠근다.
-    expect(skill()).toMatch(/`gate`\s*\|\s*`skip-gate`\s*\|\s*`auto`/);
+describe('pipeline-gate-density — graded 밀도 3단계·기본·방향·축약 (AC-01)', () => {
+  it('gate-high/gate-medium/gate-low 3단계를 mode 토큰으로 나열한다', () => {
+    // graded 단계는 한 축(게이트 밀도)의 세 점 — 개별명(gate/skip-gate/auto)을 대체한다.
+    expect(skill()).toMatch(/`gate-high`\s*\|\s*`gate-medium`\s*\|\s*`gate-low`/);
   });
 
-  it('무인자 기본은 gate — "생략 시 gate", 옛 "생략 시 critical-only" 는 사라졌다', () => {
+  it('무인자 기본은 gate-high — "생략 시 gate-high", 옛 기본 문구는 사라졌다', () => {
     const text = skill();
-    // 새 양성 계약(G-062): 기본이 gate 임을 단언
-    expect(text).toMatch(/생략 시 `?gate`?/);
+    // 새 양성 계약: 무인자 기본이 gate-high(보수적)임을 단언
+    expect(text).toMatch(/생략 시 `?gate-high`?/);
     // 기본 리네임의 뮤테이션 저항: 옛 기본 문구가 되살아나면 실패
-    expect(text).not.toMatch(/생략 시 `?critical-only`?/);
+    expect(text).not.toContain('생략 시 `gate`');
+    expect(text).not.toContain('생략 시 `skip-gate`');
+    expect(text).not.toContain('생략 시 `critical-only`');
   });
 
-  it('critical-only 명칭이 스킬 파일에서 완전히 사라졌다 (skip-gate 로 통일)', () => {
-    // G-048: 광범위 통일은 grep 카운트가 아니라 표면(파일) 전체 부재로 확인
+  it('방향 규약을 명시한다 — 높을수록 사람 게이트가 많다(감독 강함)', () => {
+    const text = skill();
+    expect(text).toContain('높을수록');
+    expect(text).toMatch(/사람 게이트/);
+  });
+
+  it('critical-only 명칭이 스킬 파일에서 완전히 사라졌다(graded 로 대체)', () => {
+    // 광범위 통일은 grep 카운트가 아니라 표면(파일) 전체 부재로 확인
     expect(skill()).not.toContain('critical-only');
   });
 
-  it('축약 --g/--sg/--a 와 유연 파싱(sg·--sg·skip-gate 인식)을 명시한다', () => {
+  it('축약 --gh/--gm/--gl 와 유연 파싱(gm·--gm·gate-medium 인식)을 명시한다', () => {
     const text = skill();
-    expect(text).toContain('--g');
-    expect(text).toContain('--sg');
-    expect(text).toContain('--a');
+    expect(text).toContain('--gh');
+    expect(text).toContain('--gm');
+    expect(text).toContain('--gl');
     // 유연 파싱: 접두 대시 유무·축약·전체명을 한 모드로 인식한다고 문서화
     expect(text).toContain('유연 파싱');
-    expect(text).toMatch(/`sg`.*`--sg`.*`skip-gate`/);
+    expect(text).toMatch(/`gm`.*`--gm`.*`gate-medium`/);
+    // 옛 축약(--sg)의 뮤테이션 저항
+    expect(text).not.toContain('--sg');
   });
 });
 
