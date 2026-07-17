@@ -53,3 +53,21 @@ describe('README 명령 참조가 program.ts 와 일치한다 (readme-refresh AC
     expect(md).toContain('version-check');
   });
 });
+
+describe('README 0.6.x 개념 정확성 (readme-refresh AC-02)', () => {
+  it('awl-feedback 를 gotcha 와 구분해 설명한다', () => {
+    const md = read('README.md');
+    expect(md).toContain('awl-feedback'); // 개념 등장
+    expect(md).toContain('awl feedback'); // 모아보기 명령
+    // 도구 자체 피드백은 규칙으로 승격되지 않는다는 구분
+    expect(md).toMatch(/규칙으로 승격되지 않습니다|awl 도구 자체/);
+  });
+
+  it('구 delta id(D-0xx) 를 현재 예시로 참조하지 않는다(deltas→gotchas)', () => {
+    const md = read('README.md');
+    // 구 delta 번호 형식(D-003 등)이 남아있지 않아야 한다 — gotcha 는 G-0xx.
+    expect(md).not.toMatch(/\bD-\d{3}\b/);
+    // promote 예시는 gotcha id(G-0xx)를 쓴다.
+    expect(md).toMatch(/promote G-\d/);
+  });
+});

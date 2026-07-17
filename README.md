@@ -272,7 +272,7 @@ $ awl work list
 3. 같은 교훈이 2번 나오면 스킬이 알립니다. **자동으로 규칙이 되지 않습니다.** 사람이 직접 판단해 승격합니다:
 
 ```bash
-awl rules promote D-003 \
+awl rules promote G-003 \
   --applies "여백 값을 CSS/스타일에 쓸 때" \
   --counter "이미 디자인 토큰 시스템이 없는 프로젝트"
 ```
@@ -280,6 +280,12 @@ awl rules promote D-003 \
 4. 승격된 규칙은 `~/.awl/rules/active/`에 쌓여 **당신이 여는 모든 프로젝트**에 적용됩니다. `awl rules`로 지금 프로젝트에 적용되는 규칙을 봅니다(프로젝트의 `character`와 규칙의 `applies`/`counter` 조건을 대조해서 걸러줍니다).
 
 규칙은 최대 15개까지만 유지됩니다 — 계속 쌓이면 아무도 안 읽는 규칙 목록이 되기 때문입니다. 검사기(lint 등)로 강제할 수 있는 것은 규칙으로 만들지 마세요. 규칙은 검사기가 못 잡는, 그러나 반복해서 틀렸던 판단만 남깁니다.
+
+### 교훈(gotcha)과 awl 자체 피드백은 다릅니다
+
+작업하다 배운 교훈은 gotcha입니다 — 작업 대상 코드에 대한 것이고, `~/.awl/gotchas`에 쌓여 규칙 후보가 됩니다. 이와 종류가 다른 것이 하나 있습니다: **awl 도구 자체가 불편했던 점**입니다. "`awl commit`이 이래서 아팠다" 같은 것은 `awl record awl-feedback`으로 남기면 `~/.awl/records`에 따로 모이고, 규칙으로 승격되지 않습니다 — awl을 고칠 재료이지 당신의 작업 규칙이 아니기 때문입니다. `awl feedback`으로 area(commit/gate/verify/state 등)별로 묶어 봅니다.
+
+(예전 버전은 교훈을 delta라고 불렀습니다. 지금은 gotcha로 이름이 바뀌었고, 옛 `~/.awl/deltas`는 처음 읽을 때 자동으로 `~/.awl/gotchas`로 옮겨집니다 — 교훈 번호도 `G-`로 매겨집니다.)
 
 ---
 
