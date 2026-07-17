@@ -108,6 +108,17 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
     return { writes, restore: () => spy.mockRestore() };
   }
 
+  // process.exit 을 막되 호출된 종료 코드를 캡처한다 — 에러 경로가 exit(1) 을
+  // 잠그도록(exit(0) 회귀를 RED 로 만들도록) code() 로 단언한다.
+  function spyProcessExit(): { restore: () => void; code: () => number | undefined } {
+    let captured: number | undefined;
+    const spy = vi.spyOn(process, 'exit').mockImplementation(((c?: number) => {
+      captured = c;
+      throw new Error('exit');
+    }) as unknown as typeof process.exit);
+    return { restore: () => spy.mockRestore(), code: () => captured };
+  }
+
   it('lane new: worktree + .awl-home + 스킬 재설치 + export AWL_HOME + 파이프라인 트리거 안내 (AC-01)', async () => {
     const proj = realGitProject();
     seedEngineSkill('awl-loop');
@@ -144,15 +155,14 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
       warns.push(String(s));
       return true;
     });
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
-      throw new Error('exit');
-    }) as unknown as typeof process.exit);
+    const exitCap = spyProcessExit();
     await expect(runLaneNew('probe')).rejects.toThrow('exit');
     // G-056: mockRestore 전에 캡처 배열로 단언한다.
     const combined = warns.join('');
-    exitSpy.mockRestore();
+    exitCap.restore();
     errSpy.mockRestore();
 
+    expect(exitCap.code()).toBe(1);
     expect(combined).toContain('probe');
     expect(combined).toMatch(/이미 존재/);
     // 기존 레인은 그대로다(잔재/파괴 없음).
@@ -171,14 +181,13 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
       warns.push(String(s));
       return true;
     });
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
-      throw new Error('exit');
-    }) as unknown as typeof process.exit);
+    const exitCap = spyProcessExit();
     await expect(runLaneNew('probe')).rejects.toThrow('exit');
     const combined = warns.join('');
-    exitSpy.mockRestore();
+    exitCap.restore();
     errSpy.mockRestore();
 
+    expect(exitCap.code()).toBe(1);
     expect(combined).toMatch(/git/);
     // 워크트리 디렉토리를 만들지 않았다.
     expect(fs.existsSync(path.join(proj, '.awl-worktrees'))).toBe(false);
@@ -231,13 +240,12 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
     fs.writeFileSync(path.join(lanePath, 'f.txt'), '고침\n');
 
     const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
-      throw new Error('exit');
-    }) as unknown as typeof process.exit);
+    const exitCap = spyProcessExit();
     await expect(runLaneRemove('probe', {})).rejects.toThrow('exit');
-    exitSpy.mockRestore();
+    exitCap.restore();
     errSpy.mockRestore();
 
+    expect(exitCap.code()).toBe(1);
     // 거부됐으니 워크트리는 그대로 남는다.
     expect(fs.existsSync(lanePath)).toBe(true);
 
@@ -253,13 +261,12 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
       warns.push(String(s));
       return true;
     });
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
-      throw new Error('exit');
-    }) as unknown as typeof process.exit);
+    const exitCap = spyProcessExit();
     await expect(runLaneRemove('ghost', {})).rejects.toThrow('exit');
     const combined = warns.join('');
-    exitSpy.mockRestore();
+    exitCap.restore();
     errSpy.mockRestore();
+    expect(exitCap.code()).toBe(1);
     expect(combined).toMatch(/찾을 수 없습니다/);
     expect(combined).toContain('ghost');
   });
@@ -278,14 +285,13 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
       warns.push(String(s));
       return true;
     });
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
-      throw new Error('exit');
-    }) as unknown as typeof process.exit);
+    const exitCap = spyProcessExit();
     await expect(runLaneRemove('probe', {})).rejects.toThrow('exit');
     const combined = warns.join('');
-    exitSpy.mockRestore();
+    exitCap.restore();
     errSpy.mockRestore();
 
+    expect(exitCap.code()).toBe(1);
     // 거부됐으니 워크트리·브랜치는 그대로 남는다(커밋 손실 방지).
     expect(combined).toMatch(/병합되지 않은/);
     expect(fs.existsSync(lanePath)).toBe(true);
@@ -304,13 +310,12 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
       warns.push(String(s));
       return true;
     });
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {
-      throw new Error('exit');
-    }) as unknown as typeof process.exit);
+    const exitCap = spyProcessExit();
     await expect(runLaneRemove('   ', {})).rejects.toThrow('exit');
     const combined = warns.join('');
-    exitSpy.mockRestore();
+    exitCap.restore();
     errSpy.mockRestore();
+    expect(exitCap.code()).toBe(1);
     expect(combined).toMatch(/이름/);
   });
 
