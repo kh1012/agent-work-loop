@@ -5,6 +5,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isolatedCommit, startBaseline } from '../../src/commands/commit.js';
 import { collectChecks } from '../../src/commands/doctor.js';
+import * as initModule from '../../src/commands/init.js';
 import * as stateModule from '../../src/commands/state.js';
 import * as verifyModule from '../../src/commands/verify.js';
 import { readVerifyBaseline } from '../../src/commands/verify.js';
@@ -756,6 +757,33 @@ describe('runWorkNew --worktree (WI-F AC-03, 실제 git 저장소로 통합 확�
 
     // 비-worktree 실행은 cwd 프로젝트에 .claude/skills 를 새로 깔지 않는다.
     expect(fs.existsSync(path.join(proj, '.claude', 'skills', 'awl-loop'))).toBe(false);
+  });
+
+  it('installClaudeSkill 이 throw 해도 catch 가 워크트리·workitem 을 유지하고 경고만 낸다 (AC-04, 리뷰 지적 rev finding#1)', async () => {
+    const proj = realGitProject();
+    // false-return 이 아니라 진짜 예외(cpSync EACCES 등)를 강제해 catch 분기를 락한다.
+    const skillSpy = vi.spyOn(initModule, 'installClaudeSkill').mockImplementation(() => {
+      throw new Error('boom');
+    });
+    const warns: string[] = [];
+    const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation((s: unknown) => {
+      warns.push(String(s));
+      return true;
+    });
+    try {
+      // 예외를 삼키지 못하면 runWorkNew 가 reject 된다 — 이 await 자체가 catch 를 검증한다.
+      await runWorkNew('WI-THROW', undefined, { worktree: true });
+    } finally {
+      errSpy.mockRestore();
+      skillSpy.mockRestore();
+    }
+    // 워크트리·workitem 은 유지된다(예외가 롤백/중단시키지 않는다).
+    expect(fs.existsSync(path.join(proj, '.awl-worktrees', 'WI-THROW'))).toBe(true);
+    const state = JSON.parse(fs.readFileSync(path.join(proj, '.awl', 'state.json'), 'utf8'));
+    expect(state.workitem).toBe('WI-THROW');
+    // "재설치 실패" 경고는 catch 분기에서만 나온다 — installClaudeSkill 이 throw 했고
+    // 그 예외를 삼켰다는 증거다. try/catch 를 제거하면 runWorkNew 가 reject 돼 위 await 가 던진다.
+    expect(warns.join('')).toMatch(/스킬 재설치 실패/);
   });
 });
 
