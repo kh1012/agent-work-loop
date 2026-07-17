@@ -7,6 +7,7 @@ import {
   buildRescueGuidance,
   checkBaseDrift,
   isolatedCommit,
+  renderCommitSuccess,
   runCommit,
   startBaseline,
 } from '../../src/commands/commit.js';
@@ -566,5 +567,51 @@ describe('runCommit 성공 라인 — feedback(ok) + 커밋 해시 강조 (cli-v
     expect(buf).toContain('커밋됨');
     expect(buf).toContain('작업 완료');
     expect(/커밋됨: [0-9a-f]{10}/.test(buf)).toBe(true); // emphasis 는 no-op(비색)이나 해시 10자
+  });
+});
+
+describe('renderCommitSuccess — 성공/selfCheck 경고 양 분기 (cli-visual-consistency AC-09, 리뷰)', () => {
+  const CC = { unicode: true, color: true, tty: true };
+  const PLAIN = { unicode: false, color: false, tty: false };
+  const base = { commit: 'abcdef1234567890', selfCheckOk: true, extraFiles: [] as string[] };
+
+  it('색 모드: 성공은 feedback(ok)+해시 emphasis, selfCheckOk=true 면 일관성 라인만(경고 없음)', () => {
+    const r = renderCommitSuccess({ ...base }, CC, '작업 완료');
+    expect(r.stdout).toContain('\x1b[1mabcdef1234\x1b[0m'); // 해시 10자 bold(emphasis 제거 시 실패)
+    expect(r.stdout).toContain('커밋됨:');
+    expect(r.stdout).toContain('작업 완료');
+    expect(r.stdout).toContain('내부 검증: 스테이징한 내용 그대로 커밋됨.'); // dim 일관성 라인
+    expect(r.stderr).toBe(''); // 성공엔 경고 없음
+  });
+
+  it('색 모드: selfCheckOk=false 면 stderr 에 signal(warn) 내부 검증 경고 + extraFiles, stdout 엔 일관성 라인 없음', () => {
+    const r = renderCommitSuccess(
+      { commit: 'abcdef1234567890', selfCheckOk: false, extraFiles: ['x.txt', 'y.txt'] },
+      CC,
+      '작업 완료',
+    );
+    expect(r.stderr).toContain('\x1b[33m'); // warn=yellow(신호가 error(red)로 바뀌면 실패)
+    expect(r.stderr).toContain('내부 검증 경고');
+    expect(r.stderr).toContain('x.txt, y.txt'); // extraFiles join(제거 시 실패)
+    expect(r.stdout).toContain('커밋됨:'); // 성공 헤드라인은 여전히 stdout
+    expect(r.stdout).not.toContain('스테이징한 내용 그대로 커밋됨'); // 경고 분기엔 일관성 라인 없음(분기 뒤집으면 실패)
+  });
+
+  it('무색(ASCII) 폴백: 성공=[ok], 경고=[!], 해시는 평문 10자 (G-046 양 모드 대조)', () => {
+    const ok = renderCommitSuccess({ ...base }, PLAIN, '작업 완료');
+    expect(ok.stdout).toContain('[ok]');
+    expect(/커밋됨: [0-9a-f]{10}/.test(ok.stdout)).toBe(true);
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI 이스케이프 부재 확인용
+    expect(/\x1b\[/.test(ok.stdout)).toBe(false); // ANSI 없음
+
+    const warn = renderCommitSuccess(
+      { commit: 'abcdef1234567890', selfCheckOk: false, extraFiles: ['x.txt'] },
+      PLAIN,
+      '작업 완료',
+    );
+    expect(warn.stderr).toContain('[!]');
+    expect(warn.stderr).toContain('내부 검증 경고');
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI 이스케이프 부재 확인용
+    expect(/\x1b\[/.test(warn.stderr)).toBe(false);
   });
 });

@@ -292,6 +292,36 @@ export async function isolatedCommit(
 }
 
 /**
+ * 성공 커밋의 결과 라인을 렌더한다(순수 함수 — runCommit 의 I/O 래퍼에서 분리, G-047).
+ * 항상: feedback(ok) + 커밋 해시 emphasis(F-06 첫 사용처). 그리고 selfCheckOk 로 분기 —
+ * false 면 stderr 에 signal(warn) "내부 검증 경고"(스테이징≠커밋), true 면 stdout 에 dim 일관성 라인.
+ * runCommit 이 그대로 write 하도록 stdout/stderr 를 나눠 돌려준다(출력 바이트 보존).
+ */
+export function renderCommitSuccess(
+  outcome: Pick<CommitOutcome, 'commit' | 'selfCheckOk' | 'extraFiles'>,
+  c: Caps,
+  message: string,
+): { stdout: string; stderr: string } {
+  const color = makeColors(c.color);
+  const head = `\n${feedback(c, 'ok', `커밋됨: ${makeTokens(c).emphasis(outcome.commit?.slice(0, 10) ?? '')}`, message)}\n`;
+  if (!outcome.selfCheckOk) {
+    return {
+      stdout: head,
+      stderr: `  ${signal(c, 'warn')} 내부 검증 경고: 스테이징한 파일과 실제 커밋 내용이 다릅니다: ${outcome.extraFiles.join(', ')}\n`,
+    };
+  }
+  // D-36: 이건 "커밋 = 스테이징 내용"이라는 내부 일관성만 확인한다(항상 참인
+  // 동어반복에 가깝다) — "이 커밋이 이 완료조건에만 맞다"는 보장이 아니다.
+  // 그 판단은 위 파일 목록을 직접 보고 하는 몫이다. 예전 문구("내가 쓴 파일만
+  // 커밋됨")는 이 구분 없이 안심을 줘서 실제로 무관한 파일이 섞인 커밋을
+  // 그대로 넘긴 사고가 있었다(실사용 재현).
+  return {
+    stdout: `${head}  ${color.dim('내부 검증: 스테이징한 내용 그대로 커밋됨.')}\n`,
+    stderr: '',
+  };
+}
+
+/**
  * awl commit 이 거부됐을 때, hunk 충돌 사유일 때만 격리 워크트리로 옮기는
  * 구체적 안내를 만든다(WI-F AC-04). 실사고: "사람이 확인하세요"로 끝나고
  * 대안이 "커밋 없이 계속 진행"뿐이었더니, 결국 내 변경이 나중에 남의 커밋에
@@ -493,21 +523,11 @@ export async function runCommit(
     process.exit(1);
   }
 
-  // 성공: ok 신호 + 커밋 해시는 강조(emphasis) — feedback 유틸의 첫 사용처(F-06).
-  process.stdout.write(
-    `\n${feedback(c, 'ok', `커밋됨: ${makeTokens(c).emphasis(outcome.commit?.slice(0, 10) ?? '')}`, opts.message)}\n`,
-  );
-  if (!outcome.selfCheckOk) {
-    process.stderr.write(
-      `  ${signal(c, 'warn')} 내부 검증 경고: 스테이징한 파일과 실제 커밋 내용이 다릅니다: ${outcome.extraFiles.join(', ')}\n`,
-    );
-  } else {
-    // D-36: 이건 "커밋 = 스테이징 내용"이라는 내부 일관성만 확인한다(항상 참인
-    // 동어반복에 가깝다) — "이 커밋이 이 완료조건에만 맞다"는 보장이 아니다.
-    // 그 판단은 위 파일 목록을 직접 보고 하는 몫이다. 예전 문구("내가 쓴 파일만
-    // 커밋됨")는 이 구분 없이 안심을 줘서 실제로 무관한 파일이 섞인 커밋을
-    // 그대로 넘긴 사고가 있었다(실사용 재현).
-    process.stdout.write(`  ${color.dim('내부 검증: 스테이징한 내용 그대로 커밋됨.')}\n`);
+  // 성공 결과 라인 렌더는 순수 함수로 분리(양 분기 단위 검증 가능, G-047·AC-09).
+  const rendered = renderCommitSuccess(outcome, c, opts.message);
+  process.stdout.write(rendered.stdout);
+  if (rendered.stderr) {
+    process.stderr.write(rendered.stderr);
   }
 
   // 베이스 드리프트 경고.
