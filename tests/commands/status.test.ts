@@ -10,7 +10,6 @@ import {
   classifyAncestorExit,
   collectPipelineLaneGroups,
   pipelineLanes,
-  renderPipeline,
   renderPipelineGroups,
   renderStatus,
   runStatus,
@@ -510,34 +509,6 @@ describe('runStatus --pipeline 핸들러 (pipeline-status-tracking AC-02, glue �
     );
     expect(by.donewi).toBe('complete');
     expect(by.freshwi).toBe('pending');
-  });
-});
-
-describe('renderPipeline — 텍스트 렌더(pipeline-status-tracking AC-05, 리뷰)', () => {
-  const ASCII = { unicode: false, color: false, tty: false };
-  it('populated: 배지 + name + status label 을 담고 정렬된다', () => {
-    const out = renderPipeline(
-      [
-        { name: 'wiA', status: 'complete' as const },
-        { name: 'wi-longer', status: 'pending' as const },
-      ],
-      ASCII,
-    );
-    expect(out).toContain('[ok]'); // complete 배지(ASCII)
-    expect(out).toContain('[.]'); // pending 배지
-    expect(out).toContain('wiA');
-    expect(out).toContain('complete'); // status label
-    expect(out).toContain('pending');
-    // name 우측 패딩(padEndDisplay) — 짧은 name 뒤에 2칸+ 여백을 넣어 status 라벨을
-    // 열 맞춤한다. 패딩을 빼면 'wiAcomplete' 로 붙어 이 단언이 깨진다.
-    expect(out).toMatch(/wiA\s{2,}complete/);
-    // 카드 줄 표시폭 균일(card 박스가 빈 줄/깨진 줄 없이 모든 레인을 감쌌다).
-    const widths = out.split('\n').map(visibleWidth);
-    expect(new Set(widths).size).toBe(1);
-  });
-  it('empty: 레인이 없으면 안내 카드', () => {
-    const out = renderPipeline([], ASCII);
-    expect(out).toContain('.tasks 레인이 비어있습니다');
   });
 });
 

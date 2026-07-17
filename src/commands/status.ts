@@ -378,18 +378,6 @@ function nameColWidth(names: string[]): number {
   return Math.max(...names.map(stringWidth), 4) + 2;
 }
 
-/** 파이프라인 레인 뷰를 렌더한다(statusBadge 사용). */
-export function renderPipeline(lanes: PipelineLane[], c: Caps): string {
-  if (lanes.length === 0) {
-    return card('파이프라인', ['.tasks 레인이 비어있습니다.'], c);
-  }
-  const nameWidth = nameColWidth(lanes.map((l) => l.name));
-  const out = lanes.map(
-    (l) => `${statusBadge(c, l.status)}  ${padEndDisplay(l.name, nameWidth)}${l.status}`,
-  );
-  return card(`파이프라인 ${lanes.length}개 레인`, out, c);
-}
-
 /** 디렉토리 파일명을 읽는다(없으면 빈 배열 — awl 은 파이프라인 유무를 판단하지 않는다). */
 function readDirNames(dir: string): string[] {
   try {
@@ -460,9 +448,9 @@ function mainTreeGroup(root: string): PipelineLaneGroup {
 }
 
 /**
- * 교차 레인 롤업을 레인 헤더로 그룹핑해 렌더한다(AC-01). renderPipeline 과 같은 배지
- * (statusBadge)·열 맞춤(padEndDisplay)을 쓰되, 레인마다 헤더를 얹고 그 아래 workitem
- * 을 들여쓴다. 열 폭은 전 레인의 workitem 이름 기준으로 통일한다.
+ * 교차 레인 롤업을 레인 헤더로 그룹핑해 렌더한다(AC-01). statusBadge·padEndDisplay 로
+ * 배지·열 맞춤을 하되, 레인마다 헤더를 얹고 그 아래 workitem 을 들여쓴다. 열 폭은 전
+ * 레인의 workitem 이름 기준으로 통일한다.
  */
 export function renderPipelineGroups(groups: PipelineLaneGroup[], c: Caps): string {
   const color = makeColors(c.color);
