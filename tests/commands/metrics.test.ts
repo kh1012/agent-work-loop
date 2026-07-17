@@ -197,6 +197,7 @@ describe('renderMetrics — 사람용 표 (WI-P 리뷰 지적: criteriaTotal 누
           proceduralErrors: 4,
           gotchaApplied: 5,
           gotchaMissed: 6,
+          refactorCount: 8,
           coverage: {
             auditFindingsTotal: 12,
             addressed: 5,
@@ -215,6 +216,8 @@ describe('renderMetrics — 사람용 표 (WI-P 리뷰 지적: criteriaTotal 누
     expect(out).toContain('4');
     expect(out).toContain('5');
     expect(out).toContain('6');
+    expect(out).toContain('리팩토링'); // 리팩토링 열 헤더(loop-refactor-checkpoint AC-04)
+    expect(out).toContain('8'); // refactorCount 값 — 이 표에서 8은 refactorCount 뿐
     expect(out).toContain('난이도'); // 캐비트
     expect(out).toContain('5/12'); // 커버리지(addressed/auditFindingsTotal, WI-T AC-04)
   });
@@ -254,6 +257,7 @@ describe('groupByExperiment/experimentKey — 케이스 비교 집계(experiment
     proceduralErrors: 0,
     gotchaApplied: 0,
     gotchaMissed: 0,
+    refactorCount: 0,
     coverage: { auditFindingsTotal: 0, addressed: 0, excluded: 0, excludedApprovedByHuman: false },
     ...(exp ? { experiment: exp } : {}),
     ...over,
@@ -308,6 +312,7 @@ describe('experiment-harness AC-04 — 리뷰 후속', () => {
     proceduralErrors: 0,
     gotchaApplied: 0,
     gotchaMissed: 0,
+    refactorCount: 0,
     coverage: { auditFindingsTotal: 0, addressed: 0, excluded: 0, excludedApprovedByHuman: false },
     experiment: exp,
     ...over,
@@ -372,6 +377,7 @@ describe('renderMetrics/renderCompare 표 정렬 회귀잠금 (cli-design-tokens
     proceduralErrors: 0,
     gotchaApplied: 0,
     gotchaMissed: 0,
+    refactorCount: 0,
     coverage: { auditFindingsTotal: 0, addressed: 0, excluded: 0, excludedApprovedByHuman: false },
   });
 

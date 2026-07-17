@@ -193,7 +193,7 @@ awl verify --json
 
 **필요하다고 판단하면 규모로 나눠 진행한다:**
 
-- **작은 정리**(국소적이고 `awl verify` 가 계속 통과하며 동작이 보존되는 것 — 함수 추출, 이름 정리, 중복 제거): 그 자리에서 바로 격리 커밋하고 `awl record refactor --json '{"what":"...","kind":"split|dedup|abstraction|rename|inline|기타"}'` 로 남긴다. 완료 조건을 새로 만들지 않는다.
+- **작은 정리**(국소적이고 `awl verify` 가 계속 통과하며 동작이 보존되는 것 — 함수 추출, 이름 정리, 중복 제거): 방금 통과한 완료 조건의 AC-ID 로 `awl commit <AC> --start`(재베이스라인) 후 `awl commit <AC> -m "refactor: ..."` 로 격리 커밋한다(절대 규칙 9 — `git add` 직접 쓰지 않는다). 그다음 `awl record refactor --json '{"what":"...","kind":"split|dedup|abstraction|rename|inline|기타"}'` 로 남긴다. 완료 조건을 새로 만들지 않는다.
 - **큰 구조 변경**(모듈 경계 이동, 인터페이스 변경, 여러 파일이 얽히는 정리): 완료 조건으로 편입해 게이트를 거친다(절대 규칙 1 — 완료 조건 없이 구현하지 않는다). 리뷰어 지적을 완료 조건으로 편입하는 것과 같은 경로다.
 - 어느 쪽이든 `awl verify` 가 안전망이다 — 리팩토링 전후로 통과 상태가 유지되는지 확인한다. 통과가 깨지면 그 리팩토링은 동작을 바꾼 것이니 되돌리거나 완료 조건으로 승격한다.
 - 실제로 진행했을 때만 `awl record refactor` 를 남긴다 — 점검만 하고 손대지 않았으면 아무것도 기록하지 않는다(gotcha 확인과 같은 원칙).
@@ -261,7 +261,7 @@ awl evolve --record --json '{"lesson":"...","context":"...","source":{...},"same
   → 2회 반복 알림이 뜨면 사용자에게 그대로 전달한다. 자동으로 promote 하지 마라.
 ```
 
-`metrics`(criteriaTotal/avgAttempts/blockedRatio/reviewRejects/proceduralErrors/gotchaApplied/gotchaMissed)는 이 워크아이템의 세대 스냅샷으로도 남는다(`~/.awl/generations/<project>/<WI>.json`). 세대별 추세는 `awl metrics` 로 사람이 직접 본다 — 워크아이템마다 난이도가 다르니 절대 비교하지 말고 경향만 참고한다.
+`metrics`(criteriaTotal/avgAttempts/blockedRatio/reviewRejects/proceduralErrors/gotchaApplied/gotchaMissed/refactorCount)는 이 워크아이템의 세대 스냅샷으로도 남는다(`~/.awl/generations/<project>/<WI>.json`). 세대별 추세는 `awl metrics` 로 사람이 직접 본다 — 워크아이템마다 난이도가 다르니 절대 비교하지 말고 경향만 참고한다.
 
 - 교훈은 **재사용 가능한 형태**여야 한다. `source`(추적용)는 남기되 `lesson` 본문에는 프로젝트/완료조건 이름을 넣지 않는다.
 - **자동 승격하지 않는다.** `awl rules promote` 는 사람이 명시적으로 실행한다.

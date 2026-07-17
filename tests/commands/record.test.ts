@@ -955,6 +955,21 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
     expect(records).toHaveLength(1);
   });
 
+  it('refactor 를 CLI 로 기록한다 — 유효 kind 통과, 불량 kind 는 CLI 진입점에서 거부 (loop-refactor-checkpoint AC-04)', async () => {
+    project({ workitem: 'WI-9', workitems: {} });
+    // 유효 kind → 실제로 기록됨(글루 왕복)
+    await runRecord('refactor', { json: '{"what":"헬퍼 추출","kind":"split"}' });
+    expect(readRecords({ workitem: 'WI-9' }).some((r) => r.type === 'refactor')).toBe(true);
+    // 불량 kind → CLI 진입점(runRecord)에서 거부(buildRecord 검증이 exit 로 이어짐)
+    const { exitSpy, stderrSpy } = mockExit();
+    await expect(runRecord('refactor', { json: '{"what":"x","kind":"없는종류"}' })).rejects.toThrow(
+      'exit:1',
+    );
+    expect(stderrSpy.mock.calls.map((c) => String(c[0])).join('')).toContain('kind');
+    exitSpy.mockRestore();
+    stderrSpy.mockRestore();
+  });
+
   it('데이터(JSON) 안에 workitem 이 명시되면 활성 워크아이템이 없어도 통과한다(우선순위 유지)', async () => {
     project(undefined);
     await runRecord('spike', {

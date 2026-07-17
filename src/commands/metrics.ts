@@ -29,6 +29,8 @@ export interface Generation {
   proceduralErrors: number;
   gotchaApplied: number;
   gotchaMissed: number;
+  /** 이 워크아이템 리팩토링 기록 수(loop-refactor-checkpoint). 없는 옛 스냅샷은 0. */
+  refactorCount: number;
   coverage: CoverageSnapshot;
   /** 실험 케이스 메타(model/mode/taskType). 없으면 undefined(하위호환, experiment-harness). */
   experiment?: Record<string, unknown>;
@@ -100,6 +102,7 @@ export function loadGenerations(project: string): Generation[] {
       proceduralErrors: num(raw.proceduralErrors),
       gotchaApplied: num(raw.gotchaApplied),
       gotchaMissed: num(raw.gotchaMissed),
+      refactorCount: num(raw.refactorCount),
       coverage: readCoverage(raw.coverage),
       // 배열은 experiment 로 인정하지 않는다 — 쓰기 경로(program.ts)가 Array.isArray 로
       // 거부하는 것과 대칭. 손상/수기편집된 스냅샷의 배열이 유사 케이스로 오염되는 걸 막는다.
@@ -126,12 +129,12 @@ export function renderMetrics(generations: Generation[], c: Caps): string {
   const idWidth = Math.max(...generations.map((g) => g.workitem.length), 9) + 2;
   const out: string[] = [];
   out.push(
-    `${padEndDisplay('워크아이템', idWidth)}완료조건  시도평균  막힘비율  리뷰지적  절차실수  gotcha적용  gotcha누락  커버리지`,
+    `${padEndDisplay('워크아이템', idWidth)}완료조건  시도평균  막힘비율  리뷰지적  절차실수  gotcha적용  gotcha누락  리팩토링  커버리지`,
   );
   for (const g of generations) {
     const coverage = `${g.coverage.addressed}/${g.coverage.auditFindingsTotal}`;
     out.push(
-      `${padEndDisplay(g.workitem, idWidth)}${padEndDisplay(String(g.criteriaTotal), 10)}${padEndDisplay(String(g.avgAttempts), 10)}${padEndDisplay(String(g.blockedRatio), 10)}${padEndDisplay(String(g.reviewRejects), 10)}${padEndDisplay(String(g.proceduralErrors), 10)}${padEndDisplay(String(g.gotchaApplied), 12)}${padEndDisplay(String(g.gotchaMissed), 12)}${coverage}`,
+      `${padEndDisplay(g.workitem, idWidth)}${padEndDisplay(String(g.criteriaTotal), 10)}${padEndDisplay(String(g.avgAttempts), 10)}${padEndDisplay(String(g.blockedRatio), 10)}${padEndDisplay(String(g.reviewRejects), 10)}${padEndDisplay(String(g.proceduralErrors), 10)}${padEndDisplay(String(g.gotchaApplied), 12)}${padEndDisplay(String(g.gotchaMissed), 12)}${padEndDisplay(String(g.refactorCount), 10)}${coverage}`,
     );
   }
   out.push('');
