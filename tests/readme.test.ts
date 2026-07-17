@@ -94,6 +94,16 @@ describe('오케스트레이션 파이프라인 노출 (cli-pipeline-surface)', 
     const desc = m?.[1] ?? '';
     expect(desc).toContain('파이프라인'); // --help 명령목록 lane 줄에서 발견 가능
   });
+
+  it('README 에 오케스트레이션 파이프라인 섹션과 3요소가 있다 (AC-01)', () => {
+    const md = read('README.md');
+    expect(md).toContain('오케스트레이션'); // ② 다중 레인 개념 이름
+    expect(md).toContain('awl lane'); // 요소 1: 격리 레인
+    expect(md).toContain('--pipeline'); // 요소 2: awl status --pipeline 롤업
+    expect(md).toContain('awl-pipeline'); // 요소 3: 역할 스킬(plan/exec/review)
+    // auto-spawn 미탑재는 로드맵으로만 표기(탑재된 척 금지)
+    expect(md).toContain('로드맵');
+  });
 });
 
 describe('README 담백한 사람 문체 — 금지어 (readme-refresh AC-04)', () => {
