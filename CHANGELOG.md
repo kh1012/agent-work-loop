@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+### 추가
+
+- gotcha 관계 그래프(gotcha-graph) — 교훈끼리 관계를 맺어 흩어진 지식을 묶는다. gotcha 에 `relations`(duplicates/refines/supersedes + target) 필드를 더했다. 무엇이 무엇을 refine/supersede 하는지는 LLM 이 매기고, awl 은 필드를 저장·순회만 한다(판단하지 않는다). `gotchaCluster` 가 relations 와 기존 sameAs 를 무방향 엣지로 순회해 시드 교훈의 클러스터를 낸다(N홉 제한·순환 가드). `gotchasBySource` 가 출처(workitem)로 교훈을 뒤조회하고, `evolve --collect` 가 이 워크아이템에서 나온 교훈과 그 관계 클러스터를 `relatedGotchas` 로 실어, 전체 나열(existingGotchas) 대신 상황에 가까운 묶음을 준다. relations 없는 옛 gotcha 는 그대로 로드된다(하위호환) [gotcha-graph]
+
 ## [0.6.9] - 2026-07-17
 
 ### 고침
