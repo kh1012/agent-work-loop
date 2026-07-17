@@ -3,7 +3,14 @@ import path from 'node:path';
 import { run } from '../core/runner.js';
 import { type Caps, caps, card, feedback, makeColors, signal } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
-import { removeGitWorktree, runWorkNew, sanitizeForGit, worktreeDirtyTracked } from './work.js';
+import { loadState, writeState } from './state.js';
+import {
+  removeGitWorktree,
+  removeWorkitemFromState,
+  runWorkNew,
+  sanitizeForGit,
+  worktreeDirtyTracked,
+} from './work.js';
 
 /**
  * awl lane — 격리 레인(worktree + 전용 AWL_HOME + 스킬 + 기동 안내)을 만들고
@@ -316,6 +323,14 @@ export async function runLaneRemove(name: string, opts: { force?: boolean } = {}
   // git worktree remove 가 디렉토리를 지우지만, 메타 유실 등으로 잔재가 남으면 정리한다.
   if (fs.existsSync(lanePath)) {
     fs.rmSync(lanePath, { recursive: true, force: true });
+  }
+  // root state 에 이 레인을 가리키는 유령 workitem 이 있으면 정리한다(F-02). 구버전(또는
+  // 비격리 경로)의 lane new 가 root 에 남긴 항목이 삭제된 워크트리를 계속 가리키면 work
+  // list/switch 가 없는 디렉토리를 가리키는 유령이 된다. 레인명은 sanitize 전/후가 다를
+  // 수 있어 둘 다 후보로 넘긴다.
+  const cleaned = removeWorkitemFromState(loadState(root), [name.trim(), laneName]);
+  if (cleaned.removed) {
+    writeState(root, cleaned.state);
   }
   process.stdout.write(`\n${feedback(c, 'ok', `레인 제거  ${color.bold(laneName)}`, branch)}\n`);
 }

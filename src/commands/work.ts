@@ -431,6 +431,62 @@ export function markWorkitemDone(
   return { state: next, ...(wtPath ? { worktree: { path: wtPath } } : {}) };
 }
 
+/**
+ * root state 에서 지정 id(들)의 워크아이템을 제거한다(lane rm 의 유령 정리, F-02). 대소문자
+ * 무시. 현재(top-level) 워크아이템이 대상이면 최상위를 비우고(workitem/phase/loop/criteria
+ * 및 workitem* 스냅샷 필드 제거), 레지스트리 항목이면 그 키를 지운다. work done 과 달리
+ * 기록을 남기지 않는다 — 레인의 실제 기록·state 는 삭제된 worktree(.awl-home)에 있었고,
+ * root 의 이 항목은 삭제된 워크트리를 가리키는 유령이라 done 으로 보존할 이유가 없다.
+ * 순수 함수. 바뀐 게 없으면 removed:false.
+ */
+export function removeWorkitemFromState(
+  state: Record<string, unknown>,
+  ids: string[],
+): { state: Record<string, unknown>; removed: boolean } {
+  const migrated = migrateState(state);
+  const wanted = new Set(ids.map((s) => s.trim().toLowerCase()).filter(Boolean));
+  if (wanted.size === 0) {
+    return { state: migrated, removed: false };
+  }
+  let next = migrated;
+  let removed = false;
+
+  // 최상위(현재) 워크아이템이 대상이면 비운다(archive 아님 — 유령은 보존하지 않는다).
+  const currentId = typeof migrated.workitem === 'string' ? migrated.workitem : null;
+  if (currentId && wanted.has(currentId.toLowerCase())) {
+    const {
+      workitem: _w,
+      phase: _p,
+      loop: _l,
+      criteria: _c,
+      workitemBranch: _b,
+      workitemCreatedAt: _ca,
+      workitemDescription: _d,
+      raw_request: _rr,
+      currentFocus: _cf,
+      workitemWorktreePath: _wtp,
+      workitemExperiment: _we,
+      ...rest
+    } = next;
+    next = { ...rest, workitem: null, phase: null, loop: null, criteria: [] };
+    removed = true;
+  }
+
+  // 레지스트리 항목이 대상이면 지운다(무관한 다른 워크아이템은 보존).
+  const registry = registryOf(next);
+  const hitKeys = Object.keys(registry).filter((k) => wanted.has(k.toLowerCase()));
+  if (hitKeys.length > 0) {
+    const nextRegistry = { ...registry };
+    for (const k of hitKeys) {
+      delete nextRegistry[k];
+    }
+    next = { ...next, workitems: nextRegistry };
+    removed = true;
+  }
+
+  return { state: next, removed };
+}
+
 function requireRoot(): string {
   const root = resolveProjectRoot();
   if (!root) {

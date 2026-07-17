@@ -11,6 +11,7 @@ import {
   runLaneNew,
   runLaneRemove,
 } from '../../src/commands/lane.js';
+import { removeWorkitemFromState, summarizeWorkitems } from '../../src/commands/work.js';
 
 describe('parseWorktreeBranches (AC-02, 순수 파서)', () => {
   it('git worktree list --porcelain 을 경로→브랜치 맵으로 파싱하고 refs/heads/ 를 벗긴다', () => {
@@ -403,6 +404,74 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
     expect(fs.existsSync(lanePath)).toBe(true);
     // "미머지 N개"(>0)가 아니라 "확인할 수 없다"(판정 불가) 메시지여야 한다.
     expect(combined).toMatch(/확인할 수 없/);
+  });
+
+  it('lane rm: root state 의 유령 workitem(top-level 현재)을 정리하고 무관한 것은 보존한다 (AC-02, F-02)', async () => {
+    const proj = realGitProject();
+    await runLaneNew('probe');
+    // 구버전 lane new 가 남길 법한 유령: probe 가 root 의 현재(top-level) workitem.
+    const rootStatePath = path.join(proj, '.awl', 'state.json');
+    fs.writeFileSync(
+      rootStatePath,
+      JSON.stringify({
+        workitem: 'probe',
+        phase: 'loop',
+        criteria: [{ id: 'X', status: 'in_progress' }],
+        workitems: { 'other-task': { status: 'paused', createdAt: 'x', criteria: [] } },
+      }),
+    );
+
+    // force: 워크트리 삭제 게이트는 이 테스트 관심 밖 — state 정리에 집중.
+    await runLaneRemove('probe', { force: true });
+
+    const rootState = JSON.parse(fs.readFileSync(rootStatePath, 'utf8'));
+    // 유령 제거: work list(top-level + registry 합산)에 probe 가 없다.
+    expect(summarizeWorkitems(rootState).find((w) => w.id === 'probe')).toBeUndefined();
+    expect(rootState.workitem).toBeNull();
+    // 무관한 워크아이템은 보존(과잉 삭제 방지).
+    expect(rootState.workitems['other-task']).toBeDefined();
+  });
+
+  it('lane rm: 유령이 레지스트리(paused)에 있어도 정리한다 (AC-02, F-02)', async () => {
+    const proj = realGitProject();
+    await runLaneNew('probe');
+    const rootStatePath = path.join(proj, '.awl', 'state.json');
+    fs.writeFileSync(
+      rootStatePath,
+      JSON.stringify({
+        workitem: null,
+        phase: null,
+        criteria: [],
+        workitems: {
+          probe: { status: 'paused', createdAt: 'x', criteria: [] },
+          keep: { status: 'paused', createdAt: 'y', criteria: [] },
+        },
+      }),
+    );
+
+    await runLaneRemove('probe', { force: true });
+
+    const rootState = JSON.parse(fs.readFileSync(rootStatePath, 'utf8'));
+    expect(rootState.workitems.probe).toBeUndefined();
+    expect(rootState.workitems.keep).toBeDefined();
+  });
+
+  it('removeWorkitemFromState: 대소문자 무시로 top-level/registry 를 지우고 removed 를 알린다 (AC-02 순수)', () => {
+    // top-level 대상(대소문자 다름) — 비운다.
+    const a = removeWorkitemFromState(
+      { workitem: 'Probe', phase: 'loop', criteria: [{ id: 'X' }], workitems: {} },
+      ['probe'],
+    );
+    expect(a.removed).toBe(true);
+    expect(a.state.workitem).toBeNull();
+    expect(a.state.phase).toBeNull();
+    // 대상 없음 — removed:false, 원본 보존.
+    const b = removeWorkitemFromState(
+      { workitem: 'keep', workitems: { other: { status: 'paused' } } },
+      ['probe'],
+    );
+    expect(b.removed).toBe(false);
+    expect(b.state.workitem).toBe('keep');
   });
 
   it('lane rm: 빈 이름은 거부한다 (AC-05, runLaneNew 와 대칭)', async () => {
