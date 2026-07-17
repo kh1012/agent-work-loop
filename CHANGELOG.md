@@ -5,6 +5,10 @@
 
 ## [Unreleased]
 
+### 고침
+
+- 루트 README 를 0.6.x 에 맞춰 최신화(readme-refresh) — 빠져 있던 명령(brief/metrics/feedback/version-check)을 문서화하고, awl-feedback(도구 자체 피드백·`~/.awl/records`)과 gotcha(코드 교훈·`~/.awl/gotchas`)의 구분, deltas→gotchas 이름 변경을 반영했다. 파이프라인 다이어그램에 [명료화] 단계를 넣고, 엔진 버전 불일치 안내를 `awl update`/`awl version-check` 로 정정했다. 이 과정에서 `awl --version` 배너가 엔진 불일치 때 여전히 `awl init` 을 지시하던 문구를 `awl update` 로 바로잡았다(0.5.0 이 `version-check` 힌트만 고치고 배너를 놓쳤던 드리프트 — 같은 증상에 두 표면이 다른 명령을 지시하던 것). README 명령·개념·문체(금지어)를 회귀 테스트로 잠갔다 [readme-refresh]
+
 ## [0.6.11] - 2026-07-17
 
 ### 추가
