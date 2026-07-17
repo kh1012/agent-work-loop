@@ -5,6 +5,35 @@
 
 ## [Unreleased]
 
+## [0.6.13] - 2026-07-17
+
+### 추가
+
+- --pipeline 을 .awl-worktrees/* 교차 레인 롤업으로 확장 + 단일 .tasks 폴백 [AC-01/02/03]
+- awl lane new/ls/rm — 격리 레인 생성·조회·정리 (P1) [AC-01]
+- --worktree 가 워크트리에 engine 스킬 재설치 (pipeline-lane-skill-reinstall AC-01/02/03)
+- temp-loop-{plan,exec,review} → awl-pipeline-* 정식 이관 [AC-01]
+- 재실행 스킬 동기화를 다중-스킬로 확장 [AC-02]
+- Claude 스킬 설치기를 다중-스킬로 일반화 [AC-01]
+
+### 고침
+
+- renderBanner 열계산을 visibleWidth 로 교체해 색 켜짐 정렬 복구
+- rm 이 미머지 커밋을 --force 없이 파기하지 않게 + 빈이름 가드·realpath 폴백 커버 (리뷰) [AC-05]
+
+### 변경
+
+- status --pipeline 레인/역할 용어 정정 + AC-01 테스트 섹션 공존 단언 강화 [AC-04]
+- 작업 루프(단일 워크아이템)↔오케스트레이션(다중 레인) 용어 분리 + 테스트 잠금 [AC-03]
+- 오케스트레이션 파이프라인 섹션 추가(lane·status --pipeline·역할 스킬, auto-spawn 로드맵) + 테스트 잠금 [AC-01]
+- lane 설명에 파이프라인 맥락 노출 + 테스트 잠금 [AC-02]
+- renderBanner 색 켜짐 정렬 회귀잠금 (뮤테이션-저항)
+- 에러 경로 6곳이 process.exit 종료코드(=1)를 뮤테이션-저항으로 잠금 (리뷰 test-strength) [AC-06]
+- 재설치 예외 catch 분기 락 (AC-04, 리뷰 rev finding#1)
+- awl-pipeline-* 에 설계 계약(pipeline-subagent-delegation AC-01/02/04/05) 인코딩 [AC-03]
+- renderPipeline name 열정렬(padEndDisplay) 뮤테이션-저항 잠금(pipeline-status r2, 리뷰) [pipeline-status-tracking]
+- 성공 렌더를 renderCommitSuccess 순수함수로 추출 + selfCheckOk 경고 분기 단언(AC-09, 리뷰)
+
 ## [0.6.12] - 2026-07-17
 
 ### 고침
