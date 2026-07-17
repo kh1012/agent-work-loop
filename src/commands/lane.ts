@@ -130,9 +130,12 @@ async function laneBranchMap(root: string): Promise<Map<string, string>> {
 /**
  * lane 브랜치가 root HEAD(메인라인)에 없는 커밋을 몇 개 갖는지 센다. removeGitWorktree
  * 가 branch -D 로 그 커밋을 파기하면 손실이라, --force 없는 rm 이 이걸로 막는다(AC-05).
- * 측정 불가(브랜치 부재 등)면 0 을 반환한다 — 없는 브랜치엔 잃을 커밋도 없다.
+ * git rev-list 가 실패하면(없는/detached 브랜치 등) null 을 돌린다 — "미머지 0개"와
+ * "판정 불가"를 뭉뚱그리지 않는다(fail-open 금지, AC-04). 판정 불가는 removeGitWorktree
+ * 가 워크트리 제거 후 branch -D 실패로 부분파괴하는 창이므로, 호출부가 위험으로 보고
+ * --force 없이는 차단한다(미확인=위험).
  */
-async function unmergedCommitCount(root: string, branch: string): Promise<number> {
+async function unmergedCommitCount(root: string, branch: string): Promise<number | null> {
   const r = await run({
     cmd: 'git',
     args: ['rev-list', '--count', `HEAD..${branch}`],
@@ -140,10 +143,10 @@ async function unmergedCommitCount(root: string, branch: string): Promise<number
     timeoutMs: 10_000,
   });
   if (r.exitCode !== 0) {
-    return 0;
+    return null;
   }
   const n = Number.parseInt(r.stdout.trim(), 10);
-  return Number.isNaN(n) ? 0 : n;
+  return Number.isNaN(n) ? null : n;
 }
 
 /** 워크트리 경로의 브랜치를 맵에서 찾는다. git 은 realpath 를 돌려주므로 심링크 루트에서도 맞도록 realpath 도 시도한다. */
@@ -254,6 +257,12 @@ export async function runLaneRemove(name: string, opts: { force?: boolean } = {}
       process.exit(1);
     }
     const unmerged = await unmergedCommitCount(root, branch);
+    if (unmerged === null) {
+      process.stderr.write(
+        `\n${feedback(c, 'error', `레인 브랜치 ${branch} 의 미머지 커밋 수를 확인할 수 없습니다 (rm 하면 커밋이 파기될 수 있습니다)`, '먼저 브랜치를 확인하거나 --force 로 강제 제거하세요')}\n`,
+      );
+      process.exit(1);
+    }
     if (unmerged > 0) {
       process.stderr.write(
         `\n${feedback(c, 'error', `레인 브랜치 ${branch} 에 병합되지 않은 커밋 ${unmerged}개 (rm 하면 파기됩니다)`, '먼저 병합·푸시하거나 --force 로 강제 제거하세요')}\n`,

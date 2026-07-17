@@ -303,6 +303,34 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
     expect(fs.existsSync(lanePath)).toBe(false);
   });
 
+  it('lane rm: 미머지 커밋 수를 확인 못 하면(없는/detached 브랜치) --force 없이 차단하고 워크트리를 보존한다 (AC-04, fail-open 수정)', async () => {
+    const proj = realGitProject();
+    // work/x 브랜치 없이 detached 워크트리를 만든다 — unmergedCommitCount 의 rev-list 가
+    // 실패하는(HEAD..work/x 미해석) 경로. fail-open(0 반환)이면 게이트가 통과해
+    // removeGitWorktree 가 워크트리를 파괴한다.
+    const lanePath = path.join(proj, '.awl-worktrees', 'x');
+    execFileSync('git', ['worktree', 'add', '--detach', lanePath, 'HEAD'], { cwd: proj });
+    expect(fs.existsSync(lanePath)).toBe(true);
+
+    const warns: string[] = [];
+    const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation((s: unknown) => {
+      warns.push(String(s));
+      return true;
+    });
+    const exitCap = spyProcessExit();
+    await expect(runLaneRemove('x', {})).rejects.toThrow('exit');
+    const combined = warns.join('');
+    exitCap.restore();
+    errSpy.mockRestore();
+
+    expect(exitCap.code()).toBe(1);
+    // 수정 후: 게이트가 판정 불가를 위험으로 보고 차단 → 워크트리 보존(파괴 금지).
+    // fail-open 이면 이 시점에 워크트리가 이미 제거돼 RED.
+    expect(fs.existsSync(lanePath)).toBe(true);
+    // "미머지 N개"(>0)가 아니라 "확인할 수 없다"(판정 불가) 메시지여야 한다.
+    expect(combined).toMatch(/확인할 수 없/);
+  });
+
   it('lane rm: 빈 이름은 거부한다 (AC-05, runLaneNew 와 대칭)', async () => {
     realGitProject();
     const warns: string[] = [];
