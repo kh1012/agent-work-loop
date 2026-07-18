@@ -11,6 +11,7 @@ import {
   makeTokens,
   signal,
 } from '../core/tty.js';
+import { readCostSnapshot } from '../core/usage.js';
 import { loadConfig, resolveProjectRoot } from './config.js';
 import { gitBranch } from './doctor.js';
 import { installClaudeSkill } from './init.js';
@@ -672,7 +673,14 @@ export async function runWorkNew(
     process.stderr.write(`\n  ${result.error}\n`);
     process.exit(1);
   }
-  writeState(stateRoot, result.state);
+  // 루프 시작 비용 스냅샷(loop-completion-stats AC-03) — 완료 요약이 루프 경계
+  // cost diff 를 낼 수 있게 던지기 시점 cost 를 state 에 남긴다. 던지기 경계는
+  // workitemCreatedAt 과 같다(evolve 가 durationMs 시작점으로 쓰는 것과 같은 경계).
+  // cc-usage.json 이 없으면(statusline 미설치) 남기지 않는다 — 요약이 비용 줄을
+  // 생략한다(graceful). 새 record 필드가 아니라 state 스냅샷이다.
+  const costAtStart = readCostSnapshot();
+  const stateToWrite = costAtStart ? { ...result.state, costAtStart } : result.state;
+  writeState(stateRoot, stateToWrite);
   const c = caps();
   const color = makeColors(c.color);
   process.stdout.write(`\n${feedback(c, 'ok', `워크아이템 생성  ${color.bold(id)}`)}\n`);
