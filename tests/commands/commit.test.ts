@@ -309,6 +309,20 @@ describe('isolatedCommit — 새 파일(untracked) 처리 (dogfooding 이 잡은
     expect(untracked.some((f) => f.startsWith('.awl-worktrees/'))).toBe(false);
     expect(untracked.some((f) => f.startsWith('.awl/'))).toBe(false);
   });
+
+  it('.awl/home/ 아래 격리 홈 산출물도 untracked 에서 제외한다 (awl-home-consolidate AC-03, .awl 접두어가 커버)', async () => {
+    const { dir, g } = makeRepo();
+    fs.writeFileSync(path.join(dir, 'base.txt'), 'base\n');
+    g(['add', '.']);
+    g(['commit', '-q', '-m', 'base']);
+
+    // .awl/home/ 은 .awl-home/ 전용 리터럴 없이도 기존 '.awl/' 접두어로 커버돼야 한다.
+    fs.mkdirSync(path.join(dir, '.awl', 'home'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.awl', 'home', 'rec.jsonl'), 'x\n');
+
+    const { untracked } = await startBaseline(dir, 'AC-SELF-HOME');
+    expect(untracked.some((f) => f.startsWith('.awl/home/'))).toBe(false);
+  });
 });
 
 describe('baseline git ref 네임스페이스 (WI-D AC-06 — 워크아이템이 같은 AC-ID 를 재사용해도 안 겹친다)', () => {

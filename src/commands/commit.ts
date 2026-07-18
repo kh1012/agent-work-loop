@@ -84,7 +84,7 @@ export interface Baseline {
  * state.json 을 선형 폭증시킨다(피드백 F-1: `.awl-worktrees/` 13만 파일 → criteria 88MB,
  * state.json 128MB). `.gitignore` 설정에 의존하지 않고 코드 레벨에서 근원을 끊는다.
  */
-const AWL_SELF_PREFIXES = ['.awl-worktrees/', '.awl/', '.awl-home/'];
+const AWL_SELF_PREFIXES = ['.awl-worktrees/', '.awl/'];
 
 /**
  * untracked 파일 목록(gitignore 제외). -z(NUL 구분)로 읽어 core.quotePath 설정과

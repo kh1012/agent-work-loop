@@ -158,13 +158,13 @@ async function unmergedCommitCount(root: string, branch: string): Promise<number
 }
 
 /** awl/도구가 워크트리에 만드는 산출물 경로(진짜 WIP 아님, worktreeUntracked 에서 제외). */
-const AWL_INTERNAL_DIRS = new Set(['.awl', '.awl-home', '.awl-worktrees', '.claude']);
+const AWL_INTERNAL_DIRS = new Set(['.awl', '.awl-worktrees', '.claude']);
 
 /**
  * 레인 워크트리의 genuine untracked 파일(미add 신규)을 조사한다(AC-01, F-01). work done
  * 과 공유하는 worktreeDirtyTracked 는 --untracked-files=no 라 이걸 못 본다 — lane rm 은
  * 워크트리를 통째로 파기하므로 미커밋 신규 파일도 손실이다. awl 자신의 산출물
- * (.awl/·.awl-home/ state·verify-baseline·isolated records, .awl-worktrees/, lane new 가
+ * (.awl/(·.awl/home/ 포함) state·verify-baseline·isolated records, .awl-worktrees/, lane new 가
  * 재설치하는 .claude/)은 WIP 가 아니므로 제외한다(G-034: 도구 산출물은 도구 필터로 무시).
  */
 async function worktreeUntracked(
