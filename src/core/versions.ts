@@ -55,7 +55,31 @@ export interface VersionCheckResult {
 const UPDATE_HINT = 'npm i -g agent-work-loop@latest 로 갱신하세요.';
 
 /**
- * 순수. npmLatestVersion 이 없거나(null) 현재 버전과 같으면 undefined.
+ * "x.y.z" 앞부분만 파싱한다(release.mjs 의 `/^(\d+)\.(\d+)\.(\d+)/` 패턴과 동일).
+ * 파싱 불가하면 null — 비교 불가 상황은 항상 "모른다"로 취급한다(fail-safe).
+ */
+function parseSemver(version: string): [number, number, number] | null {
+  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(version);
+  if (!m) {
+    return null;
+  }
+  return [Number(m[1]), Number(m[2]), Number(m[3])];
+}
+
+/** a 가 b 보다 순서상 진짜로 큰지. 같거나 작으면 false(다운그레이드 후보를 걸러낸다). */
+function isNewerSemver(a: [number, number, number], b: [number, number, number]): boolean {
+  if (a[0] !== b[0]) return a[0] > b[0];
+  if (a[1] !== b[1]) return a[1] > b[1];
+  if (a[2] !== b[2]) return a[2] > b[2];
+  return false;
+}
+
+/**
+ * 순수. semver 순서 비교로 판정한다 — 문자열 부등호(`!==`)가 아니다.
+ * npmLatestVersion 이 없거나(null), semver 로 파싱 불가하거나, current 를 파싱 못 하거나,
+ * current 보다 크지 않으면(같거나 낮으면) undefined — fail-safe: "모르면 표시 안 함" 방향으로만
+ * 기운다(네트워크 실패 시 null 반환하는 기존 패턴과 대칭. 실측: registry 가 아직 배포 안 된
+ * placeholder(예: 0.0.0)를 돌려주면 문자열 비교만으론 다운그레이드를 "업데이트"로 오탐한다).
  * program.ts(--version)와 checkVersions 가 같은 안내 문구를 쓰도록 여기 하나로 모은다
  * (G-052 — 같은 안내가 여러 표면에서 서로 다른 처방을 내지 않게).
  */
@@ -63,7 +87,15 @@ export function computeUpdateAvailable(
   current: string,
   npmLatestVersion: string | null,
 ): UpdateAvailable | undefined {
-  if (npmLatestVersion === null || npmLatestVersion === current) {
+  if (npmLatestVersion === null) {
+    return undefined;
+  }
+  const latestParsed = parseSemver(npmLatestVersion);
+  const currentParsed = parseSemver(current);
+  if (latestParsed === null || currentParsed === null) {
+    return undefined;
+  }
+  if (!isNewerSemver(latestParsed, currentParsed)) {
     return undefined;
   }
   return { current, latest: npmLatestVersion, hint: UPDATE_HINT };

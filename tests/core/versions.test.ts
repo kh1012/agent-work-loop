@@ -141,4 +141,26 @@ describe('checkVersions — updateAvailable (npm 레지스트리, mismatches 와
       hint: expect.stringContaining('npm i -g agent-work-loop@latest'),
     });
   });
+
+  it('낮은 버전(다운그레이드 후보) 응답이면 updateAvailable 은 없다 — 실측 재현(로컬 0.6.16, 레지스트리 0.0.0)', () => {
+    const r = checkVersions(inputs({ packageVersion: '0.6.16', npmLatestVersion: '0.0.0' }));
+    expect(r.updateAvailable).toBeUndefined();
+  });
+
+  it('현재 버전보다 낮은 패치 버전이어도 updateAvailable 은 없다', () => {
+    const r = checkVersions(inputs({ packageVersion: '1.2.3', npmLatestVersion: '1.2.2' }));
+    expect(r.updateAvailable).toBeUndefined();
+  });
+
+  it('레지스트리 응답이 semver 로 파싱 불가(malformed)하면 updateAvailable 은 없다 — fail-safe(비교 불가는 "모른다")', () => {
+    const r = checkVersions(
+      inputs({ packageVersion: '0.6.16', npmLatestVersion: 'not-a-version' }),
+    );
+    expect(r.updateAvailable).toBeUndefined();
+  });
+
+  it('레지스트리 응답이 빈 문자열이어도 updateAvailable 은 없다', () => {
+    const r = checkVersions(inputs({ packageVersion: '0.6.16', npmLatestVersion: '' }));
+    expect(r.updateAvailable).toBeUndefined();
+  });
 });
