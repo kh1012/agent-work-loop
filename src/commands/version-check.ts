@@ -33,8 +33,15 @@ function readVersionField(p: string, field: string): string | null {
   return null;
 }
 
-/** 실제 환경에서 checkVersions 의 입력값을 모은다(I/O). projectRoot 가 null 이면 프로젝트/스킬 쌍은 건너뛴다. */
-export function gatherVersionInputs(projectRoot: string | null): VersionInputs {
+/**
+ * 실제 환경에서 checkVersions 의 입력값을 모은다(I/O). projectRoot 가 null 이면
+ * 프로젝트/스킬 쌍은 건너뛴다. npmLatestVersion 은 호출자(runVersionCheck)가
+ * npm-registry.ts(AC-01)로 미리 조회해 넘긴다 — 이 함수 자체는 네트워크를 치지 않는다.
+ */
+export function gatherVersionInputs(
+  projectRoot: string | null,
+  npmLatestVersion: string | null = null,
+): VersionInputs {
   const engineSourceVersion = readVersionField(
     path.join(packageEngineDir(), 'version.json'),
     'engineVersion',
@@ -65,6 +72,7 @@ export function gatherVersionInputs(projectRoot: string | null): VersionInputs {
     installedEngineVersion: installed,
     projectEngineVersion,
     installedSkillVersions,
+    npmLatestVersion,
   };
 }
 

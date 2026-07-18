@@ -16,6 +16,8 @@ export interface VersionInputs {
   installedEngineVersion: string | null;
   projectEngineVersion: string | null;
   installedSkillVersions: { claude: string | null; codex: string | null };
+  /** npm 레지스트리에서 조회한 최신 배포 버전(null=미조회/조회실패). AC-01(npm-registry.ts)의 결과값. */
+  npmLatestVersion: string | null;
 }
 
 export type VersionMismatchKind =
@@ -32,9 +34,39 @@ export interface VersionMismatch {
   hint: string;
 }
 
+/**
+ * "새 버전이 나왔다"는 정보성 안내(WI-npm-update-notice AC-02). mismatches 와 다른 성격이다 —
+ * mismatches 는 "설치가 깨졌나"(계속할지 사람에게 묻고 audit 기록 요구), 이건 "npm에 새
+ * 배포가 있다"(그냥 알림). 그래서 별도 필드로 둔다 — mismatches 배열에 섞지 않는다.
+ */
+export interface UpdateAvailable {
+  current: string;
+  latest: string;
+  hint: string;
+}
+
 export interface VersionCheckResult {
   ok: boolean;
   mismatches: VersionMismatch[];
+  /** 새 npm 배포가 있을 때만 채워진다. mismatches 와 섞이지 않는 별도 필드. */
+  updateAvailable?: UpdateAvailable;
+}
+
+const UPDATE_HINT = 'npm i -g agent-work-loop@latest 로 갱신하세요.';
+
+/**
+ * 순수. npmLatestVersion 이 없거나(null) 현재 버전과 같으면 undefined.
+ * program.ts(--version)와 checkVersions 가 같은 안내 문구를 쓰도록 여기 하나로 모은다
+ * (G-052 — 같은 안내가 여러 표면에서 서로 다른 처방을 내지 않게).
+ */
+export function computeUpdateAvailable(
+  current: string,
+  npmLatestVersion: string | null,
+): UpdateAvailable | undefined {
+  if (npmLatestVersion === null || npmLatestVersion === current) {
+    return undefined;
+  }
+  return { current, latest: npmLatestVersion, hint: UPDATE_HINT };
 }
 
 const SKILL_LABELS: Record<'claude' | 'codex', string> = {
@@ -95,5 +127,9 @@ export function checkVersions(inputs: VersionInputs): VersionCheckResult {
     }
   }
 
-  return { ok: mismatches.length === 0, mismatches };
+  return {
+    ok: mismatches.length === 0,
+    mismatches,
+    updateAvailable: computeUpdateAvailable(inputs.packageVersion, inputs.npmLatestVersion),
+  };
 }

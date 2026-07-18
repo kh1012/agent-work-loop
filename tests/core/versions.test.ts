@@ -8,6 +8,7 @@ function inputs(overrides: Partial<VersionInputs> = {}): VersionInputs {
     installedEngineVersion: '0.5.0',
     projectEngineVersion: '0.5.0',
     installedSkillVersions: { claude: '0.5.0', codex: '0.5.0' },
+    npmLatestVersion: null,
     ...overrides,
   };
 }
@@ -94,11 +95,50 @@ describe('checkVersions — 4쌍 순수 계산 (WI-X AC-02)', () => {
       installedEngineVersion: '0.4.5',
       projectEngineVersion: '0.3.1',
       installedSkillVersions: { claude: '0.2.0', codex: null },
+      npmLatestVersion: null,
     });
     expect(r.ok).toBe(false);
     const kinds = r.mismatches.map((m) => m.kind).sort();
     expect(kinds).toEqual(
       ['binary-vs-engine', 'build', 'claude-skill-vs-engine', 'project-vs-engine'].sort(),
     );
+  });
+});
+
+describe('checkVersions — updateAvailable (npm 레지스트리, mismatches 와 분리, AC-02)', () => {
+  it('npmLatestVersion 이 없으면(null) updateAvailable 은 없다', () => {
+    const r = checkVersions(inputs({ npmLatestVersion: null }));
+    expect(r.updateAvailable).toBeUndefined();
+  });
+
+  it('npmLatestVersion 이 packageVersion 과 같으면(최신) updateAvailable 은 없다', () => {
+    const r = checkVersions(inputs({ packageVersion: '0.5.0', npmLatestVersion: '0.5.0' }));
+    expect(r.updateAvailable).toBeUndefined();
+  });
+
+  it('npmLatestVersion 이 packageVersion 과 다르면 updateAvailable 을 채운다', () => {
+    const r = checkVersions(inputs({ packageVersion: '0.5.0', npmLatestVersion: '0.6.0' }));
+    expect(r.updateAvailable).toEqual({
+      current: '0.5.0',
+      latest: '0.6.0',
+      hint: expect.stringContaining('npm i -g agent-work-loop@latest'),
+    });
+  });
+
+  it('updateAvailable 은 mismatches 배열에 섞이지 않는다 — 로컬 불일치와 동시에 있어도 mismatches 는 그대로', () => {
+    const r = checkVersions(
+      inputs({
+        packageVersion: '0.5.0',
+        engineSourceVersion: '0.4.9', // build 불일치
+        npmLatestVersion: '0.6.0', // 동시에 npm 업데이트도 있음
+      }),
+    );
+    expect(r.mismatches.some((m) => 'current' in m || 'latest' in m)).toBe(false);
+    expect(r.mismatches.map((m) => m.kind)).toEqual(['build']);
+    expect(r.updateAvailable).toEqual({
+      current: '0.5.0',
+      latest: '0.6.0',
+      hint: expect.stringContaining('npm i -g agent-work-loop@latest'),
+    });
   });
 });
