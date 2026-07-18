@@ -5,6 +5,37 @@
 
 ## [Unreleased]
 
+## [0.6.15] - 2026-07-18
+
+### 추가
+
+- awl sync-skills 재생성 메커니즘 + program 등록 (pipeline-skill-source-unify AC-02)
+- 파이프라인 스킬 파생 규칙 순수함수 + 정본 속성 잠금 (pipeline-skill-source-unify AC-01)
+- 루프 완료 4렌즈 요약 명령 + 집계 순수함수 (loop-completion-stats AC-01)
+- work new 시 루프시작 cost 스냅샷을 state.costAtStart 로 캡처 (loop-completion-stats AC-03)
+- cc-usage.json cost 스냅샷 리더 + 루프경계 델타 (loop-completion-stats AC-03)
+- 폐기예정 deltas 명령 제거 + 미지 명령 unknown-command 가드
+- record 트레일 공백 표면화 — 활성 워크아이템 없이 커밋 이력이면 warn [AC-01]
+- 활성 워크아이템 없이 커밋 시 record 트레일 공백 경고(차단 아님) [AC-02]
+
+### 고침
+
+- 바레 실행 라이브 글로벌 안전장치 + 멱등 write-skip 스파이 (pipeline-skill-source-unify AC-04, 리뷰 finding #1/#2)
+- AC-02 테스트 noUncheckedIndexedAccess 정리
+- unknown-command 가드가 내장 help 를 오판하지 않게(deltas-removal AC-04, 리뷰)
+- trail 경고를 실제 커밋 경로로 이동 — baseline 없을 때 오해 문구 방지(리뷰) [AC-04]
+- 파이프라인 마커 리더를 .taken 단일 진실로 통일 [AC-01]
+
+### 변경
+
+- 커밋 지표 라벨을 격리커밋으로 정확화 (loop-completion-stats AC-05, 리뷰 finding #1)
+- 기록 없음 안내 + 0-렌즈 억제 잠금 (loop-completion-stats AC-04)
+- 헤드라인 개입/자율 첫줄 잠금 (loop-completion-stats AC-02)
+- legacyDeltas 마이그레이션 유지 결정 명시(deltas-removal AC-02)
+- 크로스 프로젝트 record 는 트레일 경고 억제 안 함 — 프로젝트 필터 방향 잠금(리뷰) [AC-05]
+- 정상 흐름(워크아이템+gate1)은 트레일 경고 없이 커밋 — 회귀 가드 [AC-03]
+- 파이프라인 마커 생산자-소비자 계약·뮤테이션-저항 테스트 [AC-02]
+
 ## [0.6.14] - 2026-07-18
 
 ### 추가
