@@ -158,6 +158,15 @@ describe('getLatestVersionCached — TTL 캐시 (AC-01)', () => {
     const v = await getLatestVersionCached('agent-work-loop', { fetchImpl });
     expect(v).toBe('5.5.5');
   });
+
+  it('캐시 쓰기는 원자적이다(pid 임시파일+rename) — 쓰기 후 .tmp 잔재가 남지 않는다 (AC-06, 리뷰 rev_d604dc2986b58b8a6c #1)', async () => {
+    const home = tmpHome();
+    await getLatestVersionCached('agent-work-loop', { fetchImpl: okFetch('6.6.6') });
+    const leftoverTmp = fs.readdirSync(home).filter((f) => f.includes('.tmp'));
+    expect(leftoverTmp).toEqual([]);
+    // 최종 파일은 정상 캐시 파일 하나뿐.
+    expect(fs.readdirSync(home)).toEqual(['npm-latest-cache.json']);
+  });
 });
 
 describe('readCachedLatestVersion — 동기 캐시 읽기 (AC-03 이 쓰는 경로, 네트워크 없음)', () => {

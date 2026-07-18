@@ -75,12 +75,26 @@ function readCache(): NpmVersionCache | null {
   return null;
 }
 
+/**
+ * 원자적 쓰기(state.ts 의 writeState() 와 같은 패턴, AC-06 — 리뷰 rev_d604dc2986b58b8a6c #1).
+ * temp 에 쓰고 rename 으로 교체한다 — 병렬 세션이 이 캐시 파일을 동시에 쓰더라도
+ * 부분 쓰기(빈 파일/반쪽 JSON)로 남지 않는다. rename 은 같은 파일시스템에서 원자적이다
+ * (POSIX). temp 이름에 pid 를 넣어 프로세스 간 충돌을 막는다.
+ */
 function writeCache(cache: NpmVersionCache): void {
+  const p = npmVersionCachePath();
+  const tmp = `${p}.${process.pid}.tmp`;
   try {
-    fs.mkdirSync(path.dirname(npmVersionCachePath()), { recursive: true });
-    fs.writeFileSync(npmVersionCachePath(), JSON.stringify(cache));
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(tmp, JSON.stringify(cache));
+    fs.renameSync(tmp, p);
   } catch {
     // 캐시 쓰기 실패는 무시한다 — 다음 실행이 다시 시도한다.
+    try {
+      fs.unlinkSync(tmp);
+    } catch {
+      // temp 파일이 애초에 안 생겼으면(mkdirSync/writeFileSync 단계 실패) unlink 도 무시.
+    }
   }
 }
 
