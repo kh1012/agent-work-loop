@@ -797,4 +797,21 @@ describe('collectChecks — record 트레일 공백 표면화 (record-trail-guar
     const report = await collectChecks();
     expect(find(report.checks, 'record 트레일')).toBeUndefined();
   });
+
+  it('다른 project 의 gate/attempt record 는 이 프로젝트 경고를 억제하지 않는다 (r.project 필터 방향, AC-05)', async () => {
+    const proj = realGitProjectNoWorkitem(); // config.project = 'trailproj'
+    const home = process.env.AWL_HOME as string;
+    fs.mkdirSync(path.join(home, 'records'), { recursive: true });
+    // 전역 공유 records 에 '다른 프로젝트'의 gate record 만 있다 — trailproj 트레일을 억제하면 안 된다.
+    fs.writeFileSync(
+      path.join(home, 'records', '2026-07.jsonl'),
+      `${JSON.stringify({ id: 'r1', at: '2026-07-18T00:00:00.000Z', type: 'gate', gate: 1, project: 'otherproj' })}\n`,
+    );
+    process.chdir(proj);
+
+    const report = await collectChecks();
+    const check = find(report.checks, 'record 트레일');
+    // 여전히 공백(warn) — r.project===trailProjectName 필터를 제거하는 뮤테이션이면 이 단언이 깨진다.
+    expect(check?.status).toBe('warn');
+  });
 });
