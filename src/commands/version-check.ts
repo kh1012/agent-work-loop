@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { version as packageVersion } from '../../package.json';
+import { name as packageName, version as packageVersion } from '../../package.json';
 import { installedEngineVersion } from '../core/engine.js';
+import { getLatestVersionCached } from '../core/npm-registry.js';
 import { type Caps, caps, card, makeColors, makeSymbols, makeTokens, signal } from '../core/tty.js';
 import { type VersionCheckResult, type VersionInputs, checkVersions } from '../core/versions.js';
 import { resolveProjectRoot } from './config.js';
@@ -93,9 +94,14 @@ export function renderVersionCheck(result: VersionCheckResult, c: Caps): string 
   return card(`버전 불일치 ${result.mismatches.length}건`, out, c);
 }
 
-export function runVersionCheck(opts: { json: boolean }): void {
+/**
+ * npm 레지스트리 조회(AC-01)는 여기서만 한다 — TTL 캐시 안이면 네트워크 없이
+ * 즉시 돌아오고, 실패해도 항상 null(크래시 없음, AC-05).
+ */
+export async function runVersionCheck(opts: { json: boolean }): Promise<void> {
   const projectRoot = resolveProjectRoot();
-  const inputs = gatherVersionInputs(projectRoot);
+  const npmLatestVersion = await getLatestVersionCached(packageName);
+  const inputs = gatherVersionInputs(projectRoot, npmLatestVersion);
   const result = checkVersions(inputs);
   if (opts.json) {
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

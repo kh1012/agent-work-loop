@@ -1,9 +1,15 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
-import { gatherVersionInputs, renderVersionCheck } from '../../src/commands/version-check.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { version as pkgVersion } from '../../package.json';
+import {
+  gatherVersionInputs,
+  renderVersionCheck,
+  runVersionCheck,
+} from '../../src/commands/version-check.js';
 import { caps } from '../../src/core/tty.js';
+import { checkVersions } from '../../src/core/versions.js';
 
 const origCwd = process.cwd();
 const origHome = process.env.AWL_HOME;
@@ -139,5 +145,77 @@ describe('renderVersionCheck — 사람용 출력 (WI-X AC-03)', () => {
 
   it('현재 프로세스 caps() 로도 크래시 없이 렌더된다', () => {
     expect(() => renderVersionCheck({ ok: true, mismatches: [] }, caps())).not.toThrow();
+  });
+});
+
+describe('gatherVersionInputs + checkVersions — updateAvailable 스키마 노출 (AC-04)', () => {
+  it('npmLatestVersion 을 넘기면 checkVersions 결과에 updateAvailable 이 담긴다', () => {
+    process.env.AWL_HOME = tmp('awl-vc-home-');
+    const inputs = gatherVersionInputs(null, '999.0.0');
+    expect(inputs.npmLatestVersion).toBe('999.0.0');
+    const result = checkVersions(inputs);
+    expect(result.updateAvailable).toEqual({
+      current: pkgVersion,
+      latest: '999.0.0',
+      hint: expect.stringContaining('npm i -g agent-work-loop@latest'),
+    });
+  });
+});
+
+describe('runVersionCheck — npm 조회 배선 + --json 노출 (AC-04)', () => {
+  const origFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = origFetch;
+  });
+
+  function captureStdout(): { chunks: string[]; restore: () => void } {
+    const chunks: string[] = [];
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      chunks.push(String(chunk));
+      return true;
+    });
+    return { chunks, restore: () => spy.mockRestore() };
+  }
+
+  it('npm 에 새 버전이 있으면 --json 출력에 updateAvailable 이 노출된다', async () => {
+    process.env.AWL_HOME = tmp('awl-vc-home-');
+    globalThis.fetch = vi.fn(
+      async () => new Response(JSON.stringify({ version: '999.0.0' }), { status: 200 }),
+    ) as unknown as typeof fetch;
+
+    const out = captureStdout();
+    try {
+      await runVersionCheck({ json: true });
+    } finally {
+      out.restore();
+    }
+    const parsed = JSON.parse(out.chunks.join(''));
+    expect(parsed.updateAvailable).toEqual({
+      current: pkgVersion,
+      latest: '999.0.0',
+      hint: expect.stringContaining('npm i -g agent-work-loop@latest'),
+    });
+  });
+
+  it('오프라인(fetch 실패)이어도 크래시 없이 updateAvailable 없는 JSON 을 낸다(AC-05 회귀)', async () => {
+    process.env.AWL_HOME = tmp('awl-vc-home-');
+    globalThis.fetch = vi.fn(async () => {
+      throw new Error('offline');
+    }) as unknown as typeof fetch;
+
+    const out = captureStdout();
+    let threw = false;
+    try {
+      await runVersionCheck({ json: true });
+    } catch {
+      threw = true;
+    } finally {
+      out.restore();
+    }
+    expect(threw).toBe(false);
+    const parsed = JSON.parse(out.chunks.join(''));
+    expect(parsed.updateAvailable).toBeUndefined();
+    expect(parsed.mismatches).toEqual([]); // 기존 mismatches 처리는 그대로(회귀 없음)
   });
 });

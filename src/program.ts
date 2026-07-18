@@ -199,7 +199,7 @@ export function buildProgram(): Command {
     .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
     .action(async (opts: { json?: boolean }) => {
       const { runVersionCheck } = await import('./commands/version-check.js');
-      runVersionCheck({ json: opts.json === true });
+      await runVersionCheck({ json: opts.json === true });
     });
 
   // 사람이 치는 명령: update (설치된 엔진을 갱신 — WI-X)
