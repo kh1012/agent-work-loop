@@ -657,9 +657,9 @@ export async function runWorkNew(
     // 목적지로 읽어 격리 학습을 전역으로 병합한다(teardown 시점 env 에 의존하지 않음).
     writeParentMarker(isolatedHome);
     // .awl-worktrees/ 와 같은 이중 방어: gitignore(여기) + commit self-filter(commit.ts).
-    // 패턴 .awl-home/ 은 root/.awl-home 과 워크트리 하위 .awl-home 을 모두 무시해,
+    // 패턴 .awl/home/ 은 root/.awl/home 과 워크트리 하위 .awl/home 을 모두 무시해,
     // awl 밖 표준 git 조작(git add -A/status)에도 records 가 안 새게 한다.
-    ensureGitignored(root, '.awl-home/');
+    ensureGitignored(root, '.awl/home/');
   }
 
   const result = createWorkitem(

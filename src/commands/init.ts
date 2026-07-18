@@ -500,7 +500,7 @@ export function writeState(projectRoot: string, now: string): string {
  *  - `.awl-worktrees/`: awl 이 `work new --worktree` 로 만드는 워크트리. gitignore 하지 않으면
  *    그 안의 파일들이 `commit --start` 의 untracked 스냅샷에 박혀 state.json 을 폭증시킨다
  *    (피드백 F-1 근원 차단 — commit.ts 의 코드 레벨 필터와 이중 방어).
- *  - `.awl-home/`: awl 이 `work new --isolated` 로 만드는 워크아이템 전용 records home.
+ *  - `.awl/home/`: awl 이 `work new --isolated` 로 만드는 워크아이템 전용 records home.
  *    `.awl-worktrees/` 와 같은 이유로 이중 방어한다(commit self-filter + gitignore).
  * 하나라도 새로 추가하면 'added', 전부 이미 있으면 'exists' 를 돌려준다.
  */
@@ -511,7 +511,7 @@ export function ensureGitignore(projectRoot: string): 'added' | 'exists' {
     '.awl/verify-baseline.json',
     '.awl/state.lock',
     '.awl-worktrees/',
-    '.awl-home/',
+    '.awl/home/',
   ];
   let content = exists(gi) ? fs.readFileSync(gi, 'utf8') : '';
   const has = (t: string): boolean => content.split(/\r?\n/).some((line) => line.trim() === t);

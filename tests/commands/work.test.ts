@@ -538,7 +538,7 @@ describe('runWorkNew --worktree (WI-F AC-03, 실제 git 저장소로 통합 확�
     expect(noWt.writes.join('')).not.toContain('AWL_HOME');
   });
 
-  it('--isolated 는 전용 .awl-home 을 만들고 export AWL_HOME 안내를 출력한다 (concurrency-2 AC-02)', async () => {
+  it('--isolated 는 전용 .awl/home 을 만들고 export AWL_HOME 안내를 출력한다 (concurrency-2 AC-02)', async () => {
     const proj = realGitProject();
     const writes: string[] = [];
     const spy = vi.spyOn(process.stdout, 'write').mockImplementation((s: unknown) => {
@@ -557,7 +557,7 @@ describe('runWorkNew --worktree (WI-F AC-03, 실제 git 저장소로 통합 확�
     expect(out).toContain('export AWL_HOME=');
     expect(out).toContain(homeDir);
     // 이중 방어(AC-04): self-filter 뿐 아니라 gitignore 에도 넣어 표준 git 조작 오염 차단.
-    expect(fs.readFileSync(path.join(proj, '.gitignore'), 'utf8')).toContain('.awl-home/');
+    expect(fs.readFileSync(path.join(proj, '.gitignore'), 'utf8')).toContain('.awl/home/');
   });
 
   it('--isolated 없이는 .awl/home 을 만들지 않는다 (concurrency-2 AC-02 회귀)', async () => {
