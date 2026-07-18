@@ -37,7 +37,14 @@ export function gotchasDir(): string {
   return path.join(globalRoot(), 'gotchas');
 }
 
-/** ~/.awl/deltas — gotchas 로 개명되기 전 옛 위치(WI-O 마이그레이션 대상, 읽기 전용으로만 참조). */
+/**
+ * ~/.awl/deltas — gotchas 로 개명되기 전 옛 위치(WI-O). migrateDeltasToGotchas 만
+ * 읽기 전용으로 참조한다.
+ *
+ * 유지 결정(deltas-removal, 0.6.x 기준): 마이그레이션은 머신당 1회·멱등·무손실 안전망이라
+ * gotchas/ 가 생긴 뒤엔 영구 no-op(비용 0). 옛 설치를 복원한 ~/.awl/deltas 유입 가능성을
+ * 코드로 배제할 수 없어 제거하지 않는다 — 레거시 지원을 끊는 메이저에서 재검토한다.
+ */
 export function legacyDeltasDir(): string {
   return path.join(globalRoot(), 'deltas');
 }

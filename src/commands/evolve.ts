@@ -132,6 +132,10 @@ export interface MigrateDeltasResult {
  * 마이그레이션한다(WI-O AC-02) — state.ts 의 migrateState() 와 같은 패턴: 무손실,
  * 멱등, 자동. 원본 deltas/ 는 지우지 않는다(백업도 별도로 만든다 — 이중 안전).
  * 이미 gotchas/ 가 있으면(마이그레이션 완료 또는 애초에 새 설치) 아무것도 안 한다.
+ *
+ * 유지 결정(deltas-removal, 0.6.x 기준): 위 no-op 특성 때문에 영구 안전망으로 남긴다 —
+ * 옛 설치 유입을 코드로 배제할 수 없다. loadGotchaList 가 유일 진입점(중복 읽기 경로가
+ * 이 트리거를 우회하던 WI-O 버그를 합쳐서 고친 자리다).
  */
 export function migrateDeltasToGotchas(): MigrateDeltasResult {
   if (fs.existsSync(gotchasDir())) {
