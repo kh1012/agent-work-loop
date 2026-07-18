@@ -581,15 +581,24 @@ export function buildProgram(): Command {
   // 인자 없이 `awl`만 실행하면 도움말을 보여준다. 등록되지 않은 명령(operand)이
   // 남으면 삼켜서 help 로 넘기지 않고 명확히 에러낸다 — 커맨더 루트 액션은 미등록
   // 명령을 operand 로 받아 조용히 이 액션을 태우므로, 잔여 operand 를 직접 걸러야 한다.
+  // 단, commander 내장 help 명령(awl help [cmd])도 루트 액션에 가려 여기로 오므로
+  // 미등록으로 오판하지 않고 되살린다.
   program.action((_opts: unknown, command: Command) => {
-    const [unknown] = command.args;
-    if (unknown !== undefined) {
-      program.error(`알 수 없는 명령입니다: '${unknown}'. awl --help 로 명령 목록을 보세요.`, {
-        exitCode: 1,
-        code: 'awl.unknownCommand',
-      });
+    const [first, second] = command.args;
+    if (first === undefined) {
+      program.help(); // bare awl → 전체 도움말
+      return;
     }
-    program.help();
+    if (first === 'help') {
+      const target =
+        second !== undefined ? program.commands.find((c) => c.name() === second) : undefined;
+      (target ?? program).help(); // awl help [cmd] → 해당(또는 전체) 도움말
+      return;
+    }
+    program.error(`알 수 없는 명령입니다: '${first}'. awl --help 로 명령 목록을 보세요.`, {
+      exitCode: 1,
+      code: 'awl.unknownCommand',
+    });
   });
 
   return program;

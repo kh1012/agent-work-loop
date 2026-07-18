@@ -251,6 +251,21 @@ describe.runIf(existsSync(distCli))('빌드된 CLI 실행', () => {
     expect(result.stdout).toContain('Agent Work Loop');
   });
 
+  it('awl help 는 도움말을 exit 0 으로 낸다 (deltas-removal AC-04, 리뷰 rev_6841 finding #1)', () => {
+    // help 는 commander 내장이지만 루트 액션에 가려 operand 로 가드에 도달한다.
+    // 가드가 이를 미등록으로 오판해 exit1 을 내면(회귀) 이 테스트가 실패한다.
+    const result = spawnSync('node', [distCli, 'help'], { encoding: 'utf8' });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Agent Work Loop');
+  });
+
+  it('awl help <cmd> 는 그 명령의 도움말을 exit 0 으로 낸다 (deltas-removal AC-04)', () => {
+    const result = spawnSync('node', [distCli, 'help', 'gotchas'], { encoding: 'utf8' });
+    expect(result.status).toBe(0);
+    // 해당 서브명령(gotchas)의 사용법이 나온다.
+    expect(result.stdout).toContain('gotchas');
+  });
+
   it('state set phase:loop 이 gate:1 기록 없이는 거부되고, 기록 후엔 통과한다 (WI-Q AC-02, program.ts 배선 확인)', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-gate-loop-'));
     const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-gate-loop-proj-'));
