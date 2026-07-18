@@ -20,8 +20,8 @@ import {
   type VersionMismatchKind,
   checkVersions,
 } from '../core/versions.js';
-import { readRecords } from './record.js';
-import { readStateLock } from './state.js';
+import { loadProjectName, readRecords } from './record.js';
+import { loadState, readStateLock } from './state.js';
 import { gatherVersionInputs } from './version-check.js';
 
 /**
@@ -147,6 +147,51 @@ export async function gitDirtyFiles(projectRoot: string): Promise<string[] | nul
   } catch {
     return null;
   }
+}
+
+/**
+ * 이 저장소에 커밋이 하나라도 있는가. git 저장소가 아니거나(unborn/명령 없음) 확인 실패면
+ * false — record 트레일 공백 판정에서 "커밋 이력 있음"을 확실한 사실로만 쓴다(gitBranch 와
+ * 같은 크래시 안 함 원칙). status.ts 의 checkMissingAcCommits 와 같은 rev-parse 판정을 쓴다.
+ */
+export async function gitHasCommits(projectRoot: string): Promise<boolean> {
+  try {
+    const r = await run({
+      cmd: 'git',
+      args: ['rev-parse', '--verify', '--quiet', 'HEAD'],
+      cwd: projectRoot,
+      timeoutMs: 5000,
+    });
+    return r.exitCode === 0;
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// record 트레일 공백 감지 (record-trail-guard AC-01) — 활성 워크아이템 없이 커밋
+// 이력이 있는데 대응 record(gate/attempt)가 없으면 "판단" 근거가 침묵 속에 빈다
+// (실측: 한 파이프라인이 8개 워크아이템을 records 0건으로 커밋). 하드 차단이 아니라
+// warn 으로 표면화만 한다 — 소급 기록·행동 교정은 범위 밖(가시화만).
+// ---------------------------------------------------------------------------
+
+export interface RecordTrailInput {
+  /** 저장소에 커밋이 하나라도 있는가(빈 저장소 오탐 방지). */
+  hasCommits: boolean;
+  /** state.json 의 현재 활성 워크아이템(없으면 null). */
+  activeWorkitem: string | null;
+  /** 이 프로젝트의 gate/attempt record 개수. */
+  gateAttemptRecords: number;
+}
+
+/**
+ * record 트레일이 비었는지 판정한다(순수). 세 조건이 모두 참일 때만 공백이다:
+ * 커밋 이력이 있고(빈 저장소가 아니고), 활성 워크아이템이 없고, 대응 record 가 0건.
+ * 셋 중 하나라도 아니면 공백이 아니다 — 정상 흐름(워크아이템 있음)·이미 남긴 트레일
+ * (record>0)·시작 전(커밋 없음)은 경고하지 않는다.
+ */
+export function detectRecordTrailGap(input: RecordTrailInput): boolean {
+  return input.hasCommits && !input.activeWorkitem && input.gateAttemptRecords === 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -784,6 +829,33 @@ async function collectProject(
       value: `${leftoverWorktrees.length}개`,
       hint: `.awl-worktrees/ 에 워크트리가 남아 있습니다(${shown}${leftoverWorktrees.length > 3 ? ' 등' : ''}). 완료된 워크아이템이면 git worktree remove 로 정리하세요.`,
     });
+  }
+
+  // record 트레일 공백(record-trail-guard AC-01) — 활성 워크아이템 없이 커밋 이력이 있는데
+  // 대응 record(gate/attempt)가 없으면 판단 근거가 빈다. warn 으로 표면화하되 종료코드엔 안 건다
+  // (state.json 크기/워크트리 잔존처럼 공백일 때만 push — 정상이면 조용, AC-03). project 이름을
+  // 모르면(config 에 없음) records 를 프로젝트로 스코프할 수 없어 판정을 건너뛴다 — 전역 공유
+  // records(다른 프로젝트 것)를 이 프로젝트 트레일로 오판하지 않는다.
+  const trailProjectName = loadProjectName(projectRoot);
+  if (trailProjectName) {
+    const trailState = loadState(projectRoot);
+    const activeWorkitem =
+      typeof trailState.workitem === 'string' && trailState.workitem.trim() !== ''
+        ? trailState.workitem
+        : null;
+    const gateAttemptRecords = readRecords().filter(
+      (r) => r.project === trailProjectName && (r.type === 'gate' || r.type === 'attempt'),
+    ).length;
+    const hasCommits = await gitHasCommits(projectRoot);
+    if (detectRecordTrailGap({ hasCommits, activeWorkitem, gateAttemptRecords })) {
+      checks.push({
+        group: '이 프로젝트',
+        name: 'record 트레일',
+        status: 'warn',
+        value: '공백 (활성 워크아이템 없이 커밋 이력)',
+        hint: '최근 커밋에 대응하는 record(gate/attempt)가 없습니다 — /awl-loop(work new→gate→commit)로 판단 근거를 남기세요.',
+      });
+    }
   }
 
   // 병렬 세션 힌트(concurrency-1): 최근 records 활동 시각 + state.json mtime 을 사실로
