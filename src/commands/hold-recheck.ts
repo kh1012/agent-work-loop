@@ -30,6 +30,11 @@ const DEP_ID_RE = /[a-z][a-z0-9]*(?:-[a-z0-9]+)+/g;
  * 조건절로 본다 — 문서 뒷부분의 다른 kebab-case 언급(파일 경로, 다른 워크아이템 참조 등)이
  * 섞여 들어가지 않는다. 마커 자체가 없으면(전략문서·판별불가) 빈 배열 — AC-03 이 이 빈
  * 배열을 "un-hold 하지 않음" 신호로 쓴다.
+ *
+ * 알려진 한계(리뷰 지적, LOW): 조건절은 **한 줄**만 본다. 의존 목록이 줄바꿈으로
+ * 두 줄 이상에 걸치면 뒤쪽 의존이 조용히 누락돼 조기 un-hold 위험이 있다 — 지금까지
+ * 관측된 hold 포맷(F-01 실측)이 전부 한 줄이라 실사용 리스크는 낮지만, un-hold 조건을
+ * 여러 줄로 쓰는 관례가 생기면 이 함수부터 다시 봐야 한다.
  */
 export function parseHoldDependencies(content: string): string[] {
   const marker = CONDITION_MARKER_RE.exec(content);
