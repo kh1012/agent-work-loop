@@ -74,6 +74,11 @@ export function lockFile(): string {
   return path.join(globalRoot(), '.lock');
 }
 
+/** ~/.awl/npm-latest-cache.json — npm 레지스트리 최신 버전 조회 캐시(TTL, 프로젝트 무관) */
+export function npmVersionCachePath(): string {
+  return path.join(globalRoot(), 'npm-latest-cache.json');
+}
+
 /**
  * 현재 디렉토리에서 위로 올라가며 .git 또는 .awl 을 찾는다.
  * 파일 시스템 루트까지 못 찾으면 명확한 에러를 던진다.
