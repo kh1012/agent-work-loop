@@ -193,3 +193,35 @@ describe('헤드라인 = 개입 렌즈 (AC-02)', () => {
     expect(buildSummaryLines(s)[0]).toBe('사람 개입 0 · 자율 0');
   });
 });
+
+describe('기록 없음 안내 (AC-04)', () => {
+  it('record 0 이면 안내만 내고 0-통계 렌즈를 렌더하지 않는다', () => {
+    const s = assembleLoopSummary('wi-empty', [], [], undefined);
+    expect(s.hasRecords).toBe(false);
+    const lines = buildSummaryLines(s);
+    expect(lines[0]).toBe('기록 없음 — record-trail-guard 참조');
+    // 0-통계 렌즈(품질/효율/산출 라벨, 무인율)를 내면 오도한다 — 한 줄도 없어야 한다.
+    const joined = lines.join('\n');
+    expect(joined).not.toContain('품질');
+    expect(joined).not.toContain('효율');
+    expect(joined).not.toContain('산출');
+    expect(joined).not.toContain('무인율');
+  });
+
+  it('렌더도 안내 문구를 담고 렌즈 라벨을 담지 않는다', () => {
+    const out = renderLoopSummary(assembleLoopSummary('wi-empty', [], [], undefined), noColor);
+    expect(out).toContain('기록 없음 — record-trail-guard 참조');
+    expect(out).not.toContain('품질');
+  });
+
+  it('JSON 은 hasRecords:false + note 만 내고 0-렌즈 키를 싣지 않는다', () => {
+    const json = summaryToJson(assembleLoopSummary('wi-empty', [], [], undefined));
+    expect(json).toEqual({
+      workitem: 'wi-empty',
+      hasRecords: false,
+      note: '기록 없음 — record-trail-guard 참조',
+    });
+    expect(json.intervention).toBeUndefined();
+    expect(json.quality).toBeUndefined();
+  });
+});
