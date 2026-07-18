@@ -188,34 +188,6 @@ export function buildProgram(): Command {
       runUpdate();
     });
 
-  // 사람이 치는 명령: sync-skills (엔진 awl-pipeline-* 정본 → 글로벌 temp-loop-* 파생 — pipeline-skill-source-unify)
-  program
-    .command('sync-skills')
-    .description('엔진 awl-pipeline-* 정본에서 글로벌 temp-loop-* 스킬을 파생·갱신합니다')
-    .option('--from <dir>', '엔진 스킬 소스 디렉토리 (기본: 설치된 엔진 skills/claude)')
-    .option('--to <dir>', '글로벌 스킬 대상 디렉토리 (기본: ~/.claude/skills)')
-    .option('--dry-run', '파일을 쓰지 않고 무엇이 갱신될지만 보여줍니다')
-    .option('--yes', '대상 미지정(기본 라이브 글로벌)일 때도 확인 없이 실제로 적용합니다')
-    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
-    .action(
-      async (opts: {
-        from?: string;
-        to?: string;
-        dryRun?: boolean;
-        yes?: boolean;
-        json?: boolean;
-      }) => {
-        const { runSyncSkills } = await import('./commands/sync-skills.js');
-        runSyncSkills({
-          from: opts.from,
-          to: opts.to,
-          dryRun: opts.dryRun === true,
-          yes: opts.yes === true,
-          json: opts.json === true,
-        });
-      },
-    );
-
   // 사람이 치는 명령: config (현재 설정 보기, TTY 면 항목을 골라 수정)
   const config = program
     .command('config')

@@ -136,6 +136,34 @@ describe('awl 프로그램 구성', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('철회된 sync-skills 명령은 제거됐다 (pipeline-sync-skills-revert AC-01)', () => {
+    // temp-loop-*(자기개발 하네스)와 awl-pipeline-*(배포 제품)는 독립 산출물이라
+    // 영구 동기화 메커니즘이 필요 없다고 판명됐다 — 등록 자체가 없다.
+    const program = buildProgram();
+    expect(program.helpInformation()).not.toContain('sync-skills');
+    const syncSkillsCmd = program.commands.find((c) => c.name() === 'sync-skills');
+    expect(syncSkillsCmd).toBeUndefined();
+  });
+
+  it('src/ 에 sync-skills 구현 흔적이 없다 (pipeline-sync-skills-revert AC-01)', () => {
+    // deriveTempLoopContent/syncPipelineSkills 등 파생 메커니즘이 재유입되면 실패한다.
+    const srcDir = fileURLToPath(new URL('../src', import.meta.url));
+    const markers = ['sync-skills', 'syncSkills', 'deriveTempLoop'];
+    const offenders: string[] = [];
+    const walk = (dir: string): void => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (e.name.endsWith('.ts')) {
+          const content = fs.readFileSync(p, 'utf8');
+          if (markers.some((m) => content.includes(m))) offenders.push(p);
+        }
+      }
+    };
+    walk(srcDir);
+    expect(offenders).toEqual([]);
+  });
+
   it('metrics 는 사람이 치는 명령이라 도움말에 보인다 (WI-P AC-04)', () => {
     const program = buildProgram();
     expect(program.helpInformation()).toContain('metrics');
@@ -242,6 +270,14 @@ describe.runIf(existsSync(distCli))('빌드된 CLI 실행', () => {
     expect(result.stderr).toContain('deltas');
     expect(result.stderr).toContain('알 수 없는 명령');
     // 하위호환 별칭을 되살리면 gotchas 로 라우팅돼 exit 0 이 되고 이 테스트가 실패한다.
+  });
+
+  it('철회된 sync-skills 명령은 unknown command 로 exit!=0 이다 (pipeline-sync-skills-revert AC-01, dogfooding)', () => {
+    // bare 로 친다 — deltas 사례(G-028)와 같은 이유로 인자 없이 라우팅 경로를 확실히 태운다.
+    const result = spawnSync('node', [distCli, 'sync-skills'], { encoding: 'utf8' });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('sync-skills');
+    expect(result.stderr).toContain('알 수 없는 명령');
   });
 
   it('인자 없는 bare awl 은 여전히 help 배너를 exit 0 으로 낸다 (unknown-operand 가드 회귀잠금)', () => {
