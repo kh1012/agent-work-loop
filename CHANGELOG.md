@@ -5,6 +5,40 @@
 
 ## [Unreleased]
 
+## [0.6.14] - 2026-07-18
+
+### 추가
+
+- teardown 시 격리 학습(gotchas/rules/generations)을 전역으로 멱등 병합 [AC-01]
+- mode 매핑 3단계 설명을 graded 헤더로 — gate-high/gate-medium/gate-low(=기존 gate/skip-gate/auto) 전이 주석 + 오해방지 유지 [AC-02]
+- 게이트 밀도 인자절을 graded 3단계로 — gate-high(기본)/gate-medium/gate-low + 축약 --gh/--gm/--gl + 방향 규약 [AC-01]
+- awl-pipeline mode 기본 gate + skip-gate/auto 3상태·축약·유연파싱 (critical-only 리네임) [AC-01]
+- awl-pipeline 인자 없으면 unknown-lane-<N> 자동 생성 — 3-way 파싱·중첩 방지 (AC-01/02/03, 저작-전용)
+- awl-pipeline 오케스트레이터 스킬 저작 — 스폰 계약·수집·mode·flush·상태 (설계 스펙 AC-01/02/04/05 인코딩, 저작-전용) [AC-01/02/03]
+
+### 고침
+
+- 리뷰 지적 반영 — work done 비워크트리 격리 병합 + 병합실패 깔끔한 중단 + 빈 lesson 가드 [rev]
+- awl init 재실행이 엔진 신규 스킬도 설치 (syncExistingInstall)
+- 파이프라인 nameWidth 를 표시폭(stringWidth) 기반 nameColWidth 로 — 한글 이름 status 열 정렬 [AC-03]
+- --pipeline 폴백을 main 그룹으로 통일 — 폴백/다중 --json 동형 {name,workitems[]} 스키마 [AC-02]
+- --pipeline 이 메인 트리 .tasks/ 를 main 그룹으로 롤업 — 레인 존재 시 메인 안 숨김 [AC-01]
+- lane rm 이 root state 의 유령 workitem 을 정리(removeWorkitemFromState) — 삭제된 워크트리 가리키는 유령 제거 [AC-02]
+- 격리 레인 lane new 가 root state 불변 — 레인 workitem 을 worktree state 에 기록(현재 workitem pause·유령 근원 제거) [AC-03]
+- lane rm 이 untracked WIP 를 손실 전 차단 — awl 산출물 필터 후 --force 요구 [AC-01]
+- unmergedCommitCount fail-open 수정 — git 실패 시 null 로 차단(미확인=위험) [AC-04]
+- 설치 메뉴 Claude Code 라벨을 claudeSkillNames() 개수로 파생 [AC-01]
+
+### 변경
+
+- defer 사용자대면·주석을 모드-중립으로 — skip-gate 모드명 제거, 보류 큐/최종 확인 항목 메커니즘 표현(로직 불변, skip-gate-defer 스펙명만 유지) [AC-03]
+- mode 픽스처 critical-only→skip-gate 현행 어휘로 (리뷰 rev finding #1) [AC-04]
+- defer 사용자대면 문자열·주석 critical-only→skip-gate 통일, 판정 로직 불변 [AC-03]
+- awl-pipeline mode 3모드 설명 + skip-gate 오해방지(게이트=판단 정지점, 도구 권한 아님) [AC-02]
+- syncExistingInstall 재설치를 installClaudeSkill 재사용으로 (DRY)
+- AC-01 텍스트 단언 강화 — main workitem 이름 alpha 로 바꿔 헤더 존재를 실제로 요구(공허 통과 방지) [AC-05] (rev finding #3)
+- 프로덕션 미참조 renderPipeline 제거 — AC-02 통일로 dead, 도달불가 빈상태 문자열 divergence 정리 [AC-04] (rev finding #1)
+
 ## [0.6.13] - 2026-07-17
 
 ### 추가
