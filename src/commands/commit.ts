@@ -342,6 +342,24 @@ export function buildRescueGuidance(reason: string | undefined): string | null {
   ].join('\n');
 }
 
+/**
+ * 활성 워크아이템 없이 커밋할 때 낼 "record 트레일 공백" 경고(차단 아님, record-trail-guard AC-02).
+ *
+ * /awl-loop 은 work new→gate 로 판단 근거(gate/attempt records)를 남기지만, awl commit 은
+ * 그 존재를 요구하지 않는다(runCommit 의 gate1 하드 차단은 워크아이템이 "있을 때"만 동작한다).
+ * 그래서 워크아이템 없이 커밋하면 "판단" 근거 트레일이 침묵 속에 빈다 — 실측: 한 파이프라인이
+ * 8개 워크아이템을 records 0건으로 커밋했다. 이 갭을 하드 차단이 아니라 눈에 띄게(경고) 만든다.
+ *
+ * 활성 워크아이템이 있으면(정상 흐름) null 을 돌려 조용하다(AC-03 — 오탐 방지). 순수 함수라
+ * 양 분기를 단위로 검증한다(renderCommitSuccess/buildRescueGuidance 와 같은 패턴).
+ */
+export function buildTrailGapWarning(activeWorkitem: string | undefined, c: Caps): string | null {
+  if (activeWorkitem) {
+    return null;
+  }
+  return `  ${signal(c, 'warn')} 활성 워크아이템 없이 커밋합니다 — record 트레일이 비어 있습니다. /awl-loop 게이트(work new→gate)를 밟았는지 확인하세요.\n`;
+}
+
 export interface DriftInfo {
   ahead: number;
   overlap: string[];
@@ -452,6 +470,13 @@ export async function runCommit(
       `\n  ${signal(c, 'error')} 커밋 메시지가 필요합니다: awl commit ${ac} -m "..."\n`,
     );
     process.exit(1);
+  }
+
+  // record 트레일 공백 경고(record-trail-guard AC-02) — 활성 워크아이템이 없으면 이 커밋의
+  // 판단 근거(gate/attempt)가 안 남는다. 하드 차단하지 않고 한 줄만 알린다(정상 흐름은 조용, AC-03).
+  const trailWarning = buildTrailGapWarning(gateWorkitem, c);
+  if (trailWarning) {
+    process.stderr.write(trailWarning);
   }
 
   const state = loadState(root);

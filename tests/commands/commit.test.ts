@@ -5,6 +5,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildRescueGuidance,
+  buildTrailGapWarning,
   checkBaseDrift,
   isolatedCommit,
   renderCommitSuccess,
@@ -613,5 +614,84 @@ describe('renderCommitSuccess — 성공/selfCheck 경고 양 분기 (cli-visual
     expect(warn.stderr).toContain('내부 검증 경고');
     // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI 이스케이프 부재 확인용
     expect(/\x1b\[/.test(warn.stderr)).toBe(false);
+  });
+});
+
+describe('buildTrailGapWarning — 활성 워크아이템 없이 커밋 경고 (record-trail-guard AC-02/AC-03)', () => {
+  const PLAIN = { unicode: false, color: false, tty: false };
+
+  it('활성 워크아이템이 없으면(undefined) record 트레일 공백 경고 문구를 만든다 (AC-02)', () => {
+    const w = buildTrailGapWarning(undefined, PLAIN);
+    expect(w).not.toBeNull();
+    expect(w).toContain('활성 워크아이템 없이');
+    expect(w).toContain('/awl-loop'); // 게이트를 밟았는지 확인하라는 안내
+  });
+
+  it('빈 문자열 워크아이템도 없음으로 보고 경고한다 (state.workitem 이 "" 인 경우)', () => {
+    expect(buildTrailGapWarning('', PLAIN)).not.toBeNull();
+  });
+
+  it('활성 워크아이템이 있으면 null — 정상 흐름은 조용 (AC-03, 회귀 방지)', () => {
+    // 조건을 뒤집으면(항상 경고) 이 단언이 깨진다 — 정상 흐름 오탐 방지.
+    expect(buildTrailGapWarning('record-trail-guard', PLAIN)).toBeNull();
+  });
+
+  it('경고는 signal(warn) 마커를 단 한 줄이다 (ASCII 폴백에서 [!], 개행 1개)', () => {
+    const w = buildTrailGapWarning(undefined, PLAIN) ?? '';
+    expect(w).toContain('[!]'); // warn 신호(정보/오류로 바뀌면 실패)
+    expect(w.trimEnd().split('\n')).toHaveLength(1); // 한 줄(1줄 계약)
+  });
+});
+
+describe('runCommit — 활성 워크아이템 없이 커밋 시 경고하되 커밋은 진행 (record-trail-guard AC-02 글루)', () => {
+  const origCwd = process.cwd();
+  const origHome = process.env.AWL_HOME;
+  afterEach(() => {
+    process.chdir(origCwd);
+    if (origHome === undefined) delete process.env.AWL_HOME;
+    else process.env.AWL_HOME = origHome;
+  });
+
+  // 워크아이템을 등록하지 않은 프로젝트(state.json 에 workitem 없음) — record 트레일 공백 재현.
+  function noWorkitemProject(): string {
+    const proj = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-trailgap-')));
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: proj });
+    execFileSync('git', ['config', 'user.email', 't@t.com'], { cwd: proj });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: proj });
+    fs.writeFileSync(path.join(proj, 'f.txt'), 'base\n');
+    fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+    execFileSync('git', ['add', '-A'], { cwd: proj });
+    execFileSync('git', ['commit', '-q', '-m', 'base'], { cwd: proj });
+    process.chdir(proj);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-trailgap-home-'));
+    return proj;
+  }
+
+  it('워크아이템 없는 상태 commit → stderr 경고 + 커밋 생성(차단 아님, exit 없음)', async () => {
+    const proj = noWorkitemProject();
+    await runCommit('AC-1', { start: true });
+    fs.writeFileSync(path.join(proj, 'change.txt'), 'work\n');
+
+    const errs: string[] = [];
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((s: unknown) => {
+      errs.push(String(s));
+      return true;
+    });
+    // exit 이 불리면(하드 차단으로 바뀌면) 던지게 해서 잡는다 — 이 테스트가 차단 회귀를 잡는다.
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    try {
+      await runCommit('AC-1', { message: '작업' });
+    } finally {
+      stderrSpy.mockRestore();
+      exitSpy.mockRestore();
+    }
+
+    // 경고가 떴다.
+    expect(errs.join('')).toContain('활성 워크아이템 없이');
+    // 그리고 커밋은 실제로 생성됐다(차단 아님).
+    const log = execFileSync('git', ['log', '--oneline'], { cwd: proj, encoding: 'utf8' });
+    expect(log).toContain('작업');
   });
 });
