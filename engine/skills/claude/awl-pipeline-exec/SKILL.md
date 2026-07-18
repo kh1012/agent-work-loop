@@ -142,11 +142,13 @@ awl-loop 기록 문체: 결론 먼저, 짧게 끊어서, 확인/미확인 분리
 # are stable >= STABLE_SECS, prints them, exits (re-invokes Claude). review/ before plan/.
 # A *.md WITHOUT the .taken postfix = unprocessed; *.hold.md in plan/ is skipped.
 # If another LIVE instance already owns role 'exec', prints ALREADY_OWNED and exits 0.
+# ROOT resolves to the script's PHYSICAL directory (symlinks fully followed via cd -P/pwd -P),
+# so this is correct whether invoked via a symlinked .tasks/ path or the real physical path
+# (e.g. .tasks -> .awl/lanes/<lane>). See pipeline-watcher-symlink-invoke-fix.
 set -uo pipefail
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-REVIEW="$ROOT/.tasks/review"; PLAN="$ROOT/.tasks/plan"
-LOCKS="$ROOT/.tasks/.locks"; LOCK="$LOCKS/exec"
+ROOT="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+REVIEW="$ROOT/review"; PLAN="$ROOT/plan"
+LOCKS="$ROOT/.locks"; LOCK="$LOCKS/exec"
 STABLE_SECS=8; POLL=4; STALE=60
 
 own(){ echo $$ > "$LOCK/pid"; date +%s > "$LOCK/beat"; }

@@ -86,11 +86,13 @@ round: <검증한 exec round>
 # Blocks until UNVERIFIED files in .tasks/exec are stable >= STABLE_SECS, prints them,
 # exits (re-invokes Claude). A *.md WITHOUT the .taken postfix = not yet verified.
 # If another LIVE instance already owns role 'review', prints ALREADY_OWNED and exits 0.
+# ROOT resolves to the script's PHYSICAL directory (symlinks fully followed via cd -P/pwd -P),
+# so this is correct whether invoked via a symlinked .tasks/ path or the real physical path
+# (e.g. .tasks -> .awl/lanes/<lane>). See pipeline-watcher-symlink-invoke-fix.
 set -uo pipefail
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-EXEC="$ROOT/.tasks/exec"
-LOCKS="$ROOT/.tasks/.locks"; LOCK="$LOCKS/review"
+ROOT="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+EXEC="$ROOT/exec"
+LOCKS="$ROOT/.locks"; LOCK="$LOCKS/review"
 STABLE_SECS=8; POLL=4; STALE=60
 
 own(){ echo $$ > "$LOCK/pid"; date +%s > "$LOCK/beat"; }
