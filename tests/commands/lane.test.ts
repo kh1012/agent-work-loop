@@ -133,7 +133,7 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
     }
 
     const lanePath = path.join(proj, '.awl-worktrees', 'probe');
-    const homeDir = path.join(lanePath, '.awl-home');
+    const homeDir = path.join(lanePath, '.awl', 'home');
     // (a) worktree + isolated home.
     expect(fs.existsSync(lanePath)).toBe(true);
     expect(fs.existsSync(homeDir)).toBe(true);
@@ -365,14 +365,14 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
     expect(fs.existsSync(lanePath)).toBe(false);
   });
 
-  it('lane rm: awl 자신의 산출물(.awl/·.awl-home/)만 untracked 면 정상 제거한다 (AC-01 필터, G-034)', async () => {
+  it('lane rm: awl 자신의 산출물(.awl/·.awl/home/)만 untracked 면 정상 제거한다 (AC-01 필터, G-034)', async () => {
     const proj = realGitProject();
     await runLaneNew('probe');
     const lanePath = path.join(proj, '.awl-worktrees', 'probe');
     // awl 산출물을 흉내 — 필터가 이걸 WIP 로 오판하면 rm 이 막혀(throw) RED.
     fs.mkdirSync(path.join(lanePath, '.awl'), { recursive: true });
     fs.writeFileSync(path.join(lanePath, '.awl', 'state.json'), '{}\n');
-    fs.writeFileSync(path.join(lanePath, '.awl-home', 'rec.jsonl'), 'x\n');
+    fs.writeFileSync(path.join(lanePath, '.awl', 'home', 'rec.jsonl'), 'x\n');
 
     await runLaneRemove('probe', {}); // 막히지 않아야 한다(필터가 awl 산출물 제외).
     expect(fs.existsSync(lanePath)).toBe(false);

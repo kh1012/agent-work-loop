@@ -322,7 +322,7 @@ export async function runLaneRemove(name: string, opts: { force?: boolean } = {}
   // 실패하면(전역 쓰기 오류 등) 깔끔히 중단해 학습을 보존한다 — 삭제 전이라 재시도로 복구된다.
   let merged: MergeLearningResult | null = null;
   try {
-    merged = mergeIsolatedHome(path.join(lanePath, '.awl-home'));
+    merged = mergeIsolatedHome(path.join(lanePath, '.awl', 'home'));
   } catch (e) {
     process.stderr.write(
       `\n${feedback(c, 'error', '격리 학습 전역 병합 실패 — 레인을 보존합니다', e instanceof Error ? e.message : String(e))}\n`,

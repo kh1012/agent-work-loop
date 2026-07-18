@@ -550,8 +550,8 @@ describe('runWorkNew --worktree (WI-F AC-03, 실제 git 저장소로 통합 확�
     } finally {
       spy.mockRestore();
     }
-    // --worktree 없으면 전용 home 은 root 아래 .awl-home.
-    const homeDir = path.join(proj, '.awl-home');
+    // --worktree 없으면 전용 home 은 root 아래 .awl/home.
+    const homeDir = path.join(proj, '.awl', 'home');
     expect(fs.existsSync(homeDir)).toBe(true);
     const out = writes.join('');
     expect(out).toContain('export AWL_HOME=');
@@ -560,10 +560,10 @@ describe('runWorkNew --worktree (WI-F AC-03, 실제 git 저장소로 통합 확�
     expect(fs.readFileSync(path.join(proj, '.gitignore'), 'utf8')).toContain('.awl-home/');
   });
 
-  it('--isolated 없이는 .awl-home 을 만들지 않는다 (concurrency-2 AC-02 회귀)', async () => {
+  it('--isolated 없이는 .awl/home 을 만들지 않는다 (concurrency-2 AC-02 회귀)', async () => {
     const proj = realGitProject();
     await runWorkNew('WI-NOISO', undefined, {});
-    expect(fs.existsSync(path.join(proj, '.awl-home'))).toBe(false);
+    expect(fs.existsSync(path.join(proj, '.awl', 'home'))).toBe(false);
   });
 
   it('runWorkDone — 실제 워크트리를 제거하고 state 를 done 으로 기록한다 (F-5)', async () => {

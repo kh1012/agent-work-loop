@@ -307,7 +307,7 @@ describe('teardown 통합 — 격리 학습이 전역으로 이어진다(실제 
       restoreOut();
     }
     const lanePath = path.join(proj, '.awl-worktrees', 'probe');
-    const isoHome = path.join(lanePath, '.awl-home');
+    const isoHome = path.join(lanePath, '.awl', 'home');
     // 생성 시점 마커가 전역을 가리키는지(글루 확인).
     expect(fs.readFileSync(path.join(isoHome, PARENT_MARKER), 'utf8').trim()).toBe(global);
 
@@ -354,8 +354,8 @@ describe('teardown 통합 — 격리 학습이 전역으로 이어진다(실제 
       restoreOut();
     }
     const wtPath = path.join(proj, '.awl-worktrees', 'WI-WT');
-    // 이 워크트리에서 수동 격리(AWL_HOME=wt/.awl-home)를 썼다고 가정: .awl-home + 마커 + gotcha.
-    const isoHome = path.join(wtPath, '.awl-home');
+    // 이 워크트리에서 수동 격리(AWL_HOME=wt/.awl/home)를 썼다고 가정: .awl/home + 마커 + gotcha.
+    const isoHome = path.join(wtPath, '.awl', 'home');
     fs.mkdirSync(isoHome, { recursive: true });
     fs.writeFileSync(path.join(isoHome, PARENT_MARKER), `${global}\n`);
     writeGotchaFile(isoHome, g('G-001', 'workdone 격리교훈'));
@@ -384,8 +384,8 @@ describe('teardown 통합 — 격리 학습이 전역으로 이어진다(실제 
     } finally {
       restoreOut();
     }
-    const isoHome = path.join(proj, '.awl-home');
-    // 진짜 --isolated 가 root/.awl-home + 부모전역 마커를 만든다(글루 확인).
+    const isoHome = path.join(proj, '.awl', 'home');
+    // 진짜 --isolated 가 root/.awl/home + 부모전역 마커를 만든다(글루 확인).
     expect(fs.readFileSync(path.join(isoHome, PARENT_MARKER), 'utf8').trim()).toBe(global);
     writeGotchaFile(isoHome, g('G-001', 'isolated 비워크트리 교훈'));
 

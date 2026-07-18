@@ -651,7 +651,7 @@ export async function runWorkNew(
   // 워크트리별 경로라 두 세션이 같은 home 을 공유하지 않는다.
   let isolatedHome: string | undefined;
   if (opts.isolated) {
-    isolatedHome = path.join(worktreePath ?? root, '.awl-home');
+    isolatedHome = path.join(worktreePath ?? root, '.awl', 'home');
     fs.mkdirSync(isolatedHome, { recursive: true });
     // 생성 시점(AWL_HOME 오버라이드 전)의 부모 전역을 마커로 남긴다 — teardown 이 이 값을
     // 목적지로 읽어 격리 학습을 전역으로 병합한다(teardown 시점 env 에 의존하지 않음).
@@ -886,8 +886,8 @@ export async function runWorkDone(id: string, opts: { force?: boolean } = {}): P
   let worktreeNote: string | null = null;
   let mergeNote: string | null = null;
   const isolatedHome = result.worktree
-    ? path.join(result.worktree.path, '.awl-home')
-    : path.join(root, '.awl-home');
+    ? path.join(result.worktree.path, '.awl', 'home')
+    : path.join(root, '.awl', 'home');
   try {
     const merged = mergeIsolatedHome(isolatedHome);
     if (
