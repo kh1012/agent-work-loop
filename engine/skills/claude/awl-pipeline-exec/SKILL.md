@@ -37,10 +37,16 @@ description: exec 세션 기본 프롬프트. cwd `.tasks/plan`의 신규 일감
 2. **구현 서브에이전트에 위임**해 `/awl-loop` 전체 파이프라인으로 구현시킨다(아래 "구현 코어" 규칙 전달). 서브가 구조화된 핸드오프를 반환한다.
 3. 서브 결과로 `exec/<name>.md`를 생성한다(핸드오프, 아래 형식).
 
-### 3. 유휴 — 둘 다 없으면
+### 3. hold 재점검 — 1·2 에 처리할 게 없을 때(워처 재무장 전, pipeline-hold-recheck)
+`.hold.md` 중 "의존 워크아이템 대기형"(전략문서 아닌, "un-hold 조건: X 합격 후")은 의존이 이미 착지+합격했는데도 사람이 손으로 rename해야 풀리던 낭비가 있었다 — 유휴로 넘어가기 직전 이 hold들을 스스로 재점검한다.
+1. `awl hold-recheck --json`을 호출한다. `.tasks/plan/*.hold.md`의 "un-hold 조건" 서술에서 참조하는 의존 workitem id를 파싱해, 그 의존들이 전부 착지+합격(`exec/<dep>.taken.md` 존재 & `review/<dep>.md` 부재)이면 `.hold.md`→`.md`로 자동 rename한다(내용 불변). 다건 의존은 전부 충족돼야 un-hold. 패턴이 없는(전략문서·판별불가) hold나 부분미충족 hold는 손대지 않는다 — 계속 사람 조율 몫이다.
+2. 결과의 `unheld`가 비어있지 않으면 **그 턴에 바로 2(신규 착수)로 돌아가** 방금 풀린 일감을 처리한다. rename은 동기 파일시스템 연산이라 이 호출이 끝나는 순간 `plan/<name>.md`로 이미 보인다 — 다음 워처 발화·다음 유휴까지 미루지 않는다.
+3. `unheld`가 비어있으면(재점검할 hold가 없거나 전부 유지) 아래 "4. 유휴"로 진행한다.
+
+### 4. 유휴 — 1·2·3 모두 처리할 게 없으면
 워처를 재무장하고 턴을 끝낸다(아래 "self-pace").
 
-처리할 게 남아있는 동안 1→2를 계속 반복한다. **한 일감의 `/awl-loop` 구현은 중간에 멈추지 말고 이 턴에서 끝까지 순차 진행한다**(구현 도중 ScheduleWakeup 하지 않는다).
+처리할 게 남아있는 동안 1→2→3을 계속 반복한다. **한 일감의 `/awl-loop` 구현은 중간에 멈추지 말고 이 턴에서 끝까지 순차 진행한다**(구현 도중 ScheduleWakeup 하지 않는다).
 
 ## 구현 코어: `/awl-loop` (반드시 — **구현 서브에이전트가 수행**)
 무거운 구현은 **`Task`(subagent_type:`general-purpose`)로 띄운 서브에이전트가** `Skill(awl-loop)`로 수행한다 — 오래 도는 이 루프 세션의 컨텍스트를 구현 로그(수십 파일 read·커밋·리뷰)로 채우지 않기 위함이다. 메인은 파일 상태 전이(plan/review .taken·exec .taken떼기·exec 핸드오프 기록)만 한다. 서브에이전트 프롬프트에 (a) cwd·입력 경로(`plan/<name>.md` 또는 `review/<name>.md`)·워크아이템, (b) 아래 규칙 전부, (c) 완료 시 **구조화된 핸드오프 반환**(workitem·round·완료조건별 한 일+커밋·검증결과·직접볼 리뷰포인트·범위밖)을 담는다. awl-loop 파이프라인을 그대로 따르되 **무인이므로 두 게이트를 자율 승인**한다:
@@ -110,7 +116,7 @@ awl-loop 기록 문체: 결론 먼저, 짧게 끊어서, 확인/미확인 분리
 >
 > **디렉토리(cwd 기준, gitignore)**: `plan/`(일감·plan) · `exec/`(핸드오프·exec) · `review/`(피드백·review).
 > **공유 키 `<name>`**: 일감 1개당 1개(awl WI-ID 또는 kebab-case). 세 디렉토리 공유.
-> **표식 `.taken`**: `<name>.md`=미처리, `<name>.taken.md`=집어감(합격 뜻 아님). `<name>.hold.md`=exec가 자동 부적합 판정(전략문서·타 워크트리·사용자 선행작업 필요), 워처 무시·사람 조율.
+> **표식 `.taken`**: `<name>.md`=미처리, `<name>.taken.md`=집어감(합격 뜻 아님). `<name>.hold.md`=exec가 자동 부적합 판정(전략문서·타 워크트리·사용자 선행작업 필요), 워처 무시·사람 조율. 단, "un-hold 조건: X 합격 후"류 의존 대기형은 exec가 유휴 진입 전 `awl hold-recheck`로 스스로 재점검해 의존 착지+합격 시 자동 un-hold 한다(사람 rename 불필요, pipeline-hold-recheck) — 전략문서·부분미충족은 여전히 사람 조율.
 >
 > **상태표**
 > | plan/ | exec/ | review/ | 의미 |

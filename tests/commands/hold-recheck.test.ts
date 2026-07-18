@@ -352,6 +352,55 @@ describe('recheckHolds — un-hold 직후 같은 턴에 즉시 반영(AC-04)', (
 
 // --- CLI 글루 (runHoldRecheck) ---
 
+// --- AC-04: SKILL.md 절차 명문화(섹션 범위 안에서 공존 단언, G-059) ---
+
+describe('engine/awl-pipeline-exec SKILL.md — hold 재점검 절차 명문화(AC-04)', () => {
+  const skillPath = path.join(process.cwd(), 'engine/skills/claude/awl-pipeline-exec/SKILL.md');
+  const skill = fs.readFileSync(skillPath, 'utf8');
+
+  /** "### N. 제목" 헤딩부터 다음 "### " 헤딩(또는 "## ") 전까지만 잘라낸다 — 토큰 존재만 보면
+   * 문서 어디에나 있어도 통과하는 함정(G-059)을 피하려고 섹션 범위로 슬라이스한다. */
+  function section(heading: string): string {
+    const start = skill.indexOf(heading);
+    expect(start, `"${heading}" 섹션이 없습니다`).toBeGreaterThanOrEqual(0);
+    const rest = skill.slice(start + heading.length);
+    const nextHeadingRel = rest.search(/\n#{2,3} /);
+    return nextHeadingRel === -1 ? rest : rest.slice(0, nextHeadingRel);
+  }
+
+  it('한 틱 우선순위에 "hold 재점검" 단계가 신규 착수(2) 다음, 유휴(4) 앞에 있다', () => {
+    const idx1 = skill.indexOf('### 1. 피드백 반영');
+    const idx2 = skill.indexOf('### 2. 신규 착수');
+    const idx3 = skill.indexOf('### 3. hold 재점검');
+    const idx4 = skill.indexOf('### 4. 유휴');
+    for (const idx of [idx1, idx2, idx3, idx4]) {
+      expect(idx).toBeGreaterThanOrEqual(0);
+    }
+    expect(idx1).toBeLessThan(idx2);
+    expect(idx2).toBeLessThan(idx3);
+    expect(idx3).toBeLessThan(idx4);
+  });
+
+  it('hold 재점검 섹션 안에서 awl hold-recheck 호출과 un-hold 조건 파싱이 같이 서술된다', () => {
+    const body = section('### 3. hold 재점검');
+    expect(body).toContain('awl hold-recheck');
+    expect(body).toContain('un-hold 조건');
+    expect(body).toContain('착지+합격');
+  });
+
+  it('un-hold 직후 같은 턴에 2(신규 착수)로 돌아간다는 즉시착수 절차가 명문화돼 있다(다음 유휴까지 안 미룸)', () => {
+    const body = section('### 3. hold 재점검');
+    expect(body).toContain('그 턴에 바로 2(신규 착수)로 돌아가');
+    expect(body).toContain('다음 워처 발화·다음 유휴까지 미루지 않는다');
+  });
+
+  it('유휴(4) 섹션은 1·2·3 모두 처리할 게 없을 때만 워처를 재무장한다', () => {
+    const idx4 = skill.indexOf('### 4. 유휴');
+    const around = skill.slice(idx4, idx4 + 200);
+    expect(around).toContain('1·2·3 모두 처리할 게 없으면');
+  });
+});
+
 describe('runHoldRecheck — CLI 핸들러 (glue 커버, G-047)', () => {
   it('--json: 재점검 결과를 그대로 JSON으로 낸다', async () => {
     const root = tmpProject();
