@@ -178,8 +178,8 @@ describe('runSyncSkills — 핸들러 glue (AC-02)', () => {
   });
 });
 
-describe('program 등록 (AC-02)', () => {
-  it('awl sync-skills 명령이 등록돼 있고 --from/--to/--dry-run 옵션을 갖는다', () => {
+describe('program 등록 (AC-02/04)', () => {
+  it('awl sync-skills 명령이 등록돼 있고 --from/--to/--dry-run/--yes 옵션을 갖는다', () => {
     const program = buildProgram();
     const cmd = program.commands.find((c) => c.name() === 'sync-skills');
     expect(cmd).toBeDefined();
@@ -187,5 +187,60 @@ describe('program 등록 (AC-02)', () => {
     expect(help).toContain('--from');
     expect(help).toContain('--to');
     expect(help).toContain('--dry-run');
+    expect(help).toContain('--yes');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-04 — 리뷰 finding 반영: 바레 실행 라이브 글로벌 안전장치(F-A) + write-skip 스파이(F-B)
+// ---------------------------------------------------------------------------
+
+describe('바레 sync-skills 라이브 글로벌 안전장치 (AC-04 / 리뷰 F-A)', () => {
+  it('대상 미지정 + --yes/--dry-run 없음: 실제로 쓰지 않고 guarded=true, --yes 안내', () => {
+    // fs 쓰기를 막아 실제 ~/.claude 는 절대 안 건드린다(테스트 안전망).
+    const writeSpy = vi.spyOn(fs, 'writeFileSync').mockImplementation(() => undefined);
+    const mkdirSpy = vi.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined);
+    const out = captureStdout(() => runSyncSkills({ json: true }));
+    expect(writeSpy).not.toHaveBeenCalled(); // 라이브 글로벌 무쓰기
+    writeSpy.mockRestore();
+    mkdirSpy.mockRestore();
+    const parsed = JSON.parse(out) as { guarded: boolean; skills: { action: string }[] };
+    expect(parsed.guarded).toBe(true);
+    expect(parsed.skills.every((s) => s.action !== 'written')).toBe(true); // 미리보기라 written 없음
+  });
+
+  it('대상 미지정 + --yes: 안전장치 해제(guarded=false)', () => {
+    // --yes 면 실제로 쓰려 하므로 fs 쓰기를 막아 ~/.claude 를 보호한다.
+    const writeSpy = vi.spyOn(fs, 'writeFileSync').mockImplementation(() => undefined);
+    const mkdirSpy = vi.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined);
+    const out = captureStdout(() => runSyncSkills({ yes: true, json: true }));
+    writeSpy.mockRestore();
+    mkdirSpy.mockRestore();
+    const parsed = JSON.parse(out) as { guarded: boolean };
+    expect(parsed.guarded).toBe(false);
+  });
+
+  it('명시 --to: 안전장치와 무관하게 실제로 쓴다(guarded=false)', () => {
+    const from = mkTmp('awl-sync-from-');
+    const to = mkTmp('awl-sync-to-');
+    seedEngineFixture(from);
+    const out = captureStdout(() => runSyncSkills({ from, to, json: true }));
+    const parsed = JSON.parse(out) as { guarded: boolean; skills: { action: string }[] };
+    expect(parsed.guarded).toBe(false);
+    expect(parsed.skills.some((s) => s.action === 'written')).toBe(true);
+  });
+});
+
+describe('멱등 write-skip 스파이 (AC-04 / 리뷰 F-B)', () => {
+  it('unchanged 재실행은 SKILL.md 에 writeFileSync 를 부르지 않는다', () => {
+    const from = mkTmp('awl-sync-from-');
+    const to = mkTmp('awl-sync-to-');
+    seedEngineFixture(from);
+    syncPipelineSkills({ from, to }); // 1회차: 쓴다
+    const writeSpy = vi.spyOn(fs, 'writeFileSync');
+    syncPipelineSkills({ from, to }); // 2회차: unchanged
+    const wroteSkill = writeSpy.mock.calls.some((c) => String(c[0]).endsWith('SKILL.md'));
+    writeSpy.mockRestore();
+    expect(wroteSkill).toBe(false); // 항상-쓰기 뮤테이션이면 여기서 깨진다
   });
 });

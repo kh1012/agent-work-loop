@@ -130,18 +130,24 @@ export function runSyncSkills(opts: {
   from?: string;
   to?: string;
   dryRun?: boolean;
+  yes?: boolean;
   json?: boolean;
 }): void {
   const from = opts.from ?? defaultFrom();
   const to = opts.to ?? defaultTo();
-  const result = syncPipelineSkills({ from, to, dryRun: opts.dryRun });
+  // 안전장치(리뷰 finding): 대상을 명시하지 않아 기본 라이브 글로벌(~/.claude/skills)을 덮게
+  // 되는데 --dry-run·--yes 도 없으면, 실제 쓰기 대신 미리보기만 하고 --yes 를 안내한다.
+  // 사용 중인 파이프라인 스킬을 낡은 엔진 파생본으로 무심코 덮는 회귀를 막는다.
+  const guarded = opts.to === undefined && opts.dryRun !== true && opts.yes !== true;
+  const dryRun = opts.dryRun === true || guarded;
+  const result = syncPipelineSkills({ from, to, dryRun });
 
   if (opts.json === true) {
-    process.stdout.write(`${JSON.stringify(result)}\n`);
+    process.stdout.write(`${JSON.stringify({ ...result, guarded })}\n`);
     return;
   }
 
-  const header = opts.dryRun === true ? '파이프라인 스킬 갱신 예정' : '파이프라인 스킬 동기화';
+  const header = dryRun ? '파이프라인 스킬 갱신 예정' : '파이프라인 스킬 동기화';
   process.stdout.write(`\n  ${header} (엔진 정본 → 글로벌 파생)\n`);
   process.stdout.write(`    from  ${from}\n`);
   process.stdout.write(`    to    ${to}\n`);
@@ -153,6 +159,12 @@ export function runSyncSkills(opts: {
     const mark =
       s.action === 'written' ? '갱신  ' : s.action === 'would-change' ? '갱신예정' : '그대로';
     process.stdout.write(`    ${mark}  ${s.engineName} → ${s.derivedName}\n`);
+  }
+  if (guarded) {
+    process.stdout.write(
+      '  [!] 라이브 글로벌 대상입니다(미리보기). 실제 적용은 --yes, 미리보기는 --dry-run 을 붙이세요.\n',
+    );
+    return;
   }
   const changedCount = result.skills.filter((s) => s.changed).length;
   process.stdout.write(
