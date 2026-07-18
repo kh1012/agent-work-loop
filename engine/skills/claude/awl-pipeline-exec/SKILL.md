@@ -147,7 +147,11 @@ awl-loop 기록 문체: 결론 먼저, 짧게 끊어서, 확인/미확인 분리
 # (e.g. .tasks -> .awl/lanes/<lane>). See pipeline-watcher-symlink-invoke-fix.
 set -uo pipefail
 ROOT="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-REVIEW="$ROOT/review"; PLAN="$ROOT/plan"
+REVIEW="$ROOT/review"; PLAN="$ROOT/plan"; EXEC="$ROOT/exec"
+if [ ! -d "$PLAN" ] || [ ! -d "$EXEC" ] || [ ! -d "$REVIEW" ]; then
+  echo "ERROR: expected plan/exec dirs not found under $ROOT (resolved from ${BASH_SOURCE[0]})" >&2
+  exit 1
+fi
 LOCKS="$ROOT/.locks"; LOCK="$LOCKS/exec"
 STABLE_SECS=8; POLL=4; STALE=60
 

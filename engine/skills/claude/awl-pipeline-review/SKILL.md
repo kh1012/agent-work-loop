@@ -91,7 +91,11 @@ round: <검증한 exec round>
 # (e.g. .tasks -> .awl/lanes/<lane>). See pipeline-watcher-symlink-invoke-fix.
 set -uo pipefail
 ROOT="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-EXEC="$ROOT/exec"
+EXEC="$ROOT/exec"; PLAN="$ROOT/plan"; REVIEW="$ROOT/review"
+if [ ! -d "$PLAN" ] || [ ! -d "$EXEC" ] || [ ! -d "$REVIEW" ]; then
+  echo "ERROR: expected plan/exec dirs not found under $ROOT (resolved from ${BASH_SOURCE[0]})" >&2
+  exit 1
+fi
 LOCKS="$ROOT/.locks"; LOCK="$LOCKS/review"
 STABLE_SECS=8; POLL=4; STALE=60
 
