@@ -9,9 +9,9 @@ import { parseRuleFile } from './rules.js';
  * teardown(lane rm / work done) 때 전역 ~/.awl 로 멱등 병합한다.
  *
  * 왜 필요한가:
- *   --isolated 는 AWL_HOME 을 로컬 .awl-home 으로 돌린다. records 격리가 의도였지만
+ *   --isolated 는 AWL_HOME 을 로컬 .awl/home 으로 돌린다. records 격리가 의도였지만
  *   globalRoot() 단일 스위치라 gotchas/rules/generations(학습)까지 로컬로 따라간다.
- *   .awl-home 은 gitignored 라 teardown 때 워크트리째 삭제 → 격리 레인이 쌓은 학습이
+ *   .awl/home 은 gitignored 라 teardown 때 워크트리째 삭제 → 격리 레인이 쌓은 학습이
  *   전역으로 안 이어지고 소멸했다("격리하되 학습은 이음" 위반).
  *
  * 기법 (a) teardown 병합 — (b) always-global-write 는 전역 동시쓰기 락을 전제하는데
@@ -26,12 +26,12 @@ import { parseRuleFile } from './rules.js';
  *   어긋나 그대로는 못 쓴다 — 목적지 기준 락은 전역 동시쓰기 안전(P0)에서 신설한다.
  *   [valid_concurrency: 동시성은 정적추론으로 합격시키지 않는다 — 스트레스 실측은 P0 몫.]
  *
- * ID 충돌: fresh .awl-home 의 gotcha 는 G-001 부터 매겨져 전역 G-001..G-0NN 과 겹친다.
+ * ID 충돌: fresh .awl/home 의 gotcha 는 G-001 부터 매겨져 전역 G-001..G-0NN 과 겹친다.
  *   파일 이름으로 복사하면 전역 교훈을 덮어쓴다 — content(lesson) 로 dedup 하고, 새 교훈은
  *   전역 시퀀스의 새 ID 로 재부여한다. relations/sameAs/rule source 는 그 재ID 로 remap 한다.
  */
 
-/** 생성 시점의 부모 전역 경로를 담는 마커 파일명(.awl-home 루트에 둔다). */
+/** 생성 시점의 부모 전역 경로를 담는 마커 파일명(.awl/home 루트에 둔다). */
 export const PARENT_MARKER = '.awl-parent';
 
 /** 두 gotcha 가 같은 교훈인지 판정하는 키. 같은 lesson = 같은 학습. */

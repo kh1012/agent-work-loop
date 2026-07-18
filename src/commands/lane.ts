@@ -48,7 +48,7 @@ async function isGitWorkTree(root: string): Promise<boolean> {
 
 /**
  * awl lane new <name> — 격리 레인을 만든다(AC-01).
- *  (a) work new --worktree --isolated 재사용: .awl-worktrees/<name> + <wt>/.awl-home
+ *  (a) work new --worktree --isolated 재사용: .awl-worktrees/<name> + <wt>/.awl/home
  *  (b) 워크트리에 스킬 재설치(runWorkNew 안에서 installClaudeSkill)
  *  (c) 기동 안내: runWorkNew 가 export AWL_HOME 을 찍고, 여기서 역할별 스킬 트리거를 얹는다.
  * 이름 충돌·비-git cwd 는 명확한 에러로 거른다(AC-04). 생성 실패 시 orphan 워크트리
@@ -316,7 +316,7 @@ export async function runLaneRemove(name: string, opts: { force?: boolean } = {}
     }
   }
 
-  // 격리(.awl-home) 학습을 전역으로 병합한다 — 워크트리(=.awl-home) 삭제 전에. 안전
+  // 격리(.awl/home) 학습을 전역으로 병합한다 — 워크트리(=.awl/home) 삭제 전에. 안전
   // 검사를 모두 통과해 제거가 확정된 지점이다. gotchas/rules/generations 만 전역으로
   // 이으며 records/state 는 안 건드린다(격리 유지). 없거나 자기 자신이면 no-op. 병합이
   // 실패하면(전역 쓰기 오류 등) 깔끔히 중단해 학습을 보존한다 — 삭제 전이라 재시도로 복구된다.

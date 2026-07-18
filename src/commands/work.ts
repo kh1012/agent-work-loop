@@ -437,7 +437,7 @@ export function markWorkitemDone(
  * root state 에서 지정 id(들)의 워크아이템을 제거한다(lane rm 의 유령 정리, F-02). 대소문자
  * 무시. 현재(top-level) 워크아이템이 대상이면 최상위를 비우고(workitem/phase/loop/criteria
  * 및 workitem* 스냅샷 필드 제거), 레지스트리 항목이면 그 키를 지운다. work done 과 달리
- * 기록을 남기지 않는다 — 레인의 실제 기록·state 는 삭제된 worktree(.awl-home)에 있었고,
+ * 기록을 남기지 않는다 — 레인의 실제 기록·state 는 삭제된 worktree(.awl/home)에 있었고,
  * root 의 이 항목은 삭제된 워크트리를 가리키는 유령이라 done 으로 보존할 이유가 없다.
  * 순수 함수. 바뀐 게 없으면 removed:false.
  */
@@ -878,9 +878,9 @@ export async function runWorkDone(id: string, opts: { force?: boolean } = {}): P
   const c = caps();
   const color = makeColors(c.color);
 
-  // 격리(.awl-home) 학습을 전역으로 병합한다 — 워크트리/홈 삭제·완료 전에. --isolated 는
-  // worktree 유무로 홈 위치가 갈린다(work new): 워크트리 wi 는 worktree/.awl-home, 비워크트리
-  // 격리 wi 는 root/.awl-home. 격리가 아니면(.awl-home 부재) no-op. 멱등이라 --force 재시도에도
+  // 격리(.awl/home) 학습을 전역으로 병합한다 — 워크트리/홈 삭제·완료 전에. --isolated 는
+  // worktree 유무로 홈 위치가 갈린다(work new): 워크트리 wi 는 worktree/.awl/home, 비워크트리
+  // 격리 wi 는 root/.awl/home. 격리가 아니면(.awl/home 부재) no-op. 멱등이라 --force 재시도에도
   // 중복되지 않는다. 병합이 실패하면(전역 쓰기 오류 등) 깔끔히 중단해 학습을 보존한다 —
   // 삭제 전이라 재시도로 복구된다.
   let worktreeNote: string | null = null;
