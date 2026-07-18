@@ -1,3 +1,8 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { engineDir } from '../core/paths.js';
+
 /**
  * 파이프라인 스킬 단일 정본화 (pipeline-skill-source-unify).
  *
@@ -35,4 +40,122 @@ export function derivedSkillName(engineSkillName: string): string | null {
     return null;
   }
   return deriveTempLoopContent(engineSkillName);
+}
+
+// ---------------------------------------------------------------------------
+// 재생성 메커니즘 (AC-02) — 엔진 정본에서 글로벌 temp-loop 스킬을 파생·갱신한다.
+// ---------------------------------------------------------------------------
+
+export interface SyncedSkill {
+  /** 엔진 스킬 디렉토리명 (예: awl-pipeline-exec) */
+  engineName: string;
+  /** 파생된 글로벌 스킬 디렉토리명 (예: temp-loop-exec) */
+  derivedName: string;
+  /** 대상 내용이 파생 결과와 달라 갱신이 필요했나 (재실행 멱등의 신호) */
+  changed: boolean;
+  action: 'written' | 'unchanged' | 'would-change';
+}
+
+export interface SyncResult {
+  from: string;
+  to: string;
+  skills: SyncedSkill[];
+}
+
+/**
+ * `from`(엔진 스킬 소스)에서 `to`(글로벌 스킬 대상)로 파이프라인 스킬을 파생·갱신한다.
+ *
+ * - `awl-pipeline-<role>` 3개만 대상(derivedSkillName 경계 — 오케스트레이터·구현코어 제외).
+ * - 대상 SKILL.md 내용이 파생 결과와 이미 같으면 쓰지 않는다 → 재실행 멱등.
+ * - `dryRun` 이면 아무 파일도 쓰지 않고 무엇이 바뀔지만 보고한다.
+ *
+ * 실제 유저 글로벌(~/.claude/skills) 쓰기는 사람이 판단해 실행한다 — 테스트는 temp 경로로.
+ */
+export function syncPipelineSkills(opts: {
+  from: string;
+  to: string;
+  dryRun?: boolean;
+}): SyncResult {
+  const skills: SyncedSkill[] = [];
+  let entries: string[];
+  try {
+    entries = fs
+      .readdirSync(opts.from, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+      .sort();
+  } catch {
+    // 소스 디렉토리가 없으면 빈 결과(claudeSkillNames 와 같은 관용).
+    entries = [];
+  }
+  for (const engineName of entries) {
+    const derivedName = derivedSkillName(engineName);
+    if (derivedName === null) {
+      continue;
+    }
+    const srcSkill = path.join(opts.from, engineName, 'SKILL.md');
+    if (!fs.existsSync(srcSkill)) {
+      continue;
+    }
+    const derived = deriveTempLoopContent(fs.readFileSync(srcSkill, 'utf8'));
+    const destSkill = path.join(opts.to, derivedName, 'SKILL.md');
+    const current = fs.existsSync(destSkill) ? fs.readFileSync(destSkill, 'utf8') : null;
+    const changed = current !== derived;
+    if (changed && opts.dryRun !== true) {
+      fs.mkdirSync(path.dirname(destSkill), { recursive: true });
+      fs.writeFileSync(destSkill, derived);
+    }
+    const action: SyncedSkill['action'] = !changed
+      ? 'unchanged'
+      : opts.dryRun === true
+        ? 'would-change'
+        : 'written';
+    skills.push({ engineName, derivedName, changed, action });
+  }
+  return { from: opts.from, to: opts.to, skills };
+}
+
+/** 기본 소스: 설치된 엔진(~/.awl/engine/skills/claude). copyClaudeSkills 와 같은 근거. */
+function defaultFrom(): string {
+  return path.join(engineDir(), 'skills', 'claude');
+}
+
+/** 기본 대상: 유저 글로벌 스킬(~/.claude/skills). */
+function defaultTo(): string {
+  return path.join(os.homedir(), '.claude', 'skills');
+}
+
+/** `awl sync-skills` 핸들러. from/to 기본값을 채워 syncPipelineSkills 를 돌리고 보고한다. */
+export function runSyncSkills(opts: {
+  from?: string;
+  to?: string;
+  dryRun?: boolean;
+  json?: boolean;
+}): void {
+  const from = opts.from ?? defaultFrom();
+  const to = opts.to ?? defaultTo();
+  const result = syncPipelineSkills({ from, to, dryRun: opts.dryRun });
+
+  if (opts.json === true) {
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    return;
+  }
+
+  const header = opts.dryRun === true ? '파이프라인 스킬 갱신 예정' : '파이프라인 스킬 동기화';
+  process.stdout.write(`\n  ${header} (엔진 정본 → 글로벌 파생)\n`);
+  process.stdout.write(`    from  ${from}\n`);
+  process.stdout.write(`    to    ${to}\n`);
+  if (result.skills.length === 0) {
+    process.stdout.write('  [!] 파생 대상(awl-pipeline-*)을 찾지 못했습니다.\n');
+    return;
+  }
+  for (const s of result.skills) {
+    const mark =
+      s.action === 'written' ? '갱신  ' : s.action === 'would-change' ? '갱신예정' : '그대로';
+    process.stdout.write(`    ${mark}  ${s.engineName} → ${s.derivedName}\n`);
+  }
+  const changedCount = result.skills.filter((s) => s.changed).length;
+  process.stdout.write(
+    `  ${changedCount === 0 ? '이미 최신입니다 (멱등).' : `${changedCount}개 갱신.`}\n`,
+  );
 }
