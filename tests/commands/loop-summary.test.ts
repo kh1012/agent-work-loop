@@ -186,7 +186,6 @@ describe('헤드라인 = 개입 렌즈 (AC-02)', () => {
     const lines = buildSummaryLines(s);
     // 첫 줄이 개입/자율. 렌즈 순서를 바꿔 품질/효율이 먼저 오면 이 잠금이 깨진다.
     expect(lines[0]).toBe('사람 개입 1 · 자율 1 (무인율 50%)');
-    expect(lines[0].startsWith('사람 개입')).toBe(true);
   });
 
   it('무인율을 못 내면(판단 지점 0) 첫 줄에 무인율 괄호를 붙이지 않는다', () => {
