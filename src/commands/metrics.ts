@@ -204,8 +204,8 @@ export function groupByExperiment(generations: Generation[]): CaseGroup[] {
   return groups;
 }
 
-/** ms 를 사람이 읽는 소요(예: 1h 23m)로. undefined 면 '-'. */
-function fmtDuration(ms: number | undefined): string {
+/** ms 를 사람이 읽는 소요(예: 1h 23m)로. undefined 면 '-'. (loop-summary 재사용) */
+export function fmtDuration(ms: number | undefined): string {
   if (ms === undefined) {
     return '-';
   }

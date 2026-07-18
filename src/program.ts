@@ -389,6 +389,17 @@ export function buildProgram(): Command {
       runMetrics({ json: opts.json === true, compare: opts.compare === true });
     });
 
+  // 사람/스킬이 치는 명령: loop-summary (한 루프 완료를 4렌즈로 요약, loop-completion-stats)
+  program
+    .command('loop-summary')
+    .description('루프/파이프라인 완료를 4렌즈(개입·품질·효율·산출)로 요약합니다')
+    .option('--workitem <id>', '대상 워크아이템 (기본: 현재)')
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .action(async (opts: { workitem?: string; json?: boolean }) => {
+      const { runLoopSummary } = await import('./commands/loop-summary.js');
+      runLoopSummary({ workitem: opts.workitem, json: opts.json === true });
+    });
+
   // 사람이 치는 명령: feedback (awl 도구 자체 피드백을 area 별로 모아서 본다)
   program
     .command('feedback')
