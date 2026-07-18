@@ -108,13 +108,32 @@ describe('awl 프로그램 구성', () => {
     expect(rulesCmd?.helpInformation()).toContain('promote');
   });
 
-  it('gotchas 는 도움말에 보이고 deltas 는 폐기 예정이라 숨겨진다 (WI-O AC-01/03)', () => {
+  it('gotchas 는 도움말에 보이고 폐기예정 deltas 명령은 제거됐다 (deltas-removal AC-01)', () => {
     const program = buildProgram();
     expect(program.helpInformation()).toContain('gotchas');
-    // deltas 는 등록은 돼 있지만(하위호환) hidden:true 라 최상위 도움말엔 안 보인다.
+    // deltas 는 폐기예정 잔재로 완전히 제거됐다 — 등록 자체가 없다(하위호환 별칭을 되살리면 실패).
     expect(program.helpInformation()).not.toContain('deltas');
     const deltasCmd = program.commands.find((c) => c.name() === 'deltas');
-    expect(deltasCmd).toBeDefined();
+    expect(deltasCmd).toBeUndefined();
+  });
+
+  it('src/ 에 0.4.0 스테일 제거기한 잔재가 없다 (deltas-removal AC-01)', () => {
+    // 삭제된 deltas 명령이 달고 있던 스테일 기한 텍스트. 재유입 방지 잠금.
+    // (tests/ 는 스캔 대상이 아니라 이 파일 자체의 리터럴은 자기매칭되지 않는다.)
+    const srcDir = fileURLToPath(new URL('../src', import.meta.url));
+    const staleMarker = ['0', '.4.0'].join(''); // 자기매칭 회피용 조립
+    const offenders: string[] = [];
+    const walk = (dir: string): void => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (e.name.endsWith('.ts') && fs.readFileSync(p, 'utf8').includes(staleMarker)) {
+          offenders.push(p);
+        }
+      }
+    };
+    walk(srcDir);
+    expect(offenders).toEqual([]);
   });
 
   it('metrics 는 사람이 치는 명령이라 도움말에 보인다 (WI-P AC-04)', () => {
@@ -215,20 +234,21 @@ describe.runIf(existsSync(distCli))('빌드된 CLI 실행', () => {
     expect(out).toContain('같은 실패를 두 번 하지 않게');
   });
 
-  it('deltas 는 경고를 찍고 gotchas 와 동일한 내용을 보여준다 (WI-O AC-03, 하위호환)', () => {
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-deltas-alias-'));
-    fs.mkdirSync(path.join(home, 'gotchas'), { recursive: true });
-    fs.writeFileSync(
-      path.join(home, 'gotchas', 'G-001.json'),
-      JSON.stringify({ id: 'G-001', lesson: '테스트 교훈', count: 1 }),
-    );
-    const result = spawnSync('node', [distCli, 'deltas', '--json'], {
-      env: { ...process.env, AWL_HOME: home },
-      encoding: 'utf8',
-    });
-    expect(result.stderr).toContain('폐기 예정');
-    expect(result.stderr).toContain('awl gotchas');
-    expect(JSON.parse(result.stdout)[0].lesson).toBe('테스트 교훈');
+  it('제거된 deltas 명령은 unknown command 로 exit!=0 이다 (deltas-removal AC-01, dogfooding)', () => {
+    // bare 로 친다 — deltas --json 은 커맨더가 미지 옵션(--json)에서 먼저 걸려
+    // 명령 라우팅 경로를 안 탄다(G-028). unknown-operand 가드를 실제로 태우려면 인자 없이.
+    const result = spawnSync('node', [distCli, 'deltas'], { encoding: 'utf8' });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('deltas');
+    expect(result.stderr).toContain('알 수 없는 명령');
+    // 하위호환 별칭을 되살리면 gotchas 로 라우팅돼 exit 0 이 되고 이 테스트가 실패한다.
+  });
+
+  it('인자 없는 bare awl 은 여전히 help 배너를 exit 0 으로 낸다 (unknown-operand 가드 회귀잠금)', () => {
+    // 가드가 bare 호출(operand 없음)까지 에러로 만들면 이 테스트가 실패한다.
+    const result = spawnSync('node', [distCli], { encoding: 'utf8' });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('Agent Work Loop');
   });
 
   it('state set phase:loop 이 gate:1 기록 없이는 거부되고, 기록 후엔 통과한다 (WI-Q AC-02, program.ts 배선 확인)', () => {

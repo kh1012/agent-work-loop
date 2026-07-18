@@ -417,19 +417,6 @@ export function buildProgram(): Command {
       runChangelogDraft({ workitem: opts.workitem, json: opts.json === true });
     });
 
-  // 폐기 예정(0.4.0 까지 유지): deltas 는 gotchas 의 옛 이름이다.
-  program
-    .command('deltas', { hidden: true })
-    .description('(폐기 예정 — awl gotchas 를 쓰세요) 아직 규칙이 되지 않은 함정을 봅니다')
-    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
-    .action(async (opts: { json?: boolean }) => {
-      process.stderr.write(
-        '\n  경고: awl deltas 는 폐기 예정입니다(0.4.0 에서 제거). awl gotchas 를 쓰세요.\n',
-      );
-      const { runGotchas } = await import('./commands/gotchas.js');
-      runGotchas({ json: opts.json === true });
-    });
-
   // 사람이 치는 명령: commit (격리 커밋 — 남의 미커밋 변경을 잃지 않는다)
   program
     .command('commit <criterion>')
@@ -591,8 +578,17 @@ export function buildProgram(): Command {
       m.runDeferSummary({ json: opts.json === true, workitem: opts.workitem });
     });
 
-  // 인자 없이 `awl`만 실행하면 도움말을 보여준다.
-  program.action(() => {
+  // 인자 없이 `awl`만 실행하면 도움말을 보여준다. 등록되지 않은 명령(operand)이
+  // 남으면 삼켜서 help 로 넘기지 않고 명확히 에러낸다 — 커맨더 루트 액션은 미등록
+  // 명령을 operand 로 받아 조용히 이 액션을 태우므로, 잔여 operand 를 직접 걸러야 한다.
+  program.action((_opts: unknown, command: Command) => {
+    const [unknown] = command.args;
+    if (unknown !== undefined) {
+      program.error(`알 수 없는 명령입니다: '${unknown}'. awl --help 로 명령 목록을 보세요.`, {
+        exitCode: 1,
+        code: 'awl.unknownCommand',
+      });
+    }
     program.help();
   });
 
