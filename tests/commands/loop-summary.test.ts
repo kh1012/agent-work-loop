@@ -225,3 +225,17 @@ describe('기록 없음 안내 (AC-04)', () => {
     expect(json.quality).toBeUndefined();
   });
 });
+
+describe('커밋 지표 라벨 정확화 (AC-05, 리뷰 finding #1)', () => {
+  it('④ 산출이 격리커밋 라벨을 쓴다 — raw git 커밋으로 오독되는 커밋 단독 라벨을 쓰지 않는다', () => {
+    const s = assembleLoopSummary(
+      'wi-x',
+      [{ type: 'gate', gate: 1, auto: true, at: '2026-07-18T05:00:00Z' }],
+      [{ id: 'AC-01', status: 'passed', commit: 'h1' }],
+      undefined,
+    );
+    const out = renderLoopSummary(s, noColor);
+    expect(out).toContain('격리커밋 1');
+    expect(out).not.toContain('· 커밋 ');
+  });
+});

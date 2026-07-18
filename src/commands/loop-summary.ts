@@ -58,7 +58,7 @@ export interface EfficiencyLens {
 export interface OutputLens {
   passedCriteria: number;
   totalCriteria: number;
-  /** distinct criteria.commit 해시 수. */
+  /** distinct criteria.commit 해시 수(= 격리커밋된 AC 수). 한 AC 를 여러 번 커밋하면 최신 1개만 센다 — raw git 커밋 수가 아니다. */
   commits: number;
   gotchaApplied: number;
   gotchaMissed: number;
@@ -221,7 +221,7 @@ export function buildSummaryLines(summary: LoopSummary): string[] {
 
   const o = summary.output;
   lines.push(
-    `${padEndDisplay('산출', LABEL_WIDTH)}완료 AC ${o.passedCriteria}/${o.totalCriteria} · 커밋 ${o.commits} · gotcha 적용 ${o.gotchaApplied}/누락 ${o.gotchaMissed} · 범위배제 ${o.exclusions}`,
+    `${padEndDisplay('산출', LABEL_WIDTH)}완료 AC ${o.passedCriteria}/${o.totalCriteria} · 격리커밋 ${o.commits} · gotcha 적용 ${o.gotchaApplied}/누락 ${o.gotchaMissed} · 범위배제 ${o.exclusions}`,
   );
   return lines;
 }
