@@ -285,14 +285,23 @@ function startCostOf(
 }
 
 /** awl loop-summary [--workitem <id>] [--json] */
-export function runLoopSummary(opts: { workitem?: string; json?: boolean }): void {
+export function runLoopSummary(opts: {
+  workitem?: string;
+  json?: boolean;
+  usagePath?: string;
+}): void {
   const { projectRoot } = requireConfig();
   const state = loadState(projectRoot);
   const current = typeof state.workitem === 'string' ? state.workitem : null;
   const workitem = opts.workitem ?? current;
   const records = workitem ? readRecords({ workitem }) : [];
   const criteria = criteriaFor(state, workitem, current);
-  const costDelta = computeCostDelta(startCostOf(state, workitem, current), readCostSnapshot());
+  // usagePath 미주입이면 readCostSnapshot 기본값(DEFAULT_USAGE_PATH) — 프로덕션 동작 불변.
+  // 주입은 테스트 전용(now 스냅샷을 고정해 write→read cost 계약을 hermetic 하게 잠근다).
+  const costDelta = computeCostDelta(
+    startCostOf(state, workitem, current),
+    readCostSnapshot(opts.usagePath),
+  );
   const summary = assembleLoopSummary(workitem, records, criteria, costDelta);
   if (opts.json) {
     process.stdout.write(`${JSON.stringify(summaryToJson(summary), null, 2)}\n`);

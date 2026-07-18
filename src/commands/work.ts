@@ -11,7 +11,7 @@ import {
   makeTokens,
   signal,
 } from '../core/tty.js';
-import { readCostSnapshot } from '../core/usage.js';
+import { DEFAULT_USAGE_PATH, readCostSnapshot } from '../core/usage.js';
 import { loadConfig, resolveProjectRoot } from './config.js';
 import { gitBranch } from './doctor.js';
 import { installClaudeSkill } from './init.js';
@@ -581,6 +581,20 @@ function ensureGitignored(root: string, target: string): void {
   fs.writeFileSync(gi, `${content}${prefix}${target}\n`);
 }
 
+/**
+ * 루프 시작 비용 스냅샷을 state 에 병합한다(loop-completion-stats AC-03). cc-usage.json 이
+ * 없으면(statusline 미설치) state 를 그대로 둔다(graceful — 요약이 비용 줄 생략). usagePath
+ * 기본값은 DEFAULT_USAGE_PATH — 테스트만 override 한다(프로덕션 동작 불변). loop-summary 의
+ * startCostOf 가 이 costAtStart 를 읽어 computeCostDelta 를 낸다(write↔read 계약, G-051).
+ */
+export function withCostAtStart(
+  state: Record<string, unknown>,
+  usagePath: string = DEFAULT_USAGE_PATH,
+): Record<string, unknown> {
+  const costAtStart = readCostSnapshot(usagePath);
+  return costAtStart ? { ...state, costAtStart } : state;
+}
+
 export async function runWorkNew(
   id: string,
   description: string | undefined,
@@ -676,10 +690,7 @@ export async function runWorkNew(
   // 루프 시작 비용 스냅샷(loop-completion-stats AC-03) — 완료 요약이 루프 경계
   // cost diff 를 낼 수 있게 던지기 시점 cost 를 state 에 남긴다. 던지기 경계는
   // workitemCreatedAt 과 같다(evolve 가 durationMs 시작점으로 쓰는 것과 같은 경계).
-  // cc-usage.json 이 없으면(statusline 미설치) 남기지 않는다 — 요약이 비용 줄을
-  // 생략한다(graceful). 새 record 필드가 아니라 state 스냅샷이다.
-  const costAtStart = readCostSnapshot();
-  const stateToWrite = costAtStart ? { ...result.state, costAtStart } : result.state;
+  const stateToWrite = withCostAtStart(result.state);
   writeState(stateRoot, stateToWrite);
   const c = caps();
   const color = makeColors(c.color);

@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   type LoopSummary,
   assembleLoopSummary,
@@ -8,8 +11,10 @@ import {
   computeOutputLens,
   computeQualityLens,
   renderLoopSummary,
+  runLoopSummary,
   summaryToJson,
 } from '../../src/commands/loop-summary.js';
+import { withCostAtStart } from '../../src/commands/work.js';
 import { caps } from '../../src/core/tty.js';
 
 type Rec = Record<string, unknown>;
@@ -237,5 +242,121 @@ describe('커밋 지표 라벨 정확화 (AC-05, 리뷰 finding #1)', () => {
     const out = renderLoopSummary(s, noColor);
     expect(out).toContain('격리커밋 1');
     expect(out).not.toContain('· 커밋 ');
+  });
+});
+
+// --- runLoopSummary 핸들러 glue (loop-completion-stats round2, 리뷰 finding #1/#2) ---
+// 위 describe 들은 순수 렌즈·렌더만 잠근다. 핸들러 배선(CLI 진입·state 로딩·criteriaFor 분기
+// 선택·startCostOf·computeCostDelta(readCostSnapshot()))은 미커버였다 — 셋을 통째로 지워도
+// green(약단언, G-047: 래퍼·I/O 는 별도 회귀 표면). 실제 runLoopSummary 를 임시 프로젝트에서
+// 호출해 stdout 을 단언한다.
+describe('runLoopSummary 핸들러 glue (AC-06/AC-07, 리뷰 round1 finding #1/#2)', () => {
+  const origHome = process.env.AWL_HOME;
+  const origCwd = process.cwd();
+  afterEach(() => {
+    process.chdir(origCwd);
+    if (origHome === undefined) {
+      delete process.env.AWL_HOME;
+    } else {
+      process.env.AWL_HOME = origHome;
+    }
+  });
+
+  /** requireConfig 가 요구하는 최소 config.json + 선택 state.json 을 심은 임시 프로젝트. */
+  function tmpProject(state: unknown): string {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-loopsum-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, '.awl', 'config.json'),
+      JSON.stringify({
+        project: 'loopsum-test',
+        engineVersion: '0.0.0',
+        verify: { typecheck: null, lint: null, test: null, e2e: null },
+      }),
+    );
+    if (state !== undefined) {
+      fs.writeFileSync(path.join(root, '.awl', 'state.json'), JSON.stringify(state));
+    }
+    return root;
+  }
+
+  /** readRecords 가 읽는 AWL_HOME/records 에 워크아이템 기록을 심는다. */
+  function seedRecords(records: Record<string, unknown>[]): void {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-loopsum-home-'));
+    process.env.AWL_HOME = home;
+    const dir = path.join(home, 'records');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, '2026-07.jsonl'),
+      `${records.map((r) => JSON.stringify(r)).join('\n')}\n`,
+    );
+  }
+
+  /** usage 스냅샷을 임시 파일에 쓰고 경로를 준다 — ambient /tmp/cc-usage.json 을 피해 결정론 확보. */
+  function usageFile(snap: Record<string, unknown>): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-usage-'));
+    const f = path.join(dir, 'cc-usage.json');
+    fs.writeFileSync(f, JSON.stringify(snap));
+    return f;
+  }
+
+  /** gate 기록 한 건(readRecords 는 id 를 안 쓴다 — 짧게 유지). */
+  function gateRec(wi: string, gate: number, at: string): Record<string, unknown> {
+    return { type: 'gate', workitem: wi, gate, auto: true, at };
+  }
+
+  /** stdout 캡처. 버퍼는 클로저 변수라 mockRestore 가 안 비운다(G-065). */
+  function capture(fn: () => void): string {
+    let buf = '';
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((c: unknown) => {
+      buf += String(c);
+      return true;
+    });
+    try {
+      fn();
+    } finally {
+      spy.mockRestore();
+    }
+    return buf;
+  }
+
+  it('현재 워크아이템: work.ts withCostAtStart 가 심은 costAtStart 를 startCostOf 가 읽어 비용 델타를 렌더한다 (AC-06, write→read 계약 e2e)', () => {
+    // write 측(work.ts 실경로): 시작 usage cost=2.00 → withCostAtStart 가 state.costAtStart 생성.
+    const startUsage = usageFile({ cost: 2.0, ts: 100 });
+    const seeded = withCostAtStart(
+      { workitem: 'WI-NOW', criteria: [{ id: 'AC-01', status: 'passed', commit: 'h1' }] },
+      startUsage,
+    );
+    // 계약의 write 절반: withCostAtStart 가 실제로 costAtStart(.cost) 키를 심었다.
+    expect((seeded.costAtStart as { cost?: number } | undefined)?.cost).toBe(2.0);
+
+    process.chdir(tmpProject(seeded));
+    seedRecords([
+      gateRec('WI-NOW', 1, '2026-07-18T05:00:00Z'),
+      gateRec('WI-NOW', 2, '2026-07-18T06:00:00Z'),
+    ]);
+
+    // read 측: now usage cost=5.50 주입 → startCostOf(2.00)→computeCostDelta→5.50-2.00=3.50.
+    const out = capture(() => runLoopSummary({ usagePath: usageFile({ cost: 5.5, ts: 200 }) }));
+
+    // criteriaFor 현재 분기(state.criteria) 도달 — 완료 AC 1/1.
+    expect(out).toContain('완료 AC 1/1');
+    // startCostOf(:283-284) 가 costAtStart 를 읽고 델타가 렌더됐다(write→read 키·모양 계약).
+    expect(out).toContain('비용 ~$3.5');
+  });
+
+  it('현재 워크아이템 --json: 핸들러가 efficiency.costDelta 를 직렬화한다 (AC-06, json 배선)', () => {
+    const seeded = withCostAtStart(
+      { workitem: 'WI-NOW', criteria: [{ id: 'AC-01', status: 'passed', commit: 'h1' }] },
+      usageFile({ cost: 2.0 }),
+    );
+    process.chdir(tmpProject(seeded));
+    seedRecords([gateRec('WI-NOW', 1, '2026-07-18T05:00:00Z')]);
+
+    const out = capture(() => runLoopSummary({ json: true, usagePath: usageFile({ cost: 5.5 }) }));
+    const j = JSON.parse(out) as LoopSummary;
+    // write→read 계약이 json 표면에서도 3.5 로 잠긴다.
+    expect(j.efficiency.costDelta).toBe(3.5);
+    expect(j.output.passedCriteria).toBe(1);
   });
 });
