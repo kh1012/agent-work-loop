@@ -485,6 +485,41 @@ describe('pipelineLanes — .tasks 레인 상태 판정(.taken 단일 마커, pi
   });
 });
 
+describe('pipelineLanes — 생산자-소비자 계약 · 뮤테이션-저항(pipeline-marker-finalization AC-02)', () => {
+  // 리더 자기가정이 아니라 awl-pipeline-* 스킬이 실제 만드는 마커(.taken)를 seed한다.
+  // 리더를 옛 규약(ㅍ/.pass)으로 되돌리면 이 블록은 반드시 fail 한다(status.ts 직접 뮤테이션으로 실증).
+  const statusOf = (plan: string[], exec: string[], review: string[]): Record<string, string> =>
+    Object.fromEntries(pipelineLanes(plan, exec, review).map((l) => [l.name, l.status]));
+
+  it('옛 마커(ㅍ·.pass)는 특별한 뜻을 잃었다 — executing/complete 로 안 읽힌다', () => {
+    // 옛 리더: plan/<n>ㅍ.md=executing, review/<n>.pass.md=complete. 이제 둘 다 폐기.
+    const by = statusOf(['legacyㅍ.md'], [], ['gonepass.pass.md']);
+    // ㅍ 는 이름의 일부일 뿐(base 가 안 벗김), claim(.taken) 이 아니라 executing 아님.
+    expect(by.legacyㅍ).toBe('pending');
+    expect(Object.values(by)).not.toContain('executing');
+    // review/<n>.pass.md 는 complete 표식이 아니다 — 무파일 합격은 exec/<n>.taken.md 가 근거다.
+    expect(Object.values(by)).not.toContain('complete');
+  });
+
+  it('스킬 라이프사이클 전이를 순서대로 재현한다(plan.taken→exec.md→exec.taken)', () => {
+    // 1) exec claim: plan/<n>.taken.md, 핸드오프 전 → executing
+    expect(statusOf(['wi.taken.md'], [], []).wi).toBe('executing');
+    // 2) exec 핸드오프: exec/<n>.md(미검증) → reviewing
+    expect(statusOf(['wi.taken.md'], ['wi.md'], []).wi).toBe('reviewing');
+    // 3) review 검증·합격(무파일 계약): exec/<n>.taken.md + review 무 → complete
+    expect(statusOf(['wi.taken.md'], ['wi.taken.md'], []).wi).toBe('complete');
+  });
+
+  it('review/<n>.md(미반영)=blocked 대 review/<n>.taken.md(반영)=complete/reviewing 을 가른다', () => {
+    // review 수정요구: exec.taken + review/<n>.md → blocked
+    expect(statusOf(['wi.taken.md'], ['wi.taken.md'], ['wi.md']).wi).toBe('blocked');
+    // exec 반영(.taken 떼 재검증 유발) + review/<n>.taken.md → reviewing(재검증 대기, blocked 아님)
+    expect(statusOf(['wi.taken.md'], ['wi.md'], ['wi.taken.md']).wi).toBe('reviewing');
+    // 재검증 합격: exec.taken + review/<n>.taken.md(반영본 잔존) → complete(review.md 아님)
+    expect(statusOf(['wi.taken.md'], ['wi.taken.md'], ['wi.taken.md']).wi).toBe('complete');
+  });
+});
+
 describe('runStatus --pipeline 핸들러 (pipeline-status-tracking AC-02, glue 커버)', () => {
   const origCwd = process.cwd();
   afterEach(() => process.chdir(origCwd));
