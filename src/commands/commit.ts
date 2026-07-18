@@ -472,13 +472,6 @@ export async function runCommit(
     process.exit(1);
   }
 
-  // record 트레일 공백 경고(record-trail-guard AC-02) — 활성 워크아이템이 없으면 이 커밋의
-  // 판단 근거(gate/attempt)가 안 남는다. 하드 차단하지 않고 한 줄만 알린다(정상 흐름은 조용, AC-03).
-  const trailWarning = buildTrailGapWarning(gateWorkitem, c);
-  if (trailWarning) {
-    process.stderr.write(trailWarning);
-  }
-
   const state = loadState(root);
   const crit = getCriterion(state, ac);
   const snapshot = crit && typeof crit.snapshot === 'string' ? crit.snapshot : undefined;
@@ -498,6 +491,15 @@ export async function runCommit(
     ];
     process.stderr.write(`${lines.join('\n')}\n`);
     process.exit(1);
+  }
+
+  // record 트레일 공백 경고(record-trail-guard AC-02) — 여기까지 왔으면 베이스라인이 있어 실제로
+  // 격리 커밋한다. 활성 워크아이템이 없으면 이 커밋의 판단 근거(gate/attempt)가 안 남으니 한 줄만
+  // 알린다(하드 차단 아님, 정상 흐름은 조용 — AC-03). baseline-missing exit 뒤에 둬서 "커밋합니다"
+  // 가 커밋하지 않는 경로에서 뜨지 않게 한다(리뷰 지적 AC-04).
+  const trailWarning = buildTrailGapWarning(gateWorkitem, c);
+  if (trailWarning) {
+    process.stderr.write(trailWarning);
   }
 
   const untrackedAtStart = Array.isArray(crit?.untrackedAtStart)
