@@ -34,6 +34,14 @@ function tmpHomeWithEngine(engineVersion: string | null): string {
   return home;
 }
 
+/** AWL_HOME 아래 npm-latest-cache.json 을 직접 써서 readCachedLatestVersion() 픽스처를 만든다(AC-03). */
+function writeNpmCache(home: string, latestVersion: string | null): void {
+  fs.writeFileSync(
+    path.join(home, 'npm-latest-cache.json'),
+    JSON.stringify({ checkedAt: new Date().toISOString(), latestVersion }),
+  );
+}
+
 describe('awl 프로그램 구성', () => {
   it('버전 정보를 노출한다', () => {
     const program = buildProgram();
@@ -244,6 +252,42 @@ describe('versionString — engine 버전 표시', () => {
   it('인자를 안 주면 현재 프로세스 능력을 기본값으로 쓴다(크래시 없음)', () => {
     process.env.AWL_HOME = tmpHomeWithEngine(null);
     expect(() => versionString()).not.toThrow();
+  });
+});
+
+describe('versionString — npm 업데이트 안내 (AC-03, 로컬 캐시만 동기 읽기·네트워크 없음)', () => {
+  it('캐시에 새 버전이 있으면 안내 라인을 추가로 보여준다', () => {
+    const home = tmpHomeWithEngine(pkgVersion);
+    writeNpmCache(home, '999.0.0');
+    process.env.AWL_HOME = home;
+    const s = versionString(NO_COLOR);
+    expect(s).toContain('새 버전 v999.0.0');
+    expect(s).toContain('npm i -g agent-work-loop@latest');
+  });
+
+  it('캐시의 최신 버전이 현재 버전과 같으면 안내 라인이 없다', () => {
+    const home = tmpHomeWithEngine(pkgVersion);
+    writeNpmCache(home, pkgVersion);
+    process.env.AWL_HOME = home;
+    const s = versionString(NO_COLOR);
+    expect(s).not.toContain('새 버전');
+    expect(s).not.toContain('npm i -g');
+  });
+
+  it('캐시 파일이 없으면(조회 실패/미조회) 안내 라인이 없다 — 회귀 없음(AC-05)', () => {
+    process.env.AWL_HOME = tmpHomeWithEngine(pkgVersion);
+    const s = versionString(NO_COLOR);
+    expect(s).not.toContain('새 버전');
+    expect(s).not.toContain('npm i -g');
+  });
+
+  it('기존 엔진 버전 불일치 경고와 새 버전 안내가 함께 나올 수 있다(병기)', () => {
+    const home = tmpHomeWithEngine('0.0.1');
+    writeNpmCache(home, '999.0.0');
+    process.env.AWL_HOME = home;
+    const s = versionString(NO_COLOR);
+    expect(s).toContain('버전 불일치 감지'); // 기존 엔진 불일치 경고
+    expect(s).toContain('새 버전 v999.0.0'); // 신규 npm 업데이트 안내
   });
 });
 

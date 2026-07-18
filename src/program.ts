@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { version } from '../package.json';
 import { installedEngineVersion } from './core/engine.js';
+import { readCachedLatestVersion } from './core/npm-registry.js';
 import {
   type Caps,
   caps,
@@ -10,6 +11,7 @@ import {
   signal,
   visibleWidth,
 } from './core/tty.js';
+import { computeUpdateAvailable } from './core/versions.js';
 
 export const BANNER = `Agent Work Loop
 
@@ -54,32 +56,53 @@ export function renderBanner(c: Caps = caps()): string {
  * `awl --version` 이 보여줄 문자열을 만든다. 패키지 버전뿐 아니라 설치된
  * 엔진 템플릿도 위계로 보여준다. 설치 버전이 어긋나면 경고와 갱신 방법을
  * 바로 알려줘 doctor까지 들어가지 않아도 원인을 알 수 있다.
+ *
+ * npm 새 버전 안내(WI-npm-update-notice AC-03)는 로컬 캐시 파일만 동기로 읽는다
+ * (readCachedLatestVersion — 네트워크 없음). 이 함수는 buildProgram() 에서 모든
+ * `awl` 명령 실행마다 호출되므로, 여기서 네트워크를 치면 --version 과 무관한
+ * 모든 명령이 함께 느려진다(AC-05 회귀 금지). 캐시 채우기는 `awl version-check`
+ * 가 담당한다(AC-04).
  */
 export function versionString(c: Caps = caps()): string {
   const color = makeColors(c.color);
   const s = makeSymbols(c);
   const engineVer = installedEngineVersion();
   const heading = `awl v${version}`;
+
+  let base: string;
   if (engineVer === null) {
-    return [
+    base = [
       heading,
       `    ${s.lastBranch} Engine Template: ${color.dim('(설치되지 않음)')}`,
       '',
       `    ${signal(c, 'warn')} 엔진 템플릿이 없습니다.`,
       `        ${color.dim("'awl init'을 실행하여 템플릿을 설치하세요.")}`,
     ].join('\n');
+  } else {
+    const template = `    ${s.lastBranch} Engine Template: v${engineVer}`;
+    if (engineVer === version) {
+      base = `${heading}\n${template}`;
+    } else {
+      base = [
+        heading,
+        template,
+        '',
+        `    ${signal(c, 'warn')} 버전 불일치 감지!`,
+        '        CLI 본체와 홈 디렉토리(~/.awl/engine)의 스킬 템플릿 버전이 다릅니다.',
+        `        ${color.dim('해결하려면 awl update 로 엔진을 갱신하세요.')}`,
+      ].join('\n');
+    }
   }
-  const template = `    ${s.lastBranch} Engine Template: v${engineVer}`;
-  if (engineVer === version) {
-    return `${heading}\n${template}`;
+
+  const updateAvailable = computeUpdateAvailable(version, readCachedLatestVersion());
+  if (!updateAvailable) {
+    return base;
   }
   return [
-    heading,
-    template,
+    base,
     '',
-    `    ${signal(c, 'warn')} 버전 불일치 감지!`,
-    '        CLI 본체와 홈 디렉토리(~/.awl/engine)의 스킬 템플릿 버전이 다릅니다.',
-    `        ${color.dim('해결하려면 awl update 로 엔진을 갱신하세요.')}`,
+    `    ${signal(c, 'warn')} 새 버전 v${updateAvailable.latest} 있음`,
+    `        ${color.dim(updateAvailable.hint)}`,
   ].join('\n');
 }
 
