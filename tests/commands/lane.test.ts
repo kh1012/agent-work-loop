@@ -120,7 +120,7 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
     return { restore: () => spy.mockRestore(), code: () => captured };
   }
 
-  it('lane new: worktree + .awl-home + 스킬 재설치 + export AWL_HOME + 파이프라인 트리거 안내 (AC-01)', async () => {
+  it('lane new: worktree + .awl/home + 스킬 재설치 + export AWL_HOME + 파이프라인 트리거 안내 (AC-01)', async () => {
     const proj = realGitProject();
     seedEngineSkill('awl-loop');
     seedEngineSkill('awl-pipeline-plan');

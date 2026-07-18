@@ -339,11 +339,11 @@ describe('teardown 통합 — 격리 학습이 전역으로 이어진다(실제 
     expect(globalRecords).not.toContain('LANE-ONLY-RECORD');
   });
 
-  it('work done: 워크트리의 .awl-home 학습을 삭제 전 전역으로 병합한다(수동 격리 flow)', async () => {
+  it('work done: 워크트리의 .awl/home 학습을 삭제 전 전역으로 병합한다(수동 격리 flow)', async () => {
     // --isolated --worktree 는 state 를 워크트리에 두므로(work.ts stateRoot) work done
     // 이 root state 에서 못 찾는다 — 그 조합의 teardown 은 lane rm 이다. work done 의
-    // 병합은 "root state 워크트리 wi 인데 워크트리에 .awl-home 이 있는" 경우에 동작한다:
-    // 비isolated --worktree wi 에서 수동으로 AWL_HOME=wt/.awl-home 격리를 쓴 flow.
+    // 병합은 "root state 워크트리 wi 인데 워크트리에 .awl/home 이 있는" 경우에 동작한다:
+    // 비isolated --worktree wi 에서 수동으로 AWL_HOME=wt/.awl/home 격리를 쓴 flow.
     const { proj, global } = realGitProject();
 
     const restoreErr = silenceStderr();
@@ -372,9 +372,9 @@ describe('teardown 통합 — 격리 학습이 전역으로 이어진다(실제 
     expect(readGotchaFiles(global).some((x) => x.lesson === 'workdone 격리교훈')).toBe(true);
   });
 
-  it('work done: 진짜 --isolated(비워크트리) 학습을 root/.awl-home 에서 전역으로 병합한다', async () => {
+  it('work done: 진짜 --isolated(비워크트리) 학습을 root/.awl/home 에서 전역으로 병합한다', async () => {
     // --isolated 만(워크트리 없음): state·홈 모두 root, work done 이 root state 에서 찾는다.
-    // root/.awl-home 은 삭제되지 않지만 완료 시 전역으로 학습을 이어야 한다(AC-01 워크아이템).
+    // root/.awl/home 은 삭제되지 않지만 완료 시 전역으로 학습을 이어야 한다(AC-01 워크아이템).
     const { proj, global } = realGitProject();
 
     const restoreErr = silenceStderr();
