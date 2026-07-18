@@ -359,4 +359,35 @@ describe('runLoopSummary 핸들러 glue (AC-06/AC-07, 리뷰 round1 finding #1/#
     expect(j.efficiency.costDelta).toBe(3.5);
     expect(j.output.passedCriteria).toBe(1);
   });
+
+  it('과거 워크아이템: criteriaFor 가 레지스트리(state.workitems[id])를 읽고 startCostOf 는 undefined→비용 생략 (AC-07, 리뷰 finding #1)', () => {
+    // 현재는 WI-CURRENT, 조회 대상은 과거 WI-PAST. state.criteria(AC-99)가 아니라
+    // state.workitems['WI-PAST'].criteria 를 읽어야 한다(criteriaFor 레지스트리 분기 :263-269).
+    process.chdir(
+      tmpProject({
+        workitem: 'WI-CURRENT',
+        criteria: [{ id: 'AC-99', status: 'pending' }],
+        costAtStart: { cost: 2.0 }, // 현재 워크아이템 것 — 과거 조회엔 안 쓰여야 한다.
+        workitems: {
+          'WI-PAST': {
+            criteria: [
+              { id: 'AC-01', status: 'passed', commit: 'h1' },
+              { id: 'AC-02', status: 'passed', commit: 'h2' },
+            ],
+          },
+        },
+      }),
+    );
+    seedRecords([gateRec('WI-PAST', 1, '2026-07-18T05:00:00Z')]);
+
+    // now usage cost=5.50 주입: startCostOf 가드가 없으면 5.50-2.00=3.50 이 새 나온다(뮤테이션 신호).
+    const out = capture(() =>
+      runLoopSummary({ workitem: 'WI-PAST', usagePath: usageFile({ cost: 5.5 }) }),
+    );
+
+    // 레지스트리 criteria(AC-01/AC-02 둘 다 passed) → 완료 AC 2/2. state.criteria(AC-99)면 0/1 이라 RED.
+    expect(out).toContain('완료 AC 2/2');
+    // 과거 워크아이템이라 startCostOf(:280-281)가 undefined → now usage 주입에도 비용 줄 생략.
+    expect(out).not.toContain('비용 ~$');
+  });
 });
