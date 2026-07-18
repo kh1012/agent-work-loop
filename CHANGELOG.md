@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+## [0.6.16] - 2026-07-18
+
+### 변경
+
+- 과거 워크아이템 레지스트리 분기 + startCostOf 가드 glue (loop-completion-stats AC-07, 리뷰 finding #1)
+- cost write→read 계약 e2e + 핸들러 진입 잠금 (loop-completion-stats AC-06, 리뷰 finding #2)
+
 ## [0.6.15] - 2026-07-18
 
 ### 추가
