@@ -326,10 +326,12 @@ export interface PipelineLane {
 
 /**
  * .tasks/{plan,exec,review} 의 파일명만으로 레인별 workitem 상태를 판정한다(순수, 파일 내용 안 엶).
+ * 마커 규약은 awl-pipeline-* 스킬 계약과 단일 진실(`.taken`)로 통일한다(pipeline-marker-finalization):
+ * claim=plan/<name>.taken.md, 합격=exec/<name>.taken.md 이고 review 수정요구 없음(무파일 합격 계약).
  *
- * 우선순위: review/<name>.pass.md=complete → review/<name>.md(수정요구)=blocked →
- * exec/<name>.md(review 대기)=reviewing → plan/<name>.hold.md(에스컬레이션)=blocked →
- * plan/<name>ㅍ.md(착수)=executing → plan/<name>.md(신규)=pending.
+ * 우선순위: review/<name>.md(미반영 수정요구)=blocked → plan/<name>.hold.md(에스컬레이션)=blocked →
+ * exec/<name>.taken.md(검증함·수정요구 없음)=complete → exec/<name>.md(미검증 핸드오프)=reviewing →
+ * plan/<name>.taken.md(착수)=executing → plan/<name>.md(신규)=pending.
  */
 export function pipelineLanes(
   planFiles: string[],
@@ -337,11 +339,8 @@ export function pipelineLanes(
   reviewFiles: string[],
 ): PipelineLane[] {
   const isMd = (f: string): boolean => f.endsWith('.md');
-  const base = (f: string): string =>
-    f
-      .replace(/\.md$/, '')
-      .replace(/\.(pass|hold)$/, '')
-      .replace(/ㅍ$/, '');
+  // 마커 잔재(.taken/.hold/.pass)와 .md 를 벗겨 workitem 이름으로 정규화한다.
+  const base = (f: string): string => f.replace(/\.md$/, '').replace(/\.(taken|hold|pass)$/, '');
   const names = new Set<string>();
   for (const f of [...planFiles, ...execFiles, ...reviewFiles]) {
     if (isMd(f)) {
@@ -351,16 +350,16 @@ export function pipelineLanes(
   const lanes: PipelineLane[] = [];
   for (const name of names) {
     let status: PipelineStatus;
-    if (reviewFiles.includes(`${name}.pass.md`)) {
-      status = 'complete';
-    } else if (reviewFiles.includes(`${name}.md`)) {
-      status = 'blocked'; // review/<name>.md(정확) = 미반영 수정요구. ㅍ 반영본은 아래 reviewing 으로.
-    } else if (execFiles.some((f) => isMd(f) && base(f) === name)) {
-      status = 'reviewing'; // exec 핸드오프 = review 대기
+    if (reviewFiles.includes(`${name}.md`)) {
+      status = 'blocked'; // review/<name>.md = 미반영 수정요구(review/<name>.taken.md 반영본은 complete/reviewing 으로)
     } else if (planFiles.includes(`${name}.hold.md`)) {
       status = 'blocked'; // hold = 사람 에스컬레이션(멈춤)
-    } else if (planFiles.includes(`${name}ㅍ.md`)) {
-      status = 'executing'; // 착수 표식
+    } else if (execFiles.includes(`${name}.taken.md`)) {
+      status = 'complete'; // exec 검증함 표식 + review 수정요구 없음 = 무파일 합격 계약
+    } else if (execFiles.includes(`${name}.md`)) {
+      status = 'reviewing'; // exec/<name>.md 미검증 핸드오프 = review 대기
+    } else if (planFiles.includes(`${name}.taken.md`)) {
+      status = 'executing'; // plan claim 표식(착수, 핸드오프 전)
     } else {
       status = 'pending'; // plan/<name>.md 신규
     }
