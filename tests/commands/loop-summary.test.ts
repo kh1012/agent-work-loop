@@ -171,3 +171,26 @@ describe('assembleLoopSummary + 렌더 (AC-01 4렌즈)', () => {
     expect(out).toContain('비용 ~$2.4');
   });
 });
+
+describe('헤드라인 = 개입 렌즈 (AC-02)', () => {
+  it('요약 첫 콘텐츠 줄이 사람 개입 N · 자율 M (무인율 X%) 이다', () => {
+    const s = assembleLoopSummary(
+      'wi-x',
+      [
+        { type: 'gate', gate: 1, auto: true },
+        { type: 'gate', gate: 2, auto: false },
+      ],
+      [{ id: 'AC-01', status: 'passed' }],
+      undefined,
+    );
+    const lines = buildSummaryLines(s);
+    // 첫 줄이 개입/자율. 렌즈 순서를 바꿔 품질/효율이 먼저 오면 이 잠금이 깨진다.
+    expect(lines[0]).toBe('사람 개입 1 · 자율 1 (무인율 50%)');
+    expect(lines[0].startsWith('사람 개입')).toBe(true);
+  });
+
+  it('무인율을 못 내면(판단 지점 0) 첫 줄에 무인율 괄호를 붙이지 않는다', () => {
+    const s = assembleLoopSummary('wi-x', [{ type: 'attempt' }], [], undefined);
+    expect(buildSummaryLines(s)[0]).toBe('사람 개입 0 · 자율 0');
+  });
+});
