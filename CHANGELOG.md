@@ -5,6 +5,16 @@
 
 ## [Unreleased]
 
+## [0.6.21] - 2026-07-19
+
+### 변경
+
+- 워처 heredoc(watch-inputs/watch-exec)을 while true 내부폴링에서 one-shot 단일패스로 재작성 [AC-02]
+- self-pace를 one-shot 체크+/loop|ScheduleWakeup 예약으로 재설계 [AC-01]
+- 명령 카운트 재확인 로그 2 추가(0.6.20, 변동없음) [AC-04]
+- 6절에 파이프라인 사이클 요약 서사 1문단 추가 [AC-03]
+- loop-summary 배치모드(--workitems/--since) 섹션 추가 [AC-02]
+
 ## [0.6.20] - 2026-07-19
 
 ### 추가
