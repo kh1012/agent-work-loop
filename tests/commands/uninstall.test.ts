@@ -5,6 +5,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { packageEngineDir } from '../../src/commands/init.js';
 import {
+  checkLiveLocks,
   findMarkerLegacyFiles,
   readOtherProjects,
   resolveScope,
@@ -53,6 +54,29 @@ describe('uninstall', () => {
       return true;
     });
     return { writes, restore: () => spy.mockRestore() };
+  }
+
+  // process.exit 을 막되 호출된 종료 코드를 캡처한다(lane.test.ts 와 같은 패턴).
+  function spyProcessExit(): { restore: () => void; code: () => number | undefined } {
+    let captured: number | undefined;
+    const spy = vi.spyOn(process, 'exit').mockImplementation(((c?: number) => {
+      captured = c;
+      throw new Error('exit');
+    }) as unknown as typeof process.exit);
+    return { restore: () => spy.mockRestore(), code: () => captured };
+  }
+
+  /** exec/review 락 디렉토리를 심는다. pid 는 살아있는 프로세스(기본: 현재 테스트 프로세스)를 쓴다. */
+  function seedLock(
+    proj: string,
+    role: 'exec' | 'review',
+    pid: number,
+    beatEpochSec: number,
+  ): void {
+    const lockDir = path.join(proj, '.tasks', '.locks', role);
+    fs.mkdirSync(lockDir, { recursive: true });
+    fs.writeFileSync(path.join(lockDir, 'pid'), String(pid));
+    fs.writeFileSync(path.join(lockDir, 'beat'), String(beatEpochSec));
   }
 
   /** 프로젝트 로컬 + 전역 양쪽에 F-02~F-04 카테고리를 실제로 심는다. */
@@ -503,6 +527,100 @@ describe('uninstall', () => {
       }
       const out = cap.writes.join('');
       expect(out).not.toContain('[레거시]');
+    });
+  });
+
+  describe('AC-06: 라이브 프로세스 안전장치 — 최우선', () => {
+    it('checkLiveLocks: 살아있는 PID + 최근 heartbeat 면 live:true', () => {
+      const proj = fixtureProject();
+      const now = Math.floor(Date.now() / 1000);
+      seedLock(proj, 'review', process.pid, now);
+      const statuses = checkLiveLocks(path.join(proj, '.tasks'), now * 1000);
+      const review = statuses.find((s) => s.role === 'review');
+      expect(review?.live).toBe(true);
+      expect(review?.pid).toBe(process.pid);
+    });
+
+    it('checkLiveLocks: heartbeat 가 60초 이상 지났으면(stale) live:false', () => {
+      const proj = fixtureProject();
+      const now = Math.floor(Date.now() / 1000);
+      seedLock(proj, 'exec', process.pid, now - 120); // 120초 전.
+      const statuses = checkLiveLocks(path.join(proj, '.tasks'), now * 1000);
+      const exec = statuses.find((s) => s.role === 'exec');
+      expect(exec?.live).toBe(false);
+    });
+
+    it('checkLiveLocks: 죽은 PID(kill -0 실패)면 heartbeat 와 무관하게 live:false', () => {
+      const proj = fixtureProject();
+      const now = Math.floor(Date.now() / 1000);
+      // 존재할 가능성이 거의 없는 PID — kill -0 이 ESRCH 로 실패해야 한다.
+      seedLock(proj, 'exec', 999_999, now);
+      const statuses = checkLiveLocks(path.join(proj, '.tasks'), now * 1000);
+      const exec = statuses.find((s) => s.role === 'exec');
+      expect(exec?.live).toBe(false);
+    });
+
+    it('checkLiveLocks: 락 디렉토리가 아예 없으면 빈 배열', () => {
+      const proj = fixtureProject();
+      expect(checkLiveLocks(path.join(proj, '.tasks'))).toEqual([]);
+    });
+
+    it('라이브 락이 있으면 --yes 를 경고하고 중단한다 — fs 변경 0(전/후 존재 비교)', async () => {
+      const proj = fixtureProject();
+      fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+      const dotAwlPath = path.join(proj, '.awl');
+      const beforeMtime = fs.statSync(dotAwlPath).mtimeMs;
+      const now = Math.floor(Date.now() / 1000);
+      seedLock(proj, 'review', process.pid, now); // 살아있는 락.
+
+      const errWrites: string[] = [];
+      const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation((s: unknown) => {
+        errWrites.push(String(s));
+        return true;
+      });
+      const exitCap = spyProcessExit();
+      await expect(runUninstall({ yes: true })).rejects.toThrow('exit');
+      const combined = errWrites.join('');
+      exitCap.restore();
+      errSpy.mockRestore();
+
+      expect(exitCap.code()).toBe(1);
+      expect(combined).toMatch(/라이브|프로세스|중단/);
+      // 아무것도 안 지워짐 — .awl/ 이 그대로다(mtime 도 불변, 뮤테이션 저항).
+      expect(fs.existsSync(dotAwlPath)).toBe(true);
+      expect(fs.statSync(dotAwlPath).mtimeMs).toBe(beforeMtime);
+    });
+
+    it('락이 stale(60초 이상 지남)이면 경고 없이 정상 진행한다', async () => {
+      const proj = fixtureProject();
+      fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+      const now = Math.floor(Date.now() / 1000);
+      seedLock(proj, 'review', process.pid, now - 120); // stale.
+
+      await runUninstall({ yes: true });
+
+      expect(fs.existsSync(path.join(proj, '.awl'))).toBe(false);
+    });
+
+    it('락이 없으면 정상 진행한다', async () => {
+      const proj = fixtureProject();
+      fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+
+      await runUninstall({ yes: true });
+
+      expect(fs.existsSync(path.join(proj, '.awl'))).toBe(false);
+    });
+
+    it('--global 전용 스코프에서는 라이브 락이 있어도 중단하지 않는다(.tasks 를 안 건드리므로)', async () => {
+      const proj = fixtureProject();
+      const home = process.env.AWL_HOME as string;
+      fs.mkdirSync(path.join(home, 'records'), { recursive: true });
+      const now = Math.floor(Date.now() / 1000);
+      seedLock(proj, 'review', process.pid, now);
+
+      await runUninstall({ yes: true, global: true });
+
+      expect(fs.existsSync(path.join(home, 'records'))).toBe(false);
     });
   });
 

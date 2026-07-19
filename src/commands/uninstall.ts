@@ -114,6 +114,85 @@ function prePushMatchesTemplate(prePushPath: string): boolean {
   }
 }
 
+/**
+ * `.tasks/watch-inputs.sh`(awl-pipeline 워처)가 쓰는 락 프로토콜의 stale 임계값(초).
+ * 워처 자신의 STALE=60 과 반드시 같은 값을 써야 한다 — 이 값이 어긋나면 워처가
+ * 살아있다고 보는 락을 uninstall 이 죽었다고 오판(또는 그 반대)할 수 있다.
+ */
+const LOCK_STALE_SECS = 60;
+
+export interface LockStatus {
+  role: 'exec' | 'review';
+  path: string;
+  live: boolean;
+  pid?: number;
+  ageSec?: number;
+  reason?: string;
+}
+
+/** PID 가 살아있는가(`kill -0`). ESRCH=죽음, EPERM=존재(권한만 없음)로 POSIX 관례를 따른다. */
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/**
+ * `.tasks/.locks/{exec,review}` 의 라이브 프로세스 여부를 확인한다(AC-06, 최우선
+ * 안전장치). watch-inputs.sh 의 락 프로토콜(mkdir 로 획득한 디렉토리 안에 pid/beat
+ * 파일)을 그대로 읽는다 — 쓰지 않는다(읽기 전용, 드라이런에서도 안전하게 호출 가능).
+ * pid 가 없거나 죽었으면, 또는 heartbeat 가 STALE_SECS 이상 지났으면 live:false다.
+ */
+export function checkLiveLocks(tasksDir: string, nowMs: number = Date.now()): LockStatus[] {
+  const roles: Array<'exec' | 'review'> = ['exec', 'review'];
+  const results: LockStatus[] = [];
+  for (const role of roles) {
+    const lockDir = path.join(tasksDir, '.locks', role);
+    if (!exists(lockDir)) {
+      continue;
+    }
+    let pid: number | undefined;
+    try {
+      pid = Number.parseInt(fs.readFileSync(path.join(lockDir, 'pid'), 'utf8').trim(), 10);
+    } catch {
+      pid = undefined;
+    }
+    if (pid === undefined || Number.isNaN(pid) || !isProcessAlive(pid)) {
+      results.push({
+        role,
+        path: lockDir,
+        live: false,
+        pid,
+        reason: 'pid 없음 또는 죽은 프로세스',
+      });
+      continue;
+    }
+    let beatSec: number | undefined;
+    try {
+      beatSec = Number.parseInt(fs.readFileSync(path.join(lockDir, 'beat'), 'utf8').trim(), 10);
+    } catch {
+      beatSec = undefined;
+    }
+    const ageSec =
+      beatSec === undefined || Number.isNaN(beatSec)
+        ? Number.POSITIVE_INFINITY
+        : Math.floor(nowMs / 1000) - beatSec;
+    const live = ageSec < LOCK_STALE_SECS;
+    results.push({
+      role,
+      path: lockDir,
+      live,
+      pid,
+      ageSec,
+      reason: live ? undefined : `heartbeat stale(${LOCK_STALE_SECS}초 이상)`,
+    });
+  }
+  return results;
+}
+
 /** .claude/skills/ 아래 awl 소유 스킬만 고른다 — 다른 스킬(프로젝트가 따로 설치한 것)은 절대 건드리지 않는다. */
 function awlSkillDirNames(root: string): string[] {
   const dir = path.join(root, '.claude', 'skills');
@@ -408,6 +487,7 @@ function renderPlan(
   lanes: LaneInfo[],
   global: UninstallItem[],
   otherProjects: OtherProject[],
+  lockStatuses: LockStatus[],
   c: Caps,
 ): string {
   const color = makeColors(c.color);
@@ -426,6 +506,14 @@ function renderPlan(
     }
     for (const lane of lanes) {
       lines.push(`  ${signal(c, 'ok')} .awl-worktrees/${lane.name} (git worktree remove)`);
+    }
+    const liveLocks = lockStatuses.filter((l) => l.live);
+    if (liveLocks.length > 0) {
+      lines.push('');
+      lines.push(`  ${signal(c, 'error')} 라이브 프로세스 감지 — --yes 실행 시 중단됩니다(AC-06):`);
+      for (const l of liveLocks) {
+        lines.push(`      .tasks/.locks/${l.role}  PID ${l.pid} · ${l.ageSec}초 전 heartbeat`);
+      }
     }
     lines.push('');
   }
@@ -484,6 +572,8 @@ export async function runUninstall(opts: UninstallOpts): Promise<void> {
   const lanes = scope.project ? await collectLanes(root) : [];
   const global = scope.global ? scanGlobal() : [];
   const otherProjects = scope.global ? readOtherProjects(root) : [];
+  // 읽기 전용(AC-06) — 드라이런에서도 안전하게 미리 보여준다.
+  const lockStatuses = scope.project ? checkLiveLocks(path.join(root, '.tasks')) : [];
 
   if (opts.json) {
     process.stdout.write(
@@ -495,17 +585,36 @@ export async function runUninstall(opts: UninstallOpts): Promise<void> {
           lanes: lanes.map((l) => l.name),
           global: global.filter((i) => i.present),
           otherProjects,
+          liveLocks: lockStatuses,
         },
         null,
         2,
       )}\n`,
     );
   } else {
-    process.stdout.write(`\n${renderPlan(scope, project, lanes, global, otherProjects, c)}\n`);
+    process.stdout.write(
+      `\n${renderPlan(scope, project, lanes, global, otherProjects, lockStatuses, c)}\n`,
+    );
   }
 
   if (!opts.yes) {
     return;
+  }
+
+  // AC-06(최우선) — 워처가 도는 중이면 그 아래 디렉토리를 지우지 않는다. 프로젝트
+  // 스코프가 켜져 있을 때만 확인한다(.tasks 를 안 건드리는 --global 전용은 무관).
+  // 강제 플래그 없이 전체를 중단한다 — 부분 삭제로 애매한 상태를 남기지 않는다.
+  if (scope.project) {
+    const liveLocks = lockStatuses.filter((l) => l.live);
+    if (liveLocks.length > 0) {
+      const detail = liveLocks
+        .map((l) => `.tasks/.locks/${l.role} PID ${l.pid} (${l.ageSec}초 전 heartbeat)`)
+        .join(', ');
+      process.stderr.write(
+        `\n  ${signal(c, 'error')} 라이브 프로세스가 감지돼 중단합니다 — ${detail}\n`,
+      );
+      process.exit(1);
+    }
   }
 
   const laneResults: LaneRemoveResult[] = [];
