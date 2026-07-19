@@ -430,6 +430,82 @@ describe('uninstall', () => {
     });
   });
 
+  describe('AC-05: 레거시 스윕 — ㅍ 마커 / 옛 .awl-home / deltas+backup', () => {
+    it('ㅍ 마커 잔재(.tasks/**/*ㅍ*.md)를 드라이런에 [레거시]로 나열하고 --yes 로 지운다', async () => {
+      const proj = fixtureProject();
+      fs.mkdirSync(path.join(proj, '.tasks', 'plan'), { recursive: true });
+      const markerFile = path.join(proj, '.tasks', 'plan', '일감ㅍ완료.md');
+      fs.writeFileSync(markerFile, '# 레거시\n');
+
+      const cap = captureStdout();
+      try {
+        await runUninstall({});
+      } finally {
+        cap.restore();
+      }
+      const dry = cap.writes.join('');
+      expect(dry).toContain('[레거시]');
+      expect(dry).toContain('마커');
+
+      await runUninstall({ yes: true });
+      expect(fs.existsSync(markerFile)).toBe(false);
+    });
+
+    it('최상위 .awl-home(0.6.17 이전 레거시)을 드라이런에 나열하고 --yes 로 지운다', async () => {
+      const proj = fixtureProject();
+      const legacyHome = path.join(proj, '.awl-home');
+      fs.mkdirSync(path.join(legacyHome, 'records'), { recursive: true });
+
+      const cap = captureStdout();
+      try {
+        await runUninstall({});
+      } finally {
+        cap.restore();
+      }
+      const dry = cap.writes.join('');
+      expect(dry).toContain('.awl-home');
+      expect(dry).toContain('[레거시]');
+
+      await runUninstall({ yes: true });
+      expect(fs.existsSync(legacyHome)).toBe(false);
+      // 정본 .awl/home 은(있었다면) 이번 픽스처엔 없었으므로 별도 확인 불필요 — .awl-home 만 특정해 지웠는지 확인.
+    });
+
+    it('전역 deltas/ + deltas.backup-* 레거시를 --global 드라이런에 나열하고 --yes 로 지운다', async () => {
+      fixtureProject();
+      const home = process.env.AWL_HOME as string;
+      fs.mkdirSync(path.join(home, 'deltas'), { recursive: true });
+      fs.writeFileSync(path.join(home, 'deltas', 'x.json'), '{}\n');
+      fs.writeFileSync(path.join(home, 'deltas.backup-2026-01-01'), '{}\n');
+
+      const cap = captureStdout();
+      try {
+        await runUninstall({ global: true });
+      } finally {
+        cap.restore();
+      }
+      const dry = cap.writes.join('');
+      expect(dry).toContain('deltas');
+      expect(dry).toContain('[레거시]');
+
+      await runUninstall({ yes: true, global: true });
+      expect(fs.existsSync(path.join(home, 'deltas'))).toBe(false);
+      expect(fs.existsSync(path.join(home, 'deltas.backup-2026-01-01'))).toBe(false);
+    });
+
+    it('레거시 패턴이 없으면 아무것도 안 지우고 목록에도 안 뜬다', async () => {
+      fixtureProject();
+      const cap = captureStdout();
+      try {
+        await runUninstall({ all: true });
+      } finally {
+        cap.restore();
+      }
+      const out = cap.writes.join('');
+      expect(out).not.toContain('[레거시]');
+    });
+  });
+
   describe('scanProjectLocal / scanGlobal (순수 스캔, 읽기 전용)', () => {
     it('scanProjectLocal 은 프로젝트가 비어 있으면 전부 present:false 를 돌려준다', () => {
       const proj = fixtureProject();
