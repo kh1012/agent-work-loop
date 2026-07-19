@@ -3,22 +3,112 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  type AggregateLoopSummary,
   type LoopSummary,
+  aggregateLoopSummaries,
   assembleLoopSummary,
+  buildAggregateLines,
   buildSummaryLines,
   computeEfficiencyLens,
   computeInterventionLens,
   computeOutputLens,
   computeQualityLens,
+  renderAggregateLoopSummary,
   renderLoopSummary,
+  resolveBatchWorkitems,
   runLoopSummary,
   summaryToJson,
 } from '../../src/commands/loop-summary.js';
 import { withCostAtStart } from '../../src/commands/work.js';
+import { generationsDir } from '../../src/core/paths.js';
 import { caps } from '../../src/core/tty.js';
 
 type Rec = Record<string, unknown>;
 const noColor = { ...caps(), color: false };
+
+// --- 공용 테스트 헬퍼(runLoopSummary 핸들러/배치 글루가 함께 쓴다) ---
+const origHome = process.env.AWL_HOME;
+const origCwd = process.cwd();
+afterEach(() => {
+  process.chdir(origCwd);
+  if (origHome === undefined) {
+    delete process.env.AWL_HOME;
+  } else {
+    process.env.AWL_HOME = origHome;
+  }
+});
+
+/** requireConfig 가 요구하는 최소 config.json + 선택 state.json 을 심은 임시 프로젝트. */
+function tmpProject(state: unknown, project = 'loopsum-test'): string {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-loopsum-')));
+  fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, '.awl', 'config.json'),
+    JSON.stringify({
+      project,
+      engineVersion: '0.0.0',
+      verify: { typecheck: null, lint: null, test: null, e2e: null },
+    }),
+  );
+  if (state !== undefined) {
+    fs.writeFileSync(path.join(root, '.awl', 'state.json'), JSON.stringify(state));
+  }
+  return root;
+}
+
+/** AWL_HOME 을 새 임시 디렉터리로 고정한다 — 이미 세팅돼 있으면 그대로 재사용(seedRecords 와 같은 홈 공유). */
+function useTmpHome(): string {
+  const home = process.env.AWL_HOME ?? fs.mkdtempSync(path.join(os.tmpdir(), 'awl-loopsum-home-'));
+  process.env.AWL_HOME = home;
+  return home;
+}
+
+/** readRecords 가 읽는 AWL_HOME/records 에 워크아이템 기록을 심는다. */
+function seedRecords(records: Record<string, unknown>[]): void {
+  const home = useTmpHome();
+  const dir = path.join(home, 'records');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, '2026-07.jsonl'),
+    `${records.map((r) => JSON.stringify(r)).join('\n')}\n`,
+  );
+}
+
+/** usage 스냅샷을 임시 파일에 쓰고 경로를 준다 — ambient /tmp/cc-usage.json 을 피해 결정론 확보. */
+function usageFile(snap: Record<string, unknown>): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-usage-'));
+  const f = path.join(dir, 'cc-usage.json');
+  fs.writeFileSync(f, JSON.stringify(snap));
+  return f;
+}
+
+/** gate 기록 한 건(readRecords 는 id 를 안 쓴다 — 짧게 유지). */
+function gateRec(wi: string, gate: number, at: string): Record<string, unknown> {
+  return { type: 'gate', workitem: wi, gate, auto: true, at };
+}
+
+/** 세대 스냅샷(evolve.ts writeGeneration 이 남기는 것과 같은 모양)을 심는다 — --since 배치 선택용. */
+function seedGeneration(project: string, workitem: string, at: string): void {
+  useTmpHome();
+  const dir = generationsDir(project);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, `${workitem}.json`), JSON.stringify({ workitem, at }));
+}
+
+/** stdout 캡처. 버퍼는 클로저 변수라 mockRestore 가 안 비운다(G-065). */
+function capture(fn: () => void): string {
+  let buf = '';
+  const spy = vi.spyOn(process.stdout, 'write').mockImplementation((c: unknown) => {
+    buf += String(c);
+    return true;
+  });
+  try {
+    fn();
+  } finally {
+    spy.mockRestore();
+  }
+  return buf;
+}
 
 describe('computeInterventionLens (AC-01 ① / AC-02 헤드라인)', () => {
   it('gate auto:true 는 자율, auto:false·auto 부재·defer 는 사람 개입으로 분리한다', () => {
@@ -251,74 +341,8 @@ describe('커밋 지표 라벨 정확화 (AC-05, 리뷰 finding #1)', () => {
 // green(약단언, G-047: 래퍼·I/O 는 별도 회귀 표면). 실제 runLoopSummary 를 임시 프로젝트에서
 // 호출해 stdout 을 단언한다.
 describe('runLoopSummary 핸들러 glue (AC-06/AC-07, 리뷰 round1 finding #1/#2)', () => {
-  const origHome = process.env.AWL_HOME;
-  const origCwd = process.cwd();
-  afterEach(() => {
-    process.chdir(origCwd);
-    if (origHome === undefined) {
-      delete process.env.AWL_HOME;
-    } else {
-      process.env.AWL_HOME = origHome;
-    }
-  });
-
-  /** requireConfig 가 요구하는 최소 config.json + 선택 state.json 을 심은 임시 프로젝트. */
-  function tmpProject(state: unknown): string {
-    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-loopsum-')));
-    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
-    fs.writeFileSync(
-      path.join(root, '.awl', 'config.json'),
-      JSON.stringify({
-        project: 'loopsum-test',
-        engineVersion: '0.0.0',
-        verify: { typecheck: null, lint: null, test: null, e2e: null },
-      }),
-    );
-    if (state !== undefined) {
-      fs.writeFileSync(path.join(root, '.awl', 'state.json'), JSON.stringify(state));
-    }
-    return root;
-  }
-
-  /** readRecords 가 읽는 AWL_HOME/records 에 워크아이템 기록을 심는다. */
-  function seedRecords(records: Record<string, unknown>[]): void {
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-loopsum-home-'));
-    process.env.AWL_HOME = home;
-    const dir = path.join(home, 'records');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(
-      path.join(dir, '2026-07.jsonl'),
-      `${records.map((r) => JSON.stringify(r)).join('\n')}\n`,
-    );
-  }
-
-  /** usage 스냅샷을 임시 파일에 쓰고 경로를 준다 — ambient /tmp/cc-usage.json 을 피해 결정론 확보. */
-  function usageFile(snap: Record<string, unknown>): string {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-usage-'));
-    const f = path.join(dir, 'cc-usage.json');
-    fs.writeFileSync(f, JSON.stringify(snap));
-    return f;
-  }
-
-  /** gate 기록 한 건(readRecords 는 id 를 안 쓴다 — 짧게 유지). */
-  function gateRec(wi: string, gate: number, at: string): Record<string, unknown> {
-    return { type: 'gate', workitem: wi, gate, auto: true, at };
-  }
-
-  /** stdout 캡처. 버퍼는 클로저 변수라 mockRestore 가 안 비운다(G-065). */
-  function capture(fn: () => void): string {
-    let buf = '';
-    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((c: unknown) => {
-      buf += String(c);
-      return true;
-    });
-    try {
-      fn();
-    } finally {
-      spy.mockRestore();
-    }
-    return buf;
-  }
+  // 헬퍼(tmpProject/seedRecords/gateRec/capture/usageFile)와 cwd·AWL_HOME 복구용
+  // afterEach 는 파일 상단(모듈 스코프)으로 옮겼다 — 배치모드 describe 와 공유(WI-U 재사용).
 
   it('현재 워크아이템: work.ts withCostAtStart 가 심은 costAtStart 를 startCostOf 가 읽어 비용 델타를 렌더한다 (AC-06, write→read 계약 e2e)', () => {
     // write 측(work.ts 실경로): 시작 usage cost=2.00 → withCostAtStart 가 state.costAtStart 생성.
@@ -389,5 +413,269 @@ describe('runLoopSummary 핸들러 glue (AC-06/AC-07, 리뷰 round1 finding #1/#
     expect(out).toContain('완료 AC 2/2');
     // 과거 워크아이템이라 startCostOf(:280-281)가 undefined → now usage 주입에도 비용 줄 생략.
     expect(out).not.toContain('비용 ~$');
+  });
+});
+
+// --- 배치 모드 (pipeline-cycle-summary AC-01/02/03) ---
+// F-02 규약(metrics.ts:172 groupByExperiment 와 동일 패턴): 비율계=평균, 카운트계=합,
+// 시간/비용=있는 값만 평균. F-05: durationMs/costDelta 평균은 오케스트레이터 wall-clock 이 아니다.
+
+describe('aggregateLoopSummaries (AC-02, groupByExperiment 규약 대조)', () => {
+  // 3개 픽스처. B 는 costDelta 없음, C 는 durationMs 없음 — "있는 값만 평균" 을 실제로 태운다.
+  const a: LoopSummary = {
+    workitem: 'WI-A',
+    hasRecords: true,
+    intervention: {
+      autonomous: 2,
+      humanInterventions: 1,
+      humanGateCount: 1,
+      deferCount: 0,
+      unmannedRate: 67,
+    },
+    quality: {
+      reviewCount: 2,
+      reviewRejects: 1,
+      blocked: 0,
+      avgAttempts: 1.5,
+      implementationFailures: 3,
+      proceduralErrors: 0,
+    },
+    efficiency: { durationMs: 3_600_000, costDelta: 2.5 },
+    output: {
+      passedCriteria: 3,
+      totalCriteria: 3,
+      commits: 2,
+      gotchaApplied: 1,
+      gotchaMissed: 0,
+      exclusions: 0,
+    },
+  };
+  const b: LoopSummary = {
+    workitem: 'WI-B',
+    hasRecords: true,
+    intervention: {
+      autonomous: 0,
+      humanInterventions: 2,
+      humanGateCount: 2,
+      deferCount: 0,
+      unmannedRate: 0,
+    },
+    quality: {
+      reviewCount: 1,
+      reviewRejects: 0,
+      blocked: 1,
+      avgAttempts: 2.5,
+      implementationFailures: 5,
+      proceduralErrors: 1,
+    },
+    efficiency: { durationMs: 7_200_000, costDelta: undefined }, // 비용 필드 없음
+    output: {
+      passedCriteria: 2,
+      totalCriteria: 2,
+      commits: 1,
+      gotchaApplied: 0,
+      gotchaMissed: 1,
+      exclusions: 1,
+    },
+  };
+  const c: LoopSummary = {
+    workitem: 'WI-C',
+    hasRecords: true,
+    intervention: {
+      autonomous: 1,
+      humanInterventions: 0,
+      humanGateCount: 0,
+      deferCount: 0,
+      unmannedRate: 100,
+    },
+    quality: {
+      reviewCount: 0,
+      reviewRejects: 0,
+      blocked: 0,
+      avgAttempts: 0,
+      implementationFailures: 0,
+      proceduralErrors: 0,
+    },
+    efficiency: { durationMs: undefined, costDelta: 1.0 }, // 소요 필드 없음
+    output: {
+      passedCriteria: 1,
+      totalCriteria: 1,
+      commits: 1,
+      gotchaApplied: 2,
+      gotchaMissed: 0,
+      exclusions: 0,
+    },
+  };
+
+  it('비율계(무인율·평균시도/AC)는 평균, 카운트계는 합, 시간/비용은 있는 값만 평균 — groupByExperiment 와 동일 패턴', () => {
+    const agg = aggregateLoopSummaries([a, b, c]);
+    expect(agg.count).toBe(3);
+
+    // 카운트계 = 합.
+    expect(agg.intervention.autonomous).toBe(3); // 2+0+1
+    expect(agg.intervention.humanInterventions).toBe(3); // 1+2+0
+    expect(agg.intervention.humanGateCount).toBe(3);
+    expect(agg.intervention.deferCount).toBe(0);
+    expect(agg.quality.reviewCount).toBe(3); // 2+1+0
+    expect(agg.quality.reviewRejects).toBe(1);
+    expect(agg.quality.blocked).toBe(1);
+    expect(agg.quality.implementationFailures).toBe(8); // 3+5+0
+    expect(agg.quality.proceduralErrors).toBe(1);
+    expect(agg.output.passedCriteria).toBe(6); // 3+2+1
+    expect(agg.output.totalCriteria).toBe(6);
+    expect(agg.output.commits).toBe(4); // 2+1+1
+    expect(agg.output.gotchaApplied).toBe(3); // 1+0+2
+    expect(agg.output.gotchaMissed).toBe(1);
+    expect(agg.output.exclusions).toBe(1);
+
+    // 비율계 = 평균(groupByExperiment avgAttempts 와 같은 round2(sum/n) 패턴).
+    expect(agg.intervention.unmannedRate).toBe(56); // round((67+0+100)/3) = round(55.67) = 56
+    expect(agg.quality.avgAttempts).toBe(1.33); // round2((1.5+2.5+0)/3) = round2(1.3333) = 1.33
+
+    // 시간/비용 = 있는 값만 평균(groupByExperiment avgDurationMs 와 같은 durs.length>0 조건부 평균).
+    expect(agg.efficiency.durationMs).toBe(5_400_000); // (3_600_000+7_200_000)/2, C 는 제외
+    expect(agg.efficiency.costDelta).toBe(1.75); // (2.5+1.0)/2, B 는 제외
+  });
+
+  it('빈 배열이면 count 0, 카운트계 0, 비율계·시간/비용 undefined(0-통계로 오도하지 않는다)', () => {
+    const agg = aggregateLoopSummaries([]);
+    expect(agg.count).toBe(0);
+    expect(agg.intervention.autonomous).toBe(0);
+    expect(agg.intervention.unmannedRate).toBeUndefined();
+    expect(agg.quality.avgAttempts).toBe(0);
+    expect(agg.efficiency.durationMs).toBeUndefined();
+    expect(agg.efficiency.costDelta).toBeUndefined();
+  });
+
+  it('buildAggregateLines 가 합/평균 라벨과 참고용(wall-clock 아님) 문구를 낸다(AC-03 사람용 렌더 재료)', () => {
+    const lines = buildAggregateLines(aggregateLoopSummaries([a, b, c]));
+    const joined = lines.join('\n');
+    expect(joined).toContain('사람 개입 합');
+    expect(joined).toContain('자율 합');
+    expect(joined).toContain('평균시도/AC 평균');
+    expect(joined).toContain('완료 AC 합');
+    expect(joined).toContain('참고용 — wall-clock 아님');
+  });
+
+  it('renderAggregateLoopSummary 카드 제목에 워크아이템 개수를 낸다', () => {
+    const out = renderAggregateLoopSummary(aggregateLoopSummaries([a, b, c]), noColor);
+    expect(out).toContain('전체 집계 · 워크아이템 3개');
+  });
+});
+
+describe('resolveBatchWorkitems (AC-01, 순수)', () => {
+  it('--workitems 명시 목록이 있으면 그대로 돌려주고 --since 는 무시한다', () => {
+    const ids = resolveBatchWorkitems(
+      { workitems: ['WI-A', 'WI-B'], since: '2026-01-01T00:00:00Z' },
+      [],
+    );
+    expect(ids).toEqual(['WI-A', 'WI-B']);
+  });
+
+  it('--since 는 그 시각 이후(포함) 완료된 세대만 고른다', () => {
+    const gens = [
+      { workitem: 'WI-OLD', at: '2026-07-01T00:00:00Z' },
+      { workitem: 'WI-EDGE', at: '2026-07-08T00:00:00Z' },
+      { workitem: 'WI-NEW', at: '2026-07-15T00:00:00Z' },
+    ] as unknown as Parameters<typeof resolveBatchWorkitems>[1];
+    const ids = resolveBatchWorkitems({ since: '2026-07-08T00:00:00Z' }, gens);
+    expect(ids).toEqual(['WI-EDGE', 'WI-NEW']);
+  });
+
+  it('--since 가 파싱 불가면 빈 배열(오도하는 전량 폴백 금지)', () => {
+    const gens = [{ workitem: 'WI-X', at: '2026-07-01T00:00:00Z' }] as unknown as Parameters<
+      typeof resolveBatchWorkitems
+    >[1];
+    expect(resolveBatchWorkitems({ since: 'not-a-date' }, gens)).toEqual([]);
+  });
+
+  it('둘 다 없으면 빈 배열', () => {
+    expect(resolveBatchWorkitems({}, [])).toEqual([]);
+  });
+
+  it('--workitems 빈 배열이면 명시 목록으로 안 치고 --since 로 폴백한다(길이 0 은 미지정과 같다)', () => {
+    const gens = [{ workitem: 'WI-Y', at: '2026-07-10T00:00:00Z' }] as unknown as Parameters<
+      typeof resolveBatchWorkitems
+    >[1];
+    expect(resolveBatchWorkitems({ workitems: [], since: '2026-07-01T00:00:00Z' }, gens)).toEqual([
+      'WI-Y',
+    ]);
+  });
+});
+
+describe('runLoopSummary 배치모드 glue — --workitems (AC-01/AC-03)', () => {
+  function seedThreeWorkitems(): void {
+    process.chdir(
+      tmpProject({
+        workitem: 'WI-CURRENT',
+        criteria: [{ id: 'AC-99', status: 'pending' }],
+        workitems: {
+          'WI-1': { criteria: [{ id: 'AC-01', status: 'passed', commit: 'h1' }] },
+          'WI-2': { criteria: [{ id: 'AC-01', status: 'passed', commit: 'h2' }] },
+          'WI-3': { criteria: [{ id: 'AC-01', status: 'passed', commit: 'h3' }] },
+        },
+      }),
+    );
+    seedRecords([
+      gateRec('WI-1', 1, '2026-07-18T05:00:00Z'),
+      gateRec('WI-2', 1, '2026-07-18T05:00:00Z'),
+      gateRec('WI-3', 1, '2026-07-18T05:00:00Z'),
+    ]);
+  }
+
+  it('workitem 3개 픽스처 실행 시 개별 LoopSummary 3개를 만든다 (AC-01, --json)', () => {
+    seedThreeWorkitems();
+    const out = capture(() => runLoopSummary({ workitems: ['WI-1', 'WI-2', 'WI-3'], json: true }));
+    const parsed = JSON.parse(out) as { summaries: LoopSummary[]; aggregate: AggregateLoopSummary };
+    expect(parsed.summaries).toHaveLength(3);
+    expect(parsed.summaries.map((s) => s.workitem)).toEqual(['WI-1', 'WI-2', 'WI-3']);
+    // 각 항목이 실제 assembleLoopSummary 를 태웠다 — 레지스트리 criteria 를 읽어 완료 AC 1/1.
+    for (const s of parsed.summaries) {
+      expect(s.output.passedCriteria).toBe(1);
+      expect(s.output.totalCriteria).toBe(1);
+    }
+    // AC-02 집계도 함께 온다.
+    expect(parsed.aggregate.count).toBe(3);
+    expect(parsed.aggregate.output.passedCriteria).toBe(3);
+  });
+
+  it('사람용 렌더가 항목별 블록 3개 + 집계 블록 1개를 낸다 (AC-03)', () => {
+    seedThreeWorkitems();
+    const out = capture(() => runLoopSummary({ workitems: ['WI-1', 'WI-2', 'WI-3'] }));
+    expect(out).toContain('작업 완료 요약 · WI-1');
+    expect(out).toContain('작업 완료 요약 · WI-2');
+    expect(out).toContain('작업 완료 요약 · WI-3');
+    expect(out).toContain('전체 집계 · 워크아이템 3개');
+  });
+
+  it('--workitems 빈 배열이면 배치가 아니라 단일모드로 떨어진다(현재 워크아이템 요약)', () => {
+    seedThreeWorkitems();
+    const out = capture(() => runLoopSummary({ workitems: [] }));
+    // 단일모드라 현재 워크아이템(WI-CURRENT) 요약 — 배치 집계 카드가 없다.
+    expect(out).not.toContain('전체 집계');
+  });
+});
+
+describe('runLoopSummary 배치모드 glue — --since (AC-01, F-04)', () => {
+  it('세대 스냅샷(at) 기준으로 그 시각 이후 완료된 워크아이템만 배치에 담는다', () => {
+    process.chdir(
+      tmpProject({
+        workitems: {
+          'WI-OLD': { criteria: [{ id: 'AC-01', status: 'passed' }] },
+          'WI-NEW': { criteria: [{ id: 'AC-01', status: 'passed' }] },
+        },
+      }),
+    );
+    seedRecords([
+      gateRec('WI-OLD', 1, '2026-07-01T05:00:00Z'),
+      gateRec('WI-NEW', 1, '2026-07-15T05:00:00Z'),
+    ]);
+    seedGeneration('loopsum-test', 'WI-OLD', '2026-07-01T06:00:00Z');
+    seedGeneration('loopsum-test', 'WI-NEW', '2026-07-15T06:00:00Z');
+
+    const out = capture(() => runLoopSummary({ since: '2026-07-08T00:00:00Z', json: true }));
+    const parsed = JSON.parse(out) as { summaries: LoopSummary[]; aggregate: AggregateLoopSummary };
+    expect(parsed.summaries.map((s) => s.workitem)).toEqual(['WI-NEW']);
+    expect(parsed.aggregate.count).toBe(1);
   });
 });

@@ -1,7 +1,7 @@
 import { type Caps, type Colors, caps, card, makeColors, padEndDisplay } from '../core/tty.js';
 import { type CostSnapshot, computeCostDelta, readCostSnapshot } from '../core/usage.js';
 import { requireConfig } from './config.js';
-import { computeDurationMs, fmtDuration } from './metrics.js';
+import { type Generation, computeDurationMs, fmtDuration, loadGenerations } from './metrics.js';
 import { collectDeferred, readRecords } from './record.js';
 import { loadState } from './state.js';
 
@@ -255,6 +255,200 @@ export function summaryToJson(summary: LoopSummary): Record<string, unknown> {
   return summary as unknown as Record<string, unknown>;
 }
 
+// ---------------------------------------------------------------------------
+// 배치 모드 (pipeline-cycle-summary) — 사이클 하나에 완료된 여러 워크아이템을
+// 묶어 항목별 + 전체집계로 낸다. 엔진은 workitem별 4렌즈 계산과 그 집계만 한다
+// (F-03) — 에이전트 수·사이클 wall-clock 은 오케스트레이터 스킬 몫이라 여기서
+// 만들지 않는다. aggregateLoopSummaries 의 durationMs/costDelta 는 "있는 값만
+// 평균"이지 wall-clock 이 아니다(F-05) — 오케스트레이터가 실측한 값과 절대
+// 섞지 않는다.
+// ---------------------------------------------------------------------------
+
+/** 여러 LoopSummary 를 하나로 묶은 결과(AC-02). LoopSummary 와 같은 4렌즈 모양을 유지한다. */
+export interface AggregateLoopSummary {
+  /** 집계에 들어간 LoopSummary 개수(= 그 사이클의 루프 수). */
+  count: number;
+  intervention: {
+    autonomous: number;
+    humanInterventions: number;
+    humanGateCount: number;
+    deferCount: number;
+    /** 비율계 = 평균(있는 값만). 판단 지점이 하나도 없던 워크아이템은 평균에서 뺀다. */
+    unmannedRate: number | undefined;
+  };
+  quality: {
+    reviewCount: number;
+    reviewRejects: number;
+    blocked: number;
+    /** 비율계 = 평균 (metrics.ts:172 groupByExperiment 의 avgAttempts 와 동일 패턴). */
+    avgAttempts: number;
+    implementationFailures: number;
+    proceduralErrors: number;
+  };
+  efficiency: {
+    /** 시간/비용 = 있는 값만 평균(F-02). 오케스트레이터의 wall-clock 이 아니다(F-05, 참고용). */
+    durationMs: number | undefined;
+    costDelta: number | undefined;
+  };
+  output: {
+    passedCriteria: number;
+    totalCriteria: number;
+    commits: number;
+    gotchaApplied: number;
+    gotchaMissed: number;
+    exclusions: number;
+  };
+}
+
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+const round0 = (n: number): number => Math.round(n);
+
+/**
+ * 있는 값만 평균(순수). 하나도 없으면 undefined — metrics.ts:172 groupByExperiment 의
+ * avgDurationMs(durs.length>0 조건부 평균)와 같은 규약. round 는 필드별 정밀도(정수/소수2)를 고른다.
+ */
+function avgDefined(
+  values: (number | undefined)[],
+  round: (n: number) => number,
+): number | undefined {
+  const defined = values.filter((v): v is number => typeof v === 'number');
+  return defined.length > 0
+    ? round(defined.reduce((s, v) => s + v, 0) / defined.length)
+    : undefined;
+}
+
+/**
+ * 여러 LoopSummary 를 F-02 규약대로 묶는다(순수) — metrics.ts:172 groupByExperiment 와 동일 패턴:
+ * 비율계(무인율·평균시도/AC)=평균, 카운트계(완료AC·격리커밋·gotcha·범위배제 등)=합,
+ * 시간/비용(durationMs/costDelta)=있는 값만 평균. 빈 배열이면 전부 0/undefined.
+ */
+export function aggregateLoopSummaries(summaries: LoopSummary[]): AggregateLoopSummary {
+  const n = summaries.length;
+  const sum = (f: (s: LoopSummary) => number): number => summaries.reduce((s, x) => s + f(x), 0);
+  const avg = (f: (s: LoopSummary) => number): number => (n > 0 ? round2(sum(f) / n) : 0);
+
+  return {
+    count: n,
+    intervention: {
+      autonomous: sum((s) => s.intervention.autonomous),
+      humanInterventions: sum((s) => s.intervention.humanInterventions),
+      humanGateCount: sum((s) => s.intervention.humanGateCount),
+      deferCount: sum((s) => s.intervention.deferCount),
+      unmannedRate: avgDefined(
+        summaries.map((s) => s.intervention.unmannedRate),
+        round0,
+      ),
+    },
+    quality: {
+      reviewCount: sum((s) => s.quality.reviewCount),
+      reviewRejects: sum((s) => s.quality.reviewRejects),
+      blocked: sum((s) => s.quality.blocked),
+      avgAttempts: avg((s) => s.quality.avgAttempts),
+      implementationFailures: sum((s) => s.quality.implementationFailures),
+      proceduralErrors: sum((s) => s.quality.proceduralErrors),
+    },
+    efficiency: {
+      durationMs: avgDefined(
+        summaries.map((s) => s.efficiency.durationMs),
+        round0,
+      ),
+      costDelta: avgDefined(
+        summaries.map((s) => s.efficiency.costDelta),
+        round2,
+      ),
+    },
+    output: {
+      passedCriteria: sum((s) => s.output.passedCriteria),
+      totalCriteria: sum((s) => s.output.totalCriteria),
+      commits: sum((s) => s.output.commits),
+      gotchaApplied: sum((s) => s.output.gotchaApplied),
+      gotchaMissed: sum((s) => s.output.gotchaMissed),
+      exclusions: sum((s) => s.output.exclusions),
+    },
+  };
+}
+
+/** 집계를 사람용 텍스트 줄로 만든다(순수, buildSummaryLines 와 같은 모양·라벨 폭). */
+export function buildAggregateLines(agg: AggregateLoopSummary): string[] {
+  const iv = agg.intervention;
+  const rate = iv.unmannedRate !== undefined ? ` (무인율 평균 ${iv.unmannedRate}%)` : '';
+  const lines: string[] = [
+    `사람 개입 합 ${iv.humanInterventions} · 자율 합 ${iv.autonomous}${rate}`,
+  ];
+  lines.push(`  게이트 자율 ${iv.autonomous} · 사람 ${iv.humanGateCount} · defer ${iv.deferCount}`);
+  lines.push('');
+
+  const q = agg.quality;
+  lines.push(
+    `${padEndDisplay('품질', LABEL_WIDTH)}리뷰 ${q.reviewCount}(반려 ${q.reviewRejects}) · blocked ${q.blocked} · 평균시도/AC 평균 ${q.avgAttempts}`,
+  );
+  lines.push(
+    `${padEndDisplay('', LABEL_WIDTH)}실패 원인 합  구현 ${q.implementationFailures} · 절차 ${q.proceduralErrors}`,
+  );
+
+  const e = agg.efficiency;
+  const eff: string[] = [];
+  if (e.durationMs !== undefined) {
+    eff.push(`소요 평균 ${fmtDuration(e.durationMs)}`);
+  }
+  if (e.costDelta !== undefined) {
+    eff.push(`비용 평균 ~$${e.costDelta}`);
+  }
+  lines.push(
+    `${padEndDisplay('효율', LABEL_WIDTH)}${eff.length > 0 ? eff.join(' · ') : '시간·비용 소스 부재로 생략'} (참고용 — wall-clock 아님)`,
+  );
+
+  const o = agg.output;
+  lines.push(
+    `${padEndDisplay('산출', LABEL_WIDTH)}완료 AC 합 ${o.passedCriteria}/${o.totalCriteria} · 격리커밋 합 ${o.commits} · gotcha 적용 합 ${o.gotchaApplied}/누락 합 ${o.gotchaMissed} · 범위배제 합 ${o.exclusions}`,
+  );
+  return lines;
+}
+
+/** 집계 카드 렌더(사람용). renderLoopSummary 와 같은 스타일(첫 줄 굵게, 들여쓴 줄 흐리게). */
+export function renderAggregateLoopSummary(agg: AggregateLoopSummary, c: Caps): string {
+  const color: Colors = makeColors(c.color);
+  const lines = buildAggregateLines(agg);
+  const styled = lines.map((ln, i) => {
+    if (i === 0) {
+      return color.bold(ln);
+    }
+    if (ln.startsWith('  ')) {
+      return color.dim(ln);
+    }
+    return ln;
+  });
+  return card(`전체 집계 · 워크아이템 ${agg.count}개`, styled, c);
+}
+
+/**
+ * 배치 대상 workitem id 목록을 정한다(순수, AC-01). 명시 목록(--workitems)이 우선,
+ * 없으면 --since(그 시각 이후 완료). 완료 시각은 evolve.ts:441 writeGeneration 이
+ * 쓰는 세대 스냅샷의 at 을 재사용한다(F-04) — 새 완료-시각 소스를 발명하지 않는다.
+ * generations 는 loadGenerations(project) 로 이미 시간순 정렬돼 들어온다.
+ */
+export function resolveBatchWorkitems(
+  opts: { workitems?: string[]; since?: string },
+  generations: Generation[],
+): string[] {
+  if (opts.workitems && opts.workitems.length > 0) {
+    return opts.workitems;
+  }
+  if (opts.since !== undefined) {
+    const sinceMs = Date.parse(opts.since);
+    if (Number.isNaN(sinceMs)) {
+      return [];
+    }
+    return generations
+      .filter((g) => {
+        const t = Date.parse(g.at);
+        return !Number.isNaN(t) && t >= sinceMs;
+      })
+      .map((g) => g.workitem);
+  }
+  return [];
+}
+
 /** state.criteria(현재 워크아이템) 또는 레지스트리 엔트리에서 완료조건을 읽는다. */
 function criteriaFor(state: Rec, workitem: string | null, current: string | null): Rec[] {
   if (workitem !== null && workitem === current && Array.isArray(state.criteria)) {
@@ -284,12 +478,75 @@ function startCostOf(
   return c && typeof c === 'object' && !Array.isArray(c) ? (c as CostSnapshot) : undefined;
 }
 
-/** awl loop-summary [--workitem <id>] [--json] */
-export function runLoopSummary(opts: {
-  workitem?: string;
+/**
+ * 배치 모드(AC-01/AC-03): ids 각각을 assembleLoopSummary 로 개별 요약하고, 전체를
+ * aggregateLoopSummaries(AC-02)로 묶는다. 항목별 요약은 단일모드와 같은 criteriaFor/
+ * startCostOf 규약을 그대로 쓴다 — 배치라고 다른 규약을 새로 만들지 않는다.
+ */
+function buildBatchSummaries(
+  ids: string[],
+  state: Rec,
+  current: string | null,
+  usagePath: string | undefined,
+): LoopSummary[] {
+  const nowSnapshot = readCostSnapshot(usagePath);
+  return ids.map((id) => {
+    const records = readRecords({ workitem: id });
+    const criteria = criteriaFor(state, id, current);
+    const costDelta = computeCostDelta(startCostOf(state, id, current), nowSnapshot);
+    return assembleLoopSummary(id, records, criteria, costDelta);
+  });
+}
+
+/** awl loop-summary --workitems <id1,id2,...> | --since <ISO> [--json] (AC-01/03) */
+function runLoopSummaryBatch(opts: {
+  workitems?: string[];
+  since?: string;
   json?: boolean;
   usagePath?: string;
 }): void {
+  const { config, projectRoot } = requireConfig();
+  const state = loadState(projectRoot);
+  const current = typeof state.workitem === 'string' ? state.workitem : null;
+  // --since 만 있을 때만 세대 스냅샷을 읽는다 — --workitems 명시 목록이면 불필요한 I/O.
+  const generations = opts.since !== undefined ? loadGenerations(config.project) : [];
+  const ids = resolveBatchWorkitems({ workitems: opts.workitems, since: opts.since }, generations);
+
+  const summaries = buildBatchSummaries(ids, state, current, opts.usagePath);
+  const aggregate = aggregateLoopSummaries(summaries);
+
+  if (opts.json) {
+    process.stdout.write(
+      `${JSON.stringify({ summaries: summaries.map(summaryToJson), aggregate }, null, 2)}\n`,
+    );
+    return;
+  }
+  if (summaries.length === 0) {
+    process.stdout.write(
+      '배치 대상 워크아이템이 없습니다 — --workitems 또는 --since 를 확인하세요.\n',
+    );
+    return;
+  }
+  const c = caps();
+  const blocks = summaries.map((s) => renderLoopSummary(s, c)).join('\n');
+  process.stdout.write(`${blocks}\n${renderAggregateLoopSummary(aggregate, c)}\n`);
+}
+
+/** awl loop-summary [--workitem <id>] [--json] (단일모드, AC-05 불변) | --workitems/--since (배치모드, AC-01) */
+export function runLoopSummary(opts: {
+  workitem?: string;
+  workitems?: string[];
+  since?: string;
+  json?: boolean;
+  usagePath?: string;
+}): void {
+  // 배치모드 분기 — --workitems(비지 않은 목록) 또는 --since 가 있으면 배치, 없으면 기존 단일모드.
+  // 기존 단일모드 코드 경로는 이 분기 아래 한 글자도 안 바뀐다(AC-05).
+  if ((opts.workitems && opts.workitems.length > 0) || opts.since !== undefined) {
+    runLoopSummaryBatch(opts);
+    return;
+  }
+
   const { projectRoot } = requireConfig();
   const state = loadState(projectRoot);
   const current = typeof state.workitem === 'string' ? state.workitem : null;

@@ -449,15 +449,31 @@ export function buildProgram(): Command {
     });
 
   // 사람/스킬이 치는 명령: loop-summary (한 루프 완료를 4렌즈로 요약, loop-completion-stats)
+  // 배치모드(pipeline-cycle-summary): --workitems(명시 목록) 또는 --since(그 시각 이후 완료)로
+  // 여러 워크아이템을 항목별+전체집계로 함께 낸다. 단일모드(--workitem)는 그대로 동작(AC-05).
   program
     .command('loop-summary')
     .description('루프/파이프라인 완료를 4렌즈(개입·품질·효율·산출)로 요약합니다')
     .option('--workitem <id>', '대상 워크아이템 (기본: 현재)')
+    .option('--workitems <ids>', '배치 모드: 콤마로 구분한 워크아이템 목록')
+    .option('--since <iso>', '배치 모드: 이 시각(ISO) 이후 완료된 워크아이템 전부')
     .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
-    .action(async (opts: { workitem?: string; json?: boolean }) => {
-      const { runLoopSummary } = await import('./commands/loop-summary.js');
-      runLoopSummary({ workitem: opts.workitem, json: opts.json === true });
-    });
+    .action(
+      async (opts: { workitem?: string; workitems?: string; since?: string; json?: boolean }) => {
+        const { runLoopSummary } = await import('./commands/loop-summary.js');
+        runLoopSummary({
+          workitem: opts.workitem,
+          workitems: opts.workitems
+            ? opts.workitems
+                .split(',')
+                .map((s) => s.trim())
+                .filter((s) => s.length > 0)
+            : undefined,
+          since: opts.since,
+          json: opts.json === true,
+        });
+      },
+    );
 
   // 사람이 치는 명령: feedback (awl 도구 자체 피드백을 area 별로 모아서 본다)
   program
