@@ -219,6 +219,34 @@ export function buildProgram(): Command {
       runUpdate();
     });
 
+  // 사람이 치는 명령: uninstall (awl 이 손댄 흔적을 지운다 — 기본은 드라이런, awl-uninstall-reset)
+  program
+    .command('uninstall')
+    .description('awl 이 손댄 흔적을 지웁니다 (기본은 드라이런 — --yes 없이는 삭제하지 않습니다)')
+    .option('--yes', '실제로 삭제합니다 (기본은 드라이런)')
+    .option('--project', '이 프로젝트 로컬만 정리합니다 (기본값)')
+    .option('--global', '전역(~/.awl)만 정리합니다 — 다른 프로젝트의 학습도 함께 사라집니다')
+    .option('--all', '프로젝트 로컬 + 전역을 모두 정리합니다')
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .action(
+      async (opts: {
+        yes?: boolean;
+        project?: boolean;
+        global?: boolean;
+        all?: boolean;
+        json?: boolean;
+      }) => {
+        const { runUninstall } = await import('./commands/uninstall.js');
+        await runUninstall({
+          yes: opts.yes === true,
+          project: opts.project === true,
+          global: opts.global === true,
+          all: opts.all === true,
+          json: opts.json === true,
+        });
+      },
+    );
+
   // 사람이 치는 명령: config (현재 설정 보기, TTY 면 항목을 골라 수정)
   const config = program
     .command('config')
