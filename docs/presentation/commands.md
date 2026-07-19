@@ -457,3 +457,5 @@
 ## 참고 — 명령 카운트 재확인 로그
 
 `awl --help`(2026-07-19, 버전 0.6.18): init/status/brief/doctor/version-check/update/**uninstall**/config/work/lane/records/rules/gotchas/metrics/loop-summary/feedback/changelog/commit/review = 19개 — F-01(이전 조사)의 18개에서 `uninstall`이 하나 늘었다. 리뷰(`rev_5b70cac74220bb1ed7`)가 이 문서 초판에서 `uninstall` 항목 자체가 빠진 걸 잡아 이번에 추가했다 — `uninstall`은 storyline.md AC-01 커밋보다 먼저 main에 병합돼 조사 시점에 이미 `--help`에 있었는데 놓쳤다. hidden 명령은 `record`/`verify`/`state`/`evolve`/`defer-summary` 5개에 더해 `hold-recheck`가 새로 확인돼 6개다(`awl hold-recheck --help`로 존재 확인, `--help` 목록엔 안 뜬다). 합쳐서 25개.
+
+**재확인 2**(2026-07-20, 버전 0.6.20): `loop-summary`에 `--workitems`/`--since` 옵션이 추가됐지만(6b19c16) 새 top-level 명령은 아니라서 `awl --help` 목록·hidden 목록 둘 다 그대로다. 다시 세어봐도 visible 19개 + hidden 6개 = 25개로 변동 없다.
