@@ -44,7 +44,7 @@ description: exec 세션 기본 프롬프트. cwd `.tasks/plan`의 신규 일감
 3. `unheld`가 비어있으면(재점검할 hold가 없거나 전부 유지) 아래 "4. 유휴"로 진행한다.
 
 ### 4. 유휴 — 1·2·3 모두 처리할 게 없으면
-워처를 재무장하고 턴을 끝낸다(아래 "self-pace").
+워처를 1회 체크하고, 없으면 다음 확인을 예약한 뒤 턴을 끝낸다(아래 "self-pace").
 
 처리할 게 남아있는 동안 1→2→3을 계속 반복한다. **한 일감의 `/awl-loop` 구현은 중간에 멈추지 말고 이 턴에서 끝까지 순차 진행한다**(구현 도중 ScheduleWakeup 하지 않는다).
 
@@ -79,26 +79,24 @@ verify: pass|fail
 ```
 awl-loop 기록 문체: 결론 먼저, 짧게 끊어서, 확인/미확인 분리, **안 한 것에는 이유**. 금지어 "성공적으로/~를 통해/~를 활용하여".
 
-## self-pace (이벤트 워처 단독 — ScheduleWakeup 쓰지 마라)
-이 스킬은 무인 루프다. **유휴가 되면**:
-1. `bash "$(pwd)/.tasks/watch-inputs.sh"`를 `run_in_background:true`로 **절대경로**로 재무장한다. 워처는 **원자적 `mkdir` 락**(`.tasks/.locks/exec`)으로 이 cwd에서 exec role의 단일 소유자를 강제한다 — 다른 인스턴스(예: Orca claude-teams 여러 개)가 이미 소유 중이면 워처가 즉시 `ALREADY_OWNED`를 출력하고 끝난다. 그래서 **별도 ps-check가 불필요**하다(락이 기동 레이스까지 막아 N개 인스턴스가 review/+plan/을 중복 감시·이중 착수하는 걸 원천 차단).
-2. **standby(`ALREADY_OWNED`)**: 재무장한 워처 output이 `ALREADY_OWNED`면 이 인스턴스는 이 cwd exec role의 **대기자**다 — **처리도 재무장도 하지 말고** 조용히 턴을 끝낸다(소유자가 구현 중이니 이중 착수 방지). 소유자 세션이 죽으면 락 heartbeat가 60s 후 stale이 되어, 다음 발동 때 다른 인스턴스가 자동 탈취해 소유자를 승계한다.
-3. 짧게 상태만 남기고 **아무 도구도 더 부르지 않고 턴을 끝낸다.** 워처가 발화하거나 죽으면 `<task-notification>`이 이 세션을 자동 재호출한다(대기 토큰 ~0).
+## self-pace (워처 one-shot 체크 → /loop 또는 ScheduleWakeup으로 다음 확인 예약)
+이 스킬은 무인 루프다. **유휴가 되면**(위 1·2·3에 처리할 게 없으면):
+1. `bash "$(pwd)/.tasks/watch-inputs.sh"`를 **포그라운드로 1회** 실행한다(절대경로, `run_in_background` 안 씀). 워처는 **한 번만 검사하고 즉시 종료**한다(내부 폴링 없음) — 원자적 `mkdir` 락(`.tasks/.locks/exec`)으로 "이 순간 한 번 검사할 권리"만 쥔다. 다른 인스턴스(예: Orca claude-teams 여러 개)가 같은 순간 이미 그 권리를 쥐고 있으면 워처가 즉시 `ALREADY_OWNED`를 출력하고 끝난다.
+2. 결과로 분기한다:
+   - `INPUTS_READY`가 있으면 나열된 경로를 처리한다(review/ 먼저, 그다음 plan/). 처리가 끝나면 다시 "유휴" 판정으로 돌아가 1부터 반복한다(이번 턴 안에서).
+   - `ALREADY_OWNED`면 standby다 — **처리하지 않는다**(다른 인스턴스가 지금 처리 중이니 이중 착수 방지). 아래 3으로 간다.
+   - 빈 출력(지금은 처리할 게 없음)이면 아래 3으로 간다.
+3. **다음 확인을 예약한다.** `/loop`(동적 자기페이스)를 우선 쓴다. 여의치 않으면 `ScheduleWakeup`(~1800초, F-05 범위)으로 다음 확인 시각을 예약한다. 예약한 뒤 **백그라운드 프로세스를 남기지 않고, 하네스의 주기적 kill을 기다리지 않고** 턴을 깨끗이 끝낸다.
 
-**워처 수명 ~29분 (정상)**: background 워처는 약 26~29분 후 harness가 정리한다(버그 아님, 주기적 정리). 그때 `<task-notification>`(status=killed, output 빈)이 이 세션을 재호출하니 다시 재무장하면 무인 루프가 이어진다. 일감이 오면 ~29분을 안 기다리고 즉시 발화한다.
+**왜 이전엔 "ScheduleWakeup 쓰지 마라"였고, 왜 지금 뒤집나.** 이전 근거: 워처를 백그라운드로 오래 살려두면 하네스의 주기적 kill(~26~29분)이 `<task-notification>`으로 재무장 기회를 자동으로 준다고 가정했다 — 그 가정 위에서는 별도 타이머가 혼란만 준다고 봤다. 뒤집는 근거: 유휴 텀을 두고 새 일감이 생기는 실사용 시나리오에서 이 가정이 실제로 깨지는 사례가 관측됐다(F-02, pipeline-self-pace-loop) — 정확한 근본원인(하네스 kill 타이밍 불안정인지 `<task-notification>` 우선순위 밀림인지)은 이 조사로 확정하지 못했지만, 그 불확실성에 기대지 않는 쪽(명시적 재확인 예약)으로 설계를 옮긴다. **이것도 완벽히 검증된 근본원인 진단이 아니라 실측된 증상에 대한 실용적 대응이다** — 이걸로 완전히 해결됐다고 단정하지 않는다.
 
-**⚠ `ScheduleWakeup`을 (백업으로도) 쓰지 마라.** ~29분 주기 kill이 이미 재무장 기회를 주므로 타이머는 불필요하고, 이벤트 워처와 섞으면 혼란만 준다. (초기에 ScheduleWakeup을 워처 kill 원인으로 오판했으나, 실은 무관한 주기 정리였다 — ScheduleWakeup 없이도 ~29분 후 죽는다.)
+**다음 확인이 오면(`ScheduleWakeup` 만료 또는 `/loop` 틱)**: 위 1로 돌아가 워처를 1회 체크한다.
 
-**`<task-notification>`으로 깨면**: 그 워처 output을 Read한다.
-- `INPUTS_READY`가 있으면 나열된 경로를 처리한다(review/ 먼저, 그다음 plan/). 한 틱 후 워처 재무장(위 1~3).
-- `ALREADY_OWNED`면 standby — 처리·재무장하지 않고 조용히 끝낸다.
-- 비어있으면(~29분 주기 kill) 그냥 워처를 재무장한다(위 1~3).
-
-**멈추려면**: 워처를 TaskStop하고 재무장하지 않는다. 사용자가 중단을 지시하면 즉시 멈춘다.
+**멈추려면**: 예약해둔 다음 확인(`ScheduleWakeup` 또는 `/loop`)을 취소하고 새로 만들지 않는다. 사용자가 중단을 지시하면 즉시 멈춘다.
 
 ## 주의 (동시 세션)
-- 배경 task ID는 세션 종료 시 죽는다 — ID를 사실로 기억하지 말 것. 중복 워처는 워처 내장 **`mkdir` 락**(`.tasks/.locks/exec`)이 막는다: 새로 띄워도 소유자가 있으면 `ALREADY_OWNED`로 즉시 끝나므로 별도 ps-check가 불필요하다(여러 Orca claude-teams 인스턴스가 같은 cwd에서 동시에 떠도 exec role 소유자는 하나).
-- 포그라운드 `sleep`은 막혀 있다 → 대기는 워처(배경)나 ScheduleWakeup으로.
+- 워처가 포그라운드 1회 체크라 배경 task ID 자체가 없다. 동시 인스턴스는 워처 내장 **`mkdir` 락**(`.tasks/.locks/exec`)이 막는다: 같은 순간 체크가 겹치면 나중 쪽이 `ALREADY_OWNED`로 즉시 끝나므로 별도 ps-check가 불필요하다(여러 Orca claude-teams 인스턴스가 같은 cwd에서 동시에 떠도 그 순간의 체크 권리는 하나).
+- 다음 확인 대기는 `/loop` 또는 `ScheduleWakeup`으로 예약한다(포그라운드 `sleep`은 막혀 있다).
 - RTK가 git/ls 출력을 왜곡할 수 있다 → 파일명 표식 같은 정밀 확인은 절대경로 `/bin/ls`·직접 `git`으로.
 
 ## 설계 계약 인코딩 (pipeline-subagent-delegation AC-01/02/04/05)
@@ -129,7 +127,7 @@ awl-loop 기록 문체: 결론 먼저, 짧게 끊어서, 확인/미확인 분리
 > | `<name>.taken.md` | `<name>.md` | `<name>.taken.md` | exec 반영·재검증 대기 |
 >
 > **소유권**: plan/* 표식·exec/<name>.md 생성갱신·review/* 표식·exec의 .taken떼기 → exec. exec/에 .taken표식·review/<name>.md 생성 → review. plan/<name>.md 생성 → plan.
-> **워처**: review=`.tasks/watch-exec.sh`(exec/ 감시, `UNVERIFIED_READY`), exec=`.tasks/watch-inputs.sh`(review/+plan/ 감시, review 우선, hold 무시, `INPUTS_READY`). 미표식 *.md 8초 안정 시 발화, 처리 후 재무장.
+> **워처**: review=`.tasks/watch-exec.sh`(exec/ 감시, `UNVERIFIED_READY`), exec=`.tasks/watch-inputs.sh`(review/+plan/ 감시, review 우선, hold 무시, `INPUTS_READY`). 미표식 *.md 8초 안정 시 발화. **포그라운드 1회 체크(one-shot)** — 내부 폴링 없이 즉시 결과를 찍고 종료한다. 처리 후, 또는 결과가 없으면 `/loop` 또는 `ScheduleWakeup`(~1800초)으로 다음 확인을 예약한다(pipeline-self-pace-loop).
 > **워처 락(단일 소유자)**: 각 워처는 원자적 `mkdir` 락 `.tasks/.locks/<role>`(role=review|exec)로 이 cwd에서 role당 소유자를 하나로 강제한다. 다른 인스턴스가 같은 role 워처를 띄우면 `ALREADY_OWNED` 출력 후 즉시 종료(standby). poll마다 heartbeat, 60s 넘게 stale(소유자 사망)이면 다음 인스턴스가 원자적으로 탈취. → 여러 Orca claude-teams 인스턴스가 같은 cwd에 떠도 중복 감시·이중 처리 없음.
 > **재검증**: 파일명이 상태 → 이미 .taken인 파일 재수정은 재감지 안 됨. .taken 떼거나 새 name.
 > **게이트 자율승인**: exec가 awl-loop 게이트1·2를 auto:true 승인. 게이트1=plan문서, 게이트2=review세션이 대신.
