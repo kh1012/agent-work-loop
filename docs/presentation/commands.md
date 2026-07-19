@@ -386,7 +386,7 @@
 - **역할**: `.tasks/exec`의 미검증 핸드오프를 감지해 무인으로 검증한다. 부정행위·완료조건 충족·품질을 확인한다. 합격이면 기록 없음(파일명이 상태), 수정 요구가 있으면 `.tasks/review/<name>.md`에 남긴다.
 - **언제 쓰나**: pipeline의 review 역할 세션.
 - **트리거**: `/awl-pipeline-review`.
-- **읽는법**: 마커는 `.taken` 하나로 통일돼 있다 — `exec/<name>.taken.md` + `review/` 쪽에 파일이 없으면 그게 곧 "합격·완료"다.
+- **읽는법**: 마커는 `.taken` 하나로 통일돼 있다 — `exec/<name>.taken.md` + `review/` 쪽에 파일이 없으면 그게 곧 "합격·완료"다. 검증은 서브에이전트에 위임한다(exec 주장을 그대로 안 믿고 신선한 눈으로 독립 재검증). 이 세션 동안 워처 스크립트(`watch-exec.sh`)가 symlink된 `.tasks/` 경로(예: `.tasks -> .awl/lanes/<lane>`)에서도 올바르게 동작하도록 고쳐졌다 — `cd -P`/`pwd -P`로 스크립트의 물리적 위치를 완전히 따라가게 했다(`pipeline-watcher-symlink-invoke-fix`).
 
 ---
 
