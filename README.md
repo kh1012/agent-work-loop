@@ -244,6 +244,9 @@ awl work switch <ID>       # 보관된 워크아이템으로 전환
 **`awl --version`이 엔진 버전 불일치를 경고한다**
 `awl`을 업그레이드했는데 `~/.awl/engine`은 예전 버전 그대로일 때 나옵니다. `awl update`로 엔진을 갱신하면 맞춰집니다(프로젝트 설정은 안 건드립니다). `awl version-check`로 어긋난 버전 쌍(package.json, 설치된 엔진, 프로젝트 config, 설치된 스킬)을 직접 봅니다. 프로젝트 config가 엔진보다 낡았다면 `awl init --yes`를 다시 실행합니다.
 
+**업그레이드해도 프로젝트 설정이 사라지나요**
+아니요. `awl init --yes`는 `config.engineVersion`만 지금 엔진에 맞추고, 팀이 정한 검증 명령 등 나머지 설정 필드는 그대로 둡니다.
+
 **`awl doctor`가 검증 명령을 "명령을 찾을 수 없습니다"라고 한다**
 `node_modules/.bin`이 지금 셸의 PATH에 없을 수 있습니다. `cwd`를 지정했다면 그 디렉토리 자체가 없는 건 아닌지도 확인하세요.
 
