@@ -377,8 +377,12 @@ function nameColWidth(names: string[]): number {
   return Math.max(...names.map(stringWidth), 4) + 2;
 }
 
-/** 디렉토리 파일명을 읽는다(없으면 빈 배열 — awl 은 파이프라인 유무를 판단하지 않는다). */
-function readDirNames(dir: string): string[] {
+/**
+ * 디렉토리 파일명을 읽는다(없으면 빈 배열 — awl 은 파이프라인 유무를 판단하지 않는다).
+ * pipeline-archive-cleanup AC-01 이 이 함수와 pipelineLanes 를 그대로 재사용한다(export) —
+ * 보관 모듈이 별도 파일목록 읽기·마커 판정을 새로 구현하지 않는다.
+ */
+export function readDirNames(dir: string): string[] {
   try {
     return fs.readdirSync(dir);
   } catch {
