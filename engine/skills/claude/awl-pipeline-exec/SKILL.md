@@ -128,18 +128,20 @@ awl-loop 기록 문체: 결론 먼저, 짧게 끊어서, 확인/미확인 분리
 >
 > **소유권**: plan/* 표식·exec/<name>.md 생성갱신·review/* 표식·exec의 .taken떼기 → exec. exec/에 .taken표식·review/<name>.md 생성 → review. plan/<name>.md 생성 → plan.
 > **워처**: review=`.tasks/watch-exec.sh`(exec/ 감시, `UNVERIFIED_READY`), exec=`.tasks/watch-inputs.sh`(review/+plan/ 감시, review 우선, hold 무시, `INPUTS_READY`). 미표식 *.md 8초 안정 시 발화. **포그라운드 1회 체크(one-shot)** — 내부 폴링 없이 즉시 결과를 찍고 종료한다. 처리 후, 또는 결과가 없으면 `/loop` 또는 `ScheduleWakeup`(~1800초)으로 다음 확인을 예약한다(pipeline-self-pace-loop).
-> **워처 락(단일 소유자)**: 각 워처는 원자적 `mkdir` 락 `.tasks/.locks/<role>`(role=review|exec)로 이 cwd에서 role당 소유자를 하나로 강제한다. 다른 인스턴스가 같은 role 워처를 띄우면 `ALREADY_OWNED` 출력 후 즉시 종료(standby). poll마다 heartbeat, 60s 넘게 stale(소유자 사망)이면 다음 인스턴스가 원자적으로 탈취. → 여러 Orca claude-teams 인스턴스가 같은 cwd에 떠도 중복 감시·이중 처리 없음.
+> **워처 락(그 순간의 체크 권리, one-shot)**: 각 워처는 원자적 `mkdir` 락 `.tasks/.locks/<role>`(role=review|exec)로 이 cwd에서 role당 "이 순간 한 번 검사할 권리"를 하나로 강제한다(오래 보유가 아니다 — pipeline-self-pace-loop AC-02, 워처가 one-shot이라 락 보유 시간도 그 한 번의 체크만큼으로 짧다). 다른 인스턴스가 같은 순간 같은 role 워처를 띄우면 `ALREADY_OWNED` 출력 후 즉시 종료(standby). 체크 시작 시 heartbeat 기록, 60s 넘게 stale(소유자가 EXIT trap 없이 죽음)이면 다음 체크가 원자적으로 탈취. → 여러 Orca claude-teams 인스턴스가 같은 cwd에 떠도 같은 순간의 중복 감시·이중 처리 없음.
 > **재검증**: 파일명이 상태 → 이미 .taken인 파일 재수정은 재감지 안 됨. .taken 떼거나 새 name.
 > **게이트 자율승인**: exec가 awl-loop 게이트1·2를 auto:true 승인. 게이트1=plan문서, 게이트2=review세션이 대신.
 
 ## 워처 스크립트 (`.tasks/watch-inputs.sh`)
 ```bash
 #!/usr/bin/env bash
-# awl-pipeline exec watcher — single-owner via atomic mkdir role lock.
-# Blocks until UNPROCESSED files in .tasks/review (feedback) or .tasks/plan (new work)
-# are stable >= STABLE_SECS, prints them, exits (re-invokes Claude). review/ before plan/.
-# A *.md WITHOUT the .taken postfix = unprocessed; *.hold.md in plan/ is skipped.
-# If another LIVE instance already owns role 'exec', prints ALREADY_OWNED and exits 0.
+# awl-pipeline exec watcher — single-owner via atomic mkdir role lock. ONE-SHOT (pipeline-self-pace-loop AC-02):
+# checks .tasks/review (feedback) and .tasks/plan (new work) exactly once, prints the result,
+# and exits immediately — no internal polling loop, no blocking wait. The caller (SKILL self-pace)
+# schedules the NEXT check itself via /loop or ScheduleWakeup(~1800s); this script never waits.
+# A *.md WITHOUT the .taken postfix = unprocessed; *.hold.md in plan/ is skipped. review/ before plan/.
+# The mkdir lock now means "the right to run this one check right now", not long-lived ownership —
+# if another LIVE instance is mid-check this instant, prints ALREADY_OWNED and exits 0.
 # ROOT resolves to the script's PHYSICAL directory (symlinks fully followed via cd -P/pwd -P),
 # so this is correct whether invoked via a symlinked .tasks/ path or the real physical path
 # (e.g. .tasks -> .awl/lanes/<lane>). See pipeline-watcher-symlink-invoke-fix.
@@ -151,7 +153,7 @@ if [ ! -d "$PLAN" ] || [ ! -d "$EXEC" ] || [ ! -d "$REVIEW" ]; then
   exit 1
 fi
 LOCKS="$ROOT/.locks"; LOCK="$LOCKS/exec"
-STABLE_SECS=8; POLL=4; STALE=60
+STABLE_SECS=8; STALE=60
 
 own(){ echo $$ > "$LOCK/pid"; date +%s > "$LOCK/beat"; }
 fresh(){ # 0 if lock held by a live, recently-heartbeating owner
@@ -173,16 +175,14 @@ acquire(){
 acquire || { echo "ALREADY_OWNED"; exit 0; }
 trap 'rm -rf "$LOCK" 2>/dev/null' EXIT
 
-while true; do
-  date +%s > "$LOCK/beat"
-  now=$(date +%s); ready=""
-  while IFS= read -r f; do
-    [ -z "$f" ] && continue
-    m=$(stat -f %m "$f" 2>/dev/null || echo "$now")
-    if [ $(( now - m )) -ge "$STABLE_SECS" ]; then ready="${ready}${f}"$'\n'; fi
-  done < <( { find "$REVIEW" -type f -name '*.md' ! -name '*.taken.md' 2>/dev/null | sort;
-              find "$PLAN"  -type f -name '*.md' ! -name '*.taken.md' ! -name '*.hold.md' 2>/dev/null | sort; } )
-  if [ -n "$ready" ]; then printf 'INPUTS_READY\n%s' "$ready"; exit 0; fi
-  sleep "$POLL"
-done
+# single pass — no internal poll loop, no sleep. Caller reschedules the next check (/loop or ScheduleWakeup).
+now=$(date +%s); ready=""
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  m=$(stat -f %m "$f" 2>/dev/null || echo "$now")
+  if [ $(( now - m )) -ge "$STABLE_SECS" ]; then ready="${ready}${f}"$'\n'; fi
+done < <( { find "$REVIEW" -type f -name '*.md' ! -name '*.taken.md' 2>/dev/null | sort;
+            find "$PLAN"  -type f -name '*.md' ! -name '*.taken.md' ! -name '*.hold.md' 2>/dev/null | sort; } )
+if [ -n "$ready" ]; then printf 'INPUTS_READY\n%s' "$ready"; exit 0; fi
+exit 0
 ```

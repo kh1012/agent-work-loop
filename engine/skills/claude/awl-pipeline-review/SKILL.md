@@ -85,10 +85,13 @@ round: <검증한 exec round>
 ## 워처 스크립트 (`.tasks/watch-exec.sh`)
 ```bash
 #!/usr/bin/env bash
-# awl-pipeline review watcher — single-owner via atomic mkdir role lock.
-# Blocks until UNVERIFIED files in .tasks/exec are stable >= STABLE_SECS, prints them,
-# exits (re-invokes Claude). A *.md WITHOUT the .taken postfix = not yet verified.
-# If another LIVE instance already owns role 'review', prints ALREADY_OWNED and exits 0.
+# awl-pipeline review watcher — single-owner via atomic mkdir role lock. ONE-SHOT (pipeline-self-pace-loop AC-02):
+# checks .tasks/exec exactly once, prints the result, and exits immediately — no internal polling
+# loop, no blocking wait. The caller (SKILL self-pace) schedules the NEXT check itself via /loop or
+# ScheduleWakeup(~1800s); this script never waits.
+# A *.md WITHOUT the .taken postfix = not yet verified.
+# The mkdir lock now means "the right to run this one check right now", not long-lived ownership —
+# if another LIVE instance is mid-check this instant, prints ALREADY_OWNED and exits 0.
 # ROOT resolves to the script's PHYSICAL directory (symlinks fully followed via cd -P/pwd -P),
 # so this is correct whether invoked via a symlinked .tasks/ path or the real physical path
 # (e.g. .tasks -> .awl/lanes/<lane>). See pipeline-watcher-symlink-invoke-fix.
@@ -100,7 +103,7 @@ if [ ! -d "$PLAN" ] || [ ! -d "$EXEC" ] || [ ! -d "$REVIEW" ]; then
   exit 1
 fi
 LOCKS="$ROOT/.locks"; LOCK="$LOCKS/review"
-STABLE_SECS=8; POLL=4; STALE=60
+STABLE_SECS=8; STALE=60
 
 own(){ echo $$ > "$LOCK/pid"; date +%s > "$LOCK/beat"; }
 fresh(){ # 0 if lock held by a live, recently-heartbeating owner
@@ -122,15 +125,13 @@ acquire(){
 acquire || { echo "ALREADY_OWNED"; exit 0; }
 trap 'rm -rf "$LOCK" 2>/dev/null' EXIT
 
-while true; do
-  date +%s > "$LOCK/beat"
-  now=$(date +%s); ready=""
-  while IFS= read -r f; do
-    [ -z "$f" ] && continue
-    m=$(stat -f %m "$f" 2>/dev/null || echo "$now")
-    if [ $(( now - m )) -ge "$STABLE_SECS" ]; then ready="${ready}${f}"$'\n'; fi
-  done < <(find "$EXEC" -type f -name '*.md' ! -name '*.taken.md' 2>/dev/null | sort)
-  if [ -n "$ready" ]; then printf 'UNVERIFIED_READY\n%s' "$ready"; exit 0; fi
-  sleep "$POLL"
-done
+# single pass — no internal poll loop, no sleep. Caller reschedules the next check (/loop or ScheduleWakeup).
+now=$(date +%s); ready=""
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  m=$(stat -f %m "$f" 2>/dev/null || echo "$now")
+  if [ $(( now - m )) -ge "$STABLE_SECS" ]; then ready="${ready}${f}"$'\n'; fi
+done < <(find "$EXEC" -type f -name '*.md' ! -name '*.taken.md' 2>/dev/null | sort)
+if [ -n "$ready" ]; then printf 'UNVERIFIED_READY\n%s' "$ready"; exit 0; fi
+exit 0
 ```
