@@ -14,6 +14,7 @@ import {
 } from '../core/paths.js';
 import { type Caps, caps, card, makeColors, signal } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
+import { packageEngineDir } from './init.js';
 import {
   type LaneInfo,
   branchOf,
@@ -59,6 +60,55 @@ function requireRoot(): string {
 function exists(p: string): boolean {
   try {
     return fs.existsSync(p);
+  } catch {
+    return false;
+  }
+}
+
+const AGENTS_MARKER_START = '<!-- awl-loop:start -->';
+const AGENTS_MARKER_END = '<!-- awl-loop:end -->';
+
+/**
+ * AGENTS.md 에서 awl 마커 구간(`<!-- awl-loop:start -->`~`<!-- awl-loop:end -->`, 포함)만
+ * 잘라낸다(AC-04, 파일 전체 삭제 금지). init.ts installCodexSkill 이 붙일 때 남기는
+ * 구분용 빈 줄도 함께 정리해 앞뒤 내용 사이에 어색한 빈 줄이 남지 않게 한다. 마커가
+ * 없으면 원본을 그대로 돌려준다(removed:false).
+ */
+export function stripAwlAgentsBlock(content: string): { content: string; removed: boolean } {
+  const start = content.indexOf(AGENTS_MARKER_START);
+  if (start === -1) {
+    return { content, removed: false };
+  }
+  const endIdx = content.indexOf(AGENTS_MARKER_END, start);
+  if (endIdx === -1) {
+    return { content, removed: false }; // 마커가 깨졌으면(짝 없음) 손대지 않는다.
+  }
+  const blockEnd = endIdx + AGENTS_MARKER_END.length;
+
+  let removeStart = start;
+  while (removeStart > 0 && content[removeStart - 1] === '\n') {
+    removeStart--;
+  }
+  let removeEnd = blockEnd;
+  while (removeEnd < content.length && content[removeEnd] === '\n') {
+    removeEnd++;
+  }
+
+  const before = content.slice(0, removeStart);
+  const after = content.slice(removeEnd);
+  const next =
+    before.length > 0 && after.length > 0 ? `${before}\n\n${after}` : `${before}${after}`;
+  return { content: next, removed: true };
+}
+
+/** pre-push 훅 내용이 awl 설치 템플릿과 정확히 일치하는가(AC-04, 앞뒤 공백만 무시). */
+function prePushMatchesTemplate(prePushPath: string): boolean {
+  try {
+    const actual = fs.readFileSync(prePushPath, 'utf8').trim();
+    const template = fs
+      .readFileSync(path.join(packageEngineDir(), 'templates', 'pre-push.sample'), 'utf8')
+      .trim();
+    return actual === template;
   } catch {
     return false;
   }
@@ -151,11 +201,18 @@ export function scanProjectLocal(root: string): UninstallItem[] {
   push({ category: '.tasks/.locks', kind: 'dir', path: locksPath, present: exists(locksPath) });
 
   const prePush = path.join(root, '.git', 'hooks', 'pre-push');
+  const prePushPresent = exists(prePush);
+  const prePushMatches = !prePushPresent || prePushMatchesTemplate(prePush);
   push({
     category: '.git/hooks/pre-push (awl 템플릿과 일치할 때만)',
     kind: 'partial',
     path: prePush,
-    present: exists(prePush),
+    present: prePushPresent,
+    removable: prePushMatches,
+    detail:
+      prePushPresent && !prePushMatches
+        ? '내용이 awl 템플릿과 일치하지 않습니다(병합됨) — 보존'
+        : undefined,
   });
 
   const legacyAwlHome = path.join(root, '.awl-home');
@@ -363,7 +420,9 @@ function renderPlan(
       lines.push('  (발견된 것 없음)');
     }
     for (const it of pFound) {
-      lines.push(`  ${signal(c, 'ok')} ${it.legacy ? '[레거시] ' : ''}${it.category}`);
+      const mark = it.removable ? signal(c, 'ok') : signal(c, 'warn');
+      const suffix = it.detail ? ` — ${it.detail}` : '';
+      lines.push(`  ${mark} ${it.legacy ? '[레거시] ' : ''}${it.category}${suffix}`);
     }
     for (const lane of lanes) {
       lines.push(`  ${signal(c, 'ok')} .awl-worktrees/${lane.name} (git worktree remove)`);
@@ -454,8 +513,30 @@ export async function runUninstall(opts: UninstallOpts): Promise<void> {
     laneResults.push(await removeLaneSafely(root, lane));
   }
 
+  const skippedItems: { category: string; reason: string }[] = [];
   for (const item of [...project, ...global]) {
     if (!item.present) {
+      continue;
+    }
+    if (!item.removable) {
+      // 예: pre-push 가 awl 템플릿과 다르면(병합됨) 보존한다(AC-04, 파일 전체 삭제 금지).
+      skippedItems.push({ category: item.category, reason: item.detail ?? '보존' });
+      continue;
+    }
+    if (path.basename(item.path) === 'AGENTS.md') {
+      // AGENTS.md 는 awl 마커 구간만 잘라낸다 — 다른 내용이 있으면 파일을 남긴다(AC-04).
+      const current = fs.readFileSync(item.path, 'utf8');
+      const stripped = stripAwlAgentsBlock(current);
+      if (stripped.removed) {
+        if (stripped.content.trim() === '') {
+          fs.rmSync(item.path, { force: true });
+        } else {
+          fs.writeFileSync(
+            item.path,
+            stripped.content.endsWith('\n') ? stripped.content : `${stripped.content}\n`,
+          );
+        }
+      }
       continue;
     }
     fs.rmSync(item.path, { recursive: true, force: true });
@@ -467,6 +548,12 @@ export async function runUninstall(opts: UninstallOpts): Promise<void> {
     process.stdout.write(`\n  ${signal(c, 'warn')} 보존된 레인(강제 제거 안 함):\n`);
     for (const r of skippedLanes) {
       process.stdout.write(`      .awl-worktrees/${r.name} — ${r.reason}\n`);
+    }
+  }
+  if (skippedItems.length > 0) {
+    process.stdout.write(`\n  ${signal(c, 'warn')} 보존된 항목(그대로 둠):\n`);
+    for (const s of skippedItems) {
+      process.stdout.write(`      ${s.category} — ${s.reason}\n`);
     }
   }
   process.stdout.write(`\n  ${signal(c, 'ok')} ${color.bold('삭제 완료')}\n`);

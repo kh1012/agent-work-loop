@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { packageEngineDir } from '../../src/commands/init.js';
 import {
   findMarkerLegacyFiles,
   readOtherProjects,
@@ -10,6 +11,7 @@ import {
   runUninstall,
   scanGlobal,
   scanProjectLocal,
+  stripAwlAgentsBlock,
 } from '../../src/commands/uninstall.js';
 
 /**
@@ -331,6 +333,100 @@ describe('uninstall', () => {
 
       expect(fs.existsSync(dirtyPath)).toBe(true); // 보존.
       expect(fs.existsSync(cleanPath)).toBe(false); // 정리됨.
+    });
+  });
+
+  describe('AC-04: 부분 제거 — 파일 전체 삭제 금지', () => {
+    it('stripAwlAgentsBlock: 마커 구간만 제거하고 앞뒤 사용자 내용은 보존한다', () => {
+      const content =
+        '# 내 프로젝트 지침\n\n사용자가 쓴 내용.\n\n<!-- awl-loop:start -->\nawl 안내\n<!-- awl-loop:end -->\n';
+      const { content: next, removed } = stripAwlAgentsBlock(content);
+      expect(removed).toBe(true);
+      expect(next).toContain('# 내 프로젝트 지침');
+      expect(next).toContain('사용자가 쓴 내용.');
+      expect(next).not.toContain('awl-loop:start');
+      expect(next).not.toContain('awl 안내');
+    });
+
+    it('stripAwlAgentsBlock: 마커 뒤에도 사용자 내용이 있으면 보존한다', () => {
+      const content =
+        '<!-- awl-loop:start -->\nawl 안내\n<!-- awl-loop:end -->\n\n## 뒤에 붙인 내용\n';
+      const { content: next, removed } = stripAwlAgentsBlock(content);
+      expect(removed).toBe(true);
+      expect(next).toContain('## 뒤에 붙인 내용');
+      expect(next).not.toContain('awl-loop:start');
+    });
+
+    it('stripAwlAgentsBlock: 마커가 없으면 손대지 않는다', () => {
+      const content = '# 순수 사용자 파일\n';
+      const { content: next, removed } = stripAwlAgentsBlock(content);
+      expect(removed).toBe(false);
+      expect(next).toBe(content);
+    });
+
+    it('AGENTS.md 에 awl 외 내용이 섞여 있으면 --yes 실행 후에도 그 내용이 보존된다', async () => {
+      const proj = fixtureProject();
+      fs.writeFileSync(
+        path.join(proj, 'AGENTS.md'),
+        '# 팀 지침\n\n독자적으로 추가한 내용.\n\n<!-- awl-loop:start -->\nawl 안내\n<!-- awl-loop:end -->\n',
+      );
+
+      await runUninstall({ yes: true });
+
+      const agentsPath = path.join(proj, 'AGENTS.md');
+      expect(fs.existsSync(agentsPath)).toBe(true);
+      const after = fs.readFileSync(agentsPath, 'utf8');
+      expect(after).toContain('# 팀 지침');
+      expect(after).toContain('독자적으로 추가한 내용.');
+      expect(after).not.toContain('awl-loop:start');
+    });
+
+    it('AGENTS.md 가 awl 마커뿐이면(다른 내용 없음) 파일 자체를 지운다', async () => {
+      const proj = fixtureProject();
+      fs.writeFileSync(
+        path.join(proj, 'AGENTS.md'),
+        '<!-- awl-loop:start -->\nawl 안내\n<!-- awl-loop:end -->\n',
+      );
+
+      await runUninstall({ yes: true });
+
+      expect(fs.existsSync(path.join(proj, 'AGENTS.md'))).toBe(false);
+    });
+
+    it('pre-push 가 awl 템플릿과 정확히 일치하면 제거한다', async () => {
+      const proj = fixtureProject();
+      const hookDir = path.join(proj, '.git', 'hooks');
+      fs.mkdirSync(hookDir, { recursive: true });
+      const template = fs.readFileSync(
+        path.join(packageEngineDir(), 'templates', 'pre-push.sample'),
+        'utf8',
+      );
+      fs.writeFileSync(path.join(hookDir, 'pre-push'), template);
+
+      await runUninstall({ yes: true });
+
+      expect(fs.existsSync(path.join(hookDir, 'pre-push'))).toBe(false);
+    });
+
+    it('pre-push 가 awl 템플릿과 다르면(사용자가 병합) 보존하고 경고를 낸다', async () => {
+      const proj = fixtureProject();
+      const hookDir = path.join(proj, '.git', 'hooks');
+      fs.mkdirSync(hookDir, { recursive: true });
+      const merged = '#!/bin/sh\n# 사용자가 다른 훅과 병합함\necho custom\nexit 0\n';
+      fs.writeFileSync(path.join(hookDir, 'pre-push'), merged);
+
+      const cap = captureStdout();
+      try {
+        await runUninstall({ yes: true });
+      } finally {
+        cap.restore();
+      }
+      const out = cap.writes.join('');
+
+      expect(fs.existsSync(path.join(hookDir, 'pre-push'))).toBe(true);
+      expect(fs.readFileSync(path.join(hookDir, 'pre-push'), 'utf8')).toBe(merged);
+      expect(out).toMatch(/pre-push/);
+      expect(out).toMatch(/일치하지 않|병합|다릅니다|불일치/);
     });
   });
 
