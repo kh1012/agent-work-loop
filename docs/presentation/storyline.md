@@ -95,6 +95,14 @@
 
 `engine/`을 손대면 안 되는 이유는 단순하다 — `awl update`가 이 디렉토리를 통째로 덮어쓴다. 여기에 직접 수정을 넣어봤자 다음 업데이트에서 조용히 사라진다. 이 저장소 자신도 같은 원칙을 지킨다 — `engine/skills/claude/`가 배포되는 스킬의 원본이고, 프로젝트별 `.claude/skills/`는 그 배포본이다(8절에서 이 구분이 실제로 어긋난 사례를 다룬다).
 
+`awl uninstall`은 이 구조를 반대 방향으로 지운다. 기본은 드라이런이다 — `--yes` 없이는 아무것도 지우지 않는다. 기본 스코프(`--project`)는 이 프로젝트 로컬만 지운다: `.awl/`, `.claude/skills/`의 awl 스킬들, awl 템플릿과 일치하는 `.git/hooks/pre-push`(사람이 직접 고친 훅은 안 건드린다). `~/.awl` 전체(다른 프로젝트의 학습까지)를 지우려면 `--global`을, 둘 다는 `--all`을 명시해야 한다. npm 패키지 자체는 이 명령으로 안 지운다 — 필요하면 `npm uninstall -g agent-work-loop`를 따로 실행한다.
+
+라이브 프로세스가 있으면(exec/review가 `.tasks/.locks`에 heartbeat를 남긴 상태) `--yes` 실행이 중단된다. 돌고 있는 파이프라인 아래에서 흔적을 지우다 상태가 꼬이는 걸 막는 안전장치다.
+
+버전을 맞추는 것도 계층이 나뉜다. `awl --version`이나 `awl version-check --json`의 `updateAvailable`은 npm에 새 배포가 나왔는지만 알려준다 — 해결은 `npm i -g agent-work-loop@latest`. `awl update`는 개인 전역 엔진(`~/.awl/engine`)을 지금 설치된 CLI에 맞춘다 — 머신당 한 번, 프로젝트와 무관하다. `awl init --yes`는 이 프로젝트의 `config.engineVersion`을 엔진에 맞춘다 — 프로젝트마다 따로 해야 한다.
+
+`config.engineVersion`과 엔진 버전이 다르면(`project-vs-engine` 불일치) "구버전이면 올려라"처럼 방향이 있는 게 아니다. 엔진이 프로젝트보다 낮든 높든 `awl init --yes`는 항상 프로젝트 쪽을 지금 엔진에 맞춘다. `engineVersion` 필드만 갱신하고 나머지 팀 설정 필드는 그대로 둔다.
+
 ---
 
 ## 5. 데이터가 쌓이는 논리 — records → gotchas → rules
