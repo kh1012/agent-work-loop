@@ -5,6 +5,27 @@
 
 ## [Unreleased]
 
+## [0.6.19] - 2026-07-19
+
+### 추가
+
+- awl uninstall 라이브 프로세스 안전장치 — .tasks/.locks 살아있으면 --yes 전체 중단(AC-06, 최우선)
+- awl uninstall 부분 제거 — AGENTS.md 마커 구간만/pre-push 템플릿 일치시만(AC-04)
+- awl uninstall 레인 워크트리 안전 제거 — git worktree remove + lane rm 3단 안전망 재사용(AC-03)
+- awl uninstall 스코프 분리 --project/--global/--all + 다른 프로젝트 학습 손실 공시(AC-02)
+- awl uninstall 신설 — 전역+로컬 스캔·드라이런 기본값(AC-01)
+
+### 변경
+
+- 독립 리뷰 지적 반영 — gotcha/feedback 카운트 프로젝트스코프 정직화, awl uninstall 레퍼런스 추가, 인용 verbatim화+줄번호 정정 [AC-09]
+- storyline/commands와 역할분담 재구성 — 실용문서로, npm 0.0.0 placeholder 안내+git push 훅 문서화 [AC-05]
+- commands.md pipeline 스킬 최신화 — hold-recheck 재확인+워처 symlink 수정 명시 [AC-04]
+- commands.md — 사람용16+스킬용8+파이프라인 스킬5 레퍼런스 [AC-03]
+- storyline.md 8절 초안 — 문제/개념/사다리/구조/데이터흐름/파이프라인/실증/한계 [AC-01]
+- 리뷰 지적 반영 — --json+--yes 출력 계약 수정, 레인 학습폐기 의도 문서화, stripAwlAgentsBlock 미커버 분기 테스트 추가 [AC-07]
+- awl uninstall→init 통합 검증 — 재설치가 최초설치처럼 부트스트랩되고 버전 불일치 없음(AC-07)
+- awl uninstall 레거시 스윕(ㅍ마커/.awl-home/deltas+backup) 전 과정 검증(AC-05)
+
 ## [0.6.18] - 2026-07-19
 
 ### 추가
