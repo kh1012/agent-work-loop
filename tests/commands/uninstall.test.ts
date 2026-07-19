@@ -624,6 +624,58 @@ describe('uninstall', () => {
     });
   });
 
+  describe('AC-07: uninstall → init 통합 — 최초 설치처럼 동작', () => {
+    it('--all --yes 로 지운 뒤 awl init 이 부트스트랩 전 과정을 다시 밟고 버전 불일치가 없다', async () => {
+      const proj = fixtureProject();
+      const { runInit } = await import('../../src/commands/init.js');
+      const { gatherVersionInputs } = await import('../../src/commands/version-check.js');
+      const { checkVersions } = await import('../../src/core/versions.js');
+      const configPath = path.join(proj, '.awl', 'config.json');
+      const engineDirPath = path.join(process.env.AWL_HOME as string, 'engine');
+
+      // 1) 최초 설치를 시뮬레이션한다.
+      await runInit({ yes: true });
+      expect(fs.existsSync(configPath)).toBe(true);
+      expect(fs.existsSync(engineDirPath)).toBe(true);
+      expect(fs.existsSync(path.join(proj, '.claude', 'skills', 'awl-loop'))).toBe(true);
+
+      // 2) --all --yes 로 완전히 지운다.
+      await runUninstall({ yes: true, all: true });
+      expect(fs.existsSync(configPath)).toBe(false);
+      expect(fs.existsSync(engineDirPath)).toBe(false);
+      expect(fs.existsSync(path.join(proj, '.claude', 'skills', 'awl-loop'))).toBe(false);
+
+      // 3) 다시 awl init — config.json 이 없으니 "이미 있음" 동기화 경로가 아니라
+      //    최초 부트스트랩(applyInit) 경로를 그대로 다시 밟는다.
+      await runInit({ yes: true });
+      expect(fs.existsSync(configPath)).toBe(true);
+      expect(fs.existsSync(engineDirPath)).toBe(true);
+
+      // 4) 버전 불일치 경고가 없다(엔진/프로젝트/스킬 마커가 전부 같은 시점에 새로 찍힘).
+      const inputs = gatherVersionInputs(proj);
+      const result = checkVersions(inputs);
+      expect(result.ok).toBe(true);
+      expect(result.mismatches).toEqual([]);
+    });
+
+    it('레인 하나가 미커밋 변경으로 보존됐어도(AC-03) --all --yes 는 실패로 끝나지 않고 나머지는 정상 진행된다', async () => {
+      const proj = fixtureProject();
+      const { runInit } = await import('../../src/commands/init.js');
+      await runInit({ yes: true });
+
+      const lanePath = path.join(proj, '.awl-worktrees', 'probe');
+      fs.mkdirSync(path.dirname(lanePath), { recursive: true });
+      execFileSync('git', ['worktree', 'add', lanePath, '-b', 'work/probe'], { cwd: proj });
+      fs.writeFileSync(path.join(lanePath, 'f.txt'), '고침\n');
+
+      await runUninstall({ yes: true, all: true });
+
+      // 더러운 레인은 보존되지만, 나머지(.awl/ 등)는 정상적으로 지워진다.
+      expect(fs.existsSync(lanePath)).toBe(true);
+      expect(fs.existsSync(path.join(proj, '.awl', 'config.json'))).toBe(false);
+    });
+  });
+
   describe('scanProjectLocal / scanGlobal (순수 스캔, 읽기 전용)', () => {
     it('scanProjectLocal 은 프로젝트가 비어 있으면 전부 present:false 를 돌려준다', () => {
       const proj = fixtureProject();
