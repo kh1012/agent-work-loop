@@ -547,6 +547,42 @@ describe('aggregateLoopSummaries (AC-02, groupByExperiment 규약 대조)', () =
     expect(agg.efficiency.costDelta).toBeUndefined();
   });
 
+  it('unmannedRate 도 durationMs/costDelta 와 같은 "있는 값만 평균" — 판단 지점 0(undefined)인 워크아이템은 평균에서 뺀다(리뷰 지적 #2, AC-06)', () => {
+    // d: 판단 지점이 하나도 없던 워크아이템(gate/defer 0건) — unmannedRate: undefined.
+    const d: LoopSummary = {
+      workitem: 'WI-D',
+      hasRecords: true,
+      intervention: {
+        autonomous: 0,
+        humanInterventions: 0,
+        humanGateCount: 0,
+        deferCount: 0,
+        unmannedRate: undefined,
+      },
+      quality: {
+        reviewCount: 0,
+        reviewRejects: 0,
+        blocked: 0,
+        avgAttempts: 0,
+        implementationFailures: 0,
+        proceduralErrors: 0,
+      },
+      efficiency: { durationMs: undefined, costDelta: undefined },
+      output: {
+        passedCriteria: 0,
+        totalCriteria: 0,
+        commits: 0,
+        gotchaApplied: 0,
+        gotchaMissed: 0,
+        exclusions: 0,
+      },
+    };
+    // a/b/c 의 unmannedRate 는 67/0/100 — d 를 더해도 평균은 그대로 56 이어야 한다(d 는 제외).
+    const agg = aggregateLoopSummaries([a, b, c, d]);
+    expect(agg.count).toBe(4);
+    expect(agg.intervention.unmannedRate).toBe(56); // round((67+0+100)/3), d 제외
+  });
+
   it('buildAggregateLines 가 합/평균 라벨과 참고용(wall-clock 아님) 문구를 낸다(AC-03 사람용 렌더 재료)', () => {
     const lines = buildAggregateLines(aggregateLoopSummaries([a, b, c]));
     const joined = lines.join('\n');

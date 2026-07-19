@@ -132,6 +132,23 @@ export function parseExperimentOption(input: string | undefined): ExperimentPars
 }
 
 /**
+ * loop-summary --workitems 콤마 목록을 파싱한다(순수, 테스트 가능하게 커맨더 액션에서
+ * 분리 — parseExperimentOption 과 같은 패턴, pipeline-cycle-summary 리뷰 지적 #1).
+ * 각 항목을 trim 하고 빈 문자열은 버린다. 미지정/빈 문자열/전부 공백이면 undefined
+ * (미지정과 동일하게 취급 — runLoopSummary 가 단일모드로 폴백한다).
+ */
+export function parseWorkitemsOption(input: string | undefined): string[] | undefined {
+  if (typeof input !== 'string' || input.trim() === '') {
+    return undefined;
+  }
+  const ids = input
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  return ids.length > 0 ? ids : undefined;
+}
+
+/**
  * awl 명령어 트리를 만든다.
  *
  * `--help`에는 사람이 치는 명령만 보인다. 스킬 전용 명령(verify, record,
@@ -463,12 +480,7 @@ export function buildProgram(): Command {
         const { runLoopSummary } = await import('./commands/loop-summary.js');
         runLoopSummary({
           workitem: opts.workitem,
-          workitems: opts.workitems
-            ? opts.workitems
-                .split(',')
-                .map((s) => s.trim())
-                .filter((s) => s.length > 0)
-            : undefined,
+          workitems: parseWorkitemsOption(opts.workitems),
           since: opts.since,
           json: opts.json === true,
         });

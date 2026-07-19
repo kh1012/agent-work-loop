@@ -11,6 +11,7 @@ import {
   BANNER,
   buildProgram,
   parseExperimentOption,
+  parseWorkitemsOption,
   renderBanner,
   versionString,
 } from '../src/program.js';
@@ -200,6 +201,26 @@ describe('parseExperimentOption — --experiment 파싱/검증 (experiment-harne
     const r = parseExperimentOption('{not json');
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain('파싱');
+  });
+});
+
+describe('parseWorkitemsOption — loop-summary --workitems 콤마 파싱 (pipeline-cycle-summary AC-06, 리뷰)', () => {
+  it('콤마로 구분한 id 목록을 배열로 파싱한다', () => {
+    expect(parseWorkitemsOption('WI-1,WI-2,WI-3')).toEqual(['WI-1', 'WI-2', 'WI-3']);
+  });
+  it('각 항목 앞뒤 공백을 trim 한다', () => {
+    expect(parseWorkitemsOption(' WI-1 , WI-2 ,WI-3 ')).toEqual(['WI-1', 'WI-2', 'WI-3']);
+  });
+  it('빈 항목(연속 콤마)은 버린다', () => {
+    expect(parseWorkitemsOption('WI-1,,WI-2')).toEqual(['WI-1', 'WI-2']);
+  });
+  it('미지정/빈 문자열/공백만 있으면 undefined(단일모드 폴백)', () => {
+    expect(parseWorkitemsOption(undefined)).toBeUndefined();
+    expect(parseWorkitemsOption('')).toBeUndefined();
+    expect(parseWorkitemsOption('   ')).toBeUndefined();
+  });
+  it('콤마·공백뿐이라 항목이 하나도 안 남으면 undefined(빈 배열이 아니다)', () => {
+    expect(parseWorkitemsOption(' , , ')).toBeUndefined();
   });
 });
 
