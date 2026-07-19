@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { WORKTREES_DIR } from './lane.js';
-import { pipelineLanes, readDirNames } from './status.js';
+import { markerBaseName, pipelineLanes, readDirNames } from './status.js';
 
 /**
  * .tasks/{plan,exec,review} 완료 항목 보관 (pipeline-archive-cleanup).
@@ -60,17 +60,13 @@ export function selectArchiveCandidates(
 
 /**
  * name 소유 파일(모든 마커 접미사 포함)만 골라낸다. status 판정이 아니라 "이 workitem에
- * 속한 실제 파일이 무엇인가"라는 물리적 질의라 pipelineLanes 의 base() 정규식과 별개다
- * (판정 로직 재구현이 아니다 — 이동 대상 파일 목록화일 뿐).
+ * 속한 실제 파일이 무엇인가"라는 물리적 질의라 pipelineLanes 의 상태판정과는 별개지만,
+ * 마커 접미사를 벗기는 규칙(markerBaseName)은 status.ts 와 공유한다 — 여기서 정규식을
+ * 복제하면 마커 접미사가 늘 때 한쪽만 갱신되어 파일 일부만 이동하는 desync 가 생긴다
+ * (리뷰 지적, rev_9a9fc20b7ac6ed5b02 MEDIUM).
  */
 function ownedFiles(dir: string, name: string): string[] {
-  return readDirNames(dir).filter((f) => {
-    if (!f.endsWith('.md')) {
-      return false;
-    }
-    const base = f.replace(/\.md$/, '').replace(/\.(taken|hold|pass)$/, '');
-    return base === name;
-  });
+  return readDirNames(dir).filter((f) => f.endsWith('.md') && markerBaseName(f) === name);
 }
 
 /**

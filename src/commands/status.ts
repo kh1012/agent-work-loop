@@ -326,6 +326,16 @@ export interface PipelineLane {
 }
 
 /**
+ * 마커 잔재(.taken/.hold/.pass)와 .md 를 벗겨 workitem 이름으로 정규화한다. pipelineLanes 의
+ * 상태판정(base 계산)과 pipeline-archive.ts 의 물리 파일목록화(ownedFiles)가 같은 마커 접미사
+ * 집합을 봐야 하므로 export 해 공유한다 — 복제하면 마커 접미사가 늘 때 한쪽만 갱신돼 일부
+ * 파일만 이동하는 desync 가 재발한다(리뷰 지적, pipeline-archive-cleanup).
+ */
+export function markerBaseName(f: string): string {
+  return f.replace(/\.md$/, '').replace(/\.(taken|hold|pass)$/, '');
+}
+
+/**
  * .tasks/{plan,exec,review} 의 파일명만으로 레인별 workitem 상태를 판정한다(순수, 파일 내용 안 엶).
  * 마커 규약은 awl-pipeline-* 스킬 계약과 단일 진실(`.taken`)로 통일한다(pipeline-marker-finalization):
  * claim=plan/<name>.taken.md, 합격=exec/<name>.taken.md 이고 review 수정요구 없음(무파일 합격 계약).
@@ -340,12 +350,10 @@ export function pipelineLanes(
   reviewFiles: string[],
 ): PipelineLane[] {
   const isMd = (f: string): boolean => f.endsWith('.md');
-  // 마커 잔재(.taken/.hold/.pass)와 .md 를 벗겨 workitem 이름으로 정규화한다.
-  const base = (f: string): string => f.replace(/\.md$/, '').replace(/\.(taken|hold|pass)$/, '');
   const names = new Set<string>();
   for (const f of [...planFiles, ...execFiles, ...reviewFiles]) {
     if (isMd(f)) {
-      names.add(base(f));
+      names.add(markerBaseName(f));
     }
   }
   const lanes: PipelineLane[] = [];
