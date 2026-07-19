@@ -14,6 +14,15 @@ import {
 } from '../core/paths.js';
 import { type Caps, caps, card, makeColors, signal } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
+import {
+  type LaneInfo,
+  branchOf,
+  collectLanes,
+  laneBranchMap,
+  unmergedCommitCount,
+  worktreeUntracked,
+} from './lane.js';
+import { removeGitWorktree, worktreeDirtyTracked } from './work.js';
 
 /**
  * awl uninstall — awl 이 손댄 모든 흔적(전역 홈 + 프로젝트 로컬 + 알려진 레거시 경로)을
@@ -222,6 +231,67 @@ export function scanGlobal(): UninstallItem[] {
   return items;
 }
 
+export interface LaneRemoveResult {
+  name: string;
+  removed: boolean;
+  reason?: string;
+}
+
+/**
+ * `.awl-worktrees/<lane>/` 를 `git worktree remove` 로 안전하게 정리한다(AC-03).
+ * `rm -rf` 를 쓰지 않는다 — 그러면 `.git/worktrees/<name>` 메타가 고아로 남는다.
+ * lane rm(lane.ts runLaneRemove)과 완전히 같은 3단 안전망을 재사용한다: tracked
+ * 미커밋 변경, untracked 신규 파일, 병합되지 않은 커밋 중 하나라도 있으면 거부하고
+ * 워크트리를 그대로 보존한다(범위 밖: 실제 작업 성과물을 강제로 날리지 않는다).
+ */
+export async function removeLaneSafely(root: string, lane: LaneInfo): Promise<LaneRemoveResult> {
+  const branches = await laneBranchMap(root);
+  const branch = branchOf(branches, lane.path) ?? `work/${lane.name}`;
+
+  const dirty = await worktreeDirtyTracked(root, lane.path);
+  if (dirty.dirty) {
+    return {
+      name: lane.name,
+      removed: false,
+      reason: `커밋되지 않은 변경 ${dirty.count}건 (예: ${dirty.first})`,
+    };
+  }
+
+  const untracked = await worktreeUntracked(root, lane.path);
+  if (untracked.untracked) {
+    return {
+      name: lane.name,
+      removed: false,
+      reason: `커밋되지 않은 새 파일 ${untracked.count}건 (예: ${untracked.first})`,
+    };
+  }
+
+  const unmerged = await unmergedCommitCount(root, branch);
+  if (unmerged === null) {
+    return {
+      name: lane.name,
+      removed: false,
+      reason: `레인 브랜치 ${branch} 의 미머지 커밋 수를 확인할 수 없습니다`,
+    };
+  }
+  if (unmerged > 0) {
+    return {
+      name: lane.name,
+      removed: false,
+      reason: `레인 브랜치 ${branch} 에 병합되지 않은 커밋 ${unmerged}개`,
+    };
+  }
+
+  const removed = await removeGitWorktree(root, lane.path, branch);
+  if (!removed.ok) {
+    return { name: lane.name, removed: false, reason: removed.error };
+  }
+  if (fs.existsSync(lane.path)) {
+    fs.rmSync(lane.path, { recursive: true, force: true });
+  }
+  return { name: lane.name, removed: true };
+}
+
 export interface UninstallScope {
   project: boolean;
   global: boolean;
@@ -278,6 +348,7 @@ export function readOtherProjects(currentRoot: string): OtherProject[] {
 function renderPlan(
   scope: UninstallScope,
   project: UninstallItem[],
+  lanes: LaneInfo[],
   global: UninstallItem[],
   otherProjects: OtherProject[],
   c: Caps,
@@ -288,11 +359,14 @@ function renderPlan(
   if (scope.project) {
     lines.push(color.bold('프로젝트 로컬'));
     const pFound = project.filter((i) => i.present);
-    if (pFound.length === 0) {
+    if (pFound.length === 0 && lanes.length === 0) {
       lines.push('  (발견된 것 없음)');
     }
     for (const it of pFound) {
       lines.push(`  ${signal(c, 'ok')} ${it.legacy ? '[레거시] ' : ''}${it.category}`);
+    }
+    for (const lane of lanes) {
+      lines.push(`  ${signal(c, 'ok')} .awl-worktrees/${lane.name} (git worktree remove)`);
     }
     lines.push('');
   }
@@ -348,6 +422,7 @@ export async function runUninstall(opts: UninstallOpts): Promise<void> {
   const scope = resolveScope(opts);
 
   const project = scope.project ? scanProjectLocal(root) : [];
+  const lanes = scope.project ? await collectLanes(root) : [];
   const global = scope.global ? scanGlobal() : [];
   const otherProjects = scope.global ? readOtherProjects(root) : [];
 
@@ -358,6 +433,7 @@ export async function runUninstall(opts: UninstallOpts): Promise<void> {
           dryRun: !opts.yes,
           scope,
           project: project.filter((i) => i.present),
+          lanes: lanes.map((l) => l.name),
           global: global.filter((i) => i.present),
           otherProjects,
         },
@@ -366,11 +442,16 @@ export async function runUninstall(opts: UninstallOpts): Promise<void> {
       )}\n`,
     );
   } else {
-    process.stdout.write(`\n${renderPlan(scope, project, global, otherProjects, c)}\n`);
+    process.stdout.write(`\n${renderPlan(scope, project, lanes, global, otherProjects, c)}\n`);
   }
 
   if (!opts.yes) {
     return;
+  }
+
+  const laneResults: LaneRemoveResult[] = [];
+  for (const lane of lanes) {
+    laneResults.push(await removeLaneSafely(root, lane));
   }
 
   for (const item of [...project, ...global]) {
@@ -379,6 +460,14 @@ export async function runUninstall(opts: UninstallOpts): Promise<void> {
     }
     fs.rmSync(item.path, { recursive: true, force: true });
   }
+
   const color = makeColors(c.color);
+  const skippedLanes = laneResults.filter((r) => !r.removed);
+  if (skippedLanes.length > 0) {
+    process.stdout.write(`\n  ${signal(c, 'warn')} 보존된 레인(강제 제거 안 함):\n`);
+    for (const r of skippedLanes) {
+      process.stdout.write(`      .awl-worktrees/${r.name} — ${r.reason}\n`);
+    }
+  }
   process.stdout.write(`\n  ${signal(c, 'ok')} ${color.bold('삭제 완료')}\n`);
 }

@@ -263,6 +263,77 @@ describe('uninstall', () => {
     });
   });
 
+  describe('AC-03: git worktree 안전 제거 — rm -rf 아니라 git worktree remove', () => {
+    it('.awl-worktrees/<lane>/ 을 git worktree remove 로 정리하고 git worktree list 에 고아 메타가 없다', async () => {
+      const proj = fixtureProject();
+      const lanePath = path.join(proj, '.awl-worktrees', 'probe');
+      fs.mkdirSync(path.dirname(lanePath), { recursive: true });
+      execFileSync('git', ['worktree', 'add', lanePath, '-b', 'work/probe'], { cwd: proj });
+
+      await runUninstall({ yes: true });
+
+      expect(fs.existsSync(lanePath)).toBe(false);
+      const listing = execFileSync('git', ['worktree', 'list'], { cwd: proj, encoding: 'utf8' });
+      expect(listing).not.toContain('probe');
+      // .git/worktrees/<name> 메타도 고아로 안 남는다(git worktree remove 가 정리).
+      const metaDir = path.join(proj, '.git', 'worktrees', 'probe');
+      expect(fs.existsSync(metaDir)).toBe(false);
+    });
+
+    it('워크트리에 미커밋 변경이 있으면 거부하고(lane rm 안전장치 재사용) 워크트리를 보존한다', async () => {
+      const proj = fixtureProject();
+      const lanePath = path.join(proj, '.awl-worktrees', 'probe');
+      fs.mkdirSync(path.dirname(lanePath), { recursive: true });
+      execFileSync('git', ['worktree', 'add', lanePath, '-b', 'work/probe'], { cwd: proj });
+      // tracked 파일을 고쳐 미커밋 상태로 만든다(실제 작업 성과물 시뮬레이션).
+      fs.writeFileSync(path.join(lanePath, 'f.txt'), '고침\n');
+
+      const cap = captureStdout();
+      try {
+        await runUninstall({ yes: true });
+      } finally {
+        cap.restore();
+      }
+      const out = cap.writes.join('');
+
+      // 거부됐으니 워크트리는 그대로 보존된다 — 강제로 날리지 않는다(범위 밖 명시).
+      expect(fs.existsSync(lanePath)).toBe(true);
+      expect(fs.existsSync(path.join(lanePath, 'f.txt'))).toBe(true);
+      expect(out).toMatch(/커밋되지 않은 변경|probe/);
+    });
+
+    it('커밋됐지만 병합되지 않은 브랜치는 거부하고 워크트리를 보존한다', async () => {
+      const proj = fixtureProject();
+      const lanePath = path.join(proj, '.awl-worktrees', 'probe');
+      fs.mkdirSync(path.dirname(lanePath), { recursive: true });
+      execFileSync('git', ['worktree', 'add', lanePath, '-b', 'work/probe'], { cwd: proj });
+      fs.writeFileSync(path.join(lanePath, 'lane-work.txt'), 'lane\n');
+      execFileSync('git', ['add', '-A'], { cwd: lanePath });
+      execFileSync('git', ['commit', '-q', '-m', 'lane commit'], { cwd: lanePath });
+
+      await runUninstall({ yes: true });
+
+      expect(fs.existsSync(lanePath)).toBe(true);
+      const branches = execFileSync('git', ['branch', '--list'], { cwd: proj, encoding: 'utf8' });
+      expect(branches).toContain('work/probe');
+    });
+
+    it('여러 레인 중 하나만 더러워도 나머지 깨끗한 레인은 정리된다', async () => {
+      const proj = fixtureProject();
+      const dirtyPath = path.join(proj, '.awl-worktrees', 'dirty');
+      const cleanPath = path.join(proj, '.awl-worktrees', 'clean');
+      fs.mkdirSync(path.dirname(dirtyPath), { recursive: true });
+      execFileSync('git', ['worktree', 'add', dirtyPath, '-b', 'work/dirty'], { cwd: proj });
+      execFileSync('git', ['worktree', 'add', cleanPath, '-b', 'work/clean'], { cwd: proj });
+      fs.writeFileSync(path.join(dirtyPath, 'f.txt'), '고침\n');
+
+      await runUninstall({ yes: true });
+
+      expect(fs.existsSync(dirtyPath)).toBe(true); // 보존.
+      expect(fs.existsSync(cleanPath)).toBe(false); // 정리됨.
+    });
+  });
+
   describe('scanProjectLocal / scanGlobal (순수 스캔, 읽기 전용)', () => {
     it('scanProjectLocal 은 프로젝트가 비어 있으면 전부 present:false 를 돌려준다', () => {
       const proj = fixtureProject();
