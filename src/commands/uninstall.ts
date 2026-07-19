@@ -379,6 +379,14 @@ export interface LaneRemoveResult {
  * lane rm(lane.ts runLaneRemove)과 완전히 같은 3단 안전망을 재사용한다: tracked
  * 미커밋 변경, untracked 신규 파일, 병합되지 않은 커밋 중 하나라도 있으면 거부하고
  * 워크트리를 그대로 보존한다(범위 밖: 실제 작업 성과물을 강제로 날리지 않는다).
+ *
+ * **의도적 비대칭(리뷰 지적)**: lane rm 은 삭제 전 `mergeIsolatedHome` 으로 레인의
+ * 격리 학습(gotchas/rules/generations)을 전역(`~/.awl`)에 병합한다. 여기서는 **일부러
+ * 그 병합을 하지 않는다** — `--project` 스코프(기본값)로 실행됐을 수 있는데, 그 경우
+ * 전역에 쓰는 순간 AC-02("--project 만으론 전역 미변경")가 깨진다. uninstall 은 애초에
+ * "전부 지워 최초 설치처럼" 만드는 명령이라, 병합 없이 폐기하는 쪽이 스코프 계약과
+ * 일치한다(사용자가 학습을 보존하고 싶으면 uninstall 전에 `awl lane rm` 으로 먼저
+ * 병합·정리해야 한다).
  */
 export async function removeLaneSafely(root: string, lane: LaneInfo): Promise<LaneRemoveResult> {
   const branches = await laneBranchMap(root);
@@ -505,7 +513,9 @@ function renderPlan(
       lines.push(`  ${mark} ${it.legacy ? '[레거시] ' : ''}${it.category}${suffix}`);
     }
     for (const lane of lanes) {
-      lines.push(`  ${signal(c, 'ok')} .awl-worktrees/${lane.name} (git worktree remove)`);
+      lines.push(
+        `  ${signal(c, 'ok')} .awl-worktrees/${lane.name} (git worktree remove — 격리 학습은 병합 없이 폐기됩니다)`,
+      );
     }
     const liveLocks = lockStatuses.filter((l) => l.live);
     if (liveLocks.length > 0) {
@@ -575,29 +585,34 @@ export async function runUninstall(opts: UninstallOpts): Promise<void> {
   // 읽기 전용(AC-06) — 드라이런에서도 안전하게 미리 보여준다.
   const lockStatuses = scope.project ? checkLiveLocks(path.join(root, '.tasks')) : [];
 
-  if (opts.json) {
-    process.stdout.write(
-      `${JSON.stringify(
-        {
-          dryRun: !opts.yes,
-          scope,
-          project: project.filter((i) => i.present),
-          lanes: lanes.map((l) => l.name),
-          global: global.filter((i) => i.present),
-          otherProjects,
-          liveLocks: lockStatuses,
-        },
-        null,
-        2,
-      )}\n`,
-    );
-  } else {
+  // 사람용 카드는 --yes 유무와 무관하게(진행 상황 미리보기로) 항상 보여준다.
+  // --json 은 "한 번에 유효한 JSON 객체 하나"가 계약이라 실행 여부에 따라
+  // 마지막에 한 번만 낸다(리뷰 지적 — 예전엔 여기서 미리 찍고 실행 후 평문을
+  // 추가로 더 찍어 --json 계약이 깨졌다).
+  if (!opts.json) {
     process.stdout.write(
       `\n${renderPlan(scope, project, lanes, global, otherProjects, lockStatuses, c)}\n`,
     );
   }
 
   if (!opts.yes) {
+    if (opts.json) {
+      process.stdout.write(
+        `${JSON.stringify(
+          {
+            dryRun: true,
+            scope,
+            project: project.filter((i) => i.present),
+            lanes: lanes.map((l) => l.name),
+            global: global.filter((i) => i.present),
+            otherProjects,
+            liveLocks: lockStatuses,
+          },
+          null,
+          2,
+        )}\n`,
+      );
+    }
     return;
   }
 
@@ -607,12 +622,18 @@ export async function runUninstall(opts: UninstallOpts): Promise<void> {
   if (scope.project) {
     const liveLocks = lockStatuses.filter((l) => l.live);
     if (liveLocks.length > 0) {
-      const detail = liveLocks
-        .map((l) => `.tasks/.locks/${l.role} PID ${l.pid} (${l.ageSec}초 전 heartbeat)`)
-        .join(', ');
-      process.stderr.write(
-        `\n  ${signal(c, 'error')} 라이브 프로세스가 감지돼 중단합니다 — ${detail}\n`,
-      );
+      if (opts.json) {
+        process.stdout.write(
+          `${JSON.stringify({ dryRun: false, aborted: true, reason: 'live-lock', liveLocks }, null, 2)}\n`,
+        );
+      } else {
+        const detail = liveLocks
+          .map((l) => `.tasks/.locks/${l.role} PID ${l.pid} (${l.ageSec}초 전 heartbeat)`)
+          .join(', ');
+        process.stderr.write(
+          `\n  ${signal(c, 'error')} 라이브 프로세스가 감지돼 중단합니다 — ${detail}\n`,
+        );
+      }
       process.exit(1);
     }
   }
@@ -651,8 +672,27 @@ export async function runUninstall(opts: UninstallOpts): Promise<void> {
     fs.rmSync(item.path, { recursive: true, force: true });
   }
 
-  const color = makeColors(c.color);
   const skippedLanes = laneResults.filter((r) => !r.removed);
+
+  if (opts.json) {
+    process.stdout.write(
+      `${JSON.stringify(
+        {
+          dryRun: false,
+          done: true,
+          scope,
+          removedLanes: laneResults.filter((r) => r.removed).map((r) => r.name),
+          skippedLanes,
+          skippedItems,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    return;
+  }
+
+  const color = makeColors(c.color);
   if (skippedLanes.length > 0) {
     process.stdout.write(`\n  ${signal(c, 'warn')} 보존된 레인(강제 제거 안 함):\n`);
     for (const r of skippedLanes) {

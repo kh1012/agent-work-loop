@@ -381,6 +381,18 @@ describe('uninstall', () => {
       expect(next).not.toContain('awl-loop:start');
     });
 
+    it('stripAwlAgentsBlock: 마커가 파일 중간에 샌드위치돼도 앞뒤 내용을 둘 다 보존한다(리뷰 지적, 미커버 분기)', () => {
+      const content =
+        '# 앞쪽 내용\n\n<!-- awl-loop:start -->\nawl 안내\n<!-- awl-loop:end -->\n\n## 뒤쪽 내용\n';
+      const { content: next, removed } = stripAwlAgentsBlock(content);
+      expect(removed).toBe(true);
+      expect(next).toContain('# 앞쪽 내용');
+      expect(next).toContain('## 뒤쪽 내용');
+      expect(next).not.toContain('awl-loop:start');
+      // 앞뒤가 어색한 빈 줄 없이 문단 하나로 이어진다(과다/과소 개행 없음).
+      expect(next).toBe('# 앞쪽 내용\n\n## 뒤쪽 내용\n');
+    });
+
     it('stripAwlAgentsBlock: 마커가 없으면 손대지 않는다', () => {
       const content = '# 순수 사용자 파일\n';
       const { content: next, removed } = stripAwlAgentsBlock(content);
@@ -673,6 +685,68 @@ describe('uninstall', () => {
       // 더러운 레인은 보존되지만, 나머지(.awl/ 등)는 정상적으로 지워진다.
       expect(fs.existsSync(lanePath)).toBe(true);
       expect(fs.existsSync(path.join(proj, '.awl', 'config.json'))).toBe(false);
+    });
+  });
+
+  describe('--json 출력 계약 — 리뷰 지적: --yes 와 같이 쓰면 유효한 JSON 객체 하나여야 한다', () => {
+    function collectJson(writes: string[]): unknown {
+      const combined = writes.join('');
+      return JSON.parse(combined); // 전체 출력이 단일 JSON 이 아니면 여기서 바로 실패한다.
+    }
+
+    it('--json 드라이런(=--yes 없음)은 유효한 JSON 객체 하나만 낸다', async () => {
+      const proj = fixtureProject();
+      fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+
+      const cap = captureStdout();
+      try {
+        await runUninstall({ json: true });
+      } finally {
+        cap.restore();
+      }
+      const parsed = collectJson(cap.writes) as { dryRun: boolean };
+      expect(parsed.dryRun).toBe(true);
+    });
+
+    it('--json --yes 는 실행 전 미리보기 없이, 실행 결과가 담긴 JSON 객체 하나만 낸다', async () => {
+      const proj = fixtureProject();
+      fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+
+      const cap = captureStdout();
+      try {
+        await runUninstall({ json: true, yes: true });
+      } finally {
+        cap.restore();
+      }
+      const parsed = collectJson(cap.writes) as { dryRun: boolean; done: boolean };
+      expect(parsed.dryRun).toBe(false);
+      expect(parsed.done).toBe(true);
+      expect(fs.existsSync(path.join(proj, '.awl'))).toBe(false);
+    });
+
+    it('--json --yes 가 라이브 락으로 중단되면(AC-06) 그 사유가 담긴 JSON 객체 하나만 낸다', async () => {
+      const proj = fixtureProject();
+      fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+      const now = Math.floor(Date.now() / 1000);
+      seedLock(proj, 'review', process.pid, now);
+
+      const exitCap = spyProcessExit();
+      const cap = captureStdout();
+      let thrown: unknown;
+      try {
+        await runUninstall({ json: true, yes: true });
+      } catch (e) {
+        thrown = e;
+      } finally {
+        cap.restore();
+        exitCap.restore();
+      }
+      expect(thrown).toBeInstanceOf(Error);
+      expect(exitCap.code()).toBe(1);
+      const parsed = collectJson(cap.writes) as { aborted: boolean; reason: string };
+      expect(parsed.aborted).toBe(true);
+      expect(parsed.reason).toBe('live-lock');
+      expect(fs.existsSync(path.join(proj, '.awl'))).toBe(true); // 지워지지 않았다.
     });
   });
 
