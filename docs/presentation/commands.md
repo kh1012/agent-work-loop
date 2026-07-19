@@ -2,7 +2,7 @@
 
 `storyline.md`가 왜/무엇인지를 다룬다면, 이 문서는 실제로 손에 잡히는 명령 전부를 다룬다. 모든 출력은 이 저장소(`agent-work-loop`, 버전 0.6.18)에서 2026-07-19에 실제로 실행한 결과다. 길면 자르고 "(생략)"이라고 표시했다. 색이 없는 터미널에서 실행했기 때문에 `[ok]`/`[!]`/`[x]` 같은 텍스트 마커가 그대로 보인다 — 이것도 실제 출력이다.
 
-`awl --help`에 노출되는 명령은 18개다. 이 중 `commit`/`review`는 사람이 직접 칠 수도 있지만 실제로는 awl-loop 스킬이 루프 중 자동으로 호출하는 경우가 대부분이라 "스킬용" 쪽에 묶었다. `--help`에 안 나오는(hidden) 명령이 6개 더 있다 — `record`/`verify`/`state`/`evolve`/`defer-summary`/`hold-recheck`. 전부 합쳐 24개다. 형식은 전부 같다: **역할 / 언제 쓰나 / 실행+실제출력 / 읽는법**.
+`awl --help`에 노출되는 명령은 19개다(`uninstall`이 이 세션 중 새로 생겨 재확인 시점에 포함됐다). 이 중 `commit`/`review`는 사람이 직접 칠 수도 있지만 실제로는 awl-loop 스킬이 루프 중 자동으로 호출하는 경우가 대부분이라 "스킬용" 쪽에 묶었다. `--help`에 안 나오는(hidden) 명령이 6개 더 있다 — `record`/`verify`/`state`/`evolve`/`defer-summary`/`hold-recheck`. 전부 합쳐 25개다. 형식은 전부 같다: **역할 / 언제 쓰나 / 실행+실제출력 / 읽는법**.
 
 ---
 
@@ -119,6 +119,32 @@
 - **언제 쓰나**: `version-check`의 `binary-vs-engine` 불일치를 해소할 때.
 - **실행**: `awl update` (인자 없음). 프로젝트 설정은 건드리지 않는다 — 전역 엔진만 갱신한다.
 - **읽는법**: `awl init --yes`와 헷갈리기 쉽다. `update`는 전역 엔진만, `init --yes`는 이 프로젝트의 config/스킬까지 동기화한다.
+
+### `awl uninstall`
+
+- **역할**: awl이 이 프로젝트(또는 전역)에 남긴 흔적을 지운다. **기본은 드라이런** — `--yes` 없이는 아무것도 지우지 않는다.
+- **언제 쓰나**: awl을 프로젝트에서 빼기로 했을 때, 또는 무엇이 지워질지 먼저 확인하고 싶을 때.
+- **실행+실제출력**(스크래치 프로젝트, 드라이런):
+  ```
+  $ awl uninstall
+
+  +- awl uninstall — 드라이런(dry run) -----------------------------------------------------------+
+  |  프로젝트 로컬
+  |    [ok] .awl/ (config·state·skills-version·verify-baseline·state.lock·home)
+  |    [ok] .claude/skills/awl-loop
+  |    [ok] .claude/skills/awl-pipeline
+  |    [ok] .claude/skills/awl-pipeline-exec
+  |    [ok] .claude/skills/awl-pipeline-plan
+  |    [ok] .claude/skills/awl-pipeline-review
+  |    [ok] .git/hooks/pre-push (awl 템플릿과 일치할 때만)
+  |
+  |  전역(~/.awl) — --global 또는 --all 로만 포함됩니다 (생략)
+  |
+  |  npm 패키지 자체는 이 명령으로 지우지 않습니다. 필요하면 npm uninstall -g agent-work-loop 를
+  |  직접 실행하세요.
+  +-----------------------------------------------------------------------------------------------+
+  ```
+- **읽는법**: 기본값(`--project`)은 이 프로젝트 로컬만 지운다. `--global`은 `~/.awl` 전체(다른 프로젝트의 학습까지) 지운다 — 신중하게. `--all`은 둘 다. `.git/hooks/pre-push`는 awl이 심은 템플릿 그대로일 때만 지운다(사람이 직접 고친 훅은 안 건드린다). 실제로 지우려면 `--yes`를 붙인다.
 
 ### `awl config`
 
@@ -392,4 +418,4 @@
 
 ## 참고 — 명령 카운트 재확인 로그
 
-`awl --help`(2026-07-19, 버전 0.6.18): init/status/brief/doctor/version-check/update/config/work/lane/records/rules/gotchas/metrics/loop-summary/feedback/changelog/commit/review = 18개, F-01(이전 조사)과 동일. hidden 명령은 `record`/`verify`/`state`/`evolve`/`defer-summary` 5개에 더해 `hold-recheck`가 새로 확인돼 6개다(`awl hold-recheck --help`로 존재 확인, `--help` 목록엔 안 뜬다).
+`awl --help`(2026-07-19, 버전 0.6.18): init/status/brief/doctor/version-check/update/**uninstall**/config/work/lane/records/rules/gotchas/metrics/loop-summary/feedback/changelog/commit/review = 19개 — F-01(이전 조사)의 18개에서 `uninstall`이 하나 늘었다. 리뷰(`rev_5b70cac74220bb1ed7`)가 이 문서 초판에서 `uninstall` 항목 자체가 빠진 걸 잡아 이번에 추가했다 — `uninstall`은 storyline.md AC-01 커밋보다 먼저 main에 병합돼 조사 시점에 이미 `--help`에 있었는데 놓쳤다. hidden 명령은 `record`/`verify`/`state`/`evolve`/`defer-summary` 5개에 더해 `hold-recheck`가 새로 확인돼 6개다(`awl hold-recheck --help`로 존재 확인, `--help` 목록엔 안 뜬다). 합쳐서 25개.

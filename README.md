@@ -126,7 +126,7 @@ awl status    # 지금 어디까지 왔는지 한눈에
 
 ## 명령어 요약
 
-자주 쓰는 것만 적습니다. 24개 명령(사람용 16 + 스킬용 8) 전부와 실제 실행 예시는 [`commands.md`](docs/presentation/commands.md)에 있습니다.
+자주 쓰는 것만 적습니다. 25개 명령(사람용 17 + 스킬용 8) 전부와 실제 실행 예시는 [`commands.md`](docs/presentation/commands.md)에 있습니다.
 
 ```bash
 awl status    # 지금 어디까지 왔는지
