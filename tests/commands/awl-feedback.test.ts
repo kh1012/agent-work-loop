@@ -67,11 +67,23 @@ describe('awl-feedback — 스킬 문서에 gotcha 와의 구분 명시 (AC-04)'
       path.join(process.cwd(), 'engine/skills/claude/awl-loop/reference.md'),
       'utf8',
     );
-    const combined = `${skillText}\n${referenceText}`;
-    expect(combined).toContain('record awl-feedback');
+    // 토큰이 파일 어디에나 있으면 통과하는 약한 단언을 피한다(G-059) — "awl 도구 자체
+    // 피드백" 섹션 헤더로 reference.md 를 슬라이스해, 그 섹션 범위 안에서 요소가
+    // 공존하는지 확인한다. 다음 "## "/"### " 헤더 전까지가 그 섹션 범위다.
+    const sectionStart = referenceText.indexOf('### awl 도구 자체 피드백');
+    expect(sectionStart).toBeGreaterThanOrEqual(0);
+    const afterHeader = referenceText.slice(sectionStart);
+    const nextHeaderRel = afterHeader.slice(1).search(/\n#{2,3} /);
+    const feedbackSection =
+      nextHeaderRel === -1 ? afterHeader : afterHeader.slice(0, nextHeaderRel + 1);
+    expect(feedbackSection).toContain('record awl-feedback');
     // gotcha 와 다른 종류임을 명시한다.
-    expect(combined).toMatch(/gotcha 와 다르다|gotcha 로 승격되지 않는다/);
-    // SKILL.md 본문에는 언제 참조해야 하는지 트리거 조건과 reference.md 링크가 남아있어야 한다.
-    expect(skillText).toContain('reference.md');
+    expect(feedbackSection).toMatch(/gotcha 와 다르다|gotcha 로 승격되지 않는다/);
+    // SKILL.md 본문의 evolve 섹션 자리에는 언제 참조해야 하는지 트리거 조건과
+    // reference.md 링크(스텁)가 남아있어야 한다.
+    const evolveStart = skillText.indexOf('## evolve');
+    expect(evolveStart).toBeGreaterThanOrEqual(0);
+    const evolveStub = skillText.slice(evolveStart, evolveStart + 400);
+    expect(evolveStub).toContain('reference.md');
   });
 });
