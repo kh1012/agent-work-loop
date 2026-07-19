@@ -5,6 +5,19 @@
 
 ## [Unreleased]
 
+## [0.6.18] - 2026-07-19
+
+### 추가
+
+- --pipeline --archive 로 보관 실행(F-03/pipeline-archive 재사용, 기계적·게이트 불요) [AC-05]
+- F-03(pipelineLanes) 재사용 보관 후보 판정 + 유예기간(3일) [AC-01]
+
+### 변경
+
+- 마커 접미사 정규식 중복 제거 — markerBaseName 공유(리뷰 지적) [AC-01]
+- 섹션 슬라이스로 단언 강화(G-059) — 토큰 존재만 보지 않고 올바른 섹션 범위 안에서 검증 [AC-01]
+- SKILL.md progressive disclosure 분할 — 조건부/저빈도 6섹션을 reference.md로 [AC-01]
+
 ## [0.6.17] - 2026-07-18
 
 ### 제거
