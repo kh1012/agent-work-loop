@@ -750,3 +750,130 @@ describe('runStatus --pipeline 교차 레인(pipeline-status-view AC-02/03)', ()
     ]);
   });
 });
+
+// --- pipeline-archive-cleanup: awl status --pipeline --archive glue(AC-05/06) ---
+
+describe('runStatus --pipeline --archive (pipeline-archive-cleanup AC-05/06)', () => {
+  const origCwd = process.cwd();
+  afterEach(() => process.chdir(origCwd));
+
+  function capture(fn: () => void): string {
+    let buf = '';
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((c: unknown) => {
+      buf += String(c);
+      return true;
+    });
+    try {
+      fn();
+    } finally {
+      spy.mockRestore();
+    }
+    return buf;
+  }
+
+  const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+
+  function agePast(filePath: string, ageMs: number): void {
+    const past = new Date(Date.now() - ageMs);
+    fs.utimesSync(filePath, past, past);
+  }
+
+  it('--archive 없으면(기존 --pipeline) complete 항목을 보관하지 않는다(회귀 없음, AC-06)', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-arc-run-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    for (const d of ['plan', 'exec', 'review'])
+      fs.mkdirSync(path.join(root, '.tasks', d), { recursive: true });
+    fs.writeFileSync(path.join(root, '.tasks', 'plan', 'old.taken.md'), '');
+    const execFile = path.join(root, '.tasks', 'exec', 'old.taken.md');
+    fs.writeFileSync(execFile, '');
+    agePast(execFile, THREE_DAYS_MS + 1000); // 유예 지났지만 --archive 안 줬다.
+    process.chdir(root);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-arc-home-'));
+
+    const j = JSON.parse(capture(() => void runStatus({ json: true, pipeline: true })));
+    const main = j.lanes.find((l: { name: string }) => l.name === 'main');
+    expect(main.workitems).toEqual([{ name: 'old', status: 'complete' }]);
+    expect(j.archived).toBeUndefined();
+    expect(fs.existsSync(execFile)).toBe(true); // 파일도 그대로.
+  });
+
+  it('--archive 주면 유예 지난 complete 항목을 실제로 옮기고 --json 에 archived 를 낸다', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-arc-run-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    for (const d of ['plan', 'exec', 'review'])
+      fs.mkdirSync(path.join(root, '.tasks', d), { recursive: true });
+    // old: 유예(3일) 지남 → 보관 대상. fresh: 완료했지만 유예 안 지남 → 유지.
+    fs.writeFileSync(path.join(root, '.tasks', 'plan', 'old.taken.md'), '');
+    const oldExec = path.join(root, '.tasks', 'exec', 'old.taken.md');
+    fs.writeFileSync(oldExec, '');
+    agePast(oldExec, THREE_DAYS_MS + 1000);
+    fs.writeFileSync(path.join(root, '.tasks', 'plan', 'fresh.taken.md'), '');
+    fs.writeFileSync(path.join(root, '.tasks', 'exec', 'fresh.taken.md'), '');
+    // hold: 유예가 지나도 옮기면 안 된다.
+    fs.writeFileSync(path.join(root, '.tasks', 'plan', 'stuck.hold.md'), '');
+    const holdExec = path.join(root, '.tasks', 'exec', 'stuck.taken.md');
+    fs.writeFileSync(holdExec, '');
+    agePast(holdExec, THREE_DAYS_MS + 1000);
+    process.chdir(root);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-arc-home-'));
+
+    const j = JSON.parse(
+      capture(() => void runStatus({ json: true, pipeline: true, archive: true })),
+    );
+
+    // 실제 파일이 옮겨졌다(글루 커버 — 순수함수 아니라 CLI 경로에서 부작용 확인).
+    expect(fs.existsSync(path.join(root, '.tasks', 'exec', 'old.taken.md'))).toBe(false);
+    expect(fs.existsSync(path.join(root, '.tasks', 'archive', 'old', 'exec', 'old.taken.md'))).toBe(
+      true,
+    );
+    // fresh/hold 는 안 옮겨졌다.
+    expect(fs.existsSync(path.join(root, '.tasks', 'exec', 'fresh.taken.md'))).toBe(true);
+    expect(fs.existsSync(path.join(root, '.tasks', 'exec', 'stuck.taken.md'))).toBe(true);
+
+    // --json 출력에 archived 요약이 담긴다.
+    expect(j.archived.main).toEqual(['old']);
+
+    // 재계산된 lanes 에는 old 가 더는 안 잡히고(활성 스캔에서 제외), fresh/hold(blocked)는 남는다.
+    const main = j.lanes.find((l: { name: string }) => l.name === 'main');
+    const byName = Object.fromEntries(
+      main.workitems.map((w: { name: string; status: string }) => [w.name, w.status]),
+    );
+    expect(byName.old).toBeUndefined();
+    expect(byName.fresh).toBe('complete');
+    expect(byName.stuck).toBe('blocked');
+  });
+
+  it('AC-06: 활성(비완료) 항목 집계는 보관 전후 회귀 없다', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-arc-run-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    for (const d of ['plan', 'exec', 'review'])
+      fs.mkdirSync(path.join(root, '.tasks', d), { recursive: true });
+    // 활성 3개(pending/executing/reviewing) + complete 1개(유예 지남, 보관 대상).
+    fs.writeFileSync(path.join(root, '.tasks', 'plan', 'p1.md'), ''); // pending
+    fs.writeFileSync(path.join(root, '.tasks', 'plan', 'e1.taken.md'), ''); // executing
+    fs.writeFileSync(path.join(root, '.tasks', 'plan', 'r1.taken.md'), '');
+    fs.writeFileSync(path.join(root, '.tasks', 'exec', 'r1.md'), ''); // reviewing
+    fs.writeFileSync(path.join(root, '.tasks', 'plan', 'done.taken.md'), '');
+    const doneExec = path.join(root, '.tasks', 'exec', 'done.taken.md');
+    fs.writeFileSync(doneExec, '');
+    agePast(doneExec, THREE_DAYS_MS + 1000);
+    process.chdir(root);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-arc-home-'));
+
+    const countActive = (j: {
+      lanes: { name: string; workitems: { status: string }[] }[];
+    }): number => {
+      const main = j.lanes.find((l) => l.name === 'main');
+      return (main?.workitems ?? []).filter((w) => w.status !== 'complete').length;
+    };
+
+    const before = JSON.parse(capture(() => void runStatus({ json: true, pipeline: true })));
+    expect(countActive(before)).toBe(3);
+
+    void runStatus({ json: true, pipeline: true, archive: true }); // 보관 실행(부작용만 필요).
+    const after = JSON.parse(
+      capture(() => void runStatus({ json: true, pipeline: true, archive: true })),
+    );
+    expect(countActive(after)).toBe(3); // 활성 카운트 불변 — complete 만 하나 더 사라짐(이미 없음).
+  });
+});

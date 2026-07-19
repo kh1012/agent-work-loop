@@ -16,6 +16,7 @@ import {
 } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
 import { WORKTREES_DIR } from './lane.js';
+import { archiveAllLanes } from './pipeline-archive.js';
 import { readRecords } from './record.js';
 import { loadState } from './state.js';
 
@@ -476,7 +477,11 @@ export function renderPipelineGroups(groups: PipelineLaneGroup[], c: Caps): stri
   return card(`파이프라인 ${groups.length}개 레인`, out, c);
 }
 
-export async function runStatus(opts: { json: boolean; pipeline?: boolean }): Promise<void> {
+export async function runStatus(opts: {
+  json: boolean;
+  pipeline?: boolean;
+  archive?: boolean;
+}): Promise<void> {
   const root = resolveProjectRoot();
   if (!root) {
     const cc = caps();
@@ -488,13 +493,29 @@ export async function runStatus(opts: { json: boolean; pipeline?: boolean }): Pr
   // --pipeline: temp-loop 하네스의 .tasks/{plan,exec,review} 레인 상태를 배지로 낸다(opt-in).
   // awl 코어의 일반 status 와 분리 — .tasks 가 없으면 빈 뷰다(awl 은 하네스 유무를 판단 안 함).
   if (opts.pipeline === true) {
+    // --archive(pipeline-archive-cleanup AC-05): 유예(3일) 지난 complete workitem을
+    // archive/<name>/ 로 옮긴 뒤(기계적·게이트 불요) 그 결과를 반영해 렌더한다. F-03 판정
+    // 함수(pipelineLanes)를 archiveAllLanes 가 그대로 소비하므로 여기서 새 판정을 하지 않는다.
+    let archived: Record<string, string[]> | undefined;
+    if (opts.archive === true) {
+      archived = archiveAllLanes(root);
+    }
     // 교차 레인 롤업: 메인 트리 .tasks/ 를 항상 'main' 그룹으로 앞에 두고(F-01: 레인이 생겨도
     // 메인 안 숨김), .awl-worktrees/* 레인 그룹을 잇는다. 폴백(레인 없음)·다중(레인 있음)이
     // 같은 {name,workitems[]} 스키마라 --json 소비자가 런타임 상태로 갈리지 않는다(F-02).
+    // archiveAllLanes 가 먼저 파일을 옮겼다면 이 재계산에는 보관된 workitem이 빠져 있다
+    // (archive/ 는 readDirNames 가 plan/exec/review 서브디렉토리만 읽어 구조적으로 제외).
     const groups = [mainTreeGroup(root), ...collectPipelineLaneGroups(root)];
     if (opts.json) {
-      process.stdout.write(`${JSON.stringify({ lanes: groups }, null, 2)}\n`);
+      process.stdout.write(
+        `${JSON.stringify({ lanes: groups, ...(archived ? { archived } : {}) }, null, 2)}\n`,
+      );
     } else {
+      if (archived) {
+        const total = Object.values(archived).reduce((n, names) => n + names.length, 0);
+        const color = makeColors(caps().color);
+        process.stdout.write(`  보관 ${color.bold(String(total))}건\n`);
+      }
       process.stdout.write(`${renderPipelineGroups(groups, caps())}\n`);
     }
     return;
