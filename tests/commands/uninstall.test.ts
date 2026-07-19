@@ -5,6 +5,8 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   findMarkerLegacyFiles,
+  readOtherProjects,
+  resolveScope,
   runUninstall,
   scanGlobal,
   scanProjectLocal,
@@ -84,9 +86,11 @@ describe('uninstall', () => {
       const beforeAwlMtime = fs.statSync(dotAwlPath).mtimeMs;
       const beforeHomeMtime = fs.statSync(homeRecordsPath).mtimeMs;
 
+      // --all: AC-01 은 F-02(전역)~F-05(레거시) 전 카테고리 표시 범위를 검증한다.
+      // 스코프 좁히기 자체(기본=project만)는 AC-02 가 별도로 검증한다.
       const cap = captureStdout();
       try {
-        await runUninstall({});
+        await runUninstall({ all: true });
       } finally {
         cap.restore();
       }
@@ -137,7 +141,8 @@ describe('uninstall', () => {
 
       const cap = captureStdout();
       try {
-        await runUninstall({ yes: true });
+        // --all: 이 테스트는 "--yes 를 줘야 지운다" 자체를 검증한다(스코프는 AC-02 몫).
+        await runUninstall({ yes: true, all: true });
       } finally {
         cap.restore();
       }
@@ -145,6 +150,116 @@ describe('uninstall', () => {
       expect(fs.existsSync(dotAwlPath)).toBe(false);
       expect(fs.existsSync(skillPath)).toBe(false);
       expect(fs.existsSync(homeRecordsPath)).toBe(false);
+    });
+  });
+
+  describe('AC-02: 스코프 분리 — --project(기본)/--global/--all', () => {
+    it('resolveScope: 기본은 project 만, --global 은 global 만(전역은 opt-in), --all 은 둘 다', () => {
+      expect(resolveScope({})).toEqual({ project: true, global: false });
+      expect(resolveScope({ project: true })).toEqual({ project: true, global: false });
+      expect(resolveScope({ global: true })).toEqual({ project: false, global: true });
+      expect(resolveScope({ all: true })).toEqual({ project: true, global: true });
+    });
+
+    it('플래그 없이(기본) --yes 실행하면 프로젝트만 지워지고 전역은 그대로다', async () => {
+      const proj = fixtureProject();
+      seedFullFixture(proj);
+      const dotAwlPath = path.join(proj, '.awl');
+      const homeRecordsPath = path.join(process.env.AWL_HOME as string, 'records');
+      const beforeGlobalMtime = fs.statSync(homeRecordsPath).mtimeMs;
+
+      await runUninstall({ yes: true });
+
+      expect(fs.existsSync(dotAwlPath)).toBe(false); // 프로젝트: 지워짐.
+      expect(fs.existsSync(homeRecordsPath)).toBe(true); // 전역: 그대로.
+      expect(fs.statSync(homeRecordsPath).mtimeMs).toBe(beforeGlobalMtime);
+    });
+
+    it('--global --yes 는 전역만 지우고 프로젝트 로컬은 그대로다', async () => {
+      const proj = fixtureProject();
+      seedFullFixture(proj);
+      const dotAwlPath = path.join(proj, '.awl');
+      const homeRecordsPath = path.join(process.env.AWL_HOME as string, 'records');
+      const beforeProjectMtime = fs.statSync(dotAwlPath).mtimeMs;
+
+      await runUninstall({ yes: true, global: true });
+
+      expect(fs.existsSync(homeRecordsPath)).toBe(false); // 전역: 지워짐.
+      expect(fs.existsSync(dotAwlPath)).toBe(true); // 프로젝트: 그대로.
+      expect(fs.statSync(dotAwlPath).mtimeMs).toBe(beforeProjectMtime);
+    });
+
+    it('--all --yes 는 프로젝트+전역 둘 다 지운다', async () => {
+      const proj = fixtureProject();
+      seedFullFixture(proj);
+      const dotAwlPath = path.join(proj, '.awl');
+      const homeRecordsPath = path.join(process.env.AWL_HOME as string, 'records');
+
+      await runUninstall({ yes: true, all: true });
+
+      expect(fs.existsSync(dotAwlPath)).toBe(false);
+      expect(fs.existsSync(homeRecordsPath)).toBe(false);
+    });
+
+    it('readOtherProjects: projects.json 에서 현재 프로젝트를 뺀 나머지만 돌려준다', () => {
+      const proj = fixtureProject();
+      const home = process.env.AWL_HOME as string;
+      fs.mkdirSync(home, { recursive: true });
+      fs.writeFileSync(
+        path.join(home, 'projects.json'),
+        JSON.stringify([
+          { name: 'this-project', path: proj },
+          { name: 'other-a', path: '/tmp/other-a' },
+          { name: 'other-b', path: '/tmp/other-b' },
+        ]),
+      );
+      const others = readOtherProjects(proj);
+      expect(others.map((p) => p.name).sort()).toEqual(['other-a', 'other-b']);
+    });
+
+    it('--global 드라이런은 다른 등록 프로젝트 목록과 "학습도 같이 사라진다" 문구를 보여준다', async () => {
+      const proj = fixtureProject();
+      const home = process.env.AWL_HOME as string;
+      fs.mkdirSync(home, { recursive: true });
+      fs.writeFileSync(
+        path.join(home, 'projects.json'),
+        JSON.stringify([
+          { name: 'this-project', path: proj },
+          { name: 'other-project', path: '/tmp/other-project' },
+        ]),
+      );
+
+      const cap = captureStdout();
+      try {
+        await runUninstall({ global: true });
+      } finally {
+        cap.restore();
+      }
+      const out = cap.writes.join('');
+      expect(out).toContain('other-project');
+      expect(out).toContain('학습');
+      expect(out).toContain('사라');
+      // this-project(자기 자신)는 "다른 프로젝트" 목록에 안 나온다.
+      expect(out).not.toContain('this-project');
+    });
+
+    it('--project 스코프에서는 전역(다른 프로젝트) 공시 문구가 없다', async () => {
+      const proj = fixtureProject();
+      const home = process.env.AWL_HOME as string;
+      fs.mkdirSync(home, { recursive: true });
+      fs.writeFileSync(
+        path.join(home, 'projects.json'),
+        JSON.stringify([{ name: 'other-project', path: '/tmp/other-project' }]),
+      );
+
+      const cap = captureStdout();
+      try {
+        await runUninstall({});
+      } finally {
+        cap.restore();
+      }
+      const out = cap.writes.join('');
+      expect(out).not.toContain('other-project');
     });
   });
 

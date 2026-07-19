@@ -222,30 +222,104 @@ export function scanGlobal(): UninstallItem[] {
   return items;
 }
 
-function renderPlan(project: UninstallItem[], global: UninstallItem[], c: Caps): string {
+export interface UninstallScope {
+  project: boolean;
+  global: boolean;
+}
+
+/**
+ * 스코프 플래그를 해석한다(AC-02). 기본은 `--project`(로컬만) — 전역(`~/.awl`)은
+ * 다른 프로젝트와 공유하는 자원이라(F-07) 명시적으로 요구해야만(`--global`/`--all`)
+ * 포함한다. `--project --global` 을 같이 주면 `--all` 과 동등하게 둘 다 포함한다.
+ */
+export function resolveScope(opts: {
+  project?: boolean;
+  global?: boolean;
+  all?: boolean;
+}): UninstallScope {
+  if (opts.all) {
+    return { project: true, global: true };
+  }
+  if (opts.global) {
+    return { project: opts.project === true, global: true };
+  }
+  return { project: true, global: false };
+}
+
+interface OtherProject {
+  name?: string;
+  path: string;
+}
+
+/**
+ * ~/.awl/projects.json 에서 현재 프로젝트를 뺀 나머지 등록 프로젝트를 읽는다(F-07,
+ * AC-02) — `--global`/`--all` 실행 전 "이 프로젝트들의 학습도 같이 사라진다"를
+ * 알리기 위한 근거 데이터다. 파일이 없거나 깨졌으면 빈 배열(크래시하지 않는다).
+ */
+export function readOtherProjects(currentRoot: string): OtherProject[] {
+  try {
+    const raw = JSON.parse(fs.readFileSync(projectsFile(), 'utf8'));
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+    const currentResolved = path.resolve(currentRoot);
+    return raw
+      .filter((p): p is Record<string, unknown> => !!p && typeof p === 'object')
+      .filter((p) => typeof p.path === 'string' && path.resolve(p.path) !== currentResolved)
+      .map((p) => ({
+        name: typeof p.name === 'string' ? p.name : undefined,
+        path: p.path as string,
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function renderPlan(
+  scope: UninstallScope,
+  project: UninstallItem[],
+  global: UninstallItem[],
+  otherProjects: OtherProject[],
+  c: Caps,
+): string {
   const color = makeColors(c.color);
   const lines: string[] = [];
 
-  lines.push(color.bold('프로젝트 로컬'));
-  const pFound = project.filter((i) => i.present);
-  if (pFound.length === 0) {
-    lines.push('  (발견된 것 없음)');
-  }
-  for (const it of pFound) {
-    lines.push(`  ${signal(c, 'ok')} ${it.legacy ? '[레거시] ' : ''}${it.category}`);
-  }
-
-  lines.push('');
-  lines.push(color.bold('전역 (~/.awl, 다른 프로젝트와 공유)'));
-  const gFound = global.filter((i) => i.present);
-  if (gFound.length === 0) {
-    lines.push('  (발견된 것 없음)');
-  }
-  for (const it of gFound) {
-    lines.push(`  ${signal(c, 'ok')} ${it.legacy ? '[레거시] ' : ''}${it.category}`);
+  if (scope.project) {
+    lines.push(color.bold('프로젝트 로컬'));
+    const pFound = project.filter((i) => i.present);
+    if (pFound.length === 0) {
+      lines.push('  (발견된 것 없음)');
+    }
+    for (const it of pFound) {
+      lines.push(`  ${signal(c, 'ok')} ${it.legacy ? '[레거시] ' : ''}${it.category}`);
+    }
+    lines.push('');
   }
 
-  lines.push('');
+  if (scope.global) {
+    lines.push(color.bold('전역 (~/.awl, 다른 프로젝트와 공유)'));
+    if (otherProjects.length > 0) {
+      lines.push(
+        `  ${signal(c, 'warn')} 다른 등록 프로젝트 ${otherProjects.length}개의 학습(gotchas/rules/records)도 함께 사라집니다:`,
+      );
+      for (const p of otherProjects) {
+        lines.push(`      - ${p.name ?? '(이름 없음)'}  (${p.path})`);
+      }
+    }
+    const gFound = global.filter((i) => i.present);
+    if (gFound.length === 0) {
+      lines.push('  (발견된 것 없음)');
+    }
+    for (const it of gFound) {
+      lines.push(`  ${signal(c, 'ok')} ${it.legacy ? '[레거시] ' : ''}${it.category}`);
+    }
+    lines.push('');
+  } else {
+    lines.push(color.dim('전역(~/.awl) — --global 또는 --all 로만 포함됩니다 (생략)'));
+    lines.push('');
+  }
+
   lines.push(
     color.dim(
       'npm 패키지 자체는 이 명령으로 지우지 않습니다. 필요하면 npm uninstall -g agent-work-loop 를 직접 실행하세요.',
@@ -257,8 +331,6 @@ function renderPlan(project: UninstallItem[], global: UninstallItem[], c: Caps):
 export interface UninstallOpts {
   yes?: boolean;
   json?: boolean;
-  /** 스코프 플래그(AC-02) — CLI 표면은 여기서 함께 등록하되, 실제 스코프 분리
-   * 로직은 AC-02 커밋에서 구현한다. 여기서는 아직 안 쓴다(무시). */
   project?: boolean;
   global?: boolean;
   all?: boolean;
@@ -266,28 +338,35 @@ export interface UninstallOpts {
 
 /**
  * awl uninstall 오케스트레이터. `--yes` 가 없으면 스캔·출력만 하고 반환한다
- * (fs 쓰기 0건, AC-01). `--yes` 가 있으면 스캔된 항목을 실제로 지운다.
+ * (fs 쓰기 0건, AC-01). `--yes` 가 있으면 스캔된 항목을 실제로 지운다. 스코프
+ * (AC-02)는 project/global 을 독립적으로 켜고 끈다 — `--project` 만이면 전역은
+ * 스캔조차 결과에 포함하지 않는다(전역 쓰기 0을 보장하는 가장 단순한 방법).
  */
 export async function runUninstall(opts: UninstallOpts): Promise<void> {
   const root = requireRoot();
   const c = caps();
-  const project = scanProjectLocal(root);
-  const global = scanGlobal();
+  const scope = resolveScope(opts);
+
+  const project = scope.project ? scanProjectLocal(root) : [];
+  const global = scope.global ? scanGlobal() : [];
+  const otherProjects = scope.global ? readOtherProjects(root) : [];
 
   if (opts.json) {
     process.stdout.write(
       `${JSON.stringify(
         {
           dryRun: !opts.yes,
+          scope,
           project: project.filter((i) => i.present),
           global: global.filter((i) => i.present),
+          otherProjects,
         },
         null,
         2,
       )}\n`,
     );
   } else {
-    process.stdout.write(`\n${renderPlan(project, global, c)}\n`);
+    process.stdout.write(`\n${renderPlan(scope, project, global, otherProjects, c)}\n`);
   }
 
   if (!opts.yes) {
