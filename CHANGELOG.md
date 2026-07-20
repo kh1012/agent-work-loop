@@ -5,6 +5,23 @@
 
 ## [Unreleased]
 
+## [0.6.23] - 2026-07-20
+
+### 추가
+
+- 사이클 종료 보고에 반복 gotcha 승격 후보 안내 추가
+
+### 고침
+
+- generations 파일명에 타임스탬프 접두어 추가(데이터 유실 방지)
+- .awl-verify 를 IGNORE_DIRS 에서 제거(리네임 아님)
+
+### 변경
+
+- 삭제된 ref-knowledge-graph/ ignore 항목 정리
+- 6절에 self-pace adaptive backoff 반영
+- self-pace 2단계 백오프 exec/review 섹션 반영 + 재확인로그3 [AC-01]
+
 ## [0.6.22] - 2026-07-20
 
 ### 추가
