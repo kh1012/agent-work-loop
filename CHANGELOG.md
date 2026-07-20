@@ -5,6 +5,21 @@
 
 ## [Unreleased]
 
+## [0.6.22] - 2026-07-20
+
+### 추가
+
+- 연속빈체크 카운터를 .tasks/.locks 파일로 영속화, INPUTS_READY/UNVERIFIED_READY 시 리셋 [AC-02]
+
+### 고침
+
+- ALREADY_OWNED 분기 stage 미정의 해소(1단계로 안전 기본값) + 워처 헤더 주석 stale ScheduleWakeup(~1800s) 정합 [리뷰 rev_fa1920c8ab0e1eb1b0] [AC-07]
+
+### 변경
+
+- exec 계약 전문의 ScheduleWakeup(~1800초) 잔존 문구를 2단계 백오프로 정합 [AC-01]
+- self-pace 간격을 2단계 백오프(240s/1500s)로 교체 [AC-01]
+
 ## [0.6.21] - 2026-07-19
 
 ### 변경
