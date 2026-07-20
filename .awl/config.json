@@ -1,8 +1,10 @@
 {
   "project": "agent-work-loop",
-  "mainLanguage": ["typescript"],
+  "mainLanguage": [
+    "typescript"
+  ],
   "character": "",
-  "engineVersion": "0.6.30",
+  "engineVersion": "0.6.35",
   "verify": {
     "typecheck": {
       "cmd": "tsc --noEmit"
