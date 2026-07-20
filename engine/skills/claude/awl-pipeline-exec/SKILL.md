@@ -64,6 +64,22 @@ description: |
   mailbox 라우팅 지연인지 서브에이전트가 반환 없이 멈춰있는지 불명). 무한정 기다리지 않는다 —
   `git log`로 해당 workitem의 커밋을 직접 확인하고, plan의 완료조건과 diff를 직접 대조해 충족
   여부를 판단한 뒤 핸드오프를 메인이 직접 써서 `exec/<name>.md`를 완성한다(pipeline-spawned-subagent-lifecycle).
+- **동시 구현 서브에이전트(공유 AWL_HOME 오염 방지)**: 한 workitem 안에서 구현 서브에이전트를
+  여럿 동시에 스폰하면 전부 같은 레인 `AWL_HOME`을 공유해 `state.json`의 활성 워크아이템 포인터가
+  서로의 `awl work new`/`switch`로 수초마다 플립할 수 있다(gotcha G-001/G-002 — partial-merge로 엉뚱한
+  criteria 유입 → 게이트1 오판 → `awl commit`이 "게이트1 승인 먼저 필요"로 반복 실패). 각 서브에이전트
+  프롬프트에 반드시 담는다: (a) 커밋은 `git commit -- <자기 변경 파일...>`처럼 **pathspec으로 자기
+  변경분만** 지정(전역 `awl commit`이 그 순간 활성인 남의 workitem을 잘못 물 수 있음), (b) 기록은
+  `awl record <type> --workitem <자기 workitem-id>`로 **워크아이템을 명시**해 활성 포인터에 의존하지
+  않는다(pipeline-concurrent-subagent-home-guidance). 서브에이전트별 격리 `AWL_HOME` 신설은 레코드
+  병합이 깨질 위험이 있어 채택하지 않았다 — 이 두 지침이 검증된 표준 우회다.
+- **게이트 record 예외의 통계 영향(참고)**: 위 F-02류 오염을 피해 게이트1/게이트2를 정식
+  `awl record gate` 대신 단일 attempt record로 남기는 예외 경로를 쓰면, 그 workitem은
+  `awl loop-summary`의 "개입"(dimension①)·"gate1 배제 수"(dimension④) 집계에서 조용히 0 기여로
+  빠진다(다른 workitem 집계를 오염시키진 않는다 — `src/commands/loop-summary.ts`
+  `computeIntervention`/`computeYieldLearning`가 gate record 부재 workitem을 그냥 건너뛴다). 저빈도
+  예외 경로라 코드 방어는 추가하지 않았다 — loop-summary를 볼 때 "gate 0건" workitem이 보이면 이
+  사례일 수 있다는 것만 알면 된다.
 
 ## 핸드오프 형식 (`exec/<name>.md`) — review의 입력
 ```
