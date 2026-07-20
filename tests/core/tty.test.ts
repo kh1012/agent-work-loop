@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  card,
   charWidth,
   clipToWidth,
   computeCaps,
   computeRawModeCapable,
+  flowActiveNode,
   makeColors,
   makeSymbols,
   makeTokens,
@@ -15,6 +15,9 @@ import {
   visibleWidth,
   wrapToWidth,
 } from '../../src/core/tty.js';
+
+// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI 이스케이프를 표시폭 비교 전에 벗겨낸다.
+const stripAnsi = (s: string): string => s.replace(/\x1b\[[0-9;]*m/g, '');
 
 // 테스트용 환경 객체를 만든다.
 function env(overrides: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
@@ -129,11 +132,15 @@ describe('stringWidth — 한글/CJK 폭 계산', () => {
     expect(charWidth('★'.codePointAt(0) ?? 0)).toBe(1);
   });
 
-  it('card 에 ❯ 를 섞어도 모든 줄의 표시폭이 동일하다 (테두리 정렬)', () => {
+  it('flowActiveNode 에 ❯ 를 섞어도 모든 줄이 같은 폭의 좌측 거터(글리프+공백2)로 시작한다', () => {
     const c = { unicode: true, color: false, tty: true };
-    const rendered = card('제목', ['❯ 항목 하나', '평범한 줄'], c, 24);
-    const widths = rendered.split('\n').map(visibleWidth);
-    expect(new Set(widths).size).toBe(1);
+    const rendered = flowActiveNode('제목', ['❯ 항목 하나', '평범한 줄'], c, 24);
+    const lines = rendered.split('\n');
+    for (const line of lines) {
+      // 거터(글리프 1칸 + 공백 2칸)는 본문이 ❯ 로 시작하든 평문이든 항상 3칸.
+      expect(line.slice(1, 3)).toBe('  ');
+      expect(charWidth(line.codePointAt(0) ?? 0)).toBe(1);
+    }
   });
 });
 
@@ -160,19 +167,50 @@ describe('makeSymbols — 유니코드/ASCII 폴백', () => {
     expect(ascii.checkOn).toBe('[x]');
   });
 
+  it('유니코드 flow 글리프(스파인 트랜스크립트)', () => {
+    expect(uni.flowStart).toBe('┌');
+    expect(uni.flowStep).toBe('◇');
+    expect(uni.flowSelect).toBe('●');
+    expect(uni.flowActive).toBe('◆');
+    expect(uni.flowLine).toBe('│');
+    expect(uni.flowEnd).toBe('└');
+  });
+
+  it('ASCII flow 폴백 기호 — 전부 표시폭 1칸(거터 정렬 유지)', () => {
+    expect(ascii.flowStart).toBe('+');
+    expect(ascii.flowStep).toBe('o');
+    expect(ascii.flowSelect).toBe('*');
+    expect(ascii.flowActive).toBe('>');
+    expect(ascii.flowLine).toBe('|');
+    expect(ascii.flowEnd).toBe('+');
+    for (const g of [
+      ascii.flowStart,
+      ascii.flowStep,
+      ascii.flowSelect,
+      ascii.flowActive,
+      ascii.flowLine,
+      ascii.flowEnd,
+    ]) {
+      expect(charWidth(g.codePointAt(0) ?? 0)).toBe(1);
+    }
+  });
+
   it('상태 신호는 유니코드 여부와 무관하게 텍스트 마커를 쓴다(이모지 폐지)', () => {
     expect(signal({ unicode: true, color: false, tty: true }, 'warn')).toBe('[!]');
     expect(signal({ unicode: false, color: false, tty: false }, 'warn')).toBe('[!]');
   });
 });
 
-describe('card — 색이 있어도 폭이 흔들리지 않는 사람용 출력', () => {
-  it('ANSI 색상과 한글을 섞어도 모든 카드 줄의 표시 폭이 같다', () => {
+describe('flowActiveNode — 색이 있어도 좌측 거터가 흔들리지 않는 사람용 출력', () => {
+  it('ANSI 색상과 한글을 섞어도 모든 줄의 좌측 거터(글리프+공백2)가 같다', () => {
     const c = { unicode: true, color: true, tty: true };
     const color = makeColors(true);
-    const rendered = card('설정 완료', [color.green('통과'), '한글 설명'], c, 24);
-    const widths = rendered.split('\n').map(visibleWidth);
-    expect(new Set(widths).size).toBe(1);
+    const rendered = flowActiveNode('설정 완료', [color.green('통과'), '한글 설명'], c, 24);
+    const lines = rendered.split('\n').map(stripAnsi);
+    for (const line of lines) {
+      expect(line.slice(1, 3)).toBe('  ');
+      expect(charWidth(line.codePointAt(0) ?? 0)).toBe(1);
+    }
   });
 });
 

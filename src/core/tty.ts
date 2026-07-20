@@ -405,6 +405,18 @@ export interface Symbols {
   radioOff: string;
   checkOn: string;
   checkOff: string;
+  /** 스파인 세션 시작 — 세션당 정확히 한 번, 맨 위. */
+  flowStart: string;
+  /** 완료된 정보 스텝(한 줄 요약). */
+  flowStep: string;
+  /** 완료된 "사용자가 고름" 스텝(한 줄 요약, 정보와 시각적으로 구분). */
+  flowSelect: string;
+  /** 지금 진행 중인 활성/확장 노드. */
+  flowActive: string;
+  /** 좌측 거터 세로선 — 빈 연결줄과 활성 노드 본문 각 줄의 앞머리. */
+  flowLine: string;
+  /** 스파인 세션 종료 — 세션당 정확히 한 번, 맨 아래, 뒤에 아무 것도 안 붙는다. */
+  flowEnd: string;
 }
 
 const UNICODE_SYMBOLS: Symbols = {
@@ -425,6 +437,14 @@ const UNICODE_SYMBOLS: Symbols = {
   radioOff: '○',
   checkOn: '☑',
   checkOff: '☐',
+  flowStart: '┌',
+  flowStep: '◇',
+  // radioOn 과 같은 문자(●)를 재사용한다 — "사용자가 고름"이라는 의미가 실제로
+  // 같고(체크된 라디오), ASCII 대체는 폭이 달라(radioOn 은 3칸 "(*)") 별도 필드로 둔다.
+  flowSelect: '●',
+  flowActive: '◆',
+  flowLine: '│',
+  flowEnd: '└',
 };
 
 const ASCII_SYMBOLS: Symbols = {
@@ -443,6 +463,12 @@ const ASCII_SYMBOLS: Symbols = {
   radioOff: '( )',
   checkOn: '[x]',
   checkOff: '[ ]',
+  flowStart: '+',
+  flowStep: 'o',
+  flowSelect: '*',
+  flowActive: '>',
+  flowLine: '|',
+  flowEnd: '+',
 };
 
 /** 능력에 맞는 기호 세트를 고른다. */
@@ -457,15 +483,13 @@ export const sym: Symbols = makeSymbols(caps());
 // 박스 그리기
 // ---------------------------------------------------------------------------
 
-// 구형 box() 는 폐기했다(cli-design-tokens F-02) — 호출처가 0건인 죽은 코드였고,
-// 무채색·사각·제목별행이라 신형 card()(컬러·둥근·제목 인레이)와 이질적이었다.
-// 사람용 박스는 card() 하나로 통일한다.
+// 구형 box()·card() 는 순서대로 폐기했다(cli-design-tokens F-02, 이어서 clack 스타일
+// 트랜스크립트 재설계) — 둘 다 호출처가 0건인 죽은 코드가 됐다. 지금은 사람용 박스를
+// 전부 이 아래 flow* 계열 순수 함수로 그린다: 세션 하나가 시작(┌)부터 끝(└)까지
+// 좌측 세로선(│)으로 이어지는 clack-prompts 스타일 트랜스크립트다. sectionBox 는
+// "노드가 하나뿐인 세션"의 얇은 래퍼일 뿐이라, 기존 17개+ 호출부는 시그니처 변경
+// 없이 새 글리프를 그대로 받는다.
 
-/**
- * 사람용 출력을 위한 공통 카드. JSON 모드는 호출하지 않아 자동화 출력이 섞이지
- * 않는다. 색을 쓸 수 있는 TTY에서는 프레임·제목만 은은하게 강조하고, 파이프와
- * 구식 터미널에서는 같은 구조를 ASCII로 그대로 보여준다.
- */
 /** 카드/구분선의 절대 상한 폭. 아주 넓은 터미널에서도 가독선을 유지한다. */
 const HARD_MAX_WIDTH = 100;
 
@@ -485,52 +509,62 @@ function viewportWidth(): number {
   return HARD_MAX_WIDTH;
 }
 
-export function card(title: string, lines: string[], c: Caps = caps(), minInnerWidth = 0): string {
-  const s = makeSymbols(c);
-  const t = makeTokens(c); // 의미 토큰: frame(테두리)·accent(제목)·emphasis(강조)
-  const pad = 2; // 좌우 여백(호흡)
+/** flow* 계열 전체가 공유하는 좌우 여백(호흡). */
+const FLOW_PAD = 2;
 
-  // 폭 상한: 뷰포트에서 프레임(2)+여백(pad*2)을 뺀 값. minInnerWidth 는 하한(init 화면).
-  const maxInner = Math.max(
-    minInnerWidth,
-    Math.min(HARD_MAX_WIDTH, viewportWidth() - (2 + pad * 2)),
-  );
-
-  // 본문을 폭에 맞게 접는다(표시폭 기준, 색 인지) — 박스가 화면 밖까지 늘어나는 것 방지.
-  const wrapped = lines.flatMap((line) => wrapToWidth(line, maxInner, { hanging: true }));
-  const inner = Math.min(
-    maxInner,
-    Math.max(minInnerWidth, visibleWidth(title), ...wrapped.map(visibleWidth), 0),
-  );
-
-  const frame = (text: string): string => t.frame(text); // 테두리는 은은히 뒤로
-  const row = (text: string): string => {
-    const gap = Math.max(0, inner - visibleWidth(text));
-    return `${frame(s.boxV)}${' '.repeat(pad)}${text}${' '.repeat(gap + pad)}${frame(s.boxV)}`;
-  };
-
-  // 상단 테두리에 제목을 심는다: ╭─ 제목 ─────╮ (제목은 accent+emphasis 로 강조)
-  const safeTitle = truncateToWidth(title, inner);
-  const tvis = visibleWidth(safeTitle);
-  const dash = Math.max(1, inner + pad * 2 - 3 - tvis);
-  const top =
-    frame(`${s.boxTL}${s.boxH} `) +
-    t.emphasis(t.accent(safeTitle)) +
-    frame(` ${s.boxH.repeat(dash)}${s.boxTR}`);
-  const bottom = frame(`${s.boxBL}${s.boxH.repeat(inner + pad * 2)}${s.boxBR}`);
-
-  return [top, ...wrapped.map(row), bottom].join('\n');
+/** 본문 폭 상한(뷰포트 기반, minInnerWidth 는 하한) — flowOpen/flowActiveNode/flowBodyRows 공용. */
+function flowMaxInner(minInnerWidth: number): number {
+  return Math.max(minInnerWidth, Math.min(HARD_MAX_WIDTH, viewportWidth() - (2 + FLOW_PAD * 2)));
 }
 
 /**
- * card() 의 열린 변형(ㄷ자). 질문 화면처럼 아래로 다른 프롬프트가 바로
- * 이어지는 곳에 쓴다 — 닫힌 사각(card)은 그 다음 화면과 시각적으로 단절돼
- * 보인다는 지적(사용자 피드백)에 따라 만들었다. 오른쪽 테두리와 상단의 긴
- * 채움 대시를 빼고(제목 뒤에 바로 끝냄), 마지막 줄만 왼쪽 세로선이 가로선으로
- * 꺾이는 모서리(╰─)로 닫는다 — 위(╭─)·아래(╰─) 모서리가 짧게 맺혀 시작과
- * 끝이 분명하면서도 오른쪽은 계속 열려 흐름이 이어지는 느낌을 준다.
+ * 본문 줄들을 폭에 맞춰 접고 좌측 거터(│)를 붙인다. sectionBox 와 flowActiveNode 가
+ * 공유하는 유일한 wrap/prefix 구현 — 중복 금지.
  */
-export function sectionBox(
+function flowBodyRows(lines: string[], c: Caps, minInnerWidth: number): string[] {
+  const s = makeSymbols(c);
+  const t = makeTokens(c);
+  const maxInner = flowMaxInner(minInnerWidth);
+  const wrapped = lines.flatMap((line) => wrapToWidth(line, maxInner, { hanging: true }));
+  return wrapped.map((text) => `${t.frame(s.flowLine)}${' '.repeat(FLOW_PAD)}${text}`);
+}
+
+/** 스파인 세션을 연다 — 세션당 정확히 한 번, 맨 위. 헤더 한 줄만 낸다(본문 없음). */
+export function flowOpen(title: string, c: Caps = caps(), minInnerWidth = 0): string {
+  const s = makeSymbols(c);
+  const t = makeTokens(c);
+  const safeTitle = truncateToWidth(title, flowMaxInner(minInnerWidth));
+  return `${t.frame(s.flowStart)}${' '.repeat(FLOW_PAD)}${t.emphasis(t.accent(safeTitle))}`;
+}
+
+/** 완료된 정보 스텝 한 줄(◇). */
+export function flowStepLine(title: string, c: Caps = caps()): string {
+  const s = makeSymbols(c);
+  return `${makeTokens(c).frame(s.flowStep)}${' '.repeat(FLOW_PAD)}${title}`;
+}
+
+/** 완료된 "사용자가 고름" 스텝 한 줄(●) — 정보(◇)와 시각적으로 구분한다. */
+export function flowSelectLine(title: string, c: Caps = caps()): string {
+  const s = makeSymbols(c);
+  return `${makeTokens(c).frame(s.flowSelect)}${' '.repeat(FLOW_PAD)}${title}`;
+}
+
+/** 빈 연결줄 — 완료된 노드 사이에 하나씩 둔다. */
+export function flowConnector(c: Caps = caps()): string {
+  return makeTokens(c).frame(makeSymbols(c).flowLine);
+}
+
+/** 스파인 세션을 닫는다 — 세션당 정확히 한 번, 맨 아래, 뒤에 아무 것도 안 붙는다. */
+export function flowClose(c: Caps = caps()): string {
+  return makeTokens(c).frame(makeSymbols(c).flowEnd);
+}
+
+/**
+ * 지금 진행 중인 활성 노드(◆) — 헤더 한 줄 + 거터 프리픽스된 본문 여러 줄. 자체
+ * 열기/닫기 모서리는 안 그린다(세션의 ┌/└ 는 flowOpen/flowClose 몫) — select.ts 의
+ * renderInteractiveSelect 가 이 함수로 기존 sectionBox 호출을 대체한다.
+ */
+export function flowActiveNode(
   title: string,
   lines: string[],
   c: Caps = caps(),
@@ -538,36 +572,28 @@ export function sectionBox(
 ): string {
   const s = makeSymbols(c);
   const t = makeTokens(c);
-  const pad = 2;
+  const safeTitle = truncateToWidth(title, flowMaxInner(minInnerWidth));
+  const header = `${t.frame(s.flowActive)}${' '.repeat(FLOW_PAD)}${t.emphasis(t.accent(safeTitle))}`;
+  return [header, ...flowBodyRows(lines, c, minInnerWidth)].join('\n');
+}
 
-  const maxInner = Math.max(
-    minInnerWidth,
-    Math.min(HARD_MAX_WIDTH, viewportWidth() - (2 + pad * 2)),
-  );
-
-  const wrapped = lines.flatMap((line) => wrapToWidth(line, maxInner, { hanging: true }));
-
-  const frame = (text: string): string => t.frame(text);
-  // 마지막 줄만 왼쪽이 ╰─(모서리+대시, 표시폭 2)로 꺾인다 — │(표시폭 1)와 정렬을
-  // 맞추려면 그만큼 뒤 패딩을 한 칸 줄인다(2칸 vs 1칸, 둘 다 접두어 표시폭 3으로 동일).
-  // 단, 원본(줄바꿈 전) 마지막 논리적 줄이 이미 자체 트리 마커(s.lastBranch, 예:
-  // update.ts 의 "└── awl init 을 먼저 실행하세요")로 시작하면 sectionBox 마감과
-  // 이중으로 겹친다(실측으로 발견, `+- `-- ...` 처럼 깨짐) — 세로선만 유지해 본문
-  // 계층 표현을 살린다. wrapToWidth 의 hanging indent로 그 줄이 물리적으로 여러 줄에
-  // 걸쳐도(마커는 첫 물리 줄에만 있음) 원본 기준으로 판단해야 후속 줄까지 잡힌다.
-  const lastLogical = lines[lines.length - 1] ?? '';
-  const lastIsBranch = lastLogical.trimStart().startsWith(s.lastBranch);
-  const row = (text: string, isLast: boolean): string => {
-    const closeThis = isLast && !lastIsBranch;
-    const left = closeThis ? `${s.boxBL}${s.boxH}` : s.boxV;
-    const gap = closeThis ? pad - 1 : pad;
-    return `${frame(left)}${' '.repeat(gap)}${text}`;
-  };
-
-  const safeTitle = truncateToWidth(title, maxInner);
-  const top = frame(`${s.boxTL}${s.boxH} `) + t.emphasis(t.accent(safeTitle));
-
-  return [top, ...wrapped.map((line, i) => row(line, i === wrapped.length - 1))].join('\n');
+/**
+ * 단발성 카드 — 노드가 하나뿐인 스파인 세션(flowOpen + 본문 + flowClose)이다.
+ * status/doctor/lane 등 비대화형 명령이 전부 이 함수 하나로 카드를 찍는다.
+ * 시그니처는 이전(열린 ㄷ자 박스이던 시절)과 동일하게 유지한다 — 호출부 17개+ 를
+ * 하나도 안 고치고 새 글리프를 그대로 받게 하는 핵심 장치다.
+ */
+export function sectionBox(
+  title: string,
+  lines: string[],
+  c: Caps = caps(),
+  minInnerWidth = 0,
+): string {
+  return [
+    flowOpen(title, c, minInnerWidth),
+    ...flowBodyRows(lines, c, minInnerWidth),
+    flowClose(c),
+  ].join('\n');
 }
 
 // ---------------------------------------------------------------------------

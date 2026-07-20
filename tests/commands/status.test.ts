@@ -620,16 +620,17 @@ describe('renderPipelineGroups — 레인 헤더 그룹핑 렌더(pipeline-statu
     expect(out).toContain('migrate');
     expect(out).toContain('complete');
     expect(out).toContain('login');
-    // 열린 ㄷ자(sectionBox): 우측 테두리가 없어 줄 표시폭이 내용 길이에 따라
-    // 제각각이다(과거 닫힌 card() 는 우측을 패딩해 폭이 균일했다). 좌측은 첫
-    // 줄만 상단 모서리(+), 마지막 줄만 하단 모서리(+-로 꺾임), 나머지는 세로선(|).
+    // clack 스타일 스파인(sectionBox = 노드 하나짜리 세션): 우측 테두리가 없어
+    // 줄 표시폭이 내용 길이에 따라 제각각이다. 좌측은 첫 줄만 세션 시작(+),
+    // 본문은 전부 세로선(|), 마지막 줄은 본문에 융합되지 않은 독립된 세션
+    // 종료 줄(+ 단독, 뒤에 아무 것도 안 붙음).
     const lines = out.split('\n');
     expect(lines[0]?.startsWith('+')).toBe(true);
     const last = lines.length - 1;
     for (let i = 1; i < last; i++) {
       expect(lines[i]?.startsWith('|')).toBe(true);
     }
-    expect(lines[last]?.startsWith('+-')).toBe(true);
+    expect(lines[last]).toBe('+');
     const widths = lines.map(visibleWidth);
     expect(new Set(widths).size).toBeGreaterThan(1);
   });

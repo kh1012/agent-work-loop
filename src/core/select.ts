@@ -1,4 +1,4 @@
-import { type Caps, makeColors, makeSymbols, sectionBox } from './tty.js';
+import { type Caps, flowActiveNode, makeColors, makeSymbols } from './tty.js';
 
 /**
  * 방향키 선택의 순수 상태 전이 + 렌더 (WI-Y).
@@ -150,6 +150,9 @@ export interface InteractiveSelectPresentation {
   hint?: string;
   /** Space 로 전체 항목을 함께 토글할 다중선택의 특수 항목 인덱스. */
   selectAllIndex?: number;
+  /** 옵션 목록 위에 먼저 보여줄 설명 줄들 — 목록과 같은 ◆ 활성 노드 하나에 담긴다
+   * (별도 박스로 안 쪼갠다, awl-cli-flow-transcript). */
+  body?: string[];
 }
 
 function renderInteractiveSelect(
@@ -160,13 +163,22 @@ function renderInteractiveSelect(
   presentation: InteractiveSelectPresentation,
 ): { text: string; lineCount: number } {
   const color = makeColors(c.color);
-  const lines = renderSelectOptions(options, state, multi, c).split('\n');
+  const lines: string[] = [];
+  if (presentation.body && presentation.body.length > 0) {
+    lines.push(...presentation.body, '');
+  }
+  lines.push(...renderSelectOptions(options, state, multi, c).split('\n'));
   if (presentation.hint) {
     lines.push('');
     lines.push(color.dim(presentation.hint));
   }
-  const text = sectionBox(presentation.title ?? '선택', lines, c);
+  const text = flowActiveNode(presentation.title ?? '선택', lines, c);
   return { text, lineCount: text.split('\n').length };
+}
+
+/** 커서를 n줄 위로 올린 뒤 그 아래를 전부 지운다 — 마지막 프레임을 자국 없이 지운다. */
+function clearFrame(n: number): string {
+  return n > 0 ? `${moveCursorUp(n)}\x1b[0J` : '';
 }
 
 /**
@@ -197,5 +209,8 @@ export async function runInteractiveSelect(
     process.stdin.setRawMode(false);
     process.stdin.pause();
   }
+  // 확정/취소 즉시 자기 헤더+본문(마지막 프레임)을 지운다 — 접힌 요약(◇/●)은
+  // 호출부(flow.ts)가 그린다. 스파인의 열기/닫기·연결자는 여기서 모른다.
+  process.stdout.write(clearFrame(rendered.lineCount));
   return state.cancelled ? null : { index: state.index, checked: [...state.checked] };
 }

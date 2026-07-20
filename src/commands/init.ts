@@ -3,12 +3,22 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { installedEngineVersion } from '../core/engine.js';
+import {
+  type FlowSession,
+  activeSelect,
+  closeFlow,
+  openFlow,
+  selectStep,
+  step,
+} from '../core/flow.js';
 import { engineDir, globalRoot, projectsFile } from '../core/paths.js';
 import { runInteractiveSelect } from '../core/select.js';
 import {
   type Caps,
   type Colors,
   caps,
+  flowActiveNode,
+  flowConnector,
   makeColors,
   makeTokens,
   padEndDisplay,
@@ -909,8 +919,11 @@ export function renderNonTtyNotice(): string {
   ].join('\n');
 }
 
-/** 마지막 결과 화면. 다음 행동 하나만 가리킨다. */
-export function renderResult(result: InitResult, inputs: InitInputs, c: Caps): string {
+/**
+ * "설정 완료" 결과 본문 줄들. renderResult(--yes 전용)와 commitResultFlow(대화형
+ * 스파인)가 둘 다 이 함수로 만든다 — verifyStepLines 와 같은 이유(중복 리터럴 방지).
+ */
+function resultSetupLines(result: InitResult, c: Caps): string[] {
   const color = makeColors(c.color);
   const t = makeTokens(c);
   // 값(핵심)은 emphasis 강조, 이름은 그대로 — status.ts 패턴(F-04).
@@ -939,9 +952,13 @@ export function renderResult(result: InitResult, inputs: InitInputs, c: Caps): s
       `규칙 ${result.ruleCount}개 · 교훈 ${result.lessonCount}개 · 등록된 프로젝트 ${result.projectCount}개 · 1세대`,
     ),
   );
+  return setupLines;
+}
 
+/** "다음 단계" 결과 본문 줄들. */
+function resultNextLines(inputs: InitInputs, c: Caps): string[] {
+  const color = makeColors(c.color);
   const nextLines: string[] = [];
-
   if (inputs.skills.claude) {
     nextLines.push('Claude Code 를 열고 이렇게 말하세요.');
     nextLines.push('');
@@ -953,12 +970,37 @@ export function renderResult(result: InitResult, inputs: InitInputs, c: Caps): s
   } else {
     nextLines.push('나중에 스킬을 설치하려면 awl init 을 다시 실행하세요.');
   }
+  return nextLines;
+}
+
+/** 마지막 결과 화면 — `--yes` 비대화형 경로 전용(스파인을 타지 않는다). */
+export function renderResult(result: InitResult, inputs: InitInputs, c: Caps): string {
   return [
     '',
-    sectionBox('설정 완료', setupLines, c, WIDTH - 4),
+    sectionBox('설정 완료', resultSetupLines(result, c), c, WIDTH - 4),
     '',
-    sectionBox('다음 단계', nextLines, c, WIDTH - 4),
+    sectionBox('다음 단계', resultNextLines(inputs, c), c, WIDTH - 4),
   ].join('\n');
+}
+
+/**
+ * interactiveInputs 가 연 스파인 세션에 결과를 커밋한다(대화형 전용) — 세션은
+ * 닫지 않는다, 호출부가 closeFlow 한다. renderResult 와 같은 콘텐츠를 재사용하되
+ * 박스 2개 대신 같은 스파인의 스텝들로 낸다(설정 항목마다 ◇ 한 줄씩).
+ */
+export function commitResultFlow(
+  session: FlowSession,
+  result: InitResult,
+  inputs: InitInputs,
+  c: Caps,
+): void {
+  for (const line of resultSetupLines(result, c)) {
+    step(session, line);
+  }
+  step(session, '다음 단계');
+  for (const line of resultNextLines(inputs, c)) {
+    process.stdout.write(`${flowConnector(c)}  ${line}\n`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -996,67 +1038,76 @@ function langDefaultIndices(projectRoot: string): number[] {
  */
 export function buildScreens(projectRoot: string, hasGlobal: boolean, c: Caps): InteractiveScreens {
   const project = path.basename(projectRoot);
-  const defLangIndices = langDefaultIndices(projectRoot);
   const verify = detectVerify(projectRoot);
   const agents = detectAgents(projectRoot);
 
-  const welcome = hasGlobal
-    ? null
-    : [
-        '',
-        '  ~/.awl 이 없습니다. 처음 오셨군요.',
-        '',
-        '  여러 프로젝트를 등록해서 Agent Work Loop 를 돌릴 수 있습니다.',
-        '  이 프로젝트를 첫 번째로 등록합니다.',
-        '',
-        `    ${project}`,
-        `    ${projectRoot}`,
-        '',
-        '  다른 프로젝트에서도 awl init 을 실행하면 그때 등록됩니다.',
-        '  규칙과 교훈은 프로젝트가 아니라 당신에게 쌓이고,',
-        '  등록된 모든 프로젝트에서 함께 쓰입니다.',
-      ].join('\n');
+  const welcome = hasGlobal ? null : welcomeLines(project, projectRoot).join('\n');
 
+  return {
+    welcome,
+    lang: stepBox('1/3', '주 언어', langScreenLines(projectRoot), c),
+    verify: stepBox('2/3', '검증 명령어', verifyStepLines(verify), c),
+    character: stepBox('3/3', '규칙과 이 프로젝트의 성격', characterScreenLines(), c),
+    skills: stepBox('스킬', '스킬 설치', skillsScreenLines(agents), c),
+  };
+}
+
+/** 최초 1회(~/.awl 이 없을 때)만 보이는 환영 안내 줄들. */
+export function welcomeLines(project: string, projectRoot: string): string[] {
+  return [
+    '',
+    '  ~/.awl 이 없습니다. 처음 오셨군요.',
+    '',
+    '  여러 프로젝트를 등록해서 Agent Work Loop 를 돌릴 수 있습니다.',
+    '  이 프로젝트를 첫 번째로 등록합니다.',
+    '',
+    `    ${project}`,
+    `    ${projectRoot}`,
+    '',
+    '  다른 프로젝트에서도 awl init 을 실행하면 그때 등록됩니다.',
+    '  규칙과 교훈은 프로젝트가 아니라 당신에게 쌓이고,',
+    '  등록된 모든 프로젝트에서 함께 쓰입니다.',
+  ];
+}
+
+/**
+ * "[1/3] 주 언어" 화면의 본문 줄들. buildScreens 와 interactiveInputs 의 스파인
+ * 렌더가 둘 다 이 함수로 만든다 — verifyStepLines 와 같은 이유(중복 리터럴 방지).
+ */
+export function langScreenLines(projectRoot: string): string[] {
+  const defLangIndices = langDefaultIndices(projectRoot);
   const detectedLangLabels = defLangIndices.map((i) => LANG_OPTIONS[i] ?? 'TypeScript').join(', ');
-  const langLines = [
+  return [
     `자동 감지: ${detectedLangLabels || 'TypeScript'}`,
     '',
     '여러 개를 쓰는 프로젝트면(예: TypeScript 프론트 + Python 백엔드) 전부 고르세요.',
     '↑↓ 또는 j/k 로 이동, Space 로 선택, Enter 로 확정하세요.',
     '키 입력을 지원하지 않는 터미널에서는 번호를 쉼표로 입력할 수 있습니다.',
   ];
+}
 
-  return {
-    welcome,
-    lang: stepBox('1/3', '주 언어', langLines, c),
-    verify: stepBox('2/3', '검증 명령어', verifyStepLines(verify), c),
-    character: stepBox(
-      '3/3',
-      '규칙과 이 프로젝트의 성격',
-      [
-        '같은 실패가 쌓이면 규칙이 되고, 다음 프로젝트에도 전파됩니다.',
-        '프로젝트의 성격은 그 규칙을 여기에도 적용할지 판단하는 근거입니다.',
-        '',
-        '이 프로젝트는 어떤 곳입니까?',
-        '(예시: "React + TailwindCSS 웹 프론트엔드", "Python Fast API 분석 서버",',
-        '       "TypeScript 라이브러리 패키지")',
-      ],
-      c,
-    ),
-    skills: stepBox(
-      '스킬',
-      '스킬 설치',
-      [
-        'awl 은 판단하지 않습니다. 파일과 상태만 관리합니다.',
-        '판단은 이미 쓰고 계신 에이전트가 합니다.',
-        '',
-        '바로 아래에서 설치할 에이전트를 고릅니다.',
-        '첫 번째 “모두 설치”를 고르거나, Space 로 필요한 항목만 고를 수 있습니다.',
-        `감지됨: Claude Code ${agents.claude ? '있음' : '없음'} · Codex ${agents.codex ? '있음' : '없음'}`,
-      ],
-      c,
-    ),
-  };
+/** "[3/3] 규칙과 이 프로젝트의 성격" 화면의 본문 줄들. 정적 콘텐츠라 인자가 없다. */
+export function characterScreenLines(): string[] {
+  return [
+    '같은 실패가 쌓이면 규칙이 되고, 다음 프로젝트에도 전파됩니다.',
+    '프로젝트의 성격은 그 규칙을 여기에도 적용할지 판단하는 근거입니다.',
+    '',
+    '이 프로젝트는 어떤 곳입니까?',
+    '(예시: "React + TailwindCSS 웹 프론트엔드", "Python Fast API 분석 서버",',
+    '       "TypeScript 라이브러리 패키지")',
+  ];
+}
+
+/** "[스킬] 스킬 설치" 화면의 본문 줄들. */
+export function skillsScreenLines(agents: { claude: boolean; codex: boolean }): string[] {
+  return [
+    'awl 은 판단하지 않습니다. 파일과 상태만 관리합니다.',
+    '판단은 이미 쓰고 계신 에이전트가 합니다.',
+    '',
+    '바로 아래에서 설치할 에이전트를 고릅니다.',
+    '첫 번째 “모두 설치”를 고르거나, Space 로 필요한 항목만 고를 수 있습니다.',
+    `감지됨: Claude Code ${agents.claude ? '있음' : '없음'} · Codex ${agents.codex ? '있음' : '없음'}`,
+  ];
 }
 
 /** readline 질문 하나를 Promise 로 감싼다. config 등 다른 명령의 대화형 편집도 재사용한다. */
@@ -1213,8 +1264,7 @@ async function interactiveInputs(
   projectRoot: string,
   hasGlobal: boolean,
   c: Caps,
-): Promise<InitInputs> {
-  const screens = buildScreens(projectRoot, hasGlobal, c);
+): Promise<{ inputs: InitInputs; session: FlowSession }> {
   const project = path.basename(projectRoot);
   const useRawMode = rawModeCapable();
   const session: { rl: readline.Interface | null } = { rl: null };
@@ -1225,40 +1275,55 @@ async function interactiveInputs(
     return session.rl;
   };
 
+  const flow = openFlow('awl init', c);
+
   try {
-    // 1. 프로젝트 등록 안내
-    if (screens.welcome) {
-      process.stdout.write(`${screens.welcome}\n`);
+    // 0. 프로젝트 등록 안내(최초 1회만) — 정보뿐이라 별도 활성 노드 없이 거터만 유지한다.
+    if (!hasGlobal) {
+      process.stdout.write(`${flowConnector(c)}\n`);
+      for (const line of welcomeLines(project, projectRoot)) {
+        process.stdout.write(`${flowConnector(c)}${line}\n`);
+      }
     }
 
     // readline은 raw-mode 키 입력을 동시에 읽어 화면을 망가뜨린다. 따라서 첫
     // 선택기는 readline을 만들기 전에 실행하고, 이후 텍스트 질문 때만 만든다.
-    process.stdout.write(`\n${screens.lang}\n\n`);
     const defaultLangChecked = langDefaultIndices(projectRoot);
-    const rawLanguage = useRawMode
-      ? await runInteractiveSelect(LANG_OPTIONS, 0, true, c, defaultLangChecked, {
-          title: '주 언어',
-          hint: '↑↓ 또는 j/k 이동 · Space 선택 · Enter 확정 · Esc 기본값 유지',
-        })
-      : null;
-    const langChecked =
-      rawLanguage?.checked ??
-      (useRawMode
-        ? defaultLangChecked
-        : await selectMulti(prompt(), LANG_OPTIONS, defaultLangChecked, c, false, '주 언어'));
+    const langBody = langScreenLines(projectRoot);
+    let langChecked: number[];
+    if (useRawMode) {
+      const r = await activeSelect(flow, LANG_OPTIONS, 0, true, defaultLangChecked, {
+        title: '주 언어',
+        body: langBody,
+        hint: '↑↓ 또는 j/k 이동 · Space 선택 · Enter 확정 · Esc 기본값 유지',
+      });
+      langChecked = r?.checked ?? defaultLangChecked;
+    } else {
+      process.stdout.write(`${flowConnector(c)}\n${flowActiveNode('주 언어', langBody, c)}\n`);
+      langChecked = await selectMulti(
+        prompt(),
+        LANG_OPTIONS,
+        defaultLangChecked,
+        c,
+        false,
+        '주 언어',
+      );
+    }
     const manualLangIdx = LANG_OPTIONS.length - 1;
     const mainLanguage = langChecked
       .filter((i) => i !== manualLangIdx)
       .map((i) => LANG_VALUES[i])
       .filter((v): v is string => typeof v === 'string' && v !== '');
     if (langChecked.includes(manualLangIdx)) {
-      const typed = (await ask(prompt(), '  주 언어를 입력하세요: ')).trim();
+      const typed = (await ask(prompt(), `${flowConnector(c)}  주 언어를 입력하세요: `)).trim();
       if (typed) {
         mainLanguage.push(typed);
       }
     }
+    selectStep(flow, `주 언어: ${mainLanguage.length > 0 ? mainLanguage.join(', ') : '(없음)'}`);
 
-    // 3. [2/3] 검증 명령어 (WI-B: 모노레포면 워크스페이스 패키지를 물어볼 수 있다)
+    // [2/3] 검증 명령어 (WI-B: 모노레포면 워크스페이스 패키지를 물어볼 수 있다).
+    // 텍스트 입력 스텝이라 완료 후 접지 않는다 — ◆ 헤더 아래 질문·답이 그대로 남는다.
     const rootVerify = detectVerify(projectRoot);
     const located = await promptVerifyLocation(
       prompt(),
@@ -1267,29 +1332,29 @@ async function interactiveInputs(
       makeColors(c.color),
     );
     const verify = located.verify;
-    if (located.cwd) {
-      // 패키지를 새로 골랐으면 그 패키지에서 감지한 값으로 화면도 다시 그린다.
-      process.stdout.write(`\n${stepBox('2/3', '검증 명령어', verifyStepLines(verify), c)}\n\n`);
-    } else {
-      process.stdout.write(`\n${screens.verify}\n\n`);
-    }
+    process.stdout.write(
+      `${flowConnector(c)}\n${flowActiveNode('검증 명령어', verifyStepLines(verify), c)}\n`,
+    );
     for (const k of Object.keys(VERIFY_LABELS) as (keyof VerifyMap)[]) {
       const cur = verify[k];
       const shown = cur ? cur.cmd : '(없음)';
-      const answer = (await ask(prompt(), `  ${VERIFY_LABELS[k]} [${shown}]: `)).trim();
+      const answer = (
+        await ask(prompt(), `${flowConnector(c)}  ${VERIFY_LABELS[k]} [${shown}]: `)
+      ).trim();
       if (answer !== '') {
         verify[k] = answer.toLowerCase() === '없음' || answer === '-' ? null : splitEnv(answer);
       }
     }
     applyVerifyCwd(verify, located.cwd);
 
-    // 3. [3/3] 규칙과 프로젝트 성격
-    process.stdout.write(`\n${screens.character}\n\n`);
-    const character = (await ask(prompt(), '  > ')).trim();
+    // [3/3] 규칙과 프로젝트 성격 — 마찬가지로 텍스트 입력이라 접지 않는다.
+    process.stdout.write(
+      `${flowConnector(c)}\n${flowActiveNode('규칙과 이 프로젝트의 성격', characterScreenLines(), c)}\n`,
+    );
+    const character = (await ask(prompt(), `${flowConnector(c)}  > `)).trim();
 
-    // 6. 마지막 선택기만 다시 raw-mode를 쓸 수 있다. readline을 먼저 완전히 닫아
+    // 마지막 선택기만 다시 raw-mode를 쓸 수 있다. readline을 먼저 완전히 닫아
     // stdin의 유일한 소비자가 선택기라는 것을 보장한다.
-    process.stdout.write(`\n${screens.skills}\n\n`);
     const agents = detectAgents(projectRoot);
     const skillOptions = [
       '모두 설치 (Claude Code + Codex)',
@@ -1304,33 +1369,43 @@ async function interactiveInputs(
       session.rl.close();
       session.rl = null;
     }
-    const rawSkills = useRawMode
-      ? await runInteractiveSelect(skillOptions, 0, true, c, defaultChecked, {
-          title: '설치할 에이전트 스킬',
-          hint: '↑↓ 또는 j/k 이동 · Space 선택 · Enter 확정 · Esc 기본값 유지',
-          selectAllIndex: 0,
-        })
-      : null;
-    const checked =
-      rawSkills?.checked ??
-      (useRawMode
-        ? defaultChecked
-        : await selectMulti(
-            prompt(),
-            skillOptions,
-            defaultChecked,
-            c,
-            false,
-            '설치할 에이전트 스킬',
-            0,
-          ));
+    let checked: number[];
+    if (useRawMode) {
+      const r = await activeSelect(flow, skillOptions, 0, true, defaultChecked, {
+        title: '설치할 에이전트 스킬',
+        body: skillsScreenLines(agents),
+        hint: '↑↓ 또는 j/k 이동 · Space 선택 · Enter 확정 · Esc 기본값 유지',
+        selectAllIndex: 0,
+      });
+      checked = r?.checked ?? defaultChecked;
+    } else {
+      process.stdout.write(
+        `${flowConnector(c)}\n${flowActiveNode('설치할 에이전트 스킬', skillsScreenLines(agents), c)}\n`,
+      );
+      checked = await selectMulti(
+        prompt(),
+        skillOptions,
+        defaultChecked,
+        c,
+        false,
+        '설치할 에이전트 스킬',
+        0,
+      );
+    }
     const installAll = checked.includes(0);
     const skills = {
       claude: installAll || checked.includes(1),
       codex: installAll || checked.includes(2),
     };
+    const skillsSummary = installAll
+      ? '모두 설치 (Claude Code + Codex)'
+      : [skills.claude && 'Claude Code', skills.codex && 'Codex'].filter(Boolean).join(', ') ||
+        '(없음)';
+    selectStep(flow, `설치: ${skillsSummary}`);
 
-    return { project, mainLanguage, character, verify, skills };
+    // 세션은 여기서 닫지 않는다 — 결과 렌더링(commitResultFlow)까지 같은 스파인에
+    // 커밋한 뒤 호출부가 closeFlow 한다.
+    return { inputs: { project, mainLanguage, character, verify, skills }, session: flow };
   } finally {
     session.rl?.close();
   }
@@ -1348,34 +1423,35 @@ async function handleExistingConfig(
   scaffoldGlobal();
   const installedVer = installedEngineVersion();
 
-  process.stdout.write('\n  .awl/config.json 이 이미 있습니다. 팀원이 설정해두었군요.\n\n');
-  process.stdout.write(`    프로젝트   ${config?.project ?? '(없음)'}\n`);
-  process.stdout.write(`    주 언어    ${config?.mainLanguage?.join(', ') || '(없음)'}\n`);
-  process.stdout.write(`    성격       ${config?.character || '(없음)'}\n`);
   const engineNote =
     installedVer && config?.engineVersion
       ? installedVer === config.engineVersion
         ? `(설치됨: ${installedVer}  일치)`
         : `(설치됨: ${installedVer}  불일치 -> '그대로 쓴다'를 고르면 동기화됩니다)`
       : '';
-  process.stdout.write(`    엔진       ${config?.engineVersion ?? '(없음)'}   ${engineNote}\n\n`);
-  if (config?.verify) {
-    for (const line of verifyLines(config.verify as VerifyMap)) {
-      process.stdout.write(`    검증  ${line.trim()}\n`);
-    }
-    process.stdout.write('\n');
-  }
-  process.stdout.write('  이 설정을 그대로 쓰시겠습니까?\n\n');
+  const summaryLines = [
+    '.awl/config.json 이 이미 있습니다. 팀원이 설정해두었군요.',
+    '',
+    `프로젝트   ${config?.project ?? '(없음)'}`,
+    `주 언어    ${config?.mainLanguage?.join(', ') || '(없음)'}`,
+    `성격       ${config?.character || '(없음)'}`,
+    `엔진       ${config?.engineVersion ?? '(없음)'}   ${engineNote}`,
+    ...(config?.verify
+      ? ['', ...verifyLines(config.verify as VerifyMap).map((l) => `검증  ${l.trim()}`)]
+      : []),
+    '',
+    '이 설정을 그대로 쓰시겠습니까?',
+  ];
 
+  const flow = openFlow('기존 설정', c);
+  process.stdout.write(`${flowConnector(c)}\n${flowActiveNode('기존 설정', summaryLines, c)}\n`);
   const options = ['그대로 쓴다', '검증 명령어만 고친다', '처음부터 다시'];
-  process.stdout.write(
-    `${sectionBox(
-      '기존 설정',
-      options.map((option, i) => `${i + 1}. ${option}`),
-      c,
-    )}\n`,
-  );
+  for (let i = 0; i < options.length; i++) {
+    process.stdout.write(`${flowConnector(c)}    ${i + 1}. ${options[i]}\n`);
+  }
   const choice = await promptNumber(rl, 0, options.length);
+  selectStep(flow, `선택: ${options[choice]}`);
+  closeFlow(flow);
 
   process.stdout.write(
     `\n  ${makeColors(c.color).dim('규칙과 교훈은 공유되지 않습니다. 저 설정만 팀원과 같고, 쌓이는 것은 당신 것입니다.')}\n`,
@@ -1416,9 +1492,10 @@ async function handleExistingConfig(
   // 처음부터 다시
   // raw-mode 선택기와 readline이 경쟁하지 않게 기존 인터페이스를 닫는다.
   rl.close();
-  const inputs = await interactiveInputs(projectRoot, isGlobalInstalled(), c);
+  const { inputs, session } = await interactiveInputs(projectRoot, isGlobalInstalled(), c);
   const result = applyInit(projectRoot, inputs, now);
-  process.stdout.write(`\n${renderResult(result, inputs, c)}\n`);
+  commitResultFlow(session, result, inputs, c);
+  closeFlow(session);
 }
 
 // ---------------------------------------------------------------------------
@@ -1547,6 +1624,7 @@ async function pickProjectRoot(cwd: string, c: Caps): Promise<string | null> {
     }
     return session.rl;
   };
+  const flow = openFlow('프로젝트 선택', c);
   const select = async (options: string[], title: string): Promise<number> => {
     if (raw) {
       // stdin 유일 소비자가 셀렉터가 되도록 열린 readline 을 먼저 닫는다.
@@ -1554,7 +1632,7 @@ async function pickProjectRoot(cwd: string, c: Caps): Promise<string | null> {
         session.rl.close();
         session.rl = null;
       }
-      const r = await runInteractiveSelect(options, 0, false, c, [], {
+      const r = await activeSelect(flow, options, 0, false, [], {
         title,
         hint: '↑↓ 또는 j/k 이동 · Enter 선택 · Esc 기본값 유지',
       });
@@ -1569,6 +1647,7 @@ async function pickProjectRoot(cwd: string, c: Caps): Promise<string | null> {
         '어느 프로젝트에 awl 을 붙일까요?',
       );
       if (idx === 0) {
+        selectStep(flow, `프로젝트: ${cwd}`);
         return cwd;
       }
       if (idx !== 1) {
@@ -1584,13 +1663,14 @@ async function pickProjectRoot(cwd: string, c: Caps): Promise<string | null> {
         : '하위에 git 프로젝트가 없습니다 — 직접 입력하거나 취소\n';
     const choice = resolveProjectChoice(await select(labels, title), candidates);
     if (choice.kind === 'path') {
+      selectStep(flow, `프로젝트: ${choice.path}`);
       return choice.path;
     }
     if (choice.kind === 'cancel') {
       return null;
     }
     // 직접 경로 입력 — 존재하는 경로만 받는다(오타로 엉뚱한 곳에 스캐폴딩 방지).
-    const typed = (await ask(prompt(), '  프로젝트 경로를 입력하세요: ')).trim();
+    const typed = (await ask(prompt(), `${flowConnector(c)}  프로젝트 경로를 입력하세요: `)).trim();
     if (!typed) {
       return null;
     }
@@ -1599,11 +1679,13 @@ async function pickProjectRoot(cwd: string, c: Caps): Promise<string | null> {
       process.stdout.write(`\n  그 경로가 없습니다: ${resolved}\n`);
       return null;
     }
+    selectStep(flow, `프로젝트: ${resolved}`);
     return resolved;
   } finally {
     if (session.rl) {
       session.rl.close();
     }
+    closeFlow(flow);
   }
 }
 
@@ -1667,7 +1749,8 @@ export async function runInit(opts: { yes: boolean }): Promise<void> {
     }
     return;
   }
-  const inputs = await interactiveInputs(chosenRoot, isGlobalInstalled(), c);
+  const { inputs, session } = await interactiveInputs(chosenRoot, isGlobalInstalled(), c);
   const result = applyInit(chosenRoot, inputs, now);
-  process.stdout.write(`\n${renderResult(result, inputs, c)}\n`);
+  commitResultFlow(session, result, inputs, c);
+  closeFlow(session);
 }

@@ -1,10 +1,30 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
+import { type FlowSession, closeFlow, openFlow, step } from '../core/flow.js';
 import { findProjectRoot } from '../core/paths.js';
 import { CommandNotFoundError, run } from '../core/runner.js';
-import { type Caps, caps, makeColors, makeSymbols, sectionBox, signal } from '../core/tty.js';
-import { LANG_OPTIONS, LANG_VALUES, ask, buildScreens, promptNumber, selectMulti } from './init.js';
+import {
+  type Caps,
+  caps,
+  flowActiveNode,
+  flowConnector,
+  makeColors,
+  makeSymbols,
+  sectionBox,
+  signal,
+} from '../core/tty.js';
+import {
+  LANG_OPTIONS,
+  LANG_VALUES,
+  ask,
+  characterScreenLines,
+  detectVerify,
+  langScreenLines,
+  promptNumber,
+  selectMulti,
+  verifyStepLines,
+} from './init.js';
 
 /**
  * config 로드/검증 — 여러 명령이 공유하는 기반.
@@ -527,19 +547,21 @@ function writeConfigFile(projectRoot: string, config: AwlConfig): void {
 
 const EDIT_MENU = ['그대로 둔다', '주 언어', '검증 명령어', '성격', '프로젝트 이름'];
 
-/** buildScreens 의 검증 명령어 설명 화면을 보여준 뒤, 현재 값을 기본값 삼아 하나씩 고친다. */
+/** 감지된 검증 명령어를 보여준 뒤, 현재 설정값을 기본값 삼아 하나씩 고친다. */
 async function editVerifyCommands(
   rl: readline.Interface,
   config: AwlConfig,
   projectRoot: string,
   c: Caps,
+  flow: FlowSession,
 ): Promise<void> {
-  const screens = buildScreens(projectRoot, true, c);
-  process.stdout.write(`\n${screens.verify}\n`);
+  process.stdout.write(
+    `${flowConnector(c)}\n${flowActiveNode('검증 명령어', verifyStepLines(detectVerify(projectRoot)), c)}\n`,
+  );
   for (const name of VERIFY_ORDER) {
     const cur = config.verify[name];
     const shown = cur ? cur.cmd : '(없음)';
-    const answer = (await ask(rl, `  ${name} [${shown}]: `)).trim();
+    const answer = (await ask(rl, `${flowConnector(c)}  ${name} [${shown}]: `)).trim();
     if (answer === '') {
       continue; // 비우면 그대로 둔다(init 의 관행과 동일).
     }
@@ -550,20 +572,29 @@ async function editVerifyCommands(
       answer,
       { force: false },
     );
-    process.stdout.write(`  ${outcome.message}\n`);
+    step(flow, outcome.message);
   }
 }
 
-/** buildScreens 의 주 언어 화면을 보여주되, 기본 선택은 auto-detect 가 아니라 현재 설정값이다. */
+/** 주 언어 화면을 보여주되, 기본 선택은 auto-detect 가 아니라 현재 설정값이다. */
 async function editMainLanguage(
   rl: readline.Interface,
   config: AwlConfig,
   projectRoot: string,
   c: Caps,
+  flow: FlowSession,
 ): Promise<void> {
-  const screens = buildScreens(projectRoot, true, c);
-  process.stdout.write(`\n  현재 설정: ${config.mainLanguage.join(', ') || '(없음)'}\n`);
-  process.stdout.write(`${screens.lang}\n`);
+  process.stdout.write(
+    `${flowConnector(c)}\n${flowActiveNode(
+      '주 언어',
+      [
+        `현재 설정: ${config.mainLanguage.join(', ') || '(없음)'}`,
+        '',
+        ...langScreenLines(projectRoot),
+      ],
+      c,
+    )}\n`,
+  );
   const curIndices = config.mainLanguage
     .map((lang) => LANG_VALUES.indexOf(lang))
     .filter((i) => i >= 0);
@@ -581,7 +612,7 @@ async function editMainLanguage(
     .map((i) => LANG_VALUES[i])
     .filter((v): v is string => typeof v === 'string' && v !== '');
   if (checked.includes(manualIdx)) {
-    const typed = (await ask(rl, '  주 언어를 입력하세요: ')).trim();
+    const typed = (await ask(rl, `${flowConnector(c)}  주 언어를 입력하세요: `)).trim();
     if (typed) {
       values.push(typed);
     }
@@ -593,7 +624,7 @@ async function editMainLanguage(
     values.join(','),
     { force: false },
   );
-  process.stdout.write(`  ${outcome.message}\n`);
+  step(flow, outcome.message);
 }
 
 async function editCharacter(
@@ -601,30 +632,37 @@ async function editCharacter(
   config: AwlConfig,
   projectRoot: string,
   c: Caps,
+  flow: FlowSession,
 ): Promise<void> {
-  const screens = buildScreens(projectRoot, true, c);
-  process.stdout.write(`\n${screens.character}\n`);
-  process.stdout.write(`  현재: ${config.character || '(비움)'}\n`);
-  const answer = await ask(rl, '  > ');
+  process.stdout.write(
+    `${flowConnector(c)}\n${flowActiveNode(
+      '규칙과 이 프로젝트의 성격',
+      [`현재: ${config.character || '(비움)'}`, '', ...characterScreenLines()],
+      c,
+    )}\n`,
+  );
+  const answer = await ask(rl, `${flowConnector(c)}  > `);
   const outcome = await applyConfigValue(config, projectRoot, { kind: 'character' }, answer, {
     force: false,
   });
-  process.stdout.write(`  ${outcome.message}\n`);
+  step(flow, outcome.message);
 }
 
 async function editProjectName(
   rl: readline.Interface,
   config: AwlConfig,
   projectRoot: string,
+  c: Caps,
+  flow: FlowSession,
 ): Promise<void> {
-  const answer = (await ask(rl, `  프로젝트 이름 [${config.project}]: `)).trim();
+  const answer = (await ask(rl, `${flowConnector(c)}  프로젝트 이름 [${config.project}]: `)).trim();
   if (answer === '') {
     return;
   }
   const outcome = await applyConfigValue(config, projectRoot, { kind: 'project' }, answer, {
     force: false,
   });
-  process.stdout.write(`  ${outcome.message}\n`);
+  step(flow, outcome.message);
 }
 
 /** 인터랙티브 수정 메뉴. 테스트에서 in-memory readline 으로 직접 구동한다. */
@@ -634,23 +672,26 @@ export async function interactiveEditMenu(
   projectRoot: string,
   c: Caps,
 ): Promise<boolean> {
-  process.stdout.write('\n  수정할 항목을 고르세요.\n\n');
+  const flow = openFlow('설정 수정', c);
+  process.stdout.write(`${flowConnector(c)}\n${flowActiveNode('수정할 항목을 고르세요', [], c)}\n`);
   for (let i = 0; i < EDIT_MENU.length; i++) {
-    process.stdout.write(`    ${i + 1}  ${EDIT_MENU[i]}\n`);
+    process.stdout.write(`${flowConnector(c)}    ${i + 1}  ${EDIT_MENU[i]}\n`);
   }
   const idx = await promptNumber(rl, 0, EDIT_MENU.length);
   if (idx === 0) {
+    closeFlow(flow);
     return false;
   }
   if (idx === 1) {
-    await editMainLanguage(rl, config, projectRoot, c);
+    await editMainLanguage(rl, config, projectRoot, c, flow);
   } else if (idx === 2) {
-    await editVerifyCommands(rl, config, projectRoot, c);
+    await editVerifyCommands(rl, config, projectRoot, c, flow);
   } else if (idx === 3) {
-    await editCharacter(rl, config, projectRoot, c);
+    await editCharacter(rl, config, projectRoot, c, flow);
   } else if (idx === 4) {
-    await editProjectName(rl, config, projectRoot);
+    await editProjectName(rl, config, projectRoot, c, flow);
   }
+  closeFlow(flow);
   return true;
 }
 
