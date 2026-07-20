@@ -5,6 +5,24 @@
 
 ## [Unreleased]
 
+### 변경
+
+- `awl init`/`awl config`의 주 언어 선택을 단일선택에서 다중선택으로 확장. TypeScript
+  프론트 + Python 백엔드 같은 폴리글랏 프로젝트도 한 번에 반영할 수 있다.
+  `.awl/config.json`의 `mainLanguage`가 문자열에서 문자열 배열로 바뀐다(하위 호환 없음 —
+  기존 설치는 `~/.awl` 리셋 후 재설치 필요). `detectLanguages()`가 JS/TS와 Python 신호를
+  독립적으로 감지해 여러 언어를 기본 체크한다. `awl config set mainLanguage a,b`처럼
+  쉼표로 여러 값을 지정할 수 있다.
+
+## [0.6.30] - 2026-07-20
+
+### 추가
+
+- `awl lane rm`/`awl work done`(teardown) 시 격리 home의 records를 전역(`~/.awl/records`)으로
+  재생하고, 레인 출처는 `records/archive/<project>/<date>-<lane>.jsonl` 스냅샷으로 따로 남긴다.
+  이전엔 gotcha/rule/generation만 전역으로 이어지고 records는 워크트리와 함께 폐기됐다. records는
+  gotcha와 달리 전역 고유 ID가 없는 순수 append 로그라 동시 teardown에도 안전하다.
+
 ## [0.6.28] - 2026-07-20
 
 ### 추가
