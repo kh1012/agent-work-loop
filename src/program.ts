@@ -43,21 +43,100 @@ function renderGettingStartedCard(c: Caps): string {
   return sectionBox('시작하기', lines, c);
 }
 
-/** 명령 목록의 [options]/<criterion>/<range> 자리에 실제로 뭐가 들어가는지 보여주는
- * 예시 카드. 각 줄은 실제로 이 저장소에서 실행해본 명령이다(docs/presentation/commands.md
- * 참고, 지어낸 예시 아님). */
+/**
+ * 명령 목록의 [options]/<criterion>/<range> 자리에 실제로 뭐가 들어가는지 보여주는
+ * 예시 카드. 사람용 명령 전부를 다룬다(commit/review/status 4줄에서 전체 명령으로
+ * 확장, cli-examples-full-coverage). 옵션 철자는 program.ts 등록값과 정확히
+ * 맞췄고, docs/presentation/commands.md 에 실제 실행 기록이 있는 줄(init/status/
+ * commit/review/records/loop-summary 배치 등)은 그대로 재사용했다 — work new/
+ * lane new/rules promote 등 일부는 실행 기록이 없어 옵션 정의로 구성했다(지어낸
+ * 플래그는 아니지만 과거 실행 로그로 검증되진 않았다는 뜻).
+ */
 function renderExamplesCard(c: Caps): string {
   const t = makeTokens(c);
-  const examples: { cmd: string; note: string }[] = [
-    { cmd: 'awl commit AC-01 --start', note: '구현 시작 시 베이스라인부터 잡는다' },
-    { cmd: 'awl commit AC-01 -m "완료 조건 설명"', note: '<criterion> 자리엔 완료조건 ID(AC-01)' },
-    { cmd: 'awl review AC-01..AC-03', note: '<range> 자리엔 완료조건 범위' },
-    { cmd: 'awl status --pipeline', note: '[options] 자리엔 --json/--pipeline 같은 플래그' },
+  const groups: { label: string; examples: { cmd: string; note: string }[] }[] = [
+    {
+      label: '시작·점검',
+      examples: [
+        { cmd: 'awl init --yes', note: '감지된 값으로 자동 설정' },
+        { cmd: 'awl status --pipeline', note: '[options] 자리엔 --json/--pipeline 같은 플래그' },
+        { cmd: 'awl doctor --json', note: '설치·환경 점검 결과를 JSON으로' },
+        { cmd: 'awl version-check --json', note: '설치 버전과 npm 최신 버전 비교' },
+      ],
+    },
+    {
+      label: '완료조건 게이트',
+      examples: [
+        { cmd: 'awl commit AC-01 --start', note: '구현 시작 시 베이스라인부터 잡는다' },
+        {
+          cmd: 'awl commit AC-01 -m "완료 조건 설명"',
+          note: '<criterion> 자리엔 완료조건 ID(AC-01)',
+        },
+        { cmd: 'awl review AC-01..AC-03', note: '<range> 자리엔 완료조건 범위' },
+      ],
+    },
+    {
+      label: '워크아이템·레인',
+      examples: [
+        {
+          cmd: 'awl work new WI-01 "여백 시스템 추가" --worktree',
+          note: '격리 워크트리로 새 워크아이템 시작',
+        },
+        { cmd: 'awl work list --json', note: '현재+보관된 워크아이템 전부' },
+        { cmd: 'awl work done WI-01', note: '완료 처리 + 상태 스냅샷 회수' },
+        { cmd: 'awl lane new my-lane', note: '격리 레인(worktree+전용 home) 생성' },
+        { cmd: 'awl lane ls --json', note: '레인 목록' },
+        { cmd: 'awl lane rm my-lane', note: '미머지 커밋 있으면 --force 없이 거부' },
+      ],
+    },
+    {
+      label: '기록·규칙·교훈',
+      examples: [
+        {
+          cmd: 'awl records --type narrative --workitem WI-01 --json',
+          note: '기록 종류·워크아이템으로 필터',
+        },
+        { cmd: 'awl gotchas --json', note: '아직 규칙 안 된 교훈 목록' },
+        {
+          cmd: 'awl rules promote G-001 --applies "..." --counter "..."',
+          note: '반복되는 교훈을 규칙으로 승격',
+        },
+        {
+          cmd: 'awl loop-summary --workitems WI-01,WI-02',
+          note: '여러 워크아이템 배치 요약',
+        },
+      ],
+    },
+    {
+      label: '설정·관리',
+      examples: [
+        { cmd: 'awl config set verify.lint.cmd "biome check ."', note: '검증 명령어 직접 지정' },
+        { cmd: 'awl update --all', note: '등록된 모든 프로젝트 스킬 동기화' },
+        { cmd: 'awl remove --project', note: '로컬만 스캔(드라이런 기본, --yes 로 실행)' },
+      ],
+    },
+    {
+      label: '그 외 조회',
+      examples: [
+        { cmd: 'awl brief --today', note: '오늘 하루 요약' },
+        { cmd: 'awl metrics --compare', note: '세대 간 비교' },
+        { cmd: 'awl feedback --severity high', note: 'awl 자체에 대한 피드백, 심각도 필터' },
+        { cmd: 'awl changelog --workitem WI-01', note: '그 워크아이템의 변경 이력' },
+      ],
+    },
   ];
-  const cmdWidth = Math.max(...examples.map((e) => visibleWidth(e.cmd)));
-  const lines = examples.map(
-    (e) => `${t.accent(padVisible(e.cmd, cmdWidth))}  ${t.muted(`# ${e.note}`)}`,
-  );
+
+  const lines: string[] = [];
+  groups.forEach((group, i) => {
+    if (i > 0) {
+      lines.push('');
+    }
+    lines.push(t.muted(group.label));
+    const cmdWidth = Math.max(...group.examples.map((e) => visibleWidth(e.cmd)));
+    for (const e of group.examples) {
+      lines.push(`  ${t.accent(padVisible(e.cmd, cmdWidth))}  ${t.muted(`# ${e.note}`)}`);
+    }
+  });
   return sectionBox('예시', lines, c);
 }
 
