@@ -621,13 +621,15 @@ describe('renderPipelineGroups — 레인 헤더 그룹핑 렌더(pipeline-statu
     expect(out).toContain('complete');
     expect(out).toContain('login');
     // 열린 ㄷ자(sectionBox): 우측 테두리가 없어 줄 표시폭이 내용 길이에 따라
-    // 제각각이다(과거 닫힌 card() 는 우측을 패딩해 폭이 균일했다). 대신 좌측
-    // 테두리(첫 줄은 상단 모서리, 나머지는 세로선)는 모든 줄에 일관되게 남는다.
+    // 제각각이다(과거 닫힌 card() 는 우측을 패딩해 폭이 균일했다). 좌측은 첫
+    // 줄만 상단 모서리(+), 마지막 줄만 하단 모서리(+-로 꺾임), 나머지는 세로선(|).
     const lines = out.split('\n');
     expect(lines[0]?.startsWith('+')).toBe(true);
-    for (const line of lines.slice(1)) {
-      expect(line.startsWith('|')).toBe(true);
+    const last = lines.length - 1;
+    for (let i = 1; i < last; i++) {
+      expect(lines[i]?.startsWith('|')).toBe(true);
     }
+    expect(lines[last]?.startsWith('+-')).toBe(true);
     const widths = lines.map(visibleWidth);
     expect(new Set(widths).size).toBeGreaterThan(1);
   });

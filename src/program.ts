@@ -90,7 +90,10 @@ export function renderBanner(c: Caps = caps()): string {
     return `${mark}${' '.repeat(Math.max(0, markWidth - visibleWidth(mark)) + 4)}${copy}`.trimEnd();
   }).join('\n');
   // 시작 안내는 로고 옆이 아니라 그 아래에, 한 칸 띄우고 좌측 정렬 카드로 배치한다.
-  return `${header}\n\n${renderGettingStartedCard(c)}`;
+  // 명령×옵션 예시는 --help 본문에 안 넣고 awl --examples 로 뺐다(cli-help-examples-card)
+  // — 여기서 짧게 그쪽으로 유도만 한다.
+  const color = makeColors(c.color);
+  return `${header}\n\n${renderGettingStartedCard(c)}\n\n  ${color.dim('예시는 awl --examples 로 봅니다.')}`;
 }
 
 /**
@@ -205,11 +208,10 @@ export function buildProgram(): Command {
     // 배너는 루트(awl / awl --help)에서만 보여준다. 예전엔 beforeAll 이 모든
     // 서브커맨드 help(work --help 등)에도 배너를 반복 출력했다.
     .addHelpText('beforeAll', (ctx) => (ctx.command === program ? `${renderBanner()}\n` : ''))
-    // 예시 카드도 루트 help 하단에만 — 명령 목록의 [options]/<criterion>/<range> 가
-    // 뭘 뜻하는지 감이 안 잡히는 문제(cli-help-examples-card)에 대한 대응.
-    .addHelpText('afterAll', (ctx) =>
-      ctx.command === program ? `\n${renderExamplesCard(caps())}\n` : '',
-    )
+    // 명령 목록의 [options]/<criterion>/<range> 가 뭘 뜻하는지 감이 안 잡히는 문제
+    // (cli-help-examples-card)의 대응은 --help 본문이 아니라 별도 --examples 로 뺐다 —
+    // 모든 명령×옵션 조합까지 --help 에 다 욱여넣으면 분기가 너무 많아진다(사용자 판단).
+    .option('--examples', '자주 쓰는 명령 예시를 보여줍니다')
     .showHelpAfterError();
 
   // 사람이 치는 명령: init (처음 설정)
@@ -273,13 +275,21 @@ export function buildProgram(): Command {
       await runVersionCheck({ json: opts.json === true });
     });
 
-  // 사람이 치는 명령: update (설치된 엔진을 갱신 — WI-X)
+  // 사람이 치는 명령: update (설치된 엔진을 갱신, 프로젝트 로컬은 --local/--all — awl-update-local)
   program
     .command('update')
-    .description('설치된 엔진(~/.awl/engine)을 갱신합니다')
-    .action(async () => {
+    .description(
+      '설치된 엔진(~/.awl/engine)을 갱신합니다 (기본은 전역만, --local/--all 로 프로젝트까지)',
+    )
+    .option('-g, --global', '전역 엔진(~/.awl/engine)만 갱신합니다 (기본값)')
+    .option(
+      '-l, --local',
+      '등록된 프로젝트 전부의 로컬 스킬을 지금 설치된 엔진에 맞춰 재동기화합니다',
+    )
+    .option('-a, --all', '전역과 등록된 프로젝트 로컬을 모두 갱신합니다')
+    .action(async (opts: { global?: boolean; local?: boolean; all?: boolean }) => {
       const { runUpdate } = await import('./commands/update.js');
-      runUpdate();
+      runUpdate(opts);
     });
 
   // 사람이 치는 명령: uninstall (awl 이 손댄 흔적을 지운다 — 기본은 드라이런, awl-uninstall-reset)
@@ -737,7 +747,11 @@ export function buildProgram(): Command {
   // 명령을 operand 로 받아 조용히 이 액션을 태우므로, 잔여 operand 를 직접 걸러야 한다.
   // 단, commander 내장 help 명령(awl help [cmd])도 루트 액션에 가려 여기로 오므로
   // 미등록으로 오판하지 않고 되살린다.
-  program.action((_opts: unknown, command: Command) => {
+  program.action((opts: { examples?: boolean }, command: Command) => {
+    if (opts.examples) {
+      process.stdout.write(`${renderExamplesCard(caps())}\n`);
+      return;
+    }
     const [first, second] = command.args;
     if (first === undefined) {
       program.help(); // bare awl → 전체 도움말

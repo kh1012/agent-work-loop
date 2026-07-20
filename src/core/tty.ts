@@ -523,10 +523,12 @@ export function card(title: string, lines: string[], c: Caps = caps(), minInnerW
 }
 
 /**
- * card() 의 열린 변형(왼쪽 ㄷ자). 질문 화면처럼 아래로 다른 프롬프트가 바로
+ * card() 의 열린 변형(ㄷ자). 질문 화면처럼 아래로 다른 프롬프트가 바로
  * 이어지는 곳에 쓴다 — 닫힌 사각(card)은 그 다음 화면과 시각적으로 단절돼
- * 보인다는 지적(사용자 피드백)에 따라, 오른쪽·아래 테두리를 빼 흐름이 계속되는
- * 느낌을 준다. 폭 계산·줄바꿈·색 토큰은 card() 와 동일해 같은 벌로 어울린다.
+ * 보인다는 지적(사용자 피드백)에 따라 만들었다. 오른쪽 테두리와 상단의 긴
+ * 채움 대시를 빼고(제목 뒤에 바로 끝냄), 마지막 줄만 왼쪽 세로선이 가로선으로
+ * 꺾이는 모서리(╰─)로 닫는다 — 위(╭─)·아래(╰─) 모서리가 짧게 맺혀 시작과
+ * 끝이 분명하면서도 오른쪽은 계속 열려 흐름이 이어지는 느낌을 준다.
  */
 export function sectionBox(
   title: string,
@@ -544,23 +546,20 @@ export function sectionBox(
   );
 
   const wrapped = lines.flatMap((line) => wrapToWidth(line, maxInner, { hanging: true }));
-  const inner = Math.min(
-    maxInner,
-    Math.max(minInnerWidth, visibleWidth(title), ...wrapped.map(visibleWidth), 0),
-  );
 
   const frame = (text: string): string => t.frame(text);
-  const row = (text: string): string => `${frame(s.boxV)}${' '.repeat(pad)}${text}`;
+  // 마지막 줄만 왼쪽이 ╰─(모서리+대시, 표시폭 2)로 꺾인다 — │(표시폭 1)와 정렬을
+  // 맞추려면 그만큼 뒤 패딩을 한 칸 줄인다(2칸 vs 1칸, 둘 다 접두어 표시폭 3으로 동일).
+  const row = (text: string, isLast: boolean): string => {
+    const left = isLast ? `${s.boxBL}${s.boxH}` : s.boxV;
+    const gap = isLast ? pad - 1 : pad;
+    return `${frame(left)}${' '.repeat(gap)}${text}`;
+  };
 
-  const safeTitle = truncateToWidth(title, inner);
-  const tvis = visibleWidth(safeTitle);
-  const dash = Math.max(1, inner + pad * 2 - 3 - tvis);
-  const top =
-    frame(`${s.boxTL}${s.boxH} `) +
-    t.emphasis(t.accent(safeTitle)) +
-    frame(` ${s.boxH.repeat(dash)}`);
+  const safeTitle = truncateToWidth(title, maxInner);
+  const top = frame(`${s.boxTL}${s.boxH} `) + t.emphasis(t.accent(safeTitle));
 
-  return [top, ...wrapped.map(row)].join('\n');
+  return [top, ...wrapped.map((line, i) => row(line, i === wrapped.length - 1))].join('\n');
 }
 
 // ---------------------------------------------------------------------------
