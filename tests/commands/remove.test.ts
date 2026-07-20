@@ -9,19 +9,19 @@ import {
   findMarkerLegacyFiles,
   readOtherProjects,
   resolveScope,
-  runUninstall,
+  runRemove,
   scanGlobal,
   scanProjectLocal,
   stripAwlAgentsBlock,
-} from '../../src/commands/uninstall.js';
+} from '../../src/commands/remove.js';
 
 /**
- * awl uninstall — awl-uninstall-reset AC-01~AC-07. lane.test.ts 와 같은 격리 패턴을
- * 쓴다: 실 저장소를 절대 건드리지 않고 mkdtempSync 로 만든 임시 git 프로젝트 +
- * 임시 AWL_HOME 안에서만 검증한다.
+ * awl remove(이전 이름 uninstall) — awl-uninstall-reset AC-01~AC-07. lane.test.ts 와
+ * 같은 격리 패턴을 쓴다: 실 저장소를 절대 건드리지 않고 mkdtempSync 로 만든 임시 git
+ * 프로젝트 + 임시 AWL_HOME 안에서만 검증한다.
  */
 
-describe('uninstall', () => {
+describe('remove', () => {
   const origCwd = process.cwd();
   const origHome = process.env.AWL_HOME;
 
@@ -35,7 +35,7 @@ describe('uninstall', () => {
   });
 
   function fixtureProject(): string {
-    const proj = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-uninstall-')));
+    const proj = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-remove-')));
     execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: proj });
     execFileSync('git', ['config', 'user.email', 't@t.com'], { cwd: proj });
     execFileSync('git', ['config', 'user.name', 't'], { cwd: proj });
@@ -43,7 +43,7 @@ describe('uninstall', () => {
     execFileSync('git', ['add', '-A'], { cwd: proj });
     execFileSync('git', ['commit', '-q', '-m', 'base'], { cwd: proj });
     process.chdir(proj);
-    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-uninstall-home-'));
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-remove-home-'));
     return proj;
   }
 
@@ -116,7 +116,7 @@ describe('uninstall', () => {
       // 스코프 좁히기 자체(기본=project만)는 AC-02 가 별도로 검증한다.
       const cap = captureStdout();
       try {
-        await runUninstall({ all: true });
+        await runRemove({ all: true });
       } finally {
         cap.restore();
       }
@@ -143,7 +143,7 @@ describe('uninstall', () => {
 
       const cap = captureStdout();
       try {
-        await runUninstall({});
+        await runRemove({});
       } finally {
         cap.restore();
       }
@@ -168,7 +168,7 @@ describe('uninstall', () => {
       const cap = captureStdout();
       try {
         // --all: 이 테스트는 "--yes 를 줘야 지운다" 자체를 검증한다(스코프는 AC-02 몫).
-        await runUninstall({ yes: true, all: true });
+        await runRemove({ yes: true, all: true });
       } finally {
         cap.restore();
       }
@@ -194,7 +194,7 @@ describe('uninstall', () => {
       const homeRecordsPath = path.join(process.env.AWL_HOME as string, 'records');
       const beforeGlobalMtime = fs.statSync(homeRecordsPath).mtimeMs;
 
-      await runUninstall({ yes: true });
+      await runRemove({ yes: true });
 
       expect(fs.existsSync(dotAwlPath)).toBe(false); // 프로젝트: 지워짐.
       expect(fs.existsSync(homeRecordsPath)).toBe(true); // 전역: 그대로.
@@ -208,7 +208,7 @@ describe('uninstall', () => {
       const homeRecordsPath = path.join(process.env.AWL_HOME as string, 'records');
       const beforeProjectMtime = fs.statSync(dotAwlPath).mtimeMs;
 
-      await runUninstall({ yes: true, global: true });
+      await runRemove({ yes: true, global: true });
 
       expect(fs.existsSync(homeRecordsPath)).toBe(false); // 전역: 지워짐.
       expect(fs.existsSync(dotAwlPath)).toBe(true); // 프로젝트: 그대로.
@@ -221,7 +221,7 @@ describe('uninstall', () => {
       const dotAwlPath = path.join(proj, '.awl');
       const homeRecordsPath = path.join(process.env.AWL_HOME as string, 'records');
 
-      await runUninstall({ yes: true, all: true });
+      await runRemove({ yes: true, all: true });
 
       expect(fs.existsSync(dotAwlPath)).toBe(false);
       expect(fs.existsSync(homeRecordsPath)).toBe(false);
@@ -257,7 +257,7 @@ describe('uninstall', () => {
 
       const cap = captureStdout();
       try {
-        await runUninstall({ global: true });
+        await runRemove({ global: true });
       } finally {
         cap.restore();
       }
@@ -280,7 +280,7 @@ describe('uninstall', () => {
 
       const cap = captureStdout();
       try {
-        await runUninstall({});
+        await runRemove({});
       } finally {
         cap.restore();
       }
@@ -296,7 +296,7 @@ describe('uninstall', () => {
       fs.mkdirSync(path.dirname(lanePath), { recursive: true });
       execFileSync('git', ['worktree', 'add', lanePath, '-b', 'work/probe'], { cwd: proj });
 
-      await runUninstall({ yes: true });
+      await runRemove({ yes: true });
 
       expect(fs.existsSync(lanePath)).toBe(false);
       const listing = execFileSync('git', ['worktree', 'list'], { cwd: proj, encoding: 'utf8' });
@@ -316,7 +316,7 @@ describe('uninstall', () => {
 
       const cap = captureStdout();
       try {
-        await runUninstall({ yes: true });
+        await runRemove({ yes: true });
       } finally {
         cap.restore();
       }
@@ -337,7 +337,7 @@ describe('uninstall', () => {
       execFileSync('git', ['add', '-A'], { cwd: lanePath });
       execFileSync('git', ['commit', '-q', '-m', 'lane commit'], { cwd: lanePath });
 
-      await runUninstall({ yes: true });
+      await runRemove({ yes: true });
 
       expect(fs.existsSync(lanePath)).toBe(true);
       const branches = execFileSync('git', ['branch', '--list'], { cwd: proj, encoding: 'utf8' });
@@ -353,7 +353,7 @@ describe('uninstall', () => {
       execFileSync('git', ['worktree', 'add', cleanPath, '-b', 'work/clean'], { cwd: proj });
       fs.writeFileSync(path.join(dirtyPath, 'f.txt'), '고침\n');
 
-      await runUninstall({ yes: true });
+      await runRemove({ yes: true });
 
       expect(fs.existsSync(dirtyPath)).toBe(true); // 보존.
       expect(fs.existsSync(cleanPath)).toBe(false); // 정리됨.
@@ -407,7 +407,7 @@ describe('uninstall', () => {
         '# 팀 지침\n\n독자적으로 추가한 내용.\n\n<!-- awl-loop:start -->\nawl 안내\n<!-- awl-loop:end -->\n',
       );
 
-      await runUninstall({ yes: true });
+      await runRemove({ yes: true });
 
       const agentsPath = path.join(proj, 'AGENTS.md');
       expect(fs.existsSync(agentsPath)).toBe(true);
@@ -424,7 +424,7 @@ describe('uninstall', () => {
         '<!-- awl-loop:start -->\nawl 안내\n<!-- awl-loop:end -->\n',
       );
 
-      await runUninstall({ yes: true });
+      await runRemove({ yes: true });
 
       expect(fs.existsSync(path.join(proj, 'AGENTS.md'))).toBe(false);
     });
@@ -439,7 +439,7 @@ describe('uninstall', () => {
       );
       fs.writeFileSync(path.join(hookDir, 'pre-push'), template);
 
-      await runUninstall({ yes: true });
+      await runRemove({ yes: true });
 
       expect(fs.existsSync(path.join(hookDir, 'pre-push'))).toBe(false);
     });
@@ -453,7 +453,7 @@ describe('uninstall', () => {
 
       const cap = captureStdout();
       try {
-        await runUninstall({ yes: true });
+        await runRemove({ yes: true });
       } finally {
         cap.restore();
       }
@@ -475,7 +475,7 @@ describe('uninstall', () => {
 
       const cap = captureStdout();
       try {
-        await runUninstall({});
+        await runRemove({});
       } finally {
         cap.restore();
       }
@@ -483,7 +483,7 @@ describe('uninstall', () => {
       expect(dry).toContain('[레거시]');
       expect(dry).toContain('마커');
 
-      await runUninstall({ yes: true });
+      await runRemove({ yes: true });
       expect(fs.existsSync(markerFile)).toBe(false);
     });
 
@@ -494,7 +494,7 @@ describe('uninstall', () => {
 
       const cap = captureStdout();
       try {
-        await runUninstall({});
+        await runRemove({});
       } finally {
         cap.restore();
       }
@@ -502,7 +502,7 @@ describe('uninstall', () => {
       expect(dry).toContain('.awl-home');
       expect(dry).toContain('[레거시]');
 
-      await runUninstall({ yes: true });
+      await runRemove({ yes: true });
       expect(fs.existsSync(legacyHome)).toBe(false);
       // 정본 .awl/home 은(있었다면) 이번 픽스처엔 없었으므로 별도 확인 불필요 — .awl-home 만 특정해 지웠는지 확인.
     });
@@ -516,7 +516,7 @@ describe('uninstall', () => {
 
       const cap = captureStdout();
       try {
-        await runUninstall({ global: true });
+        await runRemove({ global: true });
       } finally {
         cap.restore();
       }
@@ -524,7 +524,7 @@ describe('uninstall', () => {
       expect(dry).toContain('deltas');
       expect(dry).toContain('[레거시]');
 
-      await runUninstall({ yes: true, global: true });
+      await runRemove({ yes: true, global: true });
       expect(fs.existsSync(path.join(home, 'deltas'))).toBe(false);
       expect(fs.existsSync(path.join(home, 'deltas.backup-2026-01-01'))).toBe(false);
     });
@@ -533,7 +533,7 @@ describe('uninstall', () => {
       fixtureProject();
       const cap = captureStdout();
       try {
-        await runUninstall({ all: true });
+        await runRemove({ all: true });
       } finally {
         cap.restore();
       }
@@ -591,7 +591,7 @@ describe('uninstall', () => {
         return true;
       });
       const exitCap = spyProcessExit();
-      await expect(runUninstall({ yes: true })).rejects.toThrow('exit');
+      await expect(runRemove({ yes: true })).rejects.toThrow('exit');
       const combined = errWrites.join('');
       exitCap.restore();
       errSpy.mockRestore();
@@ -609,7 +609,7 @@ describe('uninstall', () => {
       const now = Math.floor(Date.now() / 1000);
       seedLock(proj, 'review', process.pid, now - 120); // stale.
 
-      await runUninstall({ yes: true });
+      await runRemove({ yes: true });
 
       expect(fs.existsSync(path.join(proj, '.awl'))).toBe(false);
     });
@@ -618,7 +618,7 @@ describe('uninstall', () => {
       const proj = fixtureProject();
       fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
 
-      await runUninstall({ yes: true });
+      await runRemove({ yes: true });
 
       expect(fs.existsSync(path.join(proj, '.awl'))).toBe(false);
     });
@@ -630,13 +630,13 @@ describe('uninstall', () => {
       const now = Math.floor(Date.now() / 1000);
       seedLock(proj, 'review', process.pid, now);
 
-      await runUninstall({ yes: true, global: true });
+      await runRemove({ yes: true, global: true });
 
       expect(fs.existsSync(path.join(home, 'records'))).toBe(false);
     });
   });
 
-  describe('AC-07: uninstall → init 통합 — 최초 설치처럼 동작', () => {
+  describe('AC-07: remove → init 통합 — 최초 설치처럼 동작', () => {
     it('--all --yes 로 지운 뒤 awl init 이 부트스트랩 전 과정을 다시 밟고 버전 불일치가 없다', async () => {
       const proj = fixtureProject();
       const { runInit } = await import('../../src/commands/init.js');
@@ -652,7 +652,7 @@ describe('uninstall', () => {
       expect(fs.existsSync(path.join(proj, '.claude', 'skills', 'awl-loop'))).toBe(true);
 
       // 2) --all --yes 로 완전히 지운다.
-      await runUninstall({ yes: true, all: true });
+      await runRemove({ yes: true, all: true });
       expect(fs.existsSync(configPath)).toBe(false);
       expect(fs.existsSync(engineDirPath)).toBe(false);
       expect(fs.existsSync(path.join(proj, '.claude', 'skills', 'awl-loop'))).toBe(false);
@@ -680,7 +680,7 @@ describe('uninstall', () => {
       execFileSync('git', ['worktree', 'add', lanePath, '-b', 'work/probe'], { cwd: proj });
       fs.writeFileSync(path.join(lanePath, 'f.txt'), '고침\n');
 
-      await runUninstall({ yes: true, all: true });
+      await runRemove({ yes: true, all: true });
 
       // 더러운 레인은 보존되지만, 나머지(.awl/ 등)는 정상적으로 지워진다.
       expect(fs.existsSync(lanePath)).toBe(true);
@@ -700,7 +700,7 @@ describe('uninstall', () => {
 
       const cap = captureStdout();
       try {
-        await runUninstall({ json: true });
+        await runRemove({ json: true });
       } finally {
         cap.restore();
       }
@@ -714,7 +714,7 @@ describe('uninstall', () => {
 
       const cap = captureStdout();
       try {
-        await runUninstall({ json: true, yes: true });
+        await runRemove({ json: true, yes: true });
       } finally {
         cap.restore();
       }
@@ -734,7 +734,7 @@ describe('uninstall', () => {
       const cap = captureStdout();
       let thrown: unknown;
       try {
-        await runUninstall({ json: true, yes: true });
+        await runRemove({ json: true, yes: true });
       } catch (e) {
         thrown = e;
       } finally {

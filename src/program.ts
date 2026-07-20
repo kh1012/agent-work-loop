@@ -292,9 +292,9 @@ export function buildProgram(): Command {
       runUpdate(opts);
     });
 
-  // 사람이 치는 명령: uninstall (awl 이 손댄 흔적을 지운다 — 기본은 드라이런, awl-uninstall-reset)
+  // 사람이 치는 명령: remove (awl 이 손댄 흔적을 지운다 — 기본은 드라이런, 이전 이름 uninstall)
   program
-    .command('uninstall')
+    .command('remove')
     .description('awl 이 손댄 흔적을 지웁니다 (기본은 드라이런 — --yes 없이는 삭제하지 않습니다)')
     .option('--yes', '실제로 삭제합니다 (기본은 드라이런)')
     .option('--project', '이 프로젝트 로컬만 정리합니다 (기본값)')
@@ -309,8 +309,8 @@ export function buildProgram(): Command {
         all?: boolean;
         json?: boolean;
       }) => {
-        const { runUninstall } = await import('./commands/uninstall.js');
-        await runUninstall({
+        const { runRemove } = await import('./commands/remove.js');
+        await runRemove({
           yes: opts.yes === true,
           project: opts.project === true,
           global: opts.global === true,

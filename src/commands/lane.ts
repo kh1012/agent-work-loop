@@ -123,7 +123,7 @@ export function parseWorktreeBranches(porcelain: string): Map<string, string> {
   return map;
 }
 
-/** uninstall(awl-uninstall-reset AC-03)도 레인 브랜치 해석을 그대로 재사용한다 — export. */
+/** remove(awl-uninstall-reset AC-03)도 레인 브랜치 해석을 그대로 재사용한다 — export. */
 export async function laneBranchMap(root: string): Promise<Map<string, string>> {
   const r = await run({
     cmd: 'git',
@@ -145,7 +145,7 @@ export async function laneBranchMap(root: string): Promise<Map<string, string>> 
  * 가 워크트리 제거 후 branch -D 실패로 부분파괴하는 창이므로, 호출부가 위험으로 보고
  * --force 없이는 차단한다(미확인=위험).
  *
- * uninstall(awl-uninstall-reset AC-03)도 이 안전망을 그대로 재사용한다 — export.
+ * remove(awl-uninstall-reset AC-03)도 이 안전망을 그대로 재사용한다 — export.
  */
 export async function unmergedCommitCount(root: string, branch: string): Promise<number | null> {
   const r = await run({
@@ -171,7 +171,7 @@ const AWL_INTERNAL_DIRS = new Set(['.awl', '.awl-worktrees', '.claude']);
  * (.awl/(·.awl/home/ 포함) state·verify-baseline·isolated records, .awl-worktrees/, lane new 가
  * 재설치하는 .claude/)은 WIP 가 아니므로 제외한다(G-034: 도구 산출물은 도구 필터로 무시).
  *
- * uninstall(awl-uninstall-reset AC-03)도 이 안전망을 그대로 재사용한다 — export.
+ * remove(awl-uninstall-reset AC-03)도 이 안전망을 그대로 재사용한다 — export.
  */
 export async function worktreeUntracked(
   root: string,
@@ -193,7 +193,7 @@ export async function worktreeUntracked(
 
 /**
  * 워크트리 경로의 브랜치를 맵에서 찾는다. git 은 realpath 를 돌려주므로 심링크 루트에서도 맞도록 realpath 도 시도한다.
- * uninstall(awl-uninstall-reset AC-03)도 이 해석을 그대로 재사용한다 — export.
+ * remove(awl-uninstall-reset AC-03)도 이 해석을 그대로 재사용한다 — export.
  */
 export function branchOf(branches: Map<string, string>, lanePath: string): string | undefined {
   const direct = branches.get(lanePath);

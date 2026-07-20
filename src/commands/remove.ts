@@ -26,14 +26,14 @@ import {
 import { removeGitWorktree, worktreeDirtyTracked } from './work.js';
 
 /**
- * awl uninstall — awl 이 손댄 모든 흔적(전역 홈 + 프로젝트 로컬 + 알려진 레거시 경로)을
- * 지운다. 기본은 드라이런이다 — --yes 없이는 파일시스템을 절대 바꾸지 않는다(AC-01).
+ * awl remove(이전 이름 uninstall) — awl 이 손댄 모든 흔적(전역 홈 + 프로젝트 로컬 + 알려진
+ * 레거시 경로)을 지운다. 기본은 드라이런이다 — --yes 없이는 파일시스템을 절대 바꾸지 않는다(AC-01).
  *
  * 목적: "완전히 새로 설치한 사용자" 상태를 재현할 수 있게 한다. 다음 `awl init` 이
  * 진짜 최초 설치처럼 동작해야 한다(AC-07).
  */
 
-export interface UninstallItem {
+export interface RemoveItem {
   /** 사람이 읽는 카테고리 라벨(목록/JSON 공통). */
   category: string;
   scope: 'project' | 'global';
@@ -117,7 +117,7 @@ function prePushMatchesTemplate(prePushPath: string): boolean {
 /**
  * `.tasks/watch-inputs.sh`(awl-pipeline 워처)가 쓰는 락 프로토콜의 stale 임계값(초).
  * 워처 자신의 STALE=60 과 반드시 같은 값을 써야 한다 — 이 값이 어긋나면 워처가
- * 살아있다고 보는 락을 uninstall 이 죽었다고 오판(또는 그 반대)할 수 있다.
+ * 살아있다고 보는 락을 remove 가 죽었다고 오판(또는 그 반대)할 수 있다.
  */
 const LOCK_STALE_SECS = 60;
 
@@ -240,11 +240,11 @@ export function findMarkerLegacyFiles(root: string): string[] {
  * F-04 프로젝트 로컬 구성요소를 스캔한다(읽기 전용 — fs 를 쓰지 않는다). 실제로
  * 존재하는 항목만 `present:true` 로 표시한다(AC-01, "실제 발견된 것만").
  */
-export function scanProjectLocal(root: string): UninstallItem[] {
-  const items: UninstallItem[] = [];
+export function scanProjectLocal(root: string): RemoveItem[] {
+  const items: RemoveItem[] = [];
   const push = (
-    partial: Omit<UninstallItem, 'scope' | 'legacy' | 'removable'> &
-      Partial<Pick<UninstallItem, 'legacy' | 'removable'>>,
+    partial: Omit<RemoveItem, 'scope' | 'legacy' | 'removable'> &
+      Partial<Pick<RemoveItem, 'legacy' | 'removable'>>,
   ): void => {
     items.push({ scope: 'project', legacy: false, removable: true, ...partial });
   };
@@ -325,12 +325,12 @@ function findDeltasBackups(gRoot: string): string[] {
  * F-02 전역 구성요소를 스캔한다(읽기 전용). globalRoot() 를 호출 시점에 읽으므로
  * AWL_HOME 재정의(테스트 격리)를 그대로 존중한다.
  */
-export function scanGlobal(): UninstallItem[] {
-  const items: UninstallItem[] = [];
+export function scanGlobal(): RemoveItem[] {
+  const items: RemoveItem[] = [];
   const push = (
     category: string,
     p: string,
-    kind: UninstallItem['kind'] = 'dir',
+    kind: RemoveItem['kind'] = 'dir',
     legacy = false,
   ): void => {
     items.push({
@@ -383,9 +383,9 @@ export interface LaneRemoveResult {
  * **의도적 비대칭(리뷰 지적)**: lane rm 은 삭제 전 `mergeIsolatedHome` 으로 레인의
  * 격리 학습(gotchas/rules/generations)을 전역(`~/.awl`)에 병합한다. 여기서는 **일부러
  * 그 병합을 하지 않는다** — `--project` 스코프(기본값)로 실행됐을 수 있는데, 그 경우
- * 전역에 쓰는 순간 AC-02("--project 만으론 전역 미변경")가 깨진다. uninstall 은 애초에
+ * 전역에 쓰는 순간 AC-02("--project 만으론 전역 미변경")가 깨진다. remove 는 애초에
  * "전부 지워 최초 설치처럼" 만드는 명령이라, 병합 없이 폐기하는 쪽이 스코프 계약과
- * 일치한다(사용자가 학습을 보존하고 싶으면 uninstall 전에 `awl lane rm` 으로 먼저
+ * 일치한다(사용자가 학습을 보존하고 싶으면 remove 전에 `awl lane rm` 으로 먼저
  * 병합·정리해야 한다).
  */
 export async function removeLaneSafely(root: string, lane: LaneInfo): Promise<LaneRemoveResult> {
@@ -436,7 +436,7 @@ export async function removeLaneSafely(root: string, lane: LaneInfo): Promise<La
   return { name: lane.name, removed: true };
 }
 
-export interface UninstallScope {
+export interface RemoveScope {
   project: boolean;
   global: boolean;
 }
@@ -450,7 +450,7 @@ export function resolveScope(opts: {
   project?: boolean;
   global?: boolean;
   all?: boolean;
-}): UninstallScope {
+}): RemoveScope {
   if (opts.all) {
     return { project: true, global: true };
   }
@@ -490,10 +490,10 @@ export function readOtherProjects(currentRoot: string): OtherProject[] {
 }
 
 function renderPlan(
-  scope: UninstallScope,
-  project: UninstallItem[],
+  scope: RemoveScope,
+  project: RemoveItem[],
   lanes: LaneInfo[],
-  global: UninstallItem[],
+  global: RemoveItem[],
   otherProjects: OtherProject[],
   lockStatuses: LockStatus[],
   c: Caps,
@@ -556,10 +556,10 @@ function renderPlan(
       'npm 패키지 자체는 이 명령으로 지우지 않습니다. 필요하면 npm uninstall -g agent-work-loop 를 직접 실행하세요.',
     ),
   );
-  return sectionBox('awl uninstall — 드라이런(dry run)', lines, c, 40);
+  return sectionBox('awl remove — 드라이런(dry run)', lines, c, 40);
 }
 
-export interface UninstallOpts {
+export interface RemoveOpts {
   yes?: boolean;
   json?: boolean;
   project?: boolean;
@@ -568,12 +568,12 @@ export interface UninstallOpts {
 }
 
 /**
- * awl uninstall 오케스트레이터. `--yes` 가 없으면 스캔·출력만 하고 반환한다
+ * awl remove 오케스트레이터. `--yes` 가 없으면 스캔·출력만 하고 반환한다
  * (fs 쓰기 0건, AC-01). `--yes` 가 있으면 스캔된 항목을 실제로 지운다. 스코프
  * (AC-02)는 project/global 을 독립적으로 켜고 끈다 — `--project` 만이면 전역은
  * 스캔조차 결과에 포함하지 않는다(전역 쓰기 0을 보장하는 가장 단순한 방법).
  */
-export async function runUninstall(opts: UninstallOpts): Promise<void> {
+export async function runRemove(opts: RemoveOpts): Promise<void> {
   const root = requireRoot();
   const c = caps();
   const scope = resolveScope(opts);

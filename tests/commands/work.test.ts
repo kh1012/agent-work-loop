@@ -1054,7 +1054,7 @@ describe('renderWorkList — 상태 색코딩 + 값 강조 + 정렬 (cli-visual-
 
   it('색코딩·강조를 넣어도 passed/total 정렬 기준이 균일하다(statusPad가 plain 기준)', () => {
     // sectionBox(열린 ㄷ자)로 바뀌며 줄 끝 패딩이 없어져 전체 표시폭 비교는 더는 못 쓴다
-    // (uninstall/update/verify/version-check/work/program card→sectionBox 전환). 대신
+    // (remove/update/verify/version-check/work/program card→sectionBox 전환). 대신
     // emphasis(passed/total) 시작 직전까지의 표시폭이 행마다 같은지로 정렬을 확인한다 —
     // id/status 길이가 달라도 statusPad 가 ANSI 코드를 안 세고 plain 폭 기준으로 맞춘다는
     // 원래 의도(리뷰 지적)는 그대로 검증된다.
