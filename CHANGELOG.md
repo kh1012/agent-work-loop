@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.6.34] - 2026-07-20
+
 ### 고침
 
 - `awl lane new`/`awl work new --worktree`가 대형 모노레포(15만+ 파일)에서 `git worktree
