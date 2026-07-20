@@ -21,7 +21,7 @@ function makeRepo(): string {
 
 const CONFIG: AwlConfig = {
   project: 'p',
-  mainLanguage: 'typescript',
+  mainLanguage: ['typescript'],
   character: '',
   engineVersion: '0.0.0',
   verify: {

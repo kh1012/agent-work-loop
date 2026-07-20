@@ -42,7 +42,7 @@ export interface VerifyMap {
 
 export interface InitInputs {
   project: string;
-  mainLanguage: string;
+  mainLanguage: string[];
   character: string;
   verify: VerifyMap;
   skills: { claude: boolean; codex: boolean };
@@ -50,7 +50,7 @@ export interface InitInputs {
 
 export interface AwlConfig {
   project: string;
-  mainLanguage: string;
+  mainLanguage: string[];
   character: string;
   engineVersion: string;
   verify: VerifyMap;
@@ -295,15 +295,13 @@ function anyWorkspaceMemberHasTsconfig(cwd: string, pkg: unknown): boolean {
 }
 
 /**
- * 주 언어를 감지한다. 못 하면 null(=직접 입력, buildScreens 가 index 0(typescript)을
- * 기본 선택으로 둔다 — "애매하면 TypeScript" 요구사항은 이 null 경로가 이미 만족한다).
- *
- * TypeScript 판정 신호는 세 가지다: 루트 tsconfig.json, package.json 의
+ * JS/TS 진영만 판정한다(awl-init-multi-lang — Python 과 독립으로 뽑아 다중 감지를
+ * 가능하게 한다). TypeScript 판정 신호는 세 가지다: 루트 tsconfig.json, package.json 의
  * dependencies/devDependencies 의 typescript, 워크스페이스 멤버의 tsconfig.json.
  * 모노레포에서 루트에 tsconfig 가 없어도(워크스페이스 멤버에만 있는 구성) TS 로
  * 오판되지 않게 하기 위해서다(WI-A).
  */
-export function detectLanguage(cwd: string): string | null {
+function detectJsLanguage(cwd: string): 'typescript' | 'javascript' | null {
   if (exists(path.join(cwd, 'tsconfig.json'))) {
     return 'typescript';
   }
@@ -315,14 +313,44 @@ export function detectLanguage(cwd: string): string | null {
     }
     return 'javascript';
   }
-  if (
+  return null;
+}
+
+function hasPythonMarkers(cwd: string): boolean {
+  return (
     exists(path.join(cwd, 'pyproject.toml')) ||
     exists(path.join(cwd, 'setup.py')) ||
     exists(path.join(cwd, 'requirements.txt'))
-  ) {
-    return 'python';
+  );
+}
+
+/**
+ * 주 언어 하나를 감지한다. 못 하면 null(=직접 입력, buildScreens 가 index 0(typescript)을
+ * 기본 선택으로 둔다 — "애매하면 TypeScript" 요구사항은 이 null 경로가 이미 만족한다).
+ * JS/TS 가 있으면 그게 우선이고(package.json 이 있는 프로젝트는 보통 JS/TS 가 주력),
+ * 없을 때만 Python 마커를 본다 — 단일값 API 라 우선순위가 필요하다(detectLanguages 는
+ * 이 우선순위 없이 독립적으로 전부 모은다).
+ */
+export function detectLanguage(cwd: string): string | null {
+  return detectJsLanguage(cwd) ?? (hasPythonMarkers(cwd) ? 'python' : null);
+}
+
+/**
+ * 이 프로젝트에서 감지되는 언어 전부를 돌려준다(awl-init-multi-lang). detectLanguage 와
+ * 달리 우선순위로 하나만 고르지 않는다 — TS 프론트 + Python 백엔드 같은 폴리글랏
+ * 모노레포에서 둘 다 기본 체크되게 하기 위해서다. 순서는 LANG_VALUES 순서(화면에 뜨는
+ * 순서와 맞춘다).
+ */
+export function detectLanguages(cwd: string): string[] {
+  const out: string[] = [];
+  const js = detectJsLanguage(cwd);
+  if (js) {
+    out.push(js);
   }
-  return null;
+  if (hasPythonMarkers(cwd)) {
+    out.push('python');
+  }
+  return out;
 }
 
 /**
@@ -547,7 +575,7 @@ export function installSafetyHook(projectRoot: string): { installed: boolean; wa
 export function registerProject(entry: {
   name: string;
   path: string;
-  mainLanguage: string;
+  mainLanguage: string[];
   character: string;
   registeredAt: string;
 }): number {
@@ -754,7 +782,7 @@ export function nonInteractiveInputs(projectRoot: string): InitInputs {
   const skills = detected.claude || detected.codex ? detected : { claude: true, codex: false };
   return {
     project: path.basename(projectRoot),
-    mainLanguage: detectLanguage(projectRoot) ?? '',
+    mainLanguage: detectLanguages(projectRoot),
     character: '',
     verify: detectVerify(projectRoot),
     skills,
@@ -948,10 +976,18 @@ export interface InteractiveScreens {
   skills: string;
 }
 
-function langDefaultIndex(projectRoot: string): number {
-  const detected = detectLanguage(projectRoot);
-  const idx = detected ? LANG_VALUES.indexOf(detected) : 0;
-  return idx < 0 ? 0 : idx;
+/**
+ * 언어 다중선택 화면의 기본 체크 인덱스들(awl-init-multi-lang). 감지된 언어가 없으면
+ * (애매하면 TypeScript) index 0 하나만 기본 체크한다 — 단일선택 시절의 langDefaultIndex
+ * 와 같은 폴백을 그대로 유지한다.
+ */
+function langDefaultIndices(projectRoot: string): number[] {
+  const detected = detectLanguages(projectRoot);
+  if (detected.length === 0) {
+    return [0];
+  }
+  const indices = detected.map((lang) => LANG_VALUES.indexOf(lang)).filter((i) => i >= 0);
+  return indices.length > 0 ? indices : [0];
 }
 
 /**
@@ -960,7 +996,7 @@ function langDefaultIndex(projectRoot: string): number {
  */
 export function buildScreens(projectRoot: string, hasGlobal: boolean, c: Caps): InteractiveScreens {
   const project = path.basename(projectRoot);
-  const defLang = langDefaultIndex(projectRoot);
+  const defLangIndices = langDefaultIndices(projectRoot);
   const verify = detectVerify(projectRoot);
   const agents = detectAgents(projectRoot);
 
@@ -981,12 +1017,13 @@ export function buildScreens(projectRoot: string, hasGlobal: boolean, c: Caps): 
         '  등록된 모든 프로젝트에서 함께 쓰입니다.',
       ].join('\n');
 
+  const detectedLangLabels = defLangIndices.map((i) => LANG_OPTIONS[i] ?? 'TypeScript').join(', ');
   const langLines = [
-    `자동 감지: ${LANG_OPTIONS[defLang] ?? 'TypeScript'}`,
+    `자동 감지: ${detectedLangLabels || 'TypeScript'}`,
     '',
-    '바로 아래의 선택기에서 고릅니다.',
-    '화살표 또는 j/k 로 이동하고 Enter 로 확정하세요.',
-    '키 입력을 지원하지 않는 터미널에서는 번호를 입력할 수 있습니다.',
+    '여러 개를 쓰는 프로젝트면(예: TypeScript 프론트 + Python 백엔드) 전부 고르세요.',
+    '↑↓ 또는 j/k 로 이동, Space 로 선택, Enter 로 확정하세요.',
+    '키 입력을 지원하지 않는 터미널에서는 번호를 쉼표로 입력할 수 있습니다.',
   ];
 
   return {
@@ -1197,27 +1234,28 @@ async function interactiveInputs(
     // readline은 raw-mode 키 입력을 동시에 읽어 화면을 망가뜨린다. 따라서 첫
     // 선택기는 readline을 만들기 전에 실행하고, 이후 텍스트 질문 때만 만든다.
     process.stdout.write(`\n${screens.lang}\n\n`);
+    const defaultLangChecked = langDefaultIndices(projectRoot);
     const rawLanguage = useRawMode
-      ? await runInteractiveSelect(LANG_OPTIONS, langDefaultIndex(projectRoot), false, c, [], {
+      ? await runInteractiveSelect(LANG_OPTIONS, 0, true, c, defaultLangChecked, {
           title: '주 언어',
-          hint: '↑↓ 또는 j/k 이동 · Enter 선택 · Esc 기본값 유지',
+          hint: '↑↓ 또는 j/k 이동 · Space 선택 · Enter 확정 · Esc 기본값 유지',
         })
       : null;
-    const langIdx =
-      rawLanguage?.index ??
+    const langChecked =
+      rawLanguage?.checked ??
       (useRawMode
-        ? langDefaultIndex(projectRoot)
-        : await selectSingle(
-            prompt(),
-            LANG_OPTIONS,
-            langDefaultIndex(projectRoot),
-            c,
-            false,
-            '주 언어',
-          ));
-    let mainLanguage = LANG_VALUES[langIdx] ?? '';
-    if (langIdx === LANG_OPTIONS.length - 1) {
-      mainLanguage = (await ask(prompt(), '  주 언어를 입력하세요: ')).trim();
+        ? defaultLangChecked
+        : await selectMulti(prompt(), LANG_OPTIONS, defaultLangChecked, c, false, '주 언어'));
+    const manualLangIdx = LANG_OPTIONS.length - 1;
+    const mainLanguage = langChecked
+      .filter((i) => i !== manualLangIdx)
+      .map((i) => LANG_VALUES[i])
+      .filter((v): v is string => typeof v === 'string' && v !== '');
+    if (langChecked.includes(manualLangIdx)) {
+      const typed = (await ask(prompt(), '  주 언어를 입력하세요: ')).trim();
+      if (typed) {
+        mainLanguage.push(typed);
+      }
     }
 
     // 3. [2/3] 검증 명령어 (WI-B: 모노레포면 워크스페이스 패키지를 물어볼 수 있다)
@@ -1312,7 +1350,7 @@ async function handleExistingConfig(
 
   process.stdout.write('\n  .awl/config.json 이 이미 있습니다. 팀원이 설정해두었군요.\n\n');
   process.stdout.write(`    프로젝트   ${config?.project ?? '(없음)'}\n`);
-  process.stdout.write(`    주 언어    ${config?.mainLanguage ?? '(없음)'}\n`);
+  process.stdout.write(`    주 언어    ${config?.mainLanguage?.join(', ') || '(없음)'}\n`);
   process.stdout.write(`    성격       ${config?.character || '(없음)'}\n`);
   const engineNote =
     installedVer && config?.engineVersion
@@ -1366,7 +1404,7 @@ async function handleExistingConfig(
     }
     const merged: InitInputs = {
       project: config?.project ?? path.basename(projectRoot),
-      mainLanguage: config?.mainLanguage ?? '',
+      mainLanguage: config?.mainLanguage ?? [],
       character: config?.character ?? '',
       verify,
       skills: { claude: false, codex: false },
@@ -1542,8 +1580,8 @@ async function pickProjectRoot(cwd: string, c: Caps): Promise<string | null> {
     const labels = [...candidates.map((p) => `${p.name}  (${p.path})`), '직접 경로 입력', '취소'];
     const title =
       candidates.length > 0
-        ? '프로젝트를 고르세요 (최근 수정순, 최대 20)'
-        : '하위에 git 프로젝트가 없습니다 — 직접 입력하거나 취소';
+        ? '프로젝트를 고르세요 (최근 수정순, 최대 20)\n'
+        : '하위에 git 프로젝트가 없습니다 — 직접 입력하거나 취소\n';
     const choice = resolveProjectChoice(await select(labels, title), candidates);
     if (choice.kind === 'path') {
       return choice.path;

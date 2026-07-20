@@ -4,7 +4,7 @@ import readline from 'node:readline';
 import { findProjectRoot } from '../core/paths.js';
 import { CommandNotFoundError, run } from '../core/runner.js';
 import { type Caps, caps, makeColors, makeSymbols, sectionBox, signal } from '../core/tty.js';
-import { LANG_OPTIONS, LANG_VALUES, ask, buildScreens, promptNumber } from './init.js';
+import { LANG_OPTIONS, LANG_VALUES, ask, buildScreens, promptNumber, selectMulti } from './init.js';
 
 /**
  * config 로드/검증 — 여러 명령이 공유하는 기반.
@@ -25,7 +25,7 @@ export interface VerifyMap {
 
 export interface AwlConfig {
   project: string;
-  mainLanguage: string;
+  mainLanguage: string[];
   character: string;
   engineVersion: string;
   verify: VerifyMap;
@@ -148,7 +148,9 @@ export function loadConfig(projectRoot: string): ConfigResult {
   const rv = raw.verify as Record<string, unknown>;
   const config: AwlConfig = {
     project: raw.project as string,
-    mainLanguage: typeof raw.mainLanguage === 'string' ? raw.mainLanguage : '',
+    mainLanguage: Array.isArray(raw.mainLanguage)
+      ? raw.mainLanguage.filter((v): v is string => typeof v === 'string')
+      : [],
     character: typeof raw.character === 'string' ? raw.character : '',
     engineVersion: raw.engineVersion as string,
     ...(typeof raw.namingConvention === 'string' ? { namingConvention: raw.namingConvention } : {}),
@@ -342,18 +344,24 @@ export async function applyConfigValue(
   }
 
   if (parsed.kind === 'mainLanguage') {
-    const v = rawValue.trim();
-    if (v === '') {
+    // 여러 언어를 쉼표로 받는다(awl-init-multi-lang) — `awl config set mainLanguage
+    // typescript,python` 처럼. 단일 언어면 쉼표 없이 그대로 하나짜리 배열이 된다.
+    const values = rawValue
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (values.length === 0) {
       return { ok: false, message: 'mainLanguage 는 비울 수 없습니다.' };
     }
-    config.mainLanguage = v;
-    if (!KNOWN_LANGUAGES.includes(v)) {
+    config.mainLanguage = values;
+    const unknown = values.filter((v) => !KNOWN_LANGUAGES.includes(v));
+    if (unknown.length > 0) {
       return {
         ok: true,
-        message: `mainLanguage = ${v}  (경고: 알려진 값이 아닙니다 — ${KNOWN_LANGUAGES.join('/')})`,
+        message: `mainLanguage = ${values.join(', ')}  (경고: 알려진 값이 아닙니다 — ${unknown.join(', ')} / 알려진 값: ${KNOWN_LANGUAGES.join('/')})`,
       };
     }
-    return { ok: true, message: `mainLanguage = ${v}` };
+    return { ok: true, message: `mainLanguage = ${values.join(', ')}` };
   }
 
   if (parsed.kind === 'character') {
@@ -486,7 +494,7 @@ function renderConfig(config: AwlConfig, c: Caps): string {
   const color = makeColors(c.color);
   const s = makeSymbols(c);
   const out: string[] = [];
-  out.push(`${s.branch} 주 언어  ${config.mainLanguage || '(없음)'}`);
+  out.push(`${s.branch} 주 언어  ${config.mainLanguage.join(', ') || '(없음)'}`);
   out.push(`${s.branch} 성격     ${config.character || '(없음)'}`);
   out.push(`${s.branch} 엔진     ${config.engineVersion}`);
   out.push('');
@@ -554,17 +562,37 @@ async function editMainLanguage(
   c: Caps,
 ): Promise<void> {
   const screens = buildScreens(projectRoot, true, c);
-  process.stdout.write(`\n  현재 설정: ${config.mainLanguage || '(없음)'}\n`);
+  process.stdout.write(`\n  현재 설정: ${config.mainLanguage.join(', ') || '(없음)'}\n`);
   process.stdout.write(`${screens.lang}\n`);
-  const curIdx = LANG_VALUES.indexOf(config.mainLanguage);
-  const idx = await promptNumber(rl, curIdx >= 0 ? curIdx : 0, LANG_OPTIONS.length);
-  let value = LANG_VALUES[idx] ?? '';
-  if (idx === LANG_OPTIONS.length - 1) {
-    value = (await ask(rl, '  주 언어를 입력하세요: ')).trim();
+  const curIndices = config.mainLanguage
+    .map((lang) => LANG_VALUES.indexOf(lang))
+    .filter((i) => i >= 0);
+  const checked = await selectMulti(
+    rl,
+    LANG_OPTIONS,
+    curIndices.length > 0 ? curIndices : [0],
+    c,
+    false,
+    '주 언어',
+  );
+  const manualIdx = LANG_OPTIONS.length - 1;
+  const values = checked
+    .filter((i) => i !== manualIdx)
+    .map((i) => LANG_VALUES[i])
+    .filter((v): v is string => typeof v === 'string' && v !== '');
+  if (checked.includes(manualIdx)) {
+    const typed = (await ask(rl, '  주 언어를 입력하세요: ')).trim();
+    if (typed) {
+      values.push(typed);
+    }
   }
-  const outcome = await applyConfigValue(config, projectRoot, { kind: 'mainLanguage' }, value, {
-    force: false,
-  });
+  const outcome = await applyConfigValue(
+    config,
+    projectRoot,
+    { kind: 'mainLanguage' },
+    values.join(','),
+    { force: false },
+  );
   process.stdout.write(`  ${outcome.message}\n`);
 }
 
@@ -675,7 +703,7 @@ function renderSettableKeys(config: AwlConfig, c: Caps): string {
   const color = makeColors(c.color);
   const currentOf = (key: string): string => {
     if (key === 'project') return config.project;
-    if (key === 'mainLanguage') return config.mainLanguage || '(없음)';
+    if (key === 'mainLanguage') return config.mainLanguage.join(', ') || '(없음)';
     if (key === 'character') return config.character || '(없음)';
     const m = /^verify\.(typecheck|lint|test|e2e)\.(cmd|cwd|env)$/.exec(key);
     if (!m?.[1] || !m[2]) return '';
