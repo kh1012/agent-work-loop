@@ -153,6 +153,11 @@ if [ ! -d "$PLAN" ] || [ ! -d "$EXEC" ] || [ ! -d "$REVIEW" ]; then
   exit 1
 fi
 LOCKS="$ROOT/.locks"; LOCK="$LOCKS/exec"
+# COUNTFILE persists the consecutive-empty-check count across self-pace ticks (and session
+# restarts, since it's a plain file under .tasks/.locks — not tied to session/context memory).
+# pipeline-self-pace-adaptive-backoff: SKILL self-pace uses this to pick 240s (stage1, 0-1) vs
+# 1500s (stage2, 2+) for the next ScheduleWakeup/loop. Reset to 0 whenever INPUTS_READY fires.
+COUNTFILE="$LOCKS/exec-empty-count"
 STABLE_SECS=8; STALE=60
 
 own(){ echo $$ > "$LOCK/pid"; date +%s > "$LOCK/beat"; }
@@ -183,6 +188,12 @@ while IFS= read -r f; do
   if [ $(( now - m )) -ge "$STABLE_SECS" ]; then ready="${ready}${f}"$'\n'; fi
 done < <( { find "$REVIEW" -type f -name '*.md' ! -name '*.taken.md' 2>/dev/null | sort;
             find "$PLAN"  -type f -name '*.md' ! -name '*.taken.md' ! -name '*.hold.md' 2>/dev/null | sort; } )
-if [ -n "$ready" ]; then printf 'INPUTS_READY\n%s' "$ready"; exit 0; fi
+if [ -n "$ready" ]; then
+  echo 0 > "$COUNTFILE" 2>/dev/null
+  printf 'INPUTS_READY\n%s' "$ready"; exit 0
+fi
+n=$(( $(cat "$COUNTFILE" 2>/dev/null || echo 0) + 1 ))
+echo "$n" > "$COUNTFILE" 2>/dev/null
+echo "EMPTY_COUNT:$n"
 exit 0
 ```
