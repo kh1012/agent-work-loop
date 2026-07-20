@@ -976,10 +976,16 @@ function resultNextLines(inputs: InitInputs, c: Caps): string[] {
     nextLines.push('Claude Code 를 열고 이렇게 말하세요.');
     nextLines.push('');
     nextLines.push(`${color.bold('/awl-loop')}  페이지 편집기에 여백 시스템을 넣고 싶어`);
+    nextLines.push('');
+    nextLines.push(`${color.bold('/awl-pipeline')} <레인명> --gl 을 실행해보세요.`);
+    nextLines.push(color.dim('(격리된 작업 세션이 생성되며, 자율 모드로 실행됩니다.)'));
   } else if (inputs.skills.codex) {
     nextLines.push('Codex 에게 이렇게 말하세요.');
     nextLines.push('');
     nextLines.push(`${color.bold('/awl-loop')}  페이지 편집기에 여백 시스템을 넣고 싶어`);
+    nextLines.push('');
+    nextLines.push(`${color.bold('/awl-pipeline')} <레인명> --gl 을 실행해보세요.`);
+    nextLines.push(color.dim('(격리된 작업 세션이 생성되며, 자율 모드로 실행됩니다.)'));
   } else {
     nextLines.push('나중에 스킬을 설치하려면 awl init 을 다시 실행하세요.');
   }
