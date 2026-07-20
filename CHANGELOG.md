@@ -5,6 +5,19 @@
 
 ## [Unreleased]
 
+## [0.6.26] - 2026-07-20
+
+### 추가
+
+- 카드를 ㄷ자 열린 형태로, 스킬0개/버전표시/프로젝트중복 버그 수정
+
+### 변경
+
+- version-check의 updateAvailable/mismatches 구분 명시
+- 부트스트랩에 awl version-check 1회 호출 추가(awl-loop와 동일 패턴)
+- SKILL.md description을 2~3줄 사용예+트리거로 압축
+- 공유용 소스 업데이트
+
 ## [0.6.25] - 2026-07-20
 
 ### 추가
