@@ -15,9 +15,8 @@ import { computeUpdateAvailable } from './core/versions.js';
 
 export const BANNER = `Agent Work Loop
 
-같은 실패를 두 번 하지 않게 만드는 도구입니다.
-awl 자체는 판단하지 않습니다. 파일과 상태만 관리합니다.
-판단은 Claude Code 나 Codex 가 합니다.
+같은 실패를 두 번 하지 않는 도구입니다.
+판단은 Claude Code나 Codex가 하고, awl은 파일과 상태만 관리합니다.
 
 시작하기:
   1. awl init       이 프로젝트를 설정합니다

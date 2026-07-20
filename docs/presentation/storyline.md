@@ -32,8 +32,8 @@
 
 이 문장은 과장이 아니라 이 저장소 곳곳에 그대로 박혀 있다.
 
-- `package.json:4`: "같은 실패를 두 번 하지 않게 만드는 도구. AI 에이전트의 기록·검증·상태를 파일로 관리합니다."
-- `src/program.ts:19-20`(CLI 배너): "awl 자체는 판단하지 않습니다. 파일과 상태만 관리합니다. 판단은 Claude Code 나 Codex 가 합니다."
+- `package.json:4`: "같은 실패를 두 번 하지 않는 도구. AI 에이전트가 한 일과 확인한 내용을 파일로 남깁니다."
+- `src/program.ts:18-19`(CLI 배너): "같은 실패를 두 번 하지 않는 도구입니다. 판단은 Claude Code나 Codex가 하고, awl은 파일과 상태만 관리합니다."
 - `engine/skills/claude/awl-loop/SKILL.md:16`: "awl은 손발이다. 판단하지 않는다. 파일과 상태만 관리한다."
 
 이걸 하네스라고 부르는 이유는 간단하다. 모델은 매 순간 다른 답을 낼 수 있다. 같은 프롬프트에도 다르게 반응할 수 있다. awl은 그 위에 고정된 파이프라인을 얹는다 — 조사, 게이트, 자율 루프, 게이트, evolve. 모델이 뭘 결정하든 "지금 어느 단계인가", "무엇을 기록했는가", "검증이 통과했는가"는 파일과 CLI 명령이 결정론적으로 처리한다. 모델이 즉흥적으로 다음 단계를 건너뛰거나 "일단 다 했다고 치자"고 판단해도, `phase:"loop"` 전환 자체가 게이트 1 기록이 없으면 코드로 거부된다(뒤 6절에서 구체적으로 다룬다).
@@ -168,6 +168,8 @@ awl evolve
 ### awl-pipeline: 여러 워크아이템을 격리해서
 
 `awl-pipeline` 스킬은 오케스트레이터 역할이다. 사람이 목표를 던지면, 이 세션이 plan 역할로 그 목표를 완료 조건 문서로 만들고, exec·review를 백그라운드 LLM CLI 에이전트로 스폰해 한 레인의 파이프라인을 무인으로 돌린다. 스킬 문서(`engine/skills/claude/awl-pipeline/SKILL.md`)는 한 사이클을 이렇게 적는다.
+
+지금은 Claude Code 전용이다. `engine/skills/codex/`엔 `AGENTS.awl.md` 파일 하나뿐이고 그 안엔 `awl-loop` 블록만 있다 — `installCodexSkill`(`src/commands/init.ts:623`)이 설치하는 것도 이 파일 하나다. Codex에서 여러 워크아이템을 병행할 자리는 아직 없다.
 
 > 한 레인의 workitem이 여럿이면 exec가 자기 워처로 순차 소비하고 review가 검증한다 — 오케스트레이터는 새 목표를 plan으로 계속 흘린다.
 

@@ -2,11 +2,11 @@
 
 `agent-work-loop`(명령어: `awl`)은 AI 에이전트가 같은 실패를 두 번 반복하지 않도록 돕는 도구입니다. 에이전트가 작업하며 남긴 기록, 검증 결과, 완료 조건, 규칙, 교훈, 막힘을 파일로 관리합니다.
 
-이 README는 **실용 문서**입니다 — 설치부터 첫 루프까지, 손으로 따라 할 수 있는 순서만 다룹니다. "왜 이렇게 만들었는가"(하네스 개념, 게이트 위치, narrative 실증 사례)는 [`docs/presentation/storyline.md`](docs/presentation/storyline.md)에 따로 정리했습니다. 명령어 하나하나의 자세한 사용법은 [`docs/presentation/commands.md`](docs/presentation/commands.md)를 참고하세요.
+이 README는 **실용 문서**입니다. 설치부터 첫 루프까지, 손으로 따라 할 수 있는 순서만 다룹니다. "왜 이렇게 만들었는가"(하네스 개념, 게이트 위치, narrative 실증 사례)는 [`docs/presentation/storyline.md`](docs/presentation/storyline.md)에 따로 정리했습니다. 명령어 하나하나의 자세한 사용법은 [`docs/presentation/commands.md`](docs/presentation/commands.md)를 참고하세요.
 
 **awl 자체는 판단하지 않습니다.** LLM을 호출하지 않고, 파일과 상태만 결정적으로 다룹니다. 무엇을 배우고 어떤 규칙을 세울지는 이미 설치된 에이전트(Claude Code, Codex)가 스킬로 판단합니다.
 
-크로스 환경을 처음부터 전제로 합니다. macOS와 Windows, Claude Code와 Codex를 모두 지원하는 것을 목표로 합니다(Windows는 아직 macOS만큼 검증되지 않았습니다 — [알려진 위험](docs/decisions.md)을 참고하세요).
+크로스 환경을 처음부터 전제로 합니다. macOS와 Windows, Claude Code와 Codex를 모두 지원하는 것을 목표로 합니다(Windows는 아직 macOS만큼 검증되지 않았습니다. [알려진 위험](docs/decisions.md)을 참고하세요).
 
 ---
 
@@ -14,9 +14,9 @@
 
 세 단계로 나뉩니다. 자세한 판단 기준은 [`storyline.md` 3절](docs/presentation/storyline.md)에 있고, 여기서는 요약만 둡니다.
 
-1. **요구사항 하나** — 그냥 합니다. awl이 필요 없습니다.
-2. **완료 조건이 여러 개고 되돌아볼 가치가 있는 작업** — `/awl-loop`. 조사→게이트1→자율 반복→게이트2→evolve를 한 세션이 진행합니다.
-3. **여러 워크아이템을 동시에 격리해서 돌려야 할 때** — `/awl-pipeline`. `awl lane`으로 격리 워크트리를 만들고, 오케스트레이터가 plan/exec/review를 스폰합니다.
+1. **요구사항 하나**: 그냥 합니다. awl이 필요 없습니다.
+2. **완료 조건이 여러 개고 되돌아볼 가치가 있는 작업**: `/awl-loop`. 조사→게이트1→자율 반복→게이트2→evolve를 한 세션이 진행합니다.
+3. **여러 워크아이템을 동시에 격리해서 돌려야 할 때**: `/awl-pipeline`(Claude Code 전용). `awl lane`으로 격리 워크트리를 만들고, 오케스트레이터가 plan/exec/review를 스폰합니다.
 
 ---
 
@@ -105,10 +105,10 @@ $ awl init
 
 `awl init`이 만든 것:
 
-- **`.awl/config.json`** — 검증 명령과 프로젝트 성격. **커밋하세요.** 팀원이 같이 씁니다.
-- **`.awl/state.json`** — 지금 어느 워크아이템의 어느 단계인지. gitignore 대상입니다.
-- **`.claude/skills/`** 또는 **`AGENTS.md`** — 작업 루프 스킬. 선택한 에이전트에 설치됩니다.
-- **`.git/hooks/pre-push`** — `AWL_ALLOW_PUSH=1` 없이는 `git push`를 막는 훅. "push는 사람이 한다"는 규칙을 git 레벨에서도 강제합니다(사람이 push할 때는 `AWL_ALLOW_PUSH=1 git push`로 명시적으로 통과시킵니다).
+- **`.awl/config.json`**: 검증 명령과 프로젝트 성격. **커밋하세요.** 팀원이 같이 씁니다.
+- **`.awl/state.json`**: 지금 어느 워크아이템의 어느 단계인지. gitignore 대상입니다.
+- **`.claude/skills/`** 또는 **`AGENTS.md`**: 작업 루프 스킬. 선택한 에이전트에 설치됩니다.
+- **`.git/hooks/pre-push`**: `AWL_ALLOW_PUSH=1` 없이는 `git push`를 막는 훅. "push는 사람이 한다"는 규칙을 git 레벨에서도 강제합니다(사람이 push할 때는 `AWL_ALLOW_PUSH=1 git push`로 명시적으로 통과시킵니다).
 
 이제 에이전트(Claude Code / Codex)를 열고 목표를 서술문으로 줍니다.
 
@@ -121,6 +121,75 @@ $ awl init
 ```bash
 awl status    # 지금 어디까지 왔는지 한눈에
 ```
+
+---
+
+## LLM과 함께 실제로 쓰는 시나리오
+
+위 5분 시작이 워크아이템 하나를 트리거하는 법이었다면, 여기서는 설치부터 여러 워크아이템을 동시에 돌리는 것까지 이어 붙입니다.
+
+### 워크아이템 하나: `/awl-loop`
+
+위 "5분 시작"에서 다룬 흐름 그대로입니다. `awl init`이 설치한 스킬로 에이전트를 열고 목표 하나를 서술문으로 던지면, 한 세션이 조사부터 게이트1·게이트2까지 진행합니다. 무관한 작업을 여러 개 동시에 돌리고 싶을 때는 다음으로 넘어갑니다.
+
+### 여러 워크아이템 동시에: `/awl-pipeline`
+
+무관한 작업 여러 개를 병행하고 싶으면 `/awl-pipeline <레인명> <mode>`를 씁니다.
+
+```
+/awl-pipeline design-tokens gate-medium
+```
+
+**지금은 Claude Code 전용입니다.** `engine/skills/codex/`엔 `AGENTS.awl.md` 파일 하나뿐이고 그 안엔 `awl-loop` 블록만 있습니다. Codex에서 `awl init`을 다시 돌려도 `awl-pipeline` 트리거는 설치되지 않습니다.
+
+**레인명(첫 인자)**: 이름을 주면 `.awl-worktrees/<이름>`에 격리 워크트리를 만들어(없으면 자동으로 `awl lane new`) 그 안에서 돕니다. 인자를 생략하면(mode만 주거나 아무 인자도 없으면) cwd 대신 `unknown-lane-<N>`을 자동으로 만들어 격리해서 돕니다. cwd에 이미 다른 파이프라인이 돌고 있을 때 스폰이 엉키는 사고를 막기 위한 기본값입니다. `.`을 명시하면(`/awl-pipeline . gate-low`) 자동 격리 없이 지금 cwd를 그대로 씁니다. cwd에 라이브 파이프라인이 없다고 확신할 때만 쓰는 탈출구입니다.
+
+**mode(둘째 인자)**: 게이트 밀도입니다. 생략하면 `gate-high`.
+
+| mode | 축약 | 뜻 |
+|---|---|---|
+| `gate-high`(기본) | `--gh` | 게이트마다 사람 승인을 기다립니다. 개입 최대 |
+| `gate-medium` | `--gm` | 승인은 자동 진행하되, 심각도 `high`인 항목만 큐에 모아 사이클 끝에 따로 보고합니다 |
+| `gate-low` | `--gl` | 전부 자율로 진행하고, 사이클 끝에 요약만 한 번 보여줍니다. 개입 최소 |
+
+### 실행 시점에 실제로 벌어지는 일
+
+`/awl-pipeline`을 받은 세션은 **오케스트레이터(plan 역할)**가 됩니다. 목표를 조사해 그 레인의 `.tasks/plan/<name>.md`로 쓰고, **exec·review를 백그라운드 LLM CLI 에이전트로 스폰**합니다. 한 레인에 워크아이템이 여러 개 쌓여도 exec는 자기 워처로 **하나씩 순차 소비**합니다(리뷰 피드백 반영이 신규 착수보다 항상 먼저). 여러 워크아이템을 동시에 붙잡고 뒤섞는 대신 한 번에 하나씩 끝내는 게 꼬임을 막는 방법입니다. 오케스트레이터는 그사이 새 목표를 계속 plan으로 흘려보낼 뿐, 실제 구현·검증은 스폰된 세션이 합니다.
+
+### 완료 시점에 남는 기록
+
+워크아이템이 게이트2를 통과하면 `awl evolve`가 그 워크아이템의 기록을 훑어 다음을 남깁니다.
+
+- **`~/.awl/records/`**: 있었던 일의 전수(시도·실패·리뷰·게이트 결정 전부). 지우지 않습니다.
+- **`~/.awl/gotchas/`**: evolve가 실패·리뷰 기록에서 뽑은 재사용 가능한 교훈 한 줄. 강제력 없습니다.
+- **`~/.awl/generations/<project>/<WI>.json`**: 이 워크아이템의 세대 지표(완료조건 수, 평균 시도, 막힘 비율, 리뷰 지적 수 등) 스냅샷.
+- 같은 gotcha가 2번 반복되면 사람이 `awl rules promote`로 **`~/.awl/rules/active/`**에 규칙으로 승격할 수 있습니다(자동 승격은 없습니다).
+
+### 기록 보는 법
+
+```bash
+awl records --json     # 있었던 일 전수(타입·워크아이템으로 필터 가능)
+awl gotchas            # 아직 규칙 안 된 교훈
+awl rules              # 이 프로젝트에 적용되는 규칙
+awl metrics --compare  # 워크아이템 세대별 지표 추세
+awl brief              # 오늘(KST) 진행분만 모아 보기
+awl defer-summary      # gate-medium/gate-low에서 보류된 중요 항목 최종 확인
+```
+
+`~/.awl`을 직접 열어보면 이렇게 생겼습니다.
+
+```
+~/.awl/
+  engine/                 설치된 스킬 원본. awl update가 덮어쓰므로 손대지 않습니다
+  records/YYYY-MM.jsonl   월별 기록(append-only)
+  gotchas/*.json          아직 규칙 안 된 교훈
+  rules/active/R-NNN.md   승격된 규칙(상한 15개)
+  generations/<project>/  워크아이템별 세대 지표 스냅샷
+  templates/              개인 초안 기본값(강제 아님)
+  projects.json           등록된 프로젝트 목록
+```
+
+각 칸의 역할과 이걸 사람 단위로 쌓는 이유는 [`storyline.md` 4절·5절](docs/presentation/storyline.md)에서 더 다룹니다.
 
 ---
 
@@ -141,7 +210,7 @@ awl feedback  # awl 도구 자체에 대한 피드백
 
 ---
 
-## 설정(config) — 검증 명령과 모노레포
+## 설정(config): 검증 명령과 모노레포
 
 `.awl/config.json`은 프로젝트의 검증 명령을 담습니다. `awl verify`가 이 명령들을 실제로 실행해 통과/실패를 가릅니다.
 
@@ -201,7 +270,7 @@ awl rules promote G-003 \
   --counter "이미 디자인 토큰 시스템이 없는 프로젝트"
 ```
 
-교훈(gotcha, `~/.awl/gotchas`)과 awl 도구 자체 피드백(`~/.awl/records`, `awl record awl-feedback`)은 다른 종류입니다 — 전자는 작업 대상 코드에 대한 것, 후자는 "awl commit이 이래서 아팠다" 같은 도구 자체의 문제입니다.
+교훈(gotcha, `~/.awl/gotchas`)과 awl 도구 자체 피드백(`~/.awl/records`, `awl record awl-feedback`)은 다른 종류입니다. 전자는 작업 대상 코드에 대한 것이고, 후자는 "awl commit이 이래서 아팠다" 같은 도구 자체의 문제입니다.
 
 ---
 
@@ -219,17 +288,17 @@ awl work switch <ID>       # 보관된 워크아이템으로 전환
 
 ---
 
-## 오케스트레이션 파이프라인 — 여러 레인을 나란히
+## 오케스트레이션 파이프라인: 여러 레인을 나란히
 
 위 "워크아이템 병행"이 한 워크트리 안에서 작업을 순차로 오가는 **작업 루프**라면, 오케스트레이션은 워크아이템마다 전용 워크트리(레인)를 두고 **나란히** 진행하는 층입니다. 세 조각으로 씁니다.
 
-- **`awl lane`** — 격리 레인을 만듭니다. `awl lane new <이름>`은 전용 워크트리와 별도 `AWL_HOME`, 스킬 한 벌을 깔고 기동 안내를 찍습니다. `awl lane ls`로 현존 레인을 보고, `awl lane rm <이름>`으로 정리합니다.
-- **`awl status --pipeline`** — 레인별 진행을 한 화면에 모읍니다. 각 레인 안의 plan/exec/review 단계 상태를 배지로 훑습니다.
-- **역할 스킬(`awl-pipeline` 계열)** — 오케스트레이터(`/awl-pipeline`)가 plan 역할로 들어가 exec·review를 스폰합니다. `awl init`에서 함께 설치됩니다.
+- **`awl lane`**: 격리 레인을 만듭니다. `awl lane new <이름>`은 전용 워크트리와 별도 `AWL_HOME`, 스킬 한 벌을 깔고 기동 안내를 찍습니다. `awl lane ls`로 현존 레인을 보고, `awl lane rm <이름>`으로 정리합니다.
+- **`awl status --pipeline`**: 레인별 진행을 한 화면에 모읍니다. 각 레인 안의 plan/exec/review 단계 상태를 배지로 훑습니다.
+- **역할 스킬(`awl-pipeline` 계열)**: 오케스트레이터(`/awl-pipeline`)가 plan 역할로 들어가 exec·review를 스폰합니다. `awl init`에서 Claude Code를 선택하면 함께 설치됩니다.
 
 개념(왜 3단으로 나뉘는지, `pipeline-hold-recheck` 실증 사례)은 [`storyline.md` 3절·6절](docs/presentation/storyline.md)에서, 명령별 실행 예시는 [`commands.md`](docs/presentation/commands.md)에서 다룹니다.
 
-**로드맵**: 지금은 오케스트레이터가 레인을 만들고 그 안에서 plan/exec/review 세션을 사람이 직접 엽니다. 목표 하나만 던지면 세션까지 자동으로 뜨는 auto-spawn은 설계만 있고 아직 탑재되지 않았습니다.
+**로드맵**: 지금은 오케스트레이터가 레인을 만들고 그 안에서 plan/exec/review 세션을 사람이 직접 엽니다. 목표 하나만 던지면 세션까지 자동으로 뜨는 auto-spawn은 설계만 있고 아직 탑재되지 않았습니다. Codex 지원도 아직입니다. `awl-pipeline` 계열 스킬은 `engine/skills/claude/`에만 있고, Codex용 등가물은 없습니다.
 
 ---
 
@@ -239,7 +308,7 @@ awl work switch <ID>       # 보관된 워크아이템으로 전환
 `pnpm setup`을 실행하고 터미널을 새로 엽니다. pnpm 전역 bin이 PATH에 없어서입니다.
 
 **`npm install -g agent-work-loop`를 했는데 `awl`이 아무것도 못 한다**
-위 설치 섹션 참고 — 아직 npm에 `0.0.0` placeholder만 배포돼 있습니다. 저장소를 클론해 `pnpm install && pnpm run build && pnpm link --global`로 설치하세요.
+위 설치 섹션을 참고하세요. 아직 npm에 `0.0.0` placeholder만 배포돼 있습니다. 저장소를 클론해 `pnpm install && pnpm run build && pnpm link --global`로 설치하세요.
 
 **`awl --version`이 엔진 버전 불일치를 경고한다**
 `awl`을 업그레이드했는데 `~/.awl/engine`은 예전 버전 그대로일 때 나옵니다. `awl update`로 엔진을 갱신하면 맞춰집니다(프로젝트 설정은 안 건드립니다). `awl version-check`로 어긋난 버전 쌍(package.json, 설치된 엔진, 프로젝트 config, 설치된 스킬)을 직접 봅니다. 프로젝트 config가 엔진보다 낡았다면 `awl init --yes`를 다시 실행합니다.
@@ -254,16 +323,16 @@ awl work switch <ID>       # 보관된 워크아이템으로 전환
 `verify.<name>.cwd`를 그 패키지 디렉토리로 지정하세요. `cwd` 없이 프로젝트 루트에서 실행하면 `../../node_modules/.bin/tsc` 같은 상대경로가 안 풀립니다.
 
 **`awl commit`이 "hunk가 남의 변경과 겹칠 수 있다"며 거부한다**
-정확한 동작입니다 — 확신할 수 없으면 커밋하지 않고 사람에게 알리도록 설계했습니다. `git status`/`git diff`로 실제로 무엇이 섞였는지 확인하세요. 완료 조건마다 `awl commit <AC> -m`으로 닫고 넘어가는 습관을 들이세요(`awl commit --start`를 편집보다 먼저 호출하지 않으면 그 편집이 스냅샷에 흡수돼 격리 커밋이 무의미해집니다).
+정확한 동작입니다. 확신할 수 없으면 커밋하지 않고 사람에게 알리도록 설계했습니다. `git status`/`git diff`로 실제로 무엇이 섞였는지 확인하세요. 완료 조건마다 `awl commit <AC> -m`으로 닫고 넘어가는 습관을 들이세요(`awl commit --start`를 편집보다 먼저 호출하지 않으면 그 편집이 스냅샷에 흡수돼 격리 커밋이 무의미해집니다).
 
 **`git push`가 막힌다**
 `awl init`이 심는 pre-push 훅 때문입니다(위 5분 시작 참고). 정말 push하려면 `AWL_ALLOW_PUSH=1 git push`를 씁니다.
 
 **게이트에서 스킬이 안 멈추고 그냥 진행한다**
-스킬 문서가 게이트에서 반드시 도구를 호출하도록 지시돼 있습니다. 계속 안 멈추면 스킬이 최신인지 확인하세요 — `awl doctor`가 `claude-skill-vs-engine` 불일치를 경고하면 `awl init --yes`로 재설치합니다.
+스킬 문서가 게이트에서 반드시 도구를 호출하도록 지시돼 있습니다. 계속 안 멈추면 스킬이 최신인지 확인하세요. `awl doctor`가 `claude-skill-vs-engine` 불일치를 경고하면 `awl init --yes`로 재설치합니다.
 
 **awl을 완전히 제거하려면**
-`awl uninstall`을 실행합니다 — 기본은 드라이런이라 먼저 무엇이 지워질지 보여주고, 실제로 지우려면 `--yes`를 붙입니다. 기본은 이 프로젝트만 지우고, `~/.awl`까지 지우려면 `--global`을 명시해야 합니다. 자세한 플래그와 실제 출력은 [`commands.md`의 `awl uninstall`](docs/presentation/commands.md#awl-uninstall)을 참고하세요.
+`awl uninstall`을 실행합니다. 기본은 드라이런이라 먼저 무엇이 지워질지 보여주고, 실제로 지우려면 `--yes`를 붙입니다. 기본은 이 프로젝트만 지우고, `~/.awl`까지 지우려면 `--global`을 명시해야 합니다. 자세한 플래그와 실제 출력은 [`commands.md`의 `awl uninstall`](docs/presentation/commands.md#awl-uninstall)을 참고하세요.
 
 ---
 
