@@ -18,6 +18,7 @@ import {
   ensureGitignore,
   excludeRegisteredProjects,
   installClaudeSkill,
+  listRegisteredProjects,
   nonInteractiveInputs,
   promptVerifyLocation,
   registerProject,
@@ -1022,6 +1023,19 @@ describe('registeredProjectPaths / excludeRegisteredProjects — 이미 등록�
     ];
     const filtered = excludeRegisteredProjects(candidates, new Set([p1]));
     expect(filtered.map((c) => c.name)).toEqual(['p2']);
+  });
+
+  it('listRegisteredProjects — projects.json 이 없으면 빈 배열(안전 폴백)', () => {
+    expect(listRegisteredProjects()).toEqual([]);
+  });
+
+  it('listRegisteredProjects — 이름+경로를 그대로 돌려준다(awl-update-local 이 순회하는 형태)', () => {
+    const p1 = tmp('awl-reg-list-p1-');
+    fs.writeFileSync(
+      path.join(home, 'projects.json'),
+      JSON.stringify([{ name: 'my-project', path: p1 }]),
+    );
+    expect(listRegisteredProjects()).toEqual([{ name: 'my-project', path: p1 }]);
   });
 
   it('excludeRegisteredProjects — 등록된 게 없으면 후보를 그대로 돌려준다(no-op)', () => {

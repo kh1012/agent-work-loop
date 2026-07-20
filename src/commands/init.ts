@@ -1445,6 +1445,38 @@ export function registeredProjectPaths(): Set<string> {
 }
 
 /**
+ * ~/.awl/projects.json 에 등록된 프로젝트의 이름+경로 전체를 돌려준다(awl-update-local).
+ * registeredProjectPaths()는 경로만 집합으로 돌려주는데(중복 스캔 제외용), 이건 순회하며
+ * 이름도 같이 써야 하는 호출부(update --local 리포트)를 위한 것이다. 파일이 없거나
+ * 깨졌으면 빈 배열(안전 폴백 — throw 하지 않는다).
+ */
+export function listRegisteredProjects(): { name: string; path: string }[] {
+  try {
+    const raw = JSON.parse(fs.readFileSync(projectsFile(), 'utf8'));
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+    const out: { name: string; path: string }[] = [];
+    for (const entry of raw as unknown[]) {
+      if (
+        entry &&
+        typeof entry === 'object' &&
+        typeof (entry as { path?: unknown }).path === 'string'
+      ) {
+        const e = entry as { name?: unknown; path: string };
+        out.push({
+          name: typeof e.name === 'string' ? e.name : path.basename(e.path),
+          path: e.path,
+        });
+      }
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/**
  * scanGitProjects 후보에서 이미 등록된 프로젝트를 뺀다(init-project-picker). 순수 함수
  * — registeredProjectPaths 를 인자로 받아, 실제 ~/.awl/projects.json 없이도 테스트할 수
  * 있다.

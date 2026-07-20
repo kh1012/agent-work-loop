@@ -43,6 +43,34 @@ yarn global add agent-work-loop
 > ```
 > `dist/cli.js`가 `awl` bin으로 등록됩니다. 정식 npm 배포가 되면 이 문단은 지웁니다.
 
+### 업데이트 하기
+
+```
+업데이트 하기:
+  1. npm i -g agent-work-loop@latest    npm에 배포된 최신 버전을 받습니다
+  2. awl update                         설치된 패키지로 전역 엔진(~/.awl/engine)을 갱신합니다
+```
+
+pnpm이나 yarn을 쓴다면 1번만 그 도구로 바꿉니다:
+
+```bash
+pnpm add -g agent-work-loop@latest
+yarn global add agent-work-loop@latest
+```
+
+`awl update`(옵션 없음)는 `awl update --global`과 같습니다. 전역 엔진만 갱신하고 어떤 프로젝트도 건드리지 않습니다. 대부분은 이 두 줄이면 끝입니다.
+
+**여러 프로젝트를 관리하는 입장이라면** 등록된 프로젝트들의 로컬 스킬(`.claude/skills`, `AGENTS.md`, `.awl/config.json`)까지 한 번에 맞추고 싶을 수 있습니다:
+
+```bash
+npm i -g agent-work-loop@latest
+awl update --all
+```
+
+`--all`은 전역 엔진과 `~/.awl/projects.json`에 등록된 프로젝트 전부의 로컬 스킬을 갱신하고, 끝에 바뀐 프로젝트 목록과 "커밋하세요" 안내를 보여줍니다. 등록된 프로젝트만 로컬을 건드리고 싶으면 `--local`만 씁니다.
+
+이렇게 갱신한 프로젝트를 커밋해서 push하면, 그 저장소를 쓰는 다른 사람들은 다음에 pull할 때 최신 스킬을 받습니다. **다만 자동으로 알림이 가는 구조는 아닙니다.** 각자 컴퓨터의 `~/.awl/engine`이 낡았는지는 그 사람이 `awl doctor`/`awl version-check`를 실행하거나 `/awl-loop`·`/awl-pipeline`을 실행할 때(버전 확인이 맨 처음 단계로 들어있습니다) 노란 경고로 보게 됩니다.
+
 설치가 됐는지 확인합니다:
 
 ```bash

@@ -52,7 +52,13 @@ export interface VersionCheckResult {
   updateAvailable?: UpdateAvailable;
 }
 
-const UPDATE_HINT = 'npm i -g agent-work-loop@latest 로 갱신하세요.';
+/**
+ * npm 패키지만 새로 받으면 CLI 바이너리는 최신이 되지만 ~/.awl/engine(전역 엔진)은
+ * 그대로 낡은 채로 남는다(binary-vs-engine 드리프트) — `awl update`를 마저 실행해야
+ * 실제로 반영된다. 한 줄 안내에 두 단계를 다 담아야 "npm만 받고 끝"이라고 오해하지
+ * 않는다(README "업데이트 하기" 절과 같은 2단계).
+ */
+const UPDATE_HINT = 'npm i -g agent-work-loop@latest 로 갱신한 뒤 awl update 를 실행하세요.';
 
 /**
  * "x.y.z" 앞부분만 파싱한다(release.mjs 의 `/^(\d+)\.(\d+)\.(\d+)/` 패턴과 동일).
