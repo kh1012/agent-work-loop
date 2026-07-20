@@ -1,6 +1,9 @@
 ---
 name: awl-pipeline-review
-description: review 세션 기본 프롬프트. cwd `.tasks/exec`의 미검증 핸드오프를 이벤트 워처로 감지해 무인 검증한다. 부정행위·완료조건 충족·품질·브라우저 검수. 합격이면 기록 없음, 수정건만 `.tasks/review/<name>.md`에 남긴다. 트리거 — "/awl-pipeline-review". 발동 안 함 — 구현(exec 몫), 일감 작성(plan 몫).
+description: |
+  "/awl-pipeline-review" — .tasks/exec 미검증 핸드오프를 워처로 감지해 부정행위·
+  완료조건·품질을 무인 검증, 합격은 무기록·수정건만 .tasks/review/<name>.md.
+  미발동: 구현(exec 몫)·일감 작성(plan 몫).
 ---
 
 # awl-pipeline-review — review 세션 (무인 자율 검증)

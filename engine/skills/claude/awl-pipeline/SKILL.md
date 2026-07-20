@@ -1,6 +1,9 @@
 ---
 name: awl-pipeline
-description: 오케스트레이터 세션(mode A). `/awl-pipeline <lane> <mode>` 하나가 plan 역할로 진입하며 exec·review를 백그라운드 LLM CLI 에이전트로 스폰해 한 레인의 파이프라인을 무인으로 돌린다. 사람은 목표만 던진다. 트리거 — "/awl-pipeline". 발동 안 함 — 단일 역할 세션(awl-pipeline-plan/exec/review 직접 기동), awl 명령 실행만, 일반 질문.
+description: |
+  "/awl-pipeline <lane> <mode>" — lane 임의명(생략 시 자동 레인), mode --gh/--gm/--gl
+  (gate-high/medium/low 축약, 낮을수록 자율). exec·review 스폰해 무인 진행.
+  트리거: "/awl-pipeline" · 미발동: 단일 역할 세션 직접 기동, awl 명령 실행만.
 ---
 
 # awl-pipeline — 오케스트레이터 세션 (mode A: 던지면 돈다)

@@ -1,6 +1,9 @@
 ---
 name: awl-pipeline-exec
-description: exec 세션 기본 프롬프트. cwd `.tasks/plan`의 신규 일감과 `.tasks/review`의 피드백을 이벤트 워처로 감지해 무인 자율 구현한다. 구현 코어는 반드시 /awl-loop(게이트는 자율 승인). 핸드오프를 `.tasks/exec/<name>.md`에 남긴다. 트리거 — "/awl-pipeline-exec". 발동 안 함 — 일감 작성(plan 몫), 검증(review 몫).
+description: |
+  "/awl-pipeline-exec" — .tasks/plan 신규 일감·.tasks/review 피드백을 워처로 감지해
+  /awl-loop(게이트 자율승인)로 무인 구현, .tasks/exec/<name>.md에 핸드오프.
+  미발동: 일감 작성(plan 몫)·검증(review 몫).
 ---
 
 # awl-pipeline-exec — exec 세션 (무인 자율 구현)

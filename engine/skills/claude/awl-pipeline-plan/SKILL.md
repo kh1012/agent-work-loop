@@ -1,6 +1,9 @@
 ---
 name: awl-pipeline-plan
-description: plan 세션 기본 프롬프트. 사람이 준 목표를 cwd `.tasks/plan/<name>.md` 일감 문서로 구조화한다. exec 세션이 /awl-loop로 자율 구현할 수 있게 완료 조건·범위·제외·검증 힌트를 명시한다. 트리거 — "/awl-pipeline-plan". 발동 안 함 — 직접 구현(exec 몫), 검증(review 몫), 일반 질문.
+description: |
+  "/awl-pipeline-plan" — 사람 목표를 .tasks/plan/<name>.md 일감 문서(완료조건·범위·
+  검증힌트)로 구조화, exec가 /awl-loop로 구현할 수 있게 한다.
+  미발동: 직접 구현(exec 몫)·검증(review 몫)·일반 질문.
 ---
 
 # awl-pipeline-plan — plan 세션 (사람 주도 일감 작성)
