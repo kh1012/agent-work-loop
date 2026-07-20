@@ -550,9 +550,17 @@ export function sectionBox(
   const frame = (text: string): string => t.frame(text);
   // 마지막 줄만 왼쪽이 ╰─(모서리+대시, 표시폭 2)로 꺾인다 — │(표시폭 1)와 정렬을
   // 맞추려면 그만큼 뒤 패딩을 한 칸 줄인다(2칸 vs 1칸, 둘 다 접두어 표시폭 3으로 동일).
+  // 단, 원본(줄바꿈 전) 마지막 논리적 줄이 이미 자체 트리 마커(s.lastBranch, 예:
+  // update.ts 의 "└── awl init 을 먼저 실행하세요")로 시작하면 sectionBox 마감과
+  // 이중으로 겹친다(실측으로 발견, `+- `-- ...` 처럼 깨짐) — 세로선만 유지해 본문
+  // 계층 표현을 살린다. wrapToWidth 의 hanging indent로 그 줄이 물리적으로 여러 줄에
+  // 걸쳐도(마커는 첫 물리 줄에만 있음) 원본 기준으로 판단해야 후속 줄까지 잡힌다.
+  const lastLogical = lines[lines.length - 1] ?? '';
+  const lastIsBranch = lastLogical.trimStart().startsWith(s.lastBranch);
   const row = (text: string, isLast: boolean): string => {
-    const left = isLast ? `${s.boxBL}${s.boxH}` : s.boxV;
-    const gap = isLast ? pad - 1 : pad;
+    const closeThis = isLast && !lastIsBranch;
+    const left = closeThis ? `${s.boxBL}${s.boxH}` : s.boxV;
+    const gap = closeThis ? pad - 1 : pad;
     return `${frame(left)}${' '.repeat(gap)}${text}`;
   };
 
