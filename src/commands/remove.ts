@@ -461,7 +461,7 @@ export function resolveScope(opts: {
   return { project: true, global: false };
 }
 
-interface OtherProject {
+export interface OtherProject {
   name?: string;
   path: string;
 }
@@ -488,6 +488,29 @@ export function readOtherProjects(currentRoot: string): OtherProject[] {
   } catch {
     return [];
   }
+}
+
+/**
+ * `--global`/`--all` 은 다른 등록 프로젝트의 로컬(.awl/ 등)을 건드리지 않는다 —
+ * 그 프로젝트들은 사람이 직접 가서 지워야 한다(F-07 설계, 블라스트 반경을 지금
+ * 서 있는 디렉토리로 한정). sectionBox 안에 넣으면 flowBodyRows 가 터미널 폭에
+ * 맞춰 줄바꿈하며 좌측 거터(│)를 매 줄에 붙여 복붙이 깨지므로, 박스 밖에 줄바꿈
+ * 없는 그대로의 명령줄로 낸다 — 그대로 복사해 실행할 수 있게.
+ */
+export function renderOtherProjectsCleanupGuide(otherProjects: OtherProject[], c: Caps): string {
+  if (otherProjects.length === 0) {
+    return '';
+  }
+  const chain = otherProjects
+    .map((p) => `cd "${p.path}" && awl remove --project --yes`)
+    .join(' && ');
+  return [
+    '',
+    `  ${signal(c, 'warn')} 다른 등록 프로젝트 ${otherProjects.length}개의 로컬(.awl/ 등)은 이 명령이 건드리지 않습니다 — 아래를 그대로 복사해 실행하세요:`,
+    '',
+    `  ${chain}`,
+    '',
+  ].join('\n');
 }
 
 function renderPlan(
@@ -594,6 +617,7 @@ export async function runRemove(opts: RemoveOpts): Promise<void> {
     process.stdout.write(
       `\n${renderPlan(scope, project, lanes, global, otherProjects, lockStatuses, c)}\n`,
     );
+    process.stdout.write(renderOtherProjectsCleanupGuide(otherProjects, c));
   }
 
   if (!opts.yes) {

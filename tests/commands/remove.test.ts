@@ -8,12 +8,14 @@ import {
   checkLiveLocks,
   findMarkerLegacyFiles,
   readOtherProjects,
+  renderOtherProjectsCleanupGuide,
   resolveScope,
   runRemove,
   scanGlobal,
   scanProjectLocal,
   stripAwlAgentsBlock,
 } from '../../src/commands/remove.js';
+import { caps } from '../../src/core/tty.js';
 
 /**
  * awl remove(이전 이름 uninstall) — awl-uninstall-reset AC-01~AC-07. lane.test.ts 와
@@ -286,6 +288,80 @@ describe('remove', () => {
       }
       const out = cap.writes.join('');
       expect(out).not.toContain('other-project');
+    });
+
+    it('renderOtherProjectsCleanupGuide: 다른 프로젝트가 없으면 빈 문자열(순수함수 단위)', () => {
+      expect(renderOtherProjectsCleanupGuide([], caps())).toBe('');
+    });
+
+    it('renderOtherProjectsCleanupGuide: 경로들을 cd && awl remove --project --yes 로 이어 붙인다(순수함수 단위)', () => {
+      const guide = renderOtherProjectsCleanupGuide(
+        [
+          { name: 'a', path: '/tmp/a' },
+          { name: 'b', path: '/tmp/b' },
+        ],
+        caps(),
+      );
+      expect(guide).toContain(
+        'cd "/tmp/a" && awl remove --project --yes && cd "/tmp/b" && awl remove --project --yes',
+      );
+    });
+
+    it('--global 드라이런은 다른 프로젝트를 직접 지우는 복붙용 cd && awl remove 체인을 낸다', async () => {
+      const proj = fixtureProject();
+      const home = process.env.AWL_HOME as string;
+      fs.mkdirSync(home, { recursive: true });
+      fs.writeFileSync(
+        path.join(home, 'projects.json'),
+        JSON.stringify([
+          { name: 'this-project', path: proj },
+          { name: 'other-a', path: '/tmp/other-a' },
+          { name: 'other-b', path: '/tmp/other-b' },
+        ]),
+      );
+
+      const cap = captureStdout();
+      try {
+        await runRemove({ global: true });
+      } finally {
+        cap.restore();
+      }
+      const out = cap.writes.join('');
+      expect(out).toContain(
+        'cd "/tmp/other-a" && awl remove --project --yes && cd "/tmp/other-b" && awl remove --project --yes',
+      );
+    });
+
+    it('다른 등록 프로젝트가 없으면 cd && awl remove 안내를 내지 않는다', async () => {
+      fixtureProject();
+
+      const cap = captureStdout();
+      try {
+        await runRemove({ global: true });
+      } finally {
+        cap.restore();
+      }
+      const out = cap.writes.join('');
+      expect(out).not.toContain('awl remove --project --yes');
+    });
+
+    it('--project 스코프에서는 다른 프로젝트가 등록돼 있어도 cd && awl remove 안내를 내지 않는다', async () => {
+      fixtureProject();
+      const home = process.env.AWL_HOME as string;
+      fs.mkdirSync(home, { recursive: true });
+      fs.writeFileSync(
+        path.join(home, 'projects.json'),
+        JSON.stringify([{ name: 'other-project', path: '/tmp/other-project' }]),
+      );
+
+      const cap = captureStdout();
+      try {
+        await runRemove({});
+      } finally {
+        cap.restore();
+      }
+      const out = cap.writes.join('');
+      expect(out).not.toContain('awl remove --project --yes');
     });
   });
 
