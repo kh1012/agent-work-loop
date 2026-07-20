@@ -257,7 +257,6 @@ const IGNORE_DIRS = new Set([
   'build',
   '.awl',
   '.awl-worktrees',
-  '.awl-verify',
   'coverage',
 ]);
 
