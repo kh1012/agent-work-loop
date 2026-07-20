@@ -16,9 +16,8 @@ import {
 import { computeUpdateAvailable } from './core/versions.js';
 
 export const BANNER = `
-[ AGENT WORK LOOP ]
+[ AGENT WORK LOOP v${version} ]
 
-한 번만 실패하는 도구 입니다. (두번 실패 없음)
 판단은 Claude Code나 Codex가 하고,
 awl은 파일과 상태만 관리합니다.`;
 
