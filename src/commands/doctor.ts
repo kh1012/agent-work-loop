@@ -6,11 +6,11 @@ import { CommandNotFoundError, run, tokenize } from '../core/runner.js';
 import {
   type Caps,
   caps,
-  card,
   clipToWidth,
   makeColors,
   makeSymbols,
   makeTokens,
+  sectionBox,
   signal,
   stringWidth,
   visibleWidth,
@@ -1031,7 +1031,7 @@ export function renderText(report: DoctorReport, c: Caps): string {
     lines.push(`${signal(c, 'error')} ${color.red(`문제 ${problems.length}개.`)} ${action}`);
   }
 
-  return card('Agent Work Loop · 진단', lines, c);
+  return sectionBox('Agent Work Loop · 진단', lines, c);
 }
 
 /** doctor 명령의 실제 실행. 렌더 후 종료 코드를 설정한다. */

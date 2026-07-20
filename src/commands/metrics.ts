@@ -1,7 +1,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { generationsDir } from '../core/paths.js';
-import { type Caps, caps, card, makeColors, padEndDisplay, stringWidth } from '../core/tty.js';
+import {
+  type Caps,
+  caps,
+  makeColors,
+  padEndDisplay,
+  sectionBox,
+  stringWidth,
+} from '../core/tty.js';
 import { requireConfig } from './config.js';
 
 /**
@@ -124,7 +131,7 @@ export function renderMetrics(generations: Generation[], c: Caps): string {
   const color = makeColors(c.color);
   const caveat = color.dim(renderMetricsCaveat());
   if (generations.length === 0) {
-    return card('세대 지표', ['세대 기록이 없습니다.', '', caveat], c);
+    return sectionBox('세대 지표', ['세대 기록이 없습니다.', '', caveat], c);
   }
   const idWidth = Math.max(...generations.map((g) => g.workitem.length), 9) + 2;
   const out: string[] = [];
@@ -139,7 +146,7 @@ export function renderMetrics(generations: Generation[], c: Caps): string {
   }
   out.push('');
   out.push(caveat);
-  return card(`세대 ${generations.length}개 · 시간순`, out, c);
+  return sectionBox(`세대 ${generations.length}개 · 시간순`, out, c);
 }
 
 /** 케이스(experiment model/mode/taskType) 단위로 집계한 비교 행(experiment-harness AC-02). */
@@ -220,7 +227,7 @@ export function renderCompare(groups: CaseGroup[], untagged: number, c: Caps): s
   const color = makeColors(c.color);
   const caveat = color.dim(renderMetricsCaveat());
   if (groups.length === 0) {
-    return card(
+    return sectionBox(
       '케이스 비교',
       [`experiment 태그가 있는 세대가 없습니다(태그 없는 세대 ${untagged}개).`, '', caveat],
       c,
@@ -242,7 +249,7 @@ export function renderCompare(groups: CaseGroup[], untagged: number, c: Caps): s
   }
   out.push('');
   out.push(caveat);
-  return card(`케이스 ${groups.length}개 비교`, out, c);
+  return sectionBox(`케이스 ${groups.length}개 비교`, out, c);
 }
 
 /** awl metrics [--compare] */

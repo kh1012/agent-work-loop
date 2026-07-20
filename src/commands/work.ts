@@ -4,11 +4,11 @@ import { run } from '../core/runner.js';
 import {
   type Caps,
   caps,
-  card,
   feedback,
   makeColors,
   makeSymbols,
   makeTokens,
+  sectionBox,
   signal,
 } from '../core/tty.js';
 import { DEFAULT_USAGE_PATH, readCostSnapshot } from '../core/usage.js';
@@ -113,7 +113,7 @@ export function renderWorkList(list: WorkSummary[], c: Caps): string {
   const t = makeTokens(c);
   const s = makeSymbols(c);
   if (list.length === 0) {
-    return card(
+    return sectionBox(
       '워크아이템',
       [
         `${signal(c, 'info')} 등록된 워크아이템이 없습니다.`,
@@ -139,7 +139,7 @@ export function renderWorkList(list: WorkSummary[], c: Caps): string {
       out.push(`  ${s.lastBranch} ${color.dim(`worktree: ${w.worktreePath}`)}`);
     }
   }
-  return card('워크아이템', out, c);
+  return sectionBox('워크아이템', out, c);
 }
 
 export interface WorkitemEntry {

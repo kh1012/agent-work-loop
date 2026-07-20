@@ -9,7 +9,6 @@ import {
   type Caps,
   type Colors,
   caps,
-  card,
   makeColors,
   makeTokens,
   padEndDisplay,
@@ -1332,7 +1331,7 @@ async function handleExistingConfig(
 
   const options = ['그대로 쓴다', '검증 명령어만 고친다', '처음부터 다시'];
   process.stdout.write(
-    `${card(
+    `${sectionBox(
       '기존 설정',
       options.map((option, i) => `${i + 1}. ${option}`),
       c,

@@ -5,11 +5,11 @@ import { readCachedLatestVersion } from './core/npm-registry.js';
 import {
   type Caps,
   caps,
-  card,
   gradient,
   makeColors,
   makeSymbols,
   makeTokens,
+  sectionBox,
   signal,
   visibleWidth,
 } from './core/tty.js';
@@ -41,7 +41,7 @@ function renderGettingStartedCard(c: Caps): string {
   const lines = GETTING_STARTED.map(
     (g, i) => `${i + 1}. ${t.accent(padVisible(g.cmd, cmdWidth))}  ${g.desc}`,
   );
-  return card('시작하기', lines, c);
+  return sectionBox('시작하기', lines, c);
 }
 
 /** 명령 목록의 [options]/<criterion>/<range> 자리에 실제로 뭐가 들어가는지 보여주는
@@ -59,7 +59,7 @@ function renderExamplesCard(c: Caps): string {
   const lines = examples.map(
     (e) => `${t.accent(padVisible(e.cmd, cmdWidth))}  ${t.muted(`# ${e.note}`)}`,
   );
-  return card('예시', lines, c);
+  return sectionBox('예시', lines, c);
 }
 
 const DENSE_AWL = `

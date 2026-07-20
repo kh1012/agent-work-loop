@@ -5,11 +5,11 @@ import {
   type Caps,
   type PipelineStatus,
   caps,
-  card,
   makeColors,
   makeSymbols,
   makeTokens,
   padEndDisplay,
+  sectionBox,
   signal,
   statusBadge,
   stringWidth,
@@ -266,7 +266,7 @@ export function renderStatus(report: StatusReport, c: Caps): string {
 
   // 아직 시작 전: 상태도 기록도 없다.
   if (report.phase === null && report.criteria.total === 0 && report.records.total === 0) {
-    return card(
+    return sectionBox(
       '진행 상황',
       [
         `${signal(c, 'info')} 아직 시작 전입니다.`,
@@ -316,7 +316,7 @@ export function renderStatus(report: StatusReport, c: Caps): string {
       `    ${s.lastBranch} 게이트 ${g.gate}  ${decisionColored(t, g.decision ?? '')}${autoTag}   ${when}   ${color.dim(summary)}`,
     );
   }
-  return card(`진행 상황 · ${report.generation}세대`, out, c);
+  return sectionBox(`진행 상황 · ${report.generation}세대`, out, c);
 }
 
 /** 한 파이프라인 레인의 workitem 상태(pipeline-status-tracking AC-02). */
@@ -482,7 +482,7 @@ export function renderPipelineGroups(groups: PipelineLaneGroup[], c: Caps): stri
       out.push(`  ${statusBadge(c, w.status)}  ${padEndDisplay(w.name, nameWidth)}${w.status}`);
     }
   });
-  return card(`파이프라인 ${groups.length}개 레인`, out, c);
+  return sectionBox(`파이프라인 ${groups.length}개 레인`, out, c);
 }
 
 export async function runStatus(opts: {

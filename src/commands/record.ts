@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { recordsDir } from '../core/paths.js';
 import { run } from '../core/runner.js';
-import { type Caps, caps, card, makeColors, signal } from '../core/tty.js';
+import { type Caps, caps, makeColors, sectionBox, signal } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
 import { getCriterion, loadState, writeState } from './state.js';
 
@@ -783,7 +783,7 @@ function summaryOf(r: Record<string, unknown>): string {
 export function renderRecords(records: Record<string, unknown>[], c: Caps): string {
   const color = makeColors(c.color);
   if (records.length === 0) {
-    return card('기록', ['기록이 없습니다.'], c);
+    return sectionBox('기록', ['기록이 없습니다.'], c);
   }
   const out: string[] = [];
   for (const r of records) {
@@ -794,7 +794,7 @@ export function renderRecords(records: Record<string, unknown>[], c: Caps): stri
   }
   out.push('');
   out.push(color.dim('상세는 awl records --json 또는 ~/.awl/records/ 를 보세요.'));
-  return card(`기록 ${records.length}개 · 최근순`, out, c);
+  return sectionBox(`기록 ${records.length}개 · 최근순`, out, c);
 }
 
 // ---------------------------------------------------------------------------

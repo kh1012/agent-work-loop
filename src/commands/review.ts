@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { run } from '../core/runner.js';
-import { type Caps, caps, card, makeColors } from '../core/tty.js';
+import { type Caps, caps, makeColors, sectionBox } from '../core/tty.js';
 import { type AwlConfig, requireConfig } from './config.js';
 import { filterRules, loadRules } from './rules.js';
 import { loadState } from './state.js';
@@ -141,7 +141,7 @@ function renderReview(bundle: ReviewBundle, range: string, c: Caps): string {
       `판정을 받으면 awl record review --json '{"reviewId":"${bundle.reviewId}",...}' 로 기록하세요.`,
     ),
   );
-  return card(`리뷰 자료 · ${range}`, out, c);
+  return sectionBox(`리뷰 자료 · ${range}`, out, c);
 }
 
 export async function runReview(

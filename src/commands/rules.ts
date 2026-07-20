@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { rulesDir } from '../core/paths.js';
-import { type Caps, caps, card, makeColors, signal } from '../core/tty.js';
+import { type Caps, caps, makeColors, sectionBox, signal } from '../core/tty.js';
 import { type Gotcha, acquireLock, loadGotchaList, releaseLock } from './evolve.js';
 
 /**
@@ -127,14 +127,14 @@ function renderRules(rules: Rule[], warnings: string[], c: Caps): string {
     out.push('적용되는 규칙이 없습니다.');
     out.push('');
     out.push(color.dim('규칙은 작업하다 같은 실패를 두 번 할 때 쌓입니다.'));
-    return card('규칙', out, c);
+    return sectionBox('규칙', out, c);
   }
   for (const r of rules) {
     const scope = r.scope ? color.dim(`[${r.scope}]`) : color.dim('[범용]');
     out.push(`${color.bold(r.id)} ${scope}`);
     out.push(`  ${r.body.split('\n')[0] ?? ''}`);
   }
-  return card(`규칙 ${rules.length}개`, out, c);
+  return sectionBox(`규칙 ${rules.length}개`, out, c);
 }
 
 export function runRules(opts: { scope?: string; json?: boolean; edit?: boolean }): void {

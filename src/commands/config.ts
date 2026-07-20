@@ -3,7 +3,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { findProjectRoot } from '../core/paths.js';
 import { CommandNotFoundError, run } from '../core/runner.js';
-import { type Caps, caps, card, makeColors, makeSymbols, signal } from '../core/tty.js';
+import { type Caps, caps, makeColors, makeSymbols, sectionBox, signal } from '../core/tty.js';
 import { LANG_OPTIONS, LANG_VALUES, ask, buildScreens, promptNumber } from './init.js';
 
 /**
@@ -505,7 +505,7 @@ function renderConfig(config: AwlConfig, c: Caps): string {
     `${s.lastBranch} ${color.dim('명령을 바꾸려면: awl config set verify.lint.cmd "biome check ."')}`,
   );
   out.push(`    ${color.dim('직접 편집도 됩니다: .awl/config.json')}`);
-  return card(`${config.project} 설정`, out, c);
+  return sectionBox(`${config.project} 설정`, out, c);
 }
 
 function writeConfigFile(projectRoot: string, config: AwlConfig): void {

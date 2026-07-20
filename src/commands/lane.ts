@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { run } from '../core/runner.js';
-import { type Caps, caps, card, feedback, makeColors, signal } from '../core/tty.js';
+import { type Caps, caps, feedback, makeColors, sectionBox, signal } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
 import { type MergeLearningResult, mergeIsolatedHome } from './learning-merge.js';
 import { loadState, writeState } from './state.js';
@@ -232,7 +232,7 @@ export async function collectLanes(root: string): Promise<LaneInfo[]> {
 export function renderLaneList(lanes: LaneInfo[], c: Caps): string {
   const color = makeColors(c.color);
   if (lanes.length === 0) {
-    return card(
+    return sectionBox(
       '레인',
       [
         `${signal(c, 'info')} 레인이 없습니다.`,
@@ -248,7 +248,7 @@ export function renderLaneList(lanes: LaneInfo[], c: Caps): string {
     out.push(`${color.bold(l.name.padEnd(nameWidth, ' '))}${color.dim(l.branch)}`);
     out.push(`  ${color.dim(l.path)}`);
   }
-  return card('레인', out, c);
+  return sectionBox('레인', out, c);
 }
 
 export async function runLaneList(opts: { json: boolean }): Promise<void> {

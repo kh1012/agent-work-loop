@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { installedEngineVersion } from '../core/engine.js';
 import { engineDir } from '../core/paths.js';
-import { caps, card, makeSymbols, signal } from '../core/tty.js';
+import { caps, makeSymbols, sectionBox, signal } from '../core/tty.js';
 import { packageEngineDir } from './init.js';
 
 /**
@@ -35,18 +35,18 @@ export function runUpdate(): void {
   const s = makeSymbols(c);
   if (!result.updated) {
     process.stdout.write(
-      `\n${card('엔진 템플릿', [`${signal(c, 'warn')} ~/.awl 에 설치된 엔진이 없습니다.`, `${s.lastBranch} awl init 을 먼저 실행하세요.`], c)}\n`,
+      `\n${sectionBox('엔진 템플릿', [`${signal(c, 'warn')} ~/.awl 에 설치된 엔진이 없습니다.`, `${s.lastBranch} awl init 을 먼저 실행하세요.`], c)}\n`,
     );
     return;
   }
   if (result.fromVersion === result.toVersion) {
     process.stdout.write(
-      `\n${card('엔진 템플릿', [`${signal(c, 'ok')} 이미 최신입니다.`, `${s.lastBranch} Engine Template: v${result.toVersion}`], c)}\n`,
+      `\n${sectionBox('엔진 템플릿', [`${signal(c, 'ok')} 이미 최신입니다.`, `${s.lastBranch} Engine Template: v${result.toVersion}`], c)}\n`,
     );
     return;
   }
   process.stdout.write(
-    `\n${card(
+    `\n${sectionBox(
       '엔진 템플릿',
       [
         `${signal(c, 'ok')} 엔진을 갱신했습니다.`,

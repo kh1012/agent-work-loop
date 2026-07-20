@@ -1,4 +1,4 @@
-import { type Caps, caps, card, makeColors, signal } from '../core/tty.js';
+import { type Caps, caps, makeColors, sectionBox, signal } from '../core/tty.js';
 import { readRecords } from './record.js';
 
 /**
@@ -98,7 +98,7 @@ export function renderFeedback(report: FeedbackReport, c: Caps): string {
   const color = makeColors(c.color);
   const entries = Object.entries(report.areas).sort(([, a], [, b]) => b.count - a.count);
   if (entries.length === 0) {
-    return card(
+    return sectionBox(
       'awl 자체 피드백',
       [
         '아직 수집된 awl-feedback 이 없습니다.',
@@ -130,7 +130,7 @@ export function renderFeedback(report: FeedbackReport, c: Caps): string {
       ),
     );
   }
-  return card(`awl 자체 피드백 · 워크아이템 ${report.collectedFrom}개에서 수집`, out, c);
+  return sectionBox(`awl 자체 피드백 · 워크아이템 ${report.collectedFrom}개에서 수집`, out, c);
 }
 
 /** awl feedback */

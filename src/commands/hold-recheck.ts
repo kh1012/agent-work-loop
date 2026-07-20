@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { caps, card, makeColors, signal } from '../core/tty.js';
+import { caps, makeColors, sectionBox, signal } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
 import { pipelineLanes } from './status.js';
 
@@ -158,5 +158,5 @@ export async function runHoldRecheck(opts: { json: boolean }): Promise<void> {
         : `대기: ${(k.waitingOn ?? []).join(', ')}`;
     lines.push(`${signal(c, 'warn')} ${color.dim(k.name)}  hold 유지  ${color.dim(`(${why})`)}`);
   }
-  process.stdout.write(`${card('hold 재점검', lines, c)}\n`);
+  process.stdout.write(`${sectionBox('hold 재점검', lines, c)}\n`);
 }

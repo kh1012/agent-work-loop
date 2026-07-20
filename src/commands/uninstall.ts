@@ -12,7 +12,7 @@ import {
   rulesDir,
   templatesDir,
 } from '../core/paths.js';
-import { type Caps, caps, card, makeColors, signal } from '../core/tty.js';
+import { type Caps, caps, makeColors, sectionBox, signal } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
 import { packageEngineDir } from './init.js';
 import {
@@ -556,7 +556,7 @@ function renderPlan(
       'npm 패키지 자체는 이 명령으로 지우지 않습니다. 필요하면 npm uninstall -g agent-work-loop 를 직접 실행하세요.',
     ),
   );
-  return card('awl uninstall — 드라이런(dry run)', lines, c, 40);
+  return sectionBox('awl uninstall — 드라이런(dry run)', lines, c, 40);
 }
 
 export interface UninstallOpts {

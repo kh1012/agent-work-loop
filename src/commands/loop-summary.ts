@@ -1,4 +1,11 @@
-import { type Caps, type Colors, caps, card, makeColors, padEndDisplay } from '../core/tty.js';
+import {
+  type Caps,
+  type Colors,
+  caps,
+  makeColors,
+  padEndDisplay,
+  sectionBox,
+} from '../core/tty.js';
 import { type CostSnapshot, computeCostDelta, readCostSnapshot } from '../core/usage.js';
 import { requireConfig } from './config.js';
 import { type Generation, computeDurationMs, fmtDuration, loadGenerations } from './metrics.js';
@@ -240,7 +247,7 @@ export function renderLoopSummary(summary: LoopSummary, c: Caps): string {
     return ln;
   });
   const title = summary.workitem ? `작업 완료 요약 · ${summary.workitem}` : '작업 완료 요약';
-  return card(title, styled, c);
+  return sectionBox(title, styled, c);
 }
 
 /** JSON 출력. record 가 없으면 0-렌즈를 싣지 않고 안내만 낸다(AC-04). */
@@ -418,7 +425,7 @@ export function renderAggregateLoopSummary(agg: AggregateLoopSummary, c: Caps): 
     }
     return ln;
   });
-  return card(`전체 집계 · 워크아이템 ${agg.count}개`, styled, c);
+  return sectionBox(`전체 집계 · 워크아이템 ${agg.count}개`, styled, c);
 }
 
 /**
