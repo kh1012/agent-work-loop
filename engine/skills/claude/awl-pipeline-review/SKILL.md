@@ -54,7 +54,7 @@ round: <검증한 exec round>
 - **유휴가 되면**(처리할 대상이 없으면): `bash "$(pwd)/.tasks/watch-exec.sh"`를 **포그라운드로 1회** 실행한다(절대경로, `run_in_background` 안 씀). 워처는 **한 번만 검사하고 즉시 종료**한다(내부 폴링 없음) — 원자적 `mkdir` 락(`.tasks/.locks/review`)으로 "이 순간 한 번 검사할 권리"만 쥔다. 다른 인스턴스(예: Orca claude-teams 여러 개)가 같은 순간 이미 그 권리를 쥐고 있으면 워처가 즉시 `ALREADY_OWNED`를 출력하고 끝난다.
 - **분기**: `UNVERIFIED_READY`가 있으면 나열된 파일을 검증한다(한 틱, 위 "한 틱" 절차). `ALREADY_OWNED`면 standby다 — **처리하지 않는다**(다른 인스턴스가 지금 검증 중이니 이중 검증 방지). `EMPTY_COUNT:N`(지금은 검증할 게 없음, N=연속 빈-체크 횟수, 워처가 계산)이면 다음 항목으로.
 - **막힘 감지(다음 확인 예약 직전 1회)**: 다음 확인을 예약하기 전에 "할 일 없음(정상 완료)"과 "막힘(장애)"을 가른다. **워처가 이제 포그라운드 1회 체크라 exec 워처도 상시 떠 있지 않은 게 정상이다** — 그래서 이전처럼 `ps aux`로 exec 워처 프로세스 생존을 확인하는 방식은 더 이상 유효하지 않다(pipeline-self-pace-loop AC-02). 대신 **`plan/`에 미처리 일감(.taken·`.hold` 없는 `*.md`)이 남아 있는지만** 본다 — 남아 있으면 exec가 아직 자신의 다음 확인 예약(`/loop`·`ScheduleWakeup`) 전일 수 있으니 "막힘"으로 단정하지 않고, 사용자에게 참고용으로만 알린다: **"파이프라인 확인: plan에 N개 대기 중. exec가 다음 확인에서 처리하는지 지켜보세요(계속 남아 있으면 `/awl-pipeline-exec`를 확인하세요)."** `plan/`이 비었으면 유휴는 정상 완료이니 알리지 않는다.
-- **다음 확인을 예약한다(2단계 백오프, pipeline-self-pace-adaptive-backoff).** 워처가 찍은 `EMPTY_COUNT:N`을 본다 — N이 0~1이면(막 유휴 진입) **1단계 240초**, N이 2 이상이면(연속으로 비어 확실히 한산) **2단계 1500초** 뒤로 다음 확인을 예약한다. `/loop`(동적 자기페이스)를 우선 쓴다. 여의치 않으면 `ScheduleWakeup`(해당 단계의 초, F-05 범위)으로 다음 확인 시각을 예약한다. 240초/1500초는 ScheduleWakeup 지침의 캐시온(60-270초)·캐시미스(1200-1800초) 대역 안에서 고른 **초기값**이다 — 실측 최적값이 아니며 라이브 관측 후 조정할 수 있다. 예약한 뒤 **백그라운드 프로세스를 남기지 않고, 하네스의 주기적 kill을 기다리지 않고** 턴을 깨끗이 끝낸다.
+- **다음 확인을 예약한다(2단계 백오프, pipeline-self-pace-adaptive-backoff).** 워처가 `EMPTY_COUNT:N`을 찍었으면 그 값을 본다 — N이 0~1이면(막 유휴 진입) **1단계 240초**, N이 2 이상이면(연속으로 비어 확실히 한산) **2단계 1500초** 뒤로 다음 확인을 예약한다. **`ALREADY_OWNED`였다면(워처가 카운터 로직 전에 종료해 N 정보 없음) 안전하게 1단계 240초로 예약한다** — 다른 인스턴스가 방금 활동 중이었으니 "확실히 한산하다"고 볼 근거가 없다. `/loop`(동적 자기페이스)를 우선 쓴다. 여의치 않으면 `ScheduleWakeup`(해당 단계의 초, F-05 범위)으로 다음 확인 시각을 예약한다. 240초/1500초는 ScheduleWakeup 지침의 캐시온(60-270초)·캐시미스(1200-1800초) 대역 안에서 고른 **초기값**이다 — 실측 최적값이 아니며 라이브 관측 후 조정할 수 있다. 예약한 뒤 **백그라운드 프로세스를 남기지 않고, 하네스의 주기적 kill을 기다리지 않고** 턴을 깨끗이 끝낸다.
 
 **왜 이전엔 "ScheduleWakeup 쓰지 마라"였고, 왜 지금 뒤집나.** 이전 근거: 워처를 백그라운드로 오래 살려두면 하네스의 주기적 kill(~26~29분)이 재무장 기회를 자동으로 준다고 가정했다. 뒤집는 근거: 유휴 텀을 두고 새 일감이 생기는 실사용 시나리오에서 이 가정이 실제로 깨지는 사례가 관측됐다(F-02, pipeline-self-pace-loop) — 정확한 근본원인은 이 조사로 확정하지 못했지만, 그 불확실성에 기대지 않는 쪽(명시적 재확인 예약)으로 설계를 옮긴다. **이것도 완벽히 검증된 근본원인 진단이 아니라 실측된 증상에 대한 실용적 대응이다** — 이걸로 완전히 해결됐다고 단정하지 않는다.
 
@@ -88,7 +88,8 @@ round: <검증한 exec round>
 # awl-pipeline review watcher — single-owner via atomic mkdir role lock. ONE-SHOT (pipeline-self-pace-loop AC-02):
 # checks .tasks/exec exactly once, prints the result, and exits immediately — no internal polling
 # loop, no blocking wait. The caller (SKILL self-pace) schedules the NEXT check itself via /loop or
-# ScheduleWakeup(~1800s); this script never waits.
+# ScheduleWakeup — 2-stage backoff (240s/1500s) keyed off EMPTY_COUNT below
+# (pipeline-self-pace-adaptive-backoff); this script never waits.
 # A *.md WITHOUT the .taken postfix = not yet verified.
 # The mkdir lock now means "the right to run this one check right now", not long-lived ownership —
 # if another LIVE instance is mid-check this instant, prints ALREADY_OWNED and exits 0.
