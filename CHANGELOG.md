@@ -13,6 +13,8 @@
   기존 설치는 `~/.awl` 리셋 후 재설치 필요). `detectLanguages()`가 JS/TS와 Python 신호를
   독립적으로 감지해 여러 언어를 기본 체크한다. `awl config set mainLanguage a,b`처럼
   쉼표로 여러 값을 지정할 수 있다.
+- `awl uninstall` 명령을 `awl remove`로 이름을 바꾼다. 옵션(`--yes`/`--project`/`--global`/
+  `--all`/`--json`)과 동작은 그대로다. 하위 호환 별칭 없음.
 
 ## [0.6.30] - 2026-07-20
 
