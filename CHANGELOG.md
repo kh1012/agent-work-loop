@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.6.39] - 2026-07-20
+
 ### 변경
 
 - `/awl-pipeline --gl` 실전 세션(0720_improve 레인, 14 workitem 무인 처리) 피드백을 awl-pipeline 계열
