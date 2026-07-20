@@ -356,6 +356,12 @@ awl work switch <ID>       # 보관된 워크아이템으로 전환
 **`git push`가 막힌다**
 `awl init`이 심는 pre-push 훅 때문입니다(위 5분 시작 참고). 정말 push하려면 `AWL_ALLOW_PUSH=1 git push`를 씁니다.
 
+**대형 저장소에서 `awl lane new`/`awl work new --worktree`가 `Could not write new index file`로 실패한다**
+`git worktree add`가 기본 180초 안에 못 끝나 강제 종료됐다는 뜻입니다(대형 모노레포는
+체크아웃이 오래 걸립니다) — 디스크 문제가 아닙니다. `AWL_GIT_WORKTREE_TIMEOUT_MS=<ms>`
+환경변수로 값을 늘려 다시 시도하세요(예: `AWL_GIT_WORKTREE_TIMEOUT_MS=300000 awl lane new
+<이름>`).
+
 **게이트에서 스킬이 안 멈추고 그냥 진행한다**
 스킬 문서가 게이트에서 반드시 도구를 호출하도록 지시돼 있습니다. 계속 안 멈추면 스킬이 최신인지 확인하세요. `awl doctor`가 `claude-skill-vs-engine` 불일치를 경고하면 `awl init --yes`로 재설치합니다.
 

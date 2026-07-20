@@ -517,26 +517,107 @@ export function sanitizeForGit(s: string): string {
     .replace(/\.{2,}/g, '_');
 }
 
+/** git worktree add 기본 타임아웃(ms). 15만+ 파일 모노레포 실측 체크아웃 40.177s(디스크
+ * 88GB 여유·경합 없음 기준) 대비 4.5배 여유(D-46). 예전 30_000 은 이 실측치보다도 짧아
+ * "Could not write new index file" 로 100% 재현되던 실패의 근본 원인이었다. */
+export const DEFAULT_GIT_WORKTREE_TIMEOUT_MS = 180_000;
+
+/**
+ * AWL_GIT_WORKTREE_TIMEOUT_MS 로 git worktree add 타임아웃을 오버라이드한다(D-46). env 를
+ * 파라미터로 주입받는 순수 함수(tty.ts computeCaps 와 같은 패턴) — 테스트가 process.env 를
+ * 안 건드리고 결정적으로 검증한다. 파싱 불가/0 이하는 기본값으로 폴백한다(잘못된 값으로
+ * 타임아웃을 사실상 꺼버리는 사고 방지).
+ */
+export function resolveGitWorktreeTimeoutMs(env: NodeJS.ProcessEnv): number {
+  const raw = env.AWL_GIT_WORKTREE_TIMEOUT_MS;
+  if (raw === undefined || raw.trim() === '') {
+    return DEFAULT_GIT_WORKTREE_TIMEOUT_MS;
+  }
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_GIT_WORKTREE_TIMEOUT_MS;
+}
+
+/**
+ * git worktree add 실패 사유를 사람이 읽는 문장으로 다듬는다(D-46). 타임아웃이면
+ * (timedOut) 몇 초 만에 강제 종료됐는지와 조정 방법을 raw stderr 뒤에 덧붙인다 —
+ * "Could not write new index file" 같은 git 원문 메시지만으로는 원인이 타임아웃인지
+ * 디스크 문제인지 구분이 안 된다(이 버그의 실제 오진 사례). 순수 함수.
+ */
+export function buildWorktreeError(raw: string, timedOut: boolean, timeoutMs: number): string {
+  const trimmed = raw.trim();
+  if (!timedOut) {
+    return trimmed;
+  }
+  const seconds = Math.round(timeoutMs / 1000);
+  const hint = `git worktree add 가 ${seconds}초 안에 끝나지 않아 강제 종료했습니다(대형 저장소는 체크아웃이 오래 걸릴 수 있습니다). AWL_GIT_WORKTREE_TIMEOUT_MS=<ms> 로 타임아웃을 늘려 다시 시도하세요(기본값 ${DEFAULT_GIT_WORKTREE_TIMEOUT_MS}ms).`;
+  return trimmed ? `${trimmed}\n    ${hint}` : hint;
+}
+
+/** statfsSync 로 target 이 위치한 파티션의 가용 용량(bytes)을 잰다(D-46). best-effort —
+ * 실패하거나(권한 등) Node 가 statfsSync 를 안 가진 환경(v18.15 미만, package.json engines
+ * 는 >=18 이라 이 갭이 실재한다)이면 null. 메인 흐름을 막지 않는다. */
+export function readDiskAvailable(targetPath: string): number | null {
+  try {
+    if (typeof fs.statfsSync !== 'function') {
+      return null;
+    }
+    const st = fs.statfsSync(targetPath);
+    return st.bavail * st.bsize;
+  } catch {
+    return null;
+  }
+}
+
+export interface WorktreeReport {
+  durationMs: number;
+  diskBeforeBytes: number | null;
+  diskAfterBytes: number | null;
+}
+
+/** 워크트리 생성 소요시간 + 디스크 여유공간 델타를 한 줄로 만든다(D-46, 성공/실패 무관하게
+ * 항상 보인다). 10진 GB(1e9, df -H 관례) 1자리 소수, 델타는 부호 명시. 디스크 측정이 안
+ * 됐으면(구버전 Node/권한 등) 소요시간만 보여준다 — best-effort. 순수 함수. */
+export function formatWorktreeReport(r: WorktreeReport): string {
+  const seconds = (r.durationMs / 1000).toFixed(1);
+  if (r.diskBeforeBytes === null || r.diskAfterBytes === null) {
+    return `소요시간 ${seconds}초 · 디스크 여유공간 측정 불가`;
+  }
+  const deltaGB = (r.diskAfterBytes - r.diskBeforeBytes) / 1e9;
+  const sign = deltaGB >= 0 ? '+' : '';
+  return `소요시간 ${seconds}초 · 디스크 여유공간 ${(r.diskAfterBytes / 1e9).toFixed(1)}GB (Δ ${sign}${deltaGB.toFixed(1)}GB)`;
+}
+
 /**
  * git worktree add 로 격리 디렉토리를 만든다(WI-F). 같은 브랜치를 두 워크트리에서
  * 동시에 체크아웃할 수 없어 새 브랜치가 필요하다(스파이크로 실증, D-29).
- * 실패해도 크래시하지 않는다 — 호출자가 이유를 보여주고 중단할지 정한다.
+ * 실패해도 크래시하지 않는다 — 호출자가 이유를 보여주고 중단할지 정한다. 타임아웃은
+ * AWL_GIT_WORKTREE_TIMEOUT_MS 로 조정 가능하고(D-46), 소요시간·디스크 델타를 성공/실패
+ * 무관하게 함께 돌려준다.
  */
 async function createGitWorktree(
   root: string,
   targetPath: string,
   branchName: string,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string } & WorktreeReport> {
+  const timeoutMs = resolveGitWorktreeTimeoutMs(process.env);
+  const diskBeforeBytes = readDiskAvailable(root);
   const r = await run({
     cmd: 'git',
     args: ['worktree', 'add', targetPath, '-b', branchName],
     cwd: root,
-    timeoutMs: 30_000,
+    timeoutMs,
   });
+  const diskAfterBytes = readDiskAvailable(root);
   if (r.exitCode !== 0) {
-    return { ok: false, error: (r.stderr || r.stdout).trim() };
+    return {
+      ok: false,
+      error: buildWorktreeError(r.stderr || r.stdout, r.timedOut, timeoutMs),
+      durationMs: r.durationMs,
+      diskBeforeBytes,
+      diskAfterBytes,
+    };
   }
-  return { ok: true };
+  return { ok: true, durationMs: r.durationMs, diskBeforeBytes, diskAfterBytes };
 }
 
 /**
@@ -636,10 +717,13 @@ export async function runWorkNew(
     process.exit(1);
   }
 
+  let worktreeReport: WorktreeReport | undefined;
   if (opts.worktree && worktreePath && branchName) {
     const created = await createGitWorktree(root, worktreePath, branchName);
+    worktreeReport = created;
     if (!created.ok) {
       process.stderr.write(`\n  워크트리를 만들지 못했습니다: ${created.error}\n`);
+      process.stderr.write(`    ${formatWorktreeReport(created)}\n`);
       process.exit(1);
     }
     ensureGitignored(root, '.awl-worktrees/');
@@ -698,6 +782,9 @@ export async function runWorkNew(
   process.stdout.write(`\n${feedback(c, 'ok', `워크아이템 생성  ${color.bold(id)}`)}\n`);
   if (worktreePath) {
     process.stdout.write(`    ${color.dim(`워크트리  ${worktreePath}`)}\n`);
+    if (worktreeReport) {
+      process.stdout.write(`    ${color.dim(formatWorktreeReport(worktreeReport))}\n`);
+    }
     // 워크트리에 engine Claude 스킬을 재설치한다(pipeline-lane-skill-reinstall AC-01).
     // .claude/ 는 gitignore(.gitignore) 라 worktree 체크아웃에 안 따라온다 —
     // 이 워크트리 세션이 awl-loop 등 파이프라인 스킬을 로드하려면 루트에 직접 깔아야 한다.

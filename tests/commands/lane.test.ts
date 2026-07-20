@@ -145,6 +145,10 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
     const out = cap.writes.join('');
     expect(out).toContain(`export AWL_HOME=${homeDir}`);
     expect(out).toContain('/awl-pipeline-plan');
+    // (d) 소요시간·디스크 리포트(D-46) — runLaneNew 는 runWorkNew 를 그대로 감싸 쓰므로
+    // (lane.ts 소스 변경 없이) "레인 준비" 블록이 아니라 그 앞의 "워크아이템 생성" 블록에
+    // 붙는다. 위치가 목업과 다르지만 awl lane new 의 같은 출력 스트림에 포함된다(설계 결정, D-46).
+    expect(out).toContain('소요시간');
   });
 
   it('lane new: 같은 이름 두 번이면 두 번째를 거부하고 기존 레인명을 알린다 (AC-04)', async () => {

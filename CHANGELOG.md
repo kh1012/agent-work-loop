@@ -5,6 +5,19 @@
 
 ## [Unreleased]
 
+### 고침
+
+- `awl lane new`/`awl work new --worktree`가 대형 모노레포(15만+ 파일)에서 `git worktree
+  add` 30초 타임아웃에 걸려 인덱스 파일을 쓰다 만 채(`Could not write new index file`)
+  실패하던 문제를 고쳤다. 기본 타임아웃을 180초로 올리고, `AWL_GIT_WORKTREE_TIMEOUT_MS`
+  (ms) 환경변수로 직접 조정할 수 있다. 타임아웃으로 실패하면 원인(몇 초 만에 강제
+  종료됐는지)과 조정 방법을 에러 메시지에 바로 보여준다.
+
+### 추가
+
+- `awl lane new`/`awl work new --worktree`가 워크트리 생성 소요시간과 디스크 여유공간
+  변화(델타)를 성공/실패 여부와 무관하게 항상 출력한다.
+
 ## [0.6.33] - 2026-07-20
 
 ### 변경
