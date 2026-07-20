@@ -70,6 +70,7 @@ round: <검증한 exec round>
 - 워처가 포그라운드 1회 체크라 배경 task ID 자체가 없다. 동시 인스턴스는 워처 내장 **`mkdir` 락**(`.tasks/.locks/review`)이 막는다: 같은 순간 체크가 겹치면 나중 쪽이 `ALREADY_OWNED`로 즉시 끝난다.
 - 검증 끝난 브라우저 탭은 정리한다(성공→닫음, 봐야 할 것/실패→남김, 내가 연 탭만).
 - RTK가 git/ls 출력을 왜곡할 수 있다 → 파일명 표식 정밀 확인은 절대경로 `/bin/ls`·직접 `git`.
+- 사람에게 보고할 때(막힘 알림 등)는 `awl-pipeline`의 "보고·응답 형식" 원칙(표/키워드 먼저, 줄글은 보충)을 따른다.
 
 ## 설계 계약 인코딩 (pipeline-subagent-delegation AC-01/02/04/05)
 위 "한 틱"의 검증 서브에이전트 위임이 따르는 설계를 명문화한다. 근거 사양은 `pipeline-subagent-delegation`이다.

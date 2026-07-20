@@ -5,6 +5,19 @@
 
 ## [Unreleased]
 
+### 추가
+
+- `awl status --pipeline`이 워크아이템마다 하나의 배지+상태단어 줄로만 보여주던 걸, `워크아이템 |
+  EXEC | REVIEW | 상태` 열을 가진 표로 바꿨다 — exec가 어디까지 갔는지(pending/in_progress/
+  handed_off/verified)와 review가 어디까지 갔는지(waiting/changes_requested/passed)를 하나로
+  합쳐진 상태(pending/executing/reviewing/complete/blocked) 옆에 따로 보여준다. `--json` 출력의
+  각 workitem 에도 `execState`/`reviewState` 필드가 추가됐다(하위호환, 기존 `status` 필드는 그대로).
+- `awl-pipeline`(오케스트레이터) SKILL.md에 "보고·응답 형식" 절을 추가했다 — 사람에게 진행 상황을
+  보고하거나 질문에 답할 때 줄글을 먼저 쓰지 않고, 진행 보고는 위 표를 먼저 인용하고 질문 응답은
+  경로·ID·수치 같은 단서를 먼저 목록으로 제시한 뒤 줄글을 붙이도록 명문화했다. 데이터량이 많을수록
+  줄글만으로는 시인성이 떨어진다는 피드백에 따른 것. awl-pipeline-exec·awl-pipeline-review·
+  awl-pipeline-plan의 사람 대면 보고에도 같은 원칙을 참조하게 했다.
+
 ## [0.6.37] - 2026-07-20
 
 ### 고침

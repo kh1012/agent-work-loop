@@ -485,6 +485,64 @@ describe('pipelineLanes — .tasks 레인 상태 판정(.taken 단일 마커, pi
   });
 });
 
+describe('pipelineLanes — EXEC/REVIEW 열 파생 상태(pipeline-status-table)', () => {
+  // 7개 marker 조합 각각에서 execState/reviewState 가 status 와 같은 우선순위로 파생되는지 확인.
+  const detail = (
+    plan: string[],
+    exec: string[],
+    review: string[],
+  ): { execState: string; reviewState: string } | undefined => {
+    const [lane] = pipelineLanes(plan, exec, review);
+    return lane && { execState: lane.execState, reviewState: lane.reviewState };
+  };
+
+  it('신규(plan/<n>.md) → EXEC pending, REVIEW waiting', () => {
+    expect(detail(['wi.md'], [], [])).toEqual({ execState: 'pending', reviewState: 'waiting' });
+  });
+
+  it('hold(plan/<n>.hold.md) → EXEC pending, REVIEW waiting(손 안 댐)', () => {
+    expect(detail(['wi.hold.md'], [], [])).toEqual({
+      execState: 'pending',
+      reviewState: 'waiting',
+    });
+  });
+
+  it('claim(plan/<n>.taken.md, 핸드오프 전) → EXEC in_progress, REVIEW waiting', () => {
+    expect(detail(['wi.taken.md'], [], [])).toEqual({
+      execState: 'in_progress',
+      reviewState: 'waiting',
+    });
+  });
+
+  it('핸드오프(exec/<n>.md 미검증) → EXEC handed_off, REVIEW waiting', () => {
+    expect(detail(['wi.taken.md'], ['wi.md'], [])).toEqual({
+      execState: 'handed_off',
+      reviewState: 'waiting',
+    });
+  });
+
+  it('합격(exec/<n>.taken.md + review 무파일) → EXEC verified, REVIEW passed', () => {
+    expect(detail(['wi.taken.md'], ['wi.taken.md'], [])).toEqual({
+      execState: 'verified',
+      reviewState: 'passed',
+    });
+  });
+
+  it('수정요구 미반영(exec.taken + review/<n>.md) → EXEC verified, REVIEW changes_requested', () => {
+    expect(detail(['wi.taken.md'], ['wi.taken.md'], ['wi.md'])).toEqual({
+      execState: 'verified',
+      reviewState: 'changes_requested',
+    });
+  });
+
+  it('반영 후 재검증 대기(exec.md 미검증 + review.taken 잔존) → EXEC handed_off, REVIEW waiting', () => {
+    expect(detail(['wi.taken.md'], ['wi.md'], ['wi.taken.md'])).toEqual({
+      execState: 'handed_off',
+      reviewState: 'waiting',
+    });
+  });
+});
+
 describe('pipelineLanes — 생산자-소비자 계약 · 뮤테이션-저항(pipeline-marker-finalization AC-02)', () => {
   // 리더 자기가정이 아니라 awl-pipeline-* 스킬이 실제 만드는 마커(.taken)를 seed한다.
   // 리더를 옛 규약(ㅍ/.pass)으로 되돌리면 이 블록은 반드시 fail 한다(status.ts 직접 뮤테이션으로 실증).
@@ -583,8 +641,12 @@ describe('collectPipelineLaneGroups — 교차 레인 롤업(pipeline-status-vie
     const be = groups.find((g) => g.name === 'be');
     const fe = groups.find((g) => g.name === 'fe');
     // 그룹핑이 레인별로 되지 않고 평탄화되면 workitems 중첩이 깨져 RED.
-    expect(be?.workitems).toEqual([{ name: 'migrate', status: 'complete' }]);
-    expect(fe?.workitems).toEqual([{ name: 'login', status: 'executing' }]);
+    expect(be?.workitems).toEqual([
+      { name: 'migrate', status: 'complete', execState: 'verified', reviewState: 'passed' },
+    ]);
+    expect(fe?.workitems).toEqual([
+      { name: 'login', status: 'executing', execState: 'in_progress', reviewState: 'waiting' },
+    ]);
   });
 
   it('.awl-worktrees/ 부재면 빈 배열(폴백 신호, AC-02)', () => {
@@ -608,8 +670,28 @@ describe('renderPipelineGroups — 레인 헤더 그룹핑 렌더(pipeline-statu
   it('레인 헤더 + 각 workitem 배지/라벨을 담는다', () => {
     const out = renderPipelineGroups(
       [
-        { name: 'be', workitems: [{ name: 'migrate', status: 'complete' as const }] },
-        { name: 'fe', workitems: [{ name: 'login', status: 'executing' as const }] },
+        {
+          name: 'be',
+          workitems: [
+            {
+              name: 'migrate',
+              status: 'complete' as const,
+              execState: 'verified' as const,
+              reviewState: 'passed' as const,
+            },
+          ],
+        },
+        {
+          name: 'fe',
+          workitems: [
+            {
+              name: 'login',
+              status: 'executing' as const,
+              execState: 'in_progress' as const,
+              reviewState: 'waiting' as const,
+            },
+          ],
+        },
       ],
       ASCII,
     );
@@ -620,6 +702,13 @@ describe('renderPipelineGroups — 레인 헤더 그룹핑 렌더(pipeline-statu
     expect(out).toContain('migrate');
     expect(out).toContain('complete');
     expect(out).toContain('login');
+    // EXEC/REVIEW 열이 실제로 표에 나온다(이번 기능의 핵심 회귀 가드).
+    expect(out).toContain('EXEC');
+    expect(out).toContain('REVIEW');
+    expect(out).toContain('verified');
+    expect(out).toContain('passed');
+    expect(out).toContain('in_progress');
+    expect(out).toContain('waiting');
     // clack 스타일 스파인(sectionBox = 노드 하나짜리 세션): 우측 테두리가 없어
     // 줄 표시폭이 내용 길이에 따라 제각각이다. 좌측은 첫 줄만 세션 시작(+),
     // 본문은 전부 세로선(|), 마지막 줄은 본문에 융합되지 않은 독립된 세션
@@ -647,8 +736,18 @@ describe('renderPipelineGroups — 레인 헤더 그룹핑 렌더(pipeline-statu
         {
           name: 'lane',
           workitems: [
-            { name: 'zz', status: 'pending' as const },
-            { name: '로그인화면개선', status: 'pending' as const },
+            {
+              name: 'zz',
+              status: 'pending' as const,
+              execState: 'pending' as const,
+              reviewState: 'waiting' as const,
+            },
+            {
+              name: '로그인화면개선',
+              status: 'pending' as const,
+              execState: 'pending' as const,
+              reviewState: 'waiting' as const,
+            },
           ],
         },
       ],
@@ -659,9 +758,11 @@ describe('renderPipelineGroups — 레인 헤더 그룹핑 렌더(pipeline-statu
     const krLine = lines.find((l) => l.includes('로그인화면개선') && l.includes('pending'));
     expect(asciiLine).toBeDefined();
     expect(krLine).toBeDefined();
-    // status 라벨 시작 표시열 = 라벨 앞부분의 visibleWidth. .length 로 재면 한글 셀이 넘쳐
-    // 두 값이 어긋난다 — nameWidth 를 .length 로 되돌리면 이 단언이 깨진다(뮤테이션-저항).
-    const statusCol = (line: string) => visibleWidth(line.slice(0, line.lastIndexOf('pending')));
+    // 상태 열 시작 표시열 = 배지 앞부분의 visibleWidth. execState 도 'pending' 값을 쓰므로
+    // lastIndexOf('pending') 은 모호하다 — 상태별로 유일한 배지 글리프('[.]', pending 전용)를
+    // 앵커로 쓴다. .length 로 재면 한글 셀이 넘쳐 두 값이 어긋난다 — nameWidth 를 .length 로
+    // 되돌리면 이 단언이 깨진다(뮤테이션-저항).
+    const statusCol = (line: string) => visibleWidth(line.slice(0, line.lastIndexOf('[.]')));
     expect(statusCol(krLine as string)).toBe(statusCol(asciiLine as string));
   });
 });
@@ -695,8 +796,12 @@ describe('runStatus --pipeline 교차 레인(pipeline-status-view AC-02/03)', ()
     const j = JSON.parse(capture(() => void runStatus({ json: true, pipeline: true })));
     // 교차 레인 구조: lanes[].workitems[]. 평탄 {name,status} 로 새면 workitems 가 없어 RED.
     const by = Object.fromEntries(j.lanes.map((g: { name: string }) => [g.name, g]));
-    expect(by.fe.workitems).toEqual([{ name: 'login', status: 'executing' }]);
-    expect(by.be.workitems).toEqual([{ name: 'migrate', status: 'complete' }]);
+    expect(by.fe.workitems).toEqual([
+      { name: 'login', status: 'executing', execState: 'in_progress', reviewState: 'waiting' },
+    ]);
+    expect(by.be.workitems).toEqual([
+      { name: 'migrate', status: 'complete', execState: 'verified', reviewState: 'passed' },
+    ]);
   });
 
   it('AC-01: 메인 .tasks/ workitem + 빈 레인 1개 → 메인 안 숨김(둘 다 --json·텍스트에)', () => {
@@ -715,7 +820,9 @@ describe('runStatus --pipeline 교차 레인(pipeline-status-view AC-02/03)', ()
       j.lanes.map((g: { name: string; workitems: unknown }) => [g.name, g]),
     );
     // 레인(fe)이 생겨도 메인이 통째 숨으면 안 된다 — main 그룹이 존재하고 실작업을 담는다.
-    expect(byName.main.workitems).toEqual([{ name: 'alpha', status: 'pending' }]);
+    expect(byName.main.workitems).toEqual([
+      { name: 'alpha', status: 'pending', execState: 'pending', reviewState: 'waiting' },
+    ]);
     // 빈 레인도 명확히 표기(workitems 빈 배열).
     expect(byName.fe.workitems).toEqual([]);
 
@@ -756,7 +863,12 @@ describe('runStatus --pipeline 교차 레인(pipeline-status-view AC-02/03)', ()
     expect(homogeneous(jMulti)).toBe(true);
     // 폴백은 메인 트리를 단일 main 그룹으로 롤업한다.
     expect(jFallback.lanes).toEqual([
-      { name: 'main', workitems: [{ name: 'freshwi', status: 'pending' }] },
+      {
+        name: 'main',
+        workitems: [
+          { name: 'freshwi', status: 'pending', execState: 'pending', reviewState: 'waiting' },
+        ],
+      },
     ]);
   });
 });
@@ -802,7 +914,9 @@ describe('runStatus --pipeline --archive (pipeline-archive-cleanup AC-05/06)', (
 
     const j = JSON.parse(capture(() => void runStatus({ json: true, pipeline: true })));
     const main = j.lanes.find((l: { name: string }) => l.name === 'main');
-    expect(main.workitems).toEqual([{ name: 'old', status: 'complete' }]);
+    expect(main.workitems).toEqual([
+      { name: 'old', status: 'complete', execState: 'verified', reviewState: 'passed' },
+    ]);
     expect(j.archived).toBeUndefined();
     expect(fs.existsSync(execFile)).toBe(true); // 파일도 그대로.
   });

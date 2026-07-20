@@ -102,6 +102,7 @@ awl-loop 기록 문체: 결론 먼저, 짧게 끊어서, 확인/미확인 분리
 - 워처가 포그라운드 1회 체크라 배경 task ID 자체가 없다. 동시 인스턴스는 워처 내장 **`mkdir` 락**(`.tasks/.locks/exec`)이 막는다: 같은 순간 체크가 겹치면 나중 쪽이 `ALREADY_OWNED`로 즉시 끝나므로 별도 ps-check가 불필요하다(여러 Orca claude-teams 인스턴스가 같은 cwd에서 동시에 떠도 그 순간의 체크 권리는 하나).
 - 다음 확인 대기는 `/loop` 또는 `ScheduleWakeup`으로 예약한다(포그라운드 `sleep`은 막혀 있다).
 - RTK가 git/ls 출력을 왜곡할 수 있다 → 파일명 표식 같은 정밀 확인은 절대경로 `/bin/ls`·직접 `git`으로.
+- 사람에게 보고할 때(에스컬레이션·핸드오프 요약)는 `awl-pipeline`의 "보고·응답 형식" 원칙(표/키워드 먼저, 줄글은 보충)을 따른다.
 
 ## 설계 계약 인코딩 (pipeline-subagent-delegation AC-01/02/04/05)
 위 "구현 코어"·"self-pace"가 따르는 서브에이전트 위임 설계를 명문화한다. 근거 사양은 `pipeline-subagent-delegation`이다.

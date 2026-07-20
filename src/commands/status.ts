@@ -319,10 +319,18 @@ export function renderStatus(report: StatusReport, c: Caps): string {
   return sectionBox(`진행 상황 · ${report.generation}세대`, out, c);
 }
 
-/** 한 파이프라인 레인의 workitem 상태(pipeline-status-tracking AC-02). */
+/** exec 쪽 세부 진행(pipeline-status-table). status(5종 통합) 와 별개로 EXEC 열에 쓴다. */
+export type ExecState = 'pending' | 'in_progress' | 'handed_off' | 'verified';
+
+/** review 쪽 세부 진행(pipeline-status-table). REVIEW 열에 쓴다. */
+export type ReviewState = 'waiting' | 'changes_requested' | 'passed';
+
+/** 한 파이프라인 레인의 workitem 상태(pipeline-status-tracking AC-02, pipeline-status-table 로 EXEC/REVIEW 분리 추가). */
 export interface PipelineLane {
   name: string;
   status: PipelineStatus;
+  execState: ExecState;
+  reviewState: ReviewState;
 }
 
 /**
@@ -358,32 +366,47 @@ export function pipelineLanes(
   }
   const lanes: PipelineLane[] = [];
   for (const name of names) {
+    // 판정에 쓰는 marker 존재여부를 한 번만 계산해 status·execState·reviewState 셋이 공유한다.
+    const reviewPending = reviewFiles.includes(`${name}.md`); // 미반영 수정요구
+    const held = planFiles.includes(`${name}.hold.md`); // 사람 에스컬레이션
+    const execVerified = execFiles.includes(`${name}.taken.md`); // review 가 검증함(합격/불합격 무관)
+    const execHandedOff = execFiles.includes(`${name}.md`); // 미검증 핸드오프
+    const claimed = planFiles.includes(`${name}.taken.md`); // exec 착수(claim)
+
     let status: PipelineStatus;
-    if (reviewFiles.includes(`${name}.md`)) {
+    if (reviewPending) {
       status = 'blocked'; // review/<name>.md = 미반영 수정요구(review/<name>.taken.md 반영본은 complete/reviewing 으로)
-    } else if (planFiles.includes(`${name}.hold.md`)) {
+    } else if (held) {
       status = 'blocked'; // hold = 사람 에스컬레이션(멈춤)
-    } else if (execFiles.includes(`${name}.taken.md`)) {
+    } else if (execVerified) {
       status = 'complete'; // exec 검증함 표식 + review 수정요구 없음 = 무파일 합격 계약
-    } else if (execFiles.includes(`${name}.md`)) {
+    } else if (execHandedOff) {
       status = 'reviewing'; // exec/<name>.md 미검증 핸드오프 = review 대기
-    } else if (planFiles.includes(`${name}.taken.md`)) {
+    } else if (claimed) {
       status = 'executing'; // plan claim 표식(착수, 핸드오프 전)
     } else {
       status = 'pending'; // plan/<name>.md 신규
     }
-    lanes.push({ name, status });
+
+    // EXEC 열: exec 가 이 workitem 을 얼마나 진행했나(review 판정과 독립).
+    const execState: ExecState = execVerified
+      ? 'verified'
+      : execHandedOff
+        ? 'handed_off'
+        : claimed
+          ? 'in_progress'
+          : 'pending';
+    // REVIEW 열: review 가 이 workitem 에 대해 뭘 했나. exec 가 아직 핸드오프 전이면 review 몫이 없다(waiting).
+    const reviewState: ReviewState = reviewPending
+      ? 'changes_requested'
+      : execVerified
+        ? 'passed'
+        : 'waiting';
+
+    lanes.push({ name, status, execState, reviewState });
   }
   lanes.sort((a, b) => a.name.localeCompare(b.name));
   return lanes;
-}
-
-/**
- * workitem/레인 이름 열 폭 — 표시폭(stringWidth) 기준이라 한글(표시폭 2)도 정렬된다(F-03).
- * .length(UTF-16)로 재면 padEndDisplay(표시폭 기준)와 어긋나 한글 이름의 status 열이 밀린다.
- */
-function nameColWidth(names: string[]): number {
-  return Math.max(...names.map(stringWidth), 4) + 2;
 }
 
 /**
@@ -459,16 +482,42 @@ function mainTreeGroup(root: string): PipelineLaneGroup {
   };
 }
 
+/** 열 폭 헬퍼(F-03과 동일 원칙) — 헤더·전체 값 중 표시폭이 가장 넓은 것 기준. */
+function tableColWidth(header: string, values: string[]): number {
+  return Math.max(stringWidth(header), ...values.map(stringWidth));
+}
+
 /**
- * 교차 레인 롤업을 레인 헤더로 그룹핑해 렌더한다(AC-01). statusBadge·padEndDisplay 로
- * 배지·열 맞춤을 하되, 레인마다 헤더를 얹고 그 아래 workitem 을 들여쓴다. 열 폭은 전
- * 레인의 workitem 이름 기준으로 통일한다.
+ * 교차 레인 롤업을 표로 렌더한다(pipeline-status-table). `워크아이템 | EXEC | REVIEW | 상태`
+ * 헤더 한 줄 + 레인별 데이터 행 — exec 가 어디까지 갔는지와 review 가 어디까지 갔는지를
+ * 하나로 합쳐진 status(pending/executing/reviewing/complete/blocked) 옆에 따로 보여준다.
+ * 워크아이템/EXEC/REVIEW 3열은 색 없는 순수 텍스트라 padEndDisplay(stringWidth 기준, F-03)로
+ * 안전하게 패딩한다. 상태 열은 statusBadge(색 있음)를 쓰므로 패딩하지 않고 행의 마지막에
+ * 둔다 — padEndDisplay 는 ANSI 를 인지하지 않아 색 있는 문자열에 쓰면 폭이 깨진다(기존 코드
+ * 관행 그대로 유지, 별도 구분선은 그리지 않는다 — 헤더+정렬만으로 표로 읽힌다).
  */
 export function renderPipelineGroups(groups: PipelineLaneGroup[], c: Caps): string {
   const color = makeColors(c.color);
-  const allNames = groups.flatMap((g) => g.workitems.map((w) => w.name));
-  const nameWidth = nameColWidth(allNames);
-  const out: string[] = [];
+  const all = groups.flatMap((g) => g.workitems);
+  const nameWidth = Math.max(
+    tableColWidth(
+      '워크아이템',
+      all.map((w) => w.name),
+    ),
+    4,
+  );
+  const execWidth = tableColWidth(
+    'EXEC',
+    all.map((w) => w.execState),
+  );
+  const reviewWidth = tableColWidth(
+    'REVIEW',
+    all.map((w) => w.reviewState),
+  );
+
+  const out: string[] = [
+    `  ${padEndDisplay('워크아이템', nameWidth)}  ${padEndDisplay('EXEC', execWidth)}  ${padEndDisplay('REVIEW', reviewWidth)}  상태`,
+  ];
   groups.forEach((g, i) => {
     if (i > 0) {
       out.push('');
@@ -479,7 +528,9 @@ export function renderPipelineGroups(groups: PipelineLaneGroup[], c: Caps): stri
       return;
     }
     for (const w of g.workitems) {
-      out.push(`  ${statusBadge(c, w.status)}  ${padEndDisplay(w.name, nameWidth)}${w.status}`);
+      out.push(
+        `  ${padEndDisplay(w.name, nameWidth)}  ${padEndDisplay(w.execState, execWidth)}  ${padEndDisplay(w.reviewState, reviewWidth)}  ${statusBadge(c, w.status)} ${w.status}`,
+      );
     }
   });
   return sectionBox(`파이프라인 ${groups.length}개 레인`, out, c);
