@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.6.31] - 2026-07-20
+
 ### 변경
 
 - `awl init`/`awl config`의 주 언어 선택을 단일선택에서 다중선택으로 확장. TypeScript
