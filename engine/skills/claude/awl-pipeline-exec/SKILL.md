@@ -60,8 +60,13 @@ description: |
 - **`git add` 직접 금지 — `awl commit` 사용**(절대규칙9). **push 안 함**(절대규칙10).
 - 워킹트리 더러우면 `awl work new <WI> --worktree`로 격리 워크트리에서 구현한다(공용 트리 오염 방지).
 - **핸드오프 지연 폴백**: 위임한 구현 서브에이전트가 실제로 작업(커밋까지)을 끝냈는데도 구조화된
-  핸드오프가 합리적 시간 내 우편함으로 안 돌아오는 지연이 실전에서 반복 관측됐다(원인 미확정 —
-  mailbox 라우팅 지연인지 서브에이전트가 반환 없이 멈춰있는지 불명). 무한정 기다리지 않는다 —
+  핸드오프가 합리적 시간 내 우편함으로 안 돌아오는 지연이 실전에서 반복 관측됐다. **원인 실측
+  보강**: depth-2 재현 테스트에서 완료 알림에 결과 본문이 정상적으로 실렸다 — mailbox 라우팅
+  자체는 문제가 아니었다. 지연의 실제 원인은 스폰된 exec 세션이 구현 서브에이전트를 띄운 뒤 자기
+  턴을 끝내면(스킬 설계상 정상 동작), 그 자식의 완료 알림으로 스스로 재개되는지가 확인되지 않았다는
+  쪽에 가깝다(오케스트레이터의 SendMessage 재개로 실제로 풀렸다는 사실과 들어맞는다) — 다만 이건
+  짧은 단발 작업 기준 실측이라 실전 규모(동시 다건·수 분짜리 구현)까지 근본원인을 완전히 못박은
+  건 아니다. 그래서 아래 폴백은 근본 수정이 아니라 **방어수단으로 계속 유효**하다 — 무한정 기다리지 않는다:
   `git log`로 해당 workitem의 커밋을 직접 확인하고, plan의 완료조건과 diff를 직접 대조해 충족
   여부를 판단한 뒤 핸드오프를 메인이 직접 써서 `exec/<name>.md`를 완성한다(pipeline-spawned-subagent-lifecycle).
 - **동시 구현 서브에이전트(공유 AWL_HOME 오염 방지)**: 한 workitem 안에서 구현 서브에이전트를
@@ -72,7 +77,12 @@ description: |
   변경분만** 지정(전역 `awl commit`이 그 순간 활성인 남의 workitem을 잘못 물 수 있음), (b) 기록은
   `awl record <type> --workitem <자기 workitem-id>`로 **워크아이템을 명시**해 활성 포인터에 의존하지
   않는다(pipeline-concurrent-subagent-home-guidance). 서브에이전트별 격리 `AWL_HOME` 신설은 레코드
-  병합이 깨질 위험이 있어 채택하지 않았다 — 이 두 지침이 검증된 표준 우회다.
+  병합이 깨질 위험이 있어 채택하지 않았다 — 이 두 지침이 검증된 표준 우회다. **비채택 근거 보강**:
+  `mergeIsolatedHome`(`src/commands/learning-merge.ts`)은 `awl lane rm`/`awl work done`의 워크아이템·
+  레인 전체 teardown 경로에서만 호출된다 — 서브에이전트 단위로 즉석 병합할 수 있는 독립 CLI
+  프리미티브가 없다. 만들려면 신규 CLI 표면(예: `awl home merge`)을 새로 설계해야 하고 잘못 쓰면
+  records/gotcha 유실 위험이 있어, 지금은 문서화된 우회로 충분하다고 판단한다
+  (pipeline-followup-handoff-cause-and-isolated-home-decision).
 - **게이트 record 예외의 통계 영향(참고)**: 위 F-02류 오염을 피해 게이트1/게이트2를 정식
   `awl record gate` 대신 단일 attempt record로 남기는 예외 경로를 쓰면, 그 workitem은
   `awl loop-summary`의 "개입"(dimension①)·"gate1 배제 수"(dimension④) 집계에서 조용히 0 기여로
