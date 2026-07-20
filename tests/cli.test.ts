@@ -61,7 +61,12 @@ describe('awl 프로그램 구성', () => {
 
   it('유니코드 TTY 배너는 조밀한 AWL 워드마크와 색상을 쓴다', () => {
     const banner = renderBanner({ unicode: true, color: true, tty: true });
-    expect(banner).toContain('███████');
+    // 좌→우 무지개 그라데이션(cli-banner-rainbow)은 문자마다 개별 ANSI 코드를 입혀
+    // '███████' 같은 연속 매치가 색코드 없는 원문 그대로는 안 남는다 — 색코드를
+    // 벗겨낸 뒤 워드마크 존재를 확인한다.
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI escape sequence 를 벗겨낸다(src/core/tty.ts 의 ANSI_SGR 과 동일 관례).
+    const stripped = banner.replace(/\x1b\[[0-9;]*m/g, '');
+    expect(stripped).toContain('███████');
     expect(banner).toContain('\x1b[');
   });
 

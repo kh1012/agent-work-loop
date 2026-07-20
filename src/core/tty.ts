@@ -657,13 +657,28 @@ export function makeColors(enabled: boolean): Colors {
   };
 }
 
-/** 여러 줄 워드마크에만 쓰는 절제된 청록→보라 세로 그라데이션. */
+/** ANSI 256색 큐브에서 고른 무지개 순서(빨·주·노·초·청·파·보). */
+const RAINBOW = [196, 208, 226, 46, 51, 33, 129];
+
+/** 여러 줄 워드마크에 쓰는 좌→우 무지개 그라데이션. 열(문자 위치) 기준이라, 로고 전체의
+ * 가로 폭을 기준으로 매 문자가 같은 열에서는(행이 달라도) 같은 색을 쓴다 — 그래서
+ * 세로로 봤을 때도 색이 갈라지지 않고 좌우로 흐르는 것처럼 보인다. */
 export function gradient(lines: string[], c: Caps): string[] {
   if (!c.color) {
     return lines;
   }
-  const palette = [51, 45, 39, 135];
-  return lines.map((line, index) => `\x1b[38;5;${palette[index % palette.length]}m${line}${RESET}`);
+  const maxWidth = Math.max(...lines.map((l) => [...l].length), 1);
+  return lines.map((line) => {
+    const chars = [...line];
+    return chars
+      .map((ch, col) => {
+        if (ch === ' ') return ch; // 공백은 색을 안 입혀도 무방(불필요한 ANSI 코드 방지)
+        const ratio = maxWidth <= 1 ? 0 : col / (maxWidth - 1);
+        const idx = RAINBOW[Math.min(RAINBOW.length - 1, Math.floor(ratio * RAINBOW.length))];
+        return `\x1b[38;5;${idx}m${ch}${RESET}`;
+      })
+      .join('');
+  });
 }
 
 /** 현재 프로세스 능력 기준 색 함수. */

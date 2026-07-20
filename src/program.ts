@@ -5,9 +5,11 @@ import { readCachedLatestVersion } from './core/npm-registry.js';
 import {
   type Caps,
   caps,
+  card,
   gradient,
   makeColors,
   makeSymbols,
+  makeTokens,
   signal,
   visibleWidth,
 } from './core/tty.js';
@@ -16,12 +18,47 @@ import { computeUpdateAvailable } from './core/versions.js';
 export const BANNER = `Agent Work Loop
 
 같은 실패를 두 번 하지 않는 도구입니다.
-판단은 Claude Code나 Codex가 하고, awl은 파일과 상태만 관리합니다.
+판단은 Claude Code나 Codex가 하고, awl은 파일과 상태만 관리합니다.`;
 
-시작하기:
-  1. awl init       이 프로젝트를 설정합니다
-  2. awl status     지금 어디까지 왔는지 봅니다
-  3. awl doctor     설치와 환경을 점검합니다`;
+/** 로고 옆이 아니라 그 아래에 좌측 정렬 카드로 따로 배치하는 시작 안내(cli-banner-getting-started-card). */
+const GETTING_STARTED: { cmd: string; desc: string }[] = [
+  { cmd: 'awl init', desc: '이 프로젝트를 설정합니다' },
+  { cmd: 'awl status', desc: '지금 어디까지 왔는지 봅니다' },
+  { cmd: 'awl doctor', desc: '설치와 환경을 점검합니다' },
+];
+
+/** 표시폭(한글은 2칸) 기준 오른쪽 패딩. String.padEnd 는 UTF-16 코드유닛 수로만
+ * 재서 한글이 섞이면 정렬이 어긋난다(cli-help-examples-card 에서 실측). */
+function padVisible(s: string, width: number): string {
+  return s + ' '.repeat(Math.max(0, width - visibleWidth(s)));
+}
+
+function renderGettingStartedCard(c: Caps): string {
+  const t = makeTokens(c);
+  const cmdWidth = Math.max(...GETTING_STARTED.map((g) => visibleWidth(g.cmd)));
+  const lines = GETTING_STARTED.map(
+    (g, i) => `${i + 1}. ${t.accent(padVisible(g.cmd, cmdWidth))}  ${g.desc}`,
+  );
+  return card('시작하기', lines, c);
+}
+
+/** 명령 목록의 [options]/<criterion>/<range> 자리에 실제로 뭐가 들어가는지 보여주는
+ * 예시 카드. 각 줄은 실제로 이 저장소에서 실행해본 명령이다(docs/presentation/commands.md
+ * 참고, 지어낸 예시 아님). */
+function renderExamplesCard(c: Caps): string {
+  const t = makeTokens(c);
+  const examples: { cmd: string; note: string }[] = [
+    { cmd: 'awl commit AC-01 --start', note: '구현 시작 시 베이스라인부터 잡는다' },
+    { cmd: 'awl commit AC-01 -m "완료 조건 설명"', note: '<criterion> 자리엔 완료조건 ID(AC-01)' },
+    { cmd: 'awl review AC-01..AC-03', note: '<range> 자리엔 완료조건 범위' },
+    { cmd: 'awl status --pipeline', note: '[options] 자리엔 --json/--pipeline 같은 플래그' },
+  ];
+  const cmdWidth = Math.max(...examples.map((e) => visibleWidth(e.cmd)));
+  const lines = examples.map(
+    (e) => `${t.accent(padVisible(e.cmd, cmdWidth))}  ${t.muted(`# ${e.note}`)}`,
+  );
+  return card('예시', lines, c);
+}
 
 const DENSE_AWL = `█████╗ ██╗    ██╗██╗
 ██╔══██╗██║    ██║██║
@@ -44,11 +81,13 @@ export function renderBanner(c: Caps = caps()): string {
   const copyLines = BANNER.split('\n');
   const markWidth = Math.max(...markLines.map(visibleWidth));
   const rowCount = Math.max(markLines.length, copyLines.length);
-  return Array.from({ length: rowCount }, (_, i) => {
+  const header = Array.from({ length: rowCount }, (_, i) => {
     const mark = markLines[i] ?? '';
     const copy = copyLines[i] ?? '';
     return `${mark}${' '.repeat(Math.max(0, markWidth - visibleWidth(mark)) + 4)}${copy}`.trimEnd();
   }).join('\n');
+  // 시작 안내는 로고 옆이 아니라 그 아래에, 한 칸 띄우고 좌측 정렬 카드로 배치한다.
+  return `${header}\n\n${renderGettingStartedCard(c)}`;
 }
 
 /**
@@ -163,6 +202,11 @@ export function buildProgram(): Command {
     // 배너는 루트(awl / awl --help)에서만 보여준다. 예전엔 beforeAll 이 모든
     // 서브커맨드 help(work --help 등)에도 배너를 반복 출력했다.
     .addHelpText('beforeAll', (ctx) => (ctx.command === program ? `${renderBanner()}\n` : ''))
+    // 예시 카드도 루트 help 하단에만 — 명령 목록의 [options]/<criterion>/<range> 가
+    // 뭘 뜻하는지 감이 안 잡히는 문제(cli-help-examples-card)에 대한 대응.
+    .addHelpText('afterAll', (ctx) =>
+      ctx.command === program ? `\n${renderExamplesCard(caps())}\n` : '',
+    )
     .showHelpAfterError();
 
   // 사람이 치는 명령: init (처음 설정)
