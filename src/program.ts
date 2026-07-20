@@ -15,10 +15,12 @@ import {
 } from './core/tty.js';
 import { computeUpdateAvailable } from './core/versions.js';
 
-export const BANNER = `Agent Work Loop
+export const BANNER = `
+[ AGENT WORK LOOP ]
 
-같은 실패를 두 번 하지 않는 도구입니다.
-판단은 Claude Code나 Codex가 하고, awl은 파일과 상태만 관리합니다.`;
+한 번만 실패하는 도구 입니다. (두번 실패 없음)
+판단은 Claude Code나 Codex가 하고,
+awl은 파일과 상태만 관리합니다.`;
 
 /** 로고 옆이 아니라 그 아래에 좌측 정렬 카드로 따로 배치하는 시작 안내(cli-banner-getting-started-card). */
 const GETTING_STARTED: { cmd: string; desc: string }[] = [
@@ -60,7 +62,8 @@ function renderExamplesCard(c: Caps): string {
   return card('예시', lines, c);
 }
 
-const DENSE_AWL = `█████╗ ██╗    ██╗██╗
+const DENSE_AWL = `
+ █████╗ ██╗    ██╗██╗
 ██╔══██╗██║    ██║██║
 ███████║██║ █╗ ██║██║
 ██╔══██║██║███╗██║██║

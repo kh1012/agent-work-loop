@@ -50,8 +50,8 @@ describe('awl 프로그램 구성', () => {
   });
 
   it('배너에 핵심 문구가 담겨 있다', () => {
-    expect(BANNER).toContain('Agent Work Loop');
-    expect(BANNER).toContain('같은 실패를 두 번 하지 않는');
+    expect(BANNER).toContain('AGENT WORK LOOP');
+    expect(BANNER).toContain('한 번만 실패하는 도구');
     expect(BANNER).toContain('판단은 Claude Code나 Codex가 하고');
     expect(BANNER).toContain('awl은 파일과 상태만 관리합니다');
     // 배너에 임시 진단 문구가 없어야 한다(cli-design-tokens AC-04 회귀잠금) — 재삽입 시 실패.
@@ -72,7 +72,14 @@ describe('awl 프로그램 구성', () => {
 
   it('배너는 좌측 워드마크와 우측 안내를 같은 행에 배치한다', () => {
     const banner = renderBanner({ unicode: false, color: false, tty: false });
-    expect(banner.split('\n')[0]).toContain('Agent Work Loop');
+    const lines = banner.split('\n');
+    // 로고 앞 여백 줄이 있어 첫 줄엔 로고만 있을 수 있다(cli-banner 재편집) — 태그라인이
+    // 처음 나오는 줄에서 ASCII 워드마크와 같은 행에 있는지 확인한다.
+    const taglineLine = lines.find((l) => l.includes('AGENT WORK LOOP'));
+    expect(taglineLine).toBeDefined();
+    // ASCII 워드마크는 줄마다 `_`/`\`/`/` 중 일부만 쓴다(가운데 줄엔 `_` 없음) — 셋 중
+    // 하나라도 있으면 로고와 같은 행이라는 뜻.
+    expect(taglineLine).toMatch(/[\\/_]/);
     expect(banner.startsWith('\n')).toBe(false);
   });
 
@@ -328,8 +335,8 @@ describe.runIf(existsSync(distCli))('빌드된 CLI 실행', () => {
 
   it('--help 가 배너를 출력한다', () => {
     const out = execFileSync('node', [distCli, '--help']).toString();
-    expect(out).toContain('Agent Work Loop');
-    expect(out).toContain('같은 실패를 두 번 하지 않는');
+    expect(out).toContain('AGENT WORK LOOP');
+    expect(out).toContain('한 번만 실패하는 도구');
   });
 
   it('제거된 deltas 명령은 unknown command 로 exit!=0 이다 (deltas-removal AC-01, dogfooding)', () => {
