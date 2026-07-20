@@ -37,6 +37,7 @@ import {
   verifyStepLines,
   writeSkillsVersionStamp,
 } from '../../src/commands/init.js';
+import { projectsFile } from '../../src/core/paths.js';
 import { type Caps, type Colors, makeColors, stringWidth } from '../../src/core/tty.js';
 
 const origCwd = process.cwd();
@@ -638,7 +639,7 @@ describe('applyInit — 전체 산출물', () => {
     fs.writeFileSync(configPath, JSON.stringify({ ...cfg, engineVersion: '0.0.1' }));
     fs.writeFileSync(skillsVersionPath(proj), JSON.stringify({ claude: '0.0.1', codex: '0.0.1' }));
 
-    const synced = syncExistingInstall(proj, engineVersion);
+    const synced = syncExistingInstall(proj, engineVersion, '2026-01-02T00:00:00.000Z');
 
     expect(synced.configUpdated).toBe(true);
     expect(synced.skills.sort()).toEqual(['claude', 'codex']);
@@ -653,7 +654,7 @@ describe('applyInit — 전체 산출물', () => {
     inputs.skills = { claude: false, codex: false };
     const result = applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
 
-    const synced = syncExistingInstall(proj, result.engineVersion);
+    const synced = syncExistingInstall(proj, result.engineVersion, '2026-01-02T00:00:00.000Z');
 
     expect(synced.skills).toEqual([]);
     expect(fs.existsSync(path.join(proj, '.claude', 'skills', 'awl-loop'))).toBe(false);
@@ -664,9 +665,49 @@ describe('applyInit — 전체 산출물', () => {
     inputs.skills = { claude: false, codex: false };
     const result = applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
 
-    const synced = syncExistingInstall(proj, result.engineVersion);
+    const synced = syncExistingInstall(proj, result.engineVersion, '2026-01-02T00:00:00.000Z');
 
     expect(synced.configUpdated).toBe(false);
+  });
+
+  it('syncExistingInstall — awl remove --all 등으로 registry 가 비워진 뒤에도 "그대로 쓴다" 재실행이 재등록한다 (F-1)', () => {
+    const inputs = nonInteractiveInputs(proj);
+    const result = applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
+    expect(listRegisteredProjects().map((p) => p.path)).toContain(proj);
+
+    // awl remove --all 이 ~/.awl/projects.json 을 비웠다고 가정한다.
+    fs.writeFileSync(projectsFile(), '[]\n');
+    expect(listRegisteredProjects()).toEqual([]);
+
+    syncExistingInstall(proj, result.engineVersion, '2026-01-02T00:00:00.000Z');
+
+    const registered = listRegisteredProjects();
+    expect(registered.map((p) => p.path)).toContain(proj);
+  });
+
+  it('syncExistingInstall — 이미 등록돼 있으면 중복 추가하지 않고 upsert 한다 (F-1)', () => {
+    const inputs = nonInteractiveInputs(proj);
+    const result = applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
+
+    syncExistingInstall(proj, result.engineVersion, '2026-01-02T00:00:00.000Z');
+    syncExistingInstall(proj, result.engineVersion, '2026-01-03T00:00:00.000Z');
+
+    const registered = listRegisteredProjects().filter((p) => p.path === proj);
+    expect(registered).toHaveLength(1);
+  });
+
+  it('runInit --yes 재실행(config 이미 있음)도 비워진 registry 를 재등록한다 (F-1 CLI 배선)', async () => {
+    const inputs = nonInteractiveInputs(proj);
+    applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
+
+    fs.writeFileSync(projectsFile(), '[]\n');
+
+    // proj 가 cwd(beforeEach 에서 chdir)이고 config 가 있으므로 --yes 재실행 경로를 탄다.
+    // runInit 내부는 process.cwd()(macOS 에서 심링크가 realpath 로 풀린 값)를 쓰므로
+    // 비교도 realpath 로 맞춘다(remove.test.ts fixtureProject 와 같은 패턴).
+    await runInit({ yes: true });
+
+    expect(listRegisteredProjects().map((p) => p.path)).toContain(fs.realpathSync(proj));
   });
 
   it('runInit --yes 재실행이 낡은 마커를 설치 엔진으로 동기화한다 (F-2 CLI 배선)', async () => {
@@ -759,7 +800,7 @@ describe('applyInit — 전체 산출물', () => {
     fs.writeFileSync(path.join(engineClaude, 'awl-loop', 'SKILL.md'), 'awl-loop-v2\n');
     fs.writeFileSync(path.join(engineClaude, 'awl-fixture-skill', 'SKILL.md'), 'fixture-v2\n');
 
-    const synced = syncExistingInstall(proj, result.engineVersion);
+    const synced = syncExistingInstall(proj, result.engineVersion, '2026-01-02T00:00:00.000Z');
 
     expect(synced.skills).toContain('claude');
     expect(
@@ -784,7 +825,7 @@ describe('applyInit — 전체 산출물', () => {
     fs.mkdirSync(path.join(engineClaude, 'awl-fixture-skill'), { recursive: true });
     fs.writeFileSync(path.join(engineClaude, 'awl-fixture-skill', 'SKILL.md'), 'v1\n');
 
-    const synced = syncExistingInstall(proj, result.engineVersion);
+    const synced = syncExistingInstall(proj, result.engineVersion, '2026-01-02T00:00:00.000Z');
 
     expect(synced.skills).toContain('claude');
     // 기존 스킬은 그대로.

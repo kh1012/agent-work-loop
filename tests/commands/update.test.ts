@@ -88,7 +88,7 @@ describe('applyLocalUpdate — 등록된 프로젝트 전부 재동기화 (awl-u
     seedEngineDir(home);
     process.env.AWL_HOME = home;
     applyUpdate(); // ~/.awl 생성(엔진 설치)
-    expect(applyLocalUpdate('0.0.1')).toEqual([]);
+    expect(applyLocalUpdate('0.0.1', '2026-01-02T00:00:00.000Z')).toEqual([]);
   });
 
   it('등록된 프로젝트의 config.engineVersion 이 낡았으면 갱신하고 status:updated 를 낸다', () => {
@@ -108,7 +108,7 @@ describe('applyLocalUpdate — 등록된 프로젝트 전부 재동기화 (awl-u
     const cfg = readJson(configPath) as Record<string, unknown>;
     fs.writeFileSync(configPath, JSON.stringify({ ...cfg, engineVersion: '0.0.1' }));
 
-    const results = applyLocalUpdate(engineVersion);
+    const results = applyLocalUpdate(engineVersion, '2026-01-02T00:00:00.000Z');
     expect(results).toHaveLength(1);
     const [r] = results;
     expect(r?.status).toBe('updated');
@@ -128,7 +128,7 @@ describe('applyLocalUpdate — 등록된 프로젝트 전부 재동기화 (awl-u
     inputs.skills = { claude: true, codex: false };
     applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
 
-    const results = applyLocalUpdate(engineVersion);
+    const results = applyLocalUpdate(engineVersion, '2026-01-02T00:00:00.000Z');
     expect(results).toHaveLength(1);
     expect(results[0]?.status).toBe('up-to-date');
   });
@@ -144,7 +144,7 @@ describe('applyLocalUpdate — 등록된 프로젝트 전부 재동기화 (awl-u
     applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
     fs.rmSync(proj, { recursive: true, force: true });
 
-    const results = applyLocalUpdate('0.0.1');
+    const results = applyLocalUpdate('0.0.1', '2026-01-02T00:00:00.000Z');
     expect(results).toHaveLength(1);
     expect(results[0]?.status).toBe('skipped');
     expect(results[0]?.reason).toMatch(/경로를 찾을 수 없습니다/);

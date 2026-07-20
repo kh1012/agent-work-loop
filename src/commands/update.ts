@@ -51,7 +51,7 @@ export interface ProjectSyncResult {
  * 없는 프로젝트는 실패로 죽지 않고 'skipped'로 건너뛴다 — 등록된 프로젝트 중 하나가
  * 사라졌다고 나머지 동기화까지 막히면 안 된다.
  */
-export function applyLocalUpdate(engineVersion: string): ProjectSyncResult[] {
+export function applyLocalUpdate(engineVersion: string, now: string): ProjectSyncResult[] {
   const results: ProjectSyncResult[] = [];
   for (const p of listRegisteredProjects()) {
     if (!fs.existsSync(p.path)) {
@@ -74,7 +74,7 @@ export function applyLocalUpdate(engineVersion: string): ProjectSyncResult[] {
       });
       continue;
     }
-    const synced = syncExistingInstall(p.path, engineVersion);
+    const synced = syncExistingInstall(p.path, engineVersion, now);
     // configUpdated 만 신뢰한다 — installClaudeSkill/installCodexSkill 은 내용이 같아도
     // 항상 무조건 재복사하고 성공만 알리므로, synced.skills 는 "스킬을 쓴다"는 뜻이지
     // "이번에 실제로 바뀌었다"는 뜻이 아니다(F-2와 같은 함정). config.engineVersion 은
@@ -160,7 +160,7 @@ export function runUpdate(opts: { global?: boolean; local?: boolean; all?: boole
         'awl init 을 먼저 실행하세요.',
       );
     } else {
-      sections.push(...renderLocal(applyLocalUpdate(engineVersion), c));
+      sections.push(...renderLocal(applyLocalUpdate(engineVersion, new Date().toISOString()), c));
     }
   }
 

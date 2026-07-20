@@ -15,6 +15,10 @@
 - `awl remove`가 `.awl-worktrees/`의 레인은 `git worktree remove`로 정리하면서도 빈
   부모 디렉토리 자체는 그대로 남기던 문제를 고쳤다. 레인을 모두(또는 애초에 하나도
   없이) 정리한 뒤 비어 있으면 마저 지운다.
+- `.awl/config.json`이 이미 있는 프로젝트에서 "그대로 쓴다"(또는 `awl init --yes`
+  재실행)를 고르면 `~/.awl/projects.json`에 등록되지 않던 문제를 고쳤다. `awl remove
+  --all`로 레지스트리가 비워진 뒤에도 재init만으로 복구된다. 같은 함수를 쓰는 `awl
+  update --local`도 함께 고쳐졌다.
 
 ### 추가
 

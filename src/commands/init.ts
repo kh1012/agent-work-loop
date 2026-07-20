@@ -729,6 +729,7 @@ export function writeSkillsVersionStamp(
 export function syncExistingInstall(
   projectRoot: string,
   engineVersion: string,
+  now: string,
 ): { configUpdated: boolean; skills: string[] } {
   // 1) config.engineVersion 만 엔진에 맞춘다(나머지 필드는 팀 설정이므로 보존).
   let configUpdated = false;
@@ -738,6 +739,18 @@ export function syncExistingInstall(
     writeFileEnsuringDir(configPath, `${JSON.stringify({ ...raw, engineVersion }, null, 2)}\n`);
     configUpdated = true;
   }
+
+  // applyInit(처음부터 다시)만 registerProject 를 불렀다 — "그대로 쓴다"/--yes 재실행은
+  // config 를 이미 있는 것으로 간주해 레지스트리를 건드리지 않았다. 그래서 awl remove
+  // --all 등으로 ~/.awl/projects.json 이 비워진 뒤엔 재init 을 아무리 해도 이 경로로는
+  // 복구되지 않았다(F-1). registerProject 는 path 기준 upsert 라 매번 불러도 안전하다.
+  registerProject({
+    name: typeof raw?.project === 'string' ? raw.project : path.basename(projectRoot),
+    path: projectRoot,
+    mainLanguage: Array.isArray(raw?.mainLanguage) ? (raw.mainLanguage as string[]) : [],
+    character: typeof raw?.character === 'string' ? raw.character : '',
+    registeredAt: now,
+  });
 
   // 2) claude 스킬이 하나라도 설치된 프로젝트면(=claude 를 쓰는 프로젝트) 엔진의 모든
   //    claude 스킬을 재설치한다 — 기존 것은 내용 갱신, 엔진에 나중 추가됐지만 아직 없는
@@ -1458,7 +1471,7 @@ async function handleExistingConfig(
   );
 
   if (choice === 0) {
-    const synced = syncExistingInstall(projectRoot, installedVer ?? 'unknown');
+    const synced = syncExistingInstall(projectRoot, installedVer ?? 'unknown', now);
     if (synced.configUpdated || synced.skills.length > 0) {
       process.stdout.write(
         `\n  설정을 그대로 씁니다. 버전 마커를 ${installedVer ?? '엔진'} 로 동기화했습니다${synced.skills.length ? ` (스킬: ${synced.skills.join(', ')})` : ''}.\n`,
@@ -1706,7 +1719,7 @@ export async function runInit(opts: { yes: boolean }): Promise<void> {
     if (configExists) {
       const engine = scaffoldGlobal();
       const hook = installSafetyHook(projectRoot);
-      const synced = syncExistingInstall(projectRoot, engine.engineVersion);
+      const synced = syncExistingInstall(projectRoot, engine.engineVersion, now);
       const syncNote =
         synced.configUpdated || synced.skills.length > 0
           ? `\n  ${signal(c, 'ok')} 버전 마커를 ${engine.engineVersion} 로 동기화했습니다${synced.skills.length ? ` (스킬: ${synced.skills.join(', ')})` : ''}.`
