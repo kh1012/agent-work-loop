@@ -13,6 +13,12 @@ npm-debug.log*
 # OS
 .DS_Store
 
+# 에디터/IDE 로컬 설정
+.idea/
+
+# 외부 스킬 설치물(skills-lock.json 이 정본, 이건 재설치 가능한 산출물)
+.agents/
+
 # 별도 참조물 — 이후 워크아이템에서 조사한다. 여기서는 추적하지 않는다.
 ref-knowledge-graph/
 .awl/state.json
