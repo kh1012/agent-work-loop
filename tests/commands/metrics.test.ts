@@ -175,6 +175,40 @@ describe('loadGenerations (WI-P AC-04)', () => {
     const gens = loadGenerations('p');
     expect(gens).toHaveLength(1);
   });
+
+  it('타임스탬프 접두어 없는 옛 형식(<workitem>.json) 파일도 새 형식과 섞여 그대로 읽힌다(하위호환)', () => {
+    // 옛 writeGeneration 이 남긴 형식 — 마이그레이션 없이 그대로 둔다(evolve.ts 주석 참고).
+    seedGeneration('p', 'WI-OLD', {
+      workitem: 'WI-OLD',
+      at: '2026-07-13T00:00:00Z',
+      criteriaTotal: 1,
+      avgAttempts: 0,
+      blockedRatio: 0,
+      reviewRejects: 0,
+      proceduralErrors: 0,
+      gotchaApplied: 0,
+      gotchaMissed: 0,
+    });
+    // 새 writeGeneration 이 남기는 형식(<at-stamp>-<workitem>.json).
+    const dir = path.join(process.env.AWL_HOME as string, 'generations', 'p');
+    fs.writeFileSync(
+      path.join(dir, '2026-07-14T00-00-00Z-WI-NEW.json'),
+      JSON.stringify({
+        workitem: 'WI-NEW',
+        at: '2026-07-14T00:00:00Z',
+        criteriaTotal: 2,
+        avgAttempts: 0,
+        blockedRatio: 0,
+        reviewRejects: 0,
+        proceduralErrors: 0,
+        gotchaApplied: 0,
+        gotchaMissed: 0,
+      }),
+    );
+    const gens = loadGenerations('p');
+    expect(gens.map((g) => g.workitem)).toEqual(['WI-OLD', 'WI-NEW']);
+    expect(gens.map((g) => g.at)).toEqual(['2026-07-13T00:00:00Z', '2026-07-14T00:00:00Z']);
+  });
 });
 
 describe('renderMetricsCaveat — 난이도 경고 문구', () => {

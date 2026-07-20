@@ -499,7 +499,10 @@ describe('writeGeneration — 프로젝트별 디렉토리', () => {
       coverage: { auditFindingsTotal: 4, addressed: 2, excluded: 2, excludedApprovedByHuman: true },
     };
     const file = writeGeneration('agent-work-loop', 'WI-6', metrics, '2026-07-14T00:00:00Z');
-    expect(file).toContain(path.join('generations', 'agent-work-loop', 'WI-6.json'));
+    expect(file).toContain(path.join('generations', 'agent-work-loop'));
+    // 파일명은 at(콜론→'-' 치환) 접두어 + workitem — 재사용된 workitem 이름이 이전
+    // 세대를 덮어쓰지 않게 유일성을 보장한다.
+    expect(path.basename(file)).toBe('2026-07-14T00-00-00Z-WI-6.json');
     const written = JSON.parse(fs.readFileSync(file, 'utf8'));
     expect(written.criteriaTotal).toBe(5);
     expect(written.workitem).toBe('WI-6');
@@ -540,6 +543,68 @@ describe('writeGeneration — 프로젝트별 디렉토리', () => {
     expect(written.experiment).toEqual({ model: 'lite', mode: 'loop', taskType: 'ui' });
     expect(written.startedAt).toBe('2026-07-16T10:00:00Z');
     expect(written.durationMs).toBe(7_200_000);
+  });
+
+  it('같은 workitem 을 다른 at 으로 두 번 써도 덮어쓰지 않고, loadGenerations 가 둘 다 시간순으로 읽는다', () => {
+    const metrics = {
+      criteriaTotal: 1,
+      avgAttempts: 1,
+      blockedRatio: 0,
+      reviewRejects: 0,
+      proceduralErrors: 0,
+      gotchaApplied: 0,
+      gotchaMissed: 0,
+      refactorCount: 0,
+      coverage: {
+        auditFindingsTotal: 0,
+        addressed: 0,
+        excluded: 0,
+        excludedApprovedByHuman: false,
+      },
+    };
+    const first = writeGeneration('p', 'WI-REUSE', metrics, '2026-07-14T00:00:00Z');
+    const second = writeGeneration('p', 'WI-REUSE', metrics, '2026-07-15T00:00:00Z');
+    expect(first).not.toBe(second); // 서로 다른 파일 — 재사용된 workitem 이름이 덮어쓰지 않는다.
+    expect(fs.existsSync(first)).toBe(true);
+    expect(fs.existsSync(second)).toBe(true);
+
+    const gens = loadGenerations('p');
+    expect(gens).toHaveLength(2);
+    expect(gens.map((g) => g.at)).toEqual(['2026-07-14T00:00:00Z', '2026-07-15T00:00:00Z']);
+    expect(gens.every((g) => g.workitem === 'WI-REUSE')).toBe(true);
+  });
+
+  it('workitem 이 빈 문자열이어도 빈 파일명(.json)이 되지 않는다', () => {
+    const metrics = {
+      criteriaTotal: 0,
+      avgAttempts: 0,
+      blockedRatio: 0,
+      reviewRejects: 0,
+      proceduralErrors: 0,
+      gotchaApplied: 0,
+      gotchaMissed: 0,
+      refactorCount: 0,
+      coverage: {
+        auditFindingsTotal: 0,
+        addressed: 0,
+        excluded: 0,
+        excludedApprovedByHuman: false,
+      },
+    };
+    const file = writeGeneration('p', '', metrics, '2026-07-14T00:00:00Z');
+    expect(path.basename(file)).not.toBe('.json');
+    expect(path.basename(file)).toBe('2026-07-14T00-00-00Z-unknown.json');
+    const written = JSON.parse(fs.readFileSync(file, 'utf8'));
+    expect(written.workitem).toBe('unknown'); // 내용도 해소된 값 — 파일명 폴백을 안 타게.
+
+    // workitem 이 null 이어도 마찬가지 — loadGenerations 의 파일명 폴백(typeof
+    // workitem !== 'string' 일 때만 탄다)이 타임스탬프 섞인 파일명을 워크아이템명으로
+    // 오독하지 않는지까지 round-trip 으로 확인한다.
+    const fileNull = writeGeneration('p', null, metrics, '2026-07-14T01:00:00Z');
+    const gens = loadGenerations('p');
+    const g = gens.find((x) => x.at === '2026-07-14T01:00:00Z');
+    expect(fs.existsSync(fileNull)).toBe(true);
+    expect(g?.workitem).toBe('unknown');
   });
 });
 

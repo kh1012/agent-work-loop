@@ -447,11 +447,24 @@ export function writeGeneration(
 ): string {
   const dir = generationsDir(project);
   fs.mkdirSync(dir, { recursive: true });
-  const name = `${workitem ?? 'unknown'}.json`;
+  // at(ms 정밀도)을 파일명 접두어로 써 유일성을 보장한다 — 그러지 않으면 같은
+  // workitem 이름이 나중에 재사용될 때 writeFileSync 가 이전 세대 스냅샷을 조용히
+  // 덮어써 날린다. loadGenerations() 는 이미 파일명이 아니라 내용의 at 으로 시간순
+  // 정렬하므로 이 형식 변경에 영향받지 않는다. 콜론은 일부 파일시스템에서 문제될
+  // 수 있어 '-'로 치환.
+  const stamp = at.replace(/[:.]/g, '-');
+  const wi = workitem?.trim() ? workitem : 'unknown';
+  const name = `${stamp}-${wi}.json`;
   const file = path.join(dir, name);
+  // 내용의 workitem 도 wi(해소된 값)로 쓴다 — raw workitem(null/빈 문자열)을 그대로
+  // 실으면 loadGenerations() 의 파일명 폴백(typeof workitem !== 'string' 일 때만
+  // 탄다)이 이제 타임스탬프가 섞인 파일명 전체를 워크아이템명으로 오독한다.
   // extra(experiment/startedAt/durationMs 등)는 그대로 스냅샷에 실린다 — metrics
   // --compare 가 케이스 축으로 읽는다(experiment-harness). 없으면 예전과 동일.
-  fs.writeFileSync(file, `${JSON.stringify({ workitem, at, ...metrics, ...extra }, null, 2)}\n`);
+  fs.writeFileSync(
+    file,
+    `${JSON.stringify({ workitem: wi, at, ...metrics, ...extra }, null, 2)}\n`,
+  );
   return file;
 }
 
