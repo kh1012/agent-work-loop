@@ -443,14 +443,14 @@
 - **역할**: `.tasks/plan`의 신규 일감과 `.tasks/review`의 피드백을 이벤트 워처로 감지해 무인으로 구현한다. 구현 코어는 반드시 `/awl-loop`(게이트는 자율 승인). 핸드오프를 `.tasks/exec/<name>.md`에 남긴다.
 - **언제 쓰나**: pipeline의 exec 역할 세션.
 - **트리거**: `/awl-pipeline-exec`.
-- **읽는법**: 한 틱의 순서는 피드백(review) 처리 → 신규 착수(plan) → **hold 재점검**(`awl hold-recheck`, storyline.md 6절 hold-recheck 사례가 여기서 나온다) → 유휴(워처 재무장) 순이다. 무거운 구현은 서브에이전트(`Task`)에 위임해 메인 세션의 컨텍스트를 구현 로그로 채우지 않는다.
+- **읽는법**: 한 틱의 순서는 피드백(review) 처리 → 신규 착수(plan) → **hold 재점검**(`awl hold-recheck`, storyline.md 6절 hold-recheck 사례가 여기서 나온다) → 유휴 순이다. 무거운 구현은 서브에이전트(`Task`)에 위임해 메인 세션의 컨텍스트를 구현 로그로 채우지 않는다. 유휴로 넘어가면 워처(`watch-inputs.sh`)를 포그라운드로 1회만 체크하고, 처리할 게 없으면 다음 확인을 예약한 뒤 턴을 끝낸다 — 연속으로 몇 번 비었는지(`EMPTY_COUNT`)에 따라 막 유휴에 들어간 직후엔 240초, 계속 한산하면 1500초로 간격을 늘린다(`pipeline-self-pace-adaptive-backoff`). 배경 프로세스를 계속 띄워두지 않는다.
 
 ### `/awl-pipeline-review`
 
 - **역할**: `.tasks/exec`의 미검증 핸드오프를 감지해 무인으로 검증한다. 부정행위·완료조건 충족·품질을 확인한다. 합격이면 기록 없음(파일명이 상태), 수정 요구가 있으면 `.tasks/review/<name>.md`에 남긴다.
 - **언제 쓰나**: pipeline의 review 역할 세션.
 - **트리거**: `/awl-pipeline-review`.
-- **읽는법**: 마커는 `.taken` 하나로 통일돼 있다 — `exec/<name>.taken.md` + `review/` 쪽에 파일이 없으면 그게 곧 "합격·완료"다. 검증은 서브에이전트에 위임한다(exec 주장을 그대로 안 믿고 신선한 눈으로 독립 재검증). 이 세션 동안 워처 스크립트(`watch-exec.sh`)가 symlink된 `.tasks/` 경로(예: `.tasks -> .awl/lanes/<lane>`)에서도 올바르게 동작하도록 고쳐졌다 — `cd -P`/`pwd -P`로 스크립트의 물리적 위치를 완전히 따라가게 했다(`pipeline-watcher-symlink-invoke-fix`).
+- **읽는법**: 마커는 `.taken` 하나로 통일돼 있다 — `exec/<name>.taken.md` + `review/` 쪽에 파일이 없으면 그게 곧 "합격·완료"다. 검증은 서브에이전트에 위임한다(exec 주장을 그대로 안 믿고 신선한 눈으로 독립 재검증). 이 세션 동안 워처 스크립트(`watch-exec.sh`)가 symlink된 `.tasks/` 경로(예: `.tasks -> .awl/lanes/<lane>`)에서도 올바르게 동작하도록 고쳐졌다 — `cd -P`/`pwd -P`로 스크립트의 물리적 위치를 완전히 따라가게 했다(`pipeline-watcher-symlink-invoke-fix`). 유휴 시 다음 확인 예약은 exec와 대칭이다(`watch-exec.sh` one-shot 체크 → `EMPTY_COUNT` 기반 240초/1500초 백오프).
 
 ---
 
@@ -459,3 +459,5 @@
 `awl --help`(2026-07-19, 버전 0.6.18): init/status/brief/doctor/version-check/update/**uninstall**/config/work/lane/records/rules/gotchas/metrics/loop-summary/feedback/changelog/commit/review = 19개 — F-01(이전 조사)의 18개에서 `uninstall`이 하나 늘었다. 리뷰(`rev_5b70cac74220bb1ed7`)가 이 문서 초판에서 `uninstall` 항목 자체가 빠진 걸 잡아 이번에 추가했다 — `uninstall`은 storyline.md AC-01 커밋보다 먼저 main에 병합돼 조사 시점에 이미 `--help`에 있었는데 놓쳤다. hidden 명령은 `record`/`verify`/`state`/`evolve`/`defer-summary` 5개에 더해 `hold-recheck`가 새로 확인돼 6개다(`awl hold-recheck --help`로 존재 확인, `--help` 목록엔 안 뜬다). 합쳐서 25개.
 
 **재확인 2**(2026-07-20, 버전 0.6.20): `loop-summary`에 `--workitems`/`--since` 옵션이 추가됐지만(6b19c16) 새 top-level 명령은 아니라서 `awl --help` 목록·hidden 목록 둘 다 그대로다. 다시 세어봐도 visible 19개 + hidden 6개 = 25개로 변동 없다.
+
+**재확인 3**(버전 0.6.22): `pipeline-self-pace-loop`·`pipeline-self-pace-adaptive-backoff`가 exec/review의 유휴 재개 방식을 바꿨다(백그라운드 워처 상시 재무장 → 포그라운드 one-shot 체크 + `EMPTY_COUNT` 기반 240초/1500초 백오프). 둘 다 워처 스크립트와 `/awl-pipeline-exec`·`/awl-pipeline-review` 스킬 내부 동작만 바꿨을 뿐 새 `awl` 명령이나 옵션을 추가하지 않아 25개에서 변동 없다.
