@@ -127,7 +127,7 @@ awl-loop 기록 문체: 결론 먼저, 짧게 끊어서, 확인/미확인 분리
 > | `<name>.taken.md` | `<name>.md` | `<name>.taken.md` | exec 반영·재검증 대기 |
 >
 > **소유권**: plan/* 표식·exec/<name>.md 생성갱신·review/* 표식·exec의 .taken떼기 → exec. exec/에 .taken표식·review/<name>.md 생성 → review. plan/<name>.md 생성 → plan.
-> **워처**: review=`.tasks/watch-exec.sh`(exec/ 감시, `UNVERIFIED_READY`), exec=`.tasks/watch-inputs.sh`(review/+plan/ 감시, review 우선, hold 무시, `INPUTS_READY`). 미표식 *.md 8초 안정 시 발화. **포그라운드 1회 체크(one-shot)** — 내부 폴링 없이 즉시 결과를 찍고 종료한다. 처리 후, 또는 결과가 없으면 `/loop` 또는 `ScheduleWakeup`(~1800초)으로 다음 확인을 예약한다(pipeline-self-pace-loop).
+> **워처**: review=`.tasks/watch-exec.sh`(exec/ 감시, `UNVERIFIED_READY`), exec=`.tasks/watch-inputs.sh`(review/+plan/ 감시, review 우선, hold 무시, `INPUTS_READY`). 미표식 *.md 8초 안정 시 발화. **포그라운드 1회 체크(one-shot)** — 내부 폴링 없이 즉시 결과를 찍고 종료한다. 처리 후, 또는 결과가 없으면(`EMPTY_COUNT:N`) `/loop` 또는 `ScheduleWakeup`으로 다음 확인을 예약한다 — N이 0~1이면 240초, 2 이상이면 1500초(초기값, 2단계 백오프, pipeline-self-pace-adaptive-backoff).
 > **워처 락(그 순간의 체크 권리, one-shot)**: 각 워처는 원자적 `mkdir` 락 `.tasks/.locks/<role>`(role=review|exec)로 이 cwd에서 role당 "이 순간 한 번 검사할 권리"를 하나로 강제한다(오래 보유가 아니다 — pipeline-self-pace-loop AC-02, 워처가 one-shot이라 락 보유 시간도 그 한 번의 체크만큼으로 짧다). 다른 인스턴스가 같은 순간 같은 role 워처를 띄우면 `ALREADY_OWNED` 출력 후 즉시 종료(standby). 체크 시작 시 heartbeat 기록, 60s 넘게 stale(소유자가 EXIT trap 없이 죽음)이면 다음 체크가 원자적으로 탈취. → 여러 Orca claude-teams 인스턴스가 같은 cwd에 떠도 같은 순간의 중복 감시·이중 처리 없음.
 > **재검증**: 파일명이 상태 → 이미 .taken인 파일 재수정은 재감지 안 됨. .taken 떼거나 새 name.
 > **게이트 자율승인**: exec가 awl-loop 게이트1·2를 auto:true 승인. 게이트1=plan문서, 게이트2=review세션이 대신.
