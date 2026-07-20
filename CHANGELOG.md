@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.6.37] - 2026-07-20
+
 ### 고침
 
 - `/awl-pipeline` 계열 세션이 `.tasks/{README.md,watch-inputs.sh,watch-exec.sh}`를 매번 즉흥 작성하던
