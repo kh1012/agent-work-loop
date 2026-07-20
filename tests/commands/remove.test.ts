@@ -358,6 +358,37 @@ describe('remove', () => {
       expect(fs.existsSync(dirtyPath)).toBe(true); // 보존.
       expect(fs.existsSync(cleanPath)).toBe(false); // 정리됨.
     });
+
+    it('레인을 모두 정리하면 빈 .awl-worktrees/ 자체도 지운다 (F-1, git worktree remove 는 부모를 안 지움)', async () => {
+      const proj = fixtureProject();
+      const lanePath = path.join(proj, '.awl-worktrees', 'probe');
+      fs.mkdirSync(path.dirname(lanePath), { recursive: true });
+      execFileSync('git', ['worktree', 'add', lanePath, '-b', 'work/probe'], { cwd: proj });
+
+      await runRemove({ yes: true });
+
+      expect(fs.existsSync(path.join(proj, '.awl-worktrees'))).toBe(false);
+    });
+
+    it('보존된(더러운) 레인이 남아 있으면 .awl-worktrees/ 자체는 지우지 않는다', async () => {
+      const proj = fixtureProject();
+      const lanePath = path.join(proj, '.awl-worktrees', 'dirty');
+      fs.mkdirSync(path.dirname(lanePath), { recursive: true });
+      execFileSync('git', ['worktree', 'add', lanePath, '-b', 'work/dirty'], { cwd: proj });
+      fs.writeFileSync(path.join(lanePath, 'f.txt'), '고침\n');
+
+      await runRemove({ yes: true });
+
+      expect(fs.existsSync(path.join(proj, '.awl-worktrees'))).toBe(true);
+      expect(fs.existsSync(lanePath)).toBe(true);
+    });
+
+    it('.awl-worktrees/ 자체가 애초에 없어도 크래시하지 않는다', async () => {
+      const proj = fixtureProject();
+
+      await expect(runRemove({ yes: true })).resolves.not.toThrow();
+      expect(fs.existsSync(path.join(proj, '.awl-worktrees'))).toBe(false);
+    });
   });
 
   describe('AC-04: 부분 제거 — 파일 전체 삭제 금지', () => {

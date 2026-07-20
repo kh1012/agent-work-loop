@@ -17,6 +17,7 @@ import { resolveProjectRoot } from './config.js';
 import { packageEngineDir } from './init.js';
 import {
   type LaneInfo,
+  WORKTREES_DIR,
   branchOf,
   collectLanes,
   laneBranchMap,
@@ -641,6 +642,20 @@ export async function runRemove(opts: RemoveOpts): Promise<void> {
   const laneResults: LaneRemoveResult[] = [];
   for (const lane of lanes) {
     laneResults.push(await removeLaneSafely(root, lane));
+  }
+
+  // git worktree remove 는 레인 하위 디렉토리만 지우고 .awl-worktrees/ 자체는 그대로
+  // 둔다 — 레인을 전부(또는 애초에 하나도) 정리한 뒤 빈 채로 남으면 마저 지운다.
+  // 보존된 레인이 남아 있으면 비어 있지 않으니 readdirSync 길이 검사가 자연히 건너뛴다.
+  if (scope.project) {
+    const worktreesDir = path.join(root, WORKTREES_DIR);
+    try {
+      if (fs.readdirSync(worktreesDir).length === 0) {
+        fs.rmdirSync(worktreesDir);
+      }
+    } catch {
+      // 없으면(ENOENT) 정리할 게 없다.
+    }
   }
 
   const skippedItems: { category: string; reason: string }[] = [];
