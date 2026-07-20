@@ -14,6 +14,7 @@ import {
   makeTokens,
   padEndDisplay,
   rawModeCapable,
+  sectionBox,
   signal,
   stringWidth,
 } from '../core/tty.js';
@@ -572,18 +573,26 @@ export function registerProject(entry: {
 /**
  * engine/skills/claude/ 아래 스킬 디렉토리 이름들. 없으면 빈 배열.
  * 스킬 이름을 하드코딩하지 않는다 — 디렉토리 구조가 곧 설치 목록이다(다중-스킬).
+ *
+ * 설치된 엔진(engineDir)을 먼저 본다 — 이미 scaffoldGlobal() 이 끝난 뒤라면 그게 실제로
+ * 설치될 내용 그대로다. 아직 설치 전(최초 실행 — engineDir 가 없음)이면 패키지에 번들된
+ * engine(packageEngineDir)으로 미리보기한다 — 그래야 스킬 선택 화면이 "0개"로 잘못
+ * 보이지 않는다(scaffoldGlobal() 이 곧 그 내용을 engineDir 로 복사하므로 라벨과 실제
+ * 설치가 어긋나지 않는다).
  */
 function claudeSkillNames(): string[] {
-  const dir = path.join(engineDir(), 'skills', 'claude');
-  try {
-    return fs
-      .readdirSync(dir, { withFileTypes: true })
-      .filter((e) => e.isDirectory())
-      .map((e) => e.name)
-      .sort();
-  } catch {
-    return [];
+  for (const base of [engineDir(), packageEngineDir()]) {
+    try {
+      return fs
+        .readdirSync(path.join(base, 'skills', 'claude'), { withFileTypes: true })
+        .filter((e) => e.isDirectory())
+        .map((e) => e.name)
+        .sort();
+    } catch {
+      // 다음 후보로 폴백.
+    }
   }
+  return [];
 }
 
 /**
@@ -823,7 +832,7 @@ const WIDTH = 64;
 /** 모든 init 화면을 같은 카드로 렌더한다. 고정 폭은 넓은 명령행도 정돈해 보이게
  * 하고, 내용이 더 길면 자연스럽게 확장한다. */
 function stepBox(step: string, title: string, lines: string[], c: Caps): string {
-  return card(`${step}${c.unicode ? ' · ' : ' - '}${title}`, lines, c, WIDTH - 4);
+  return sectionBox(`${step}${c.unicode ? ' · ' : ' - '}${title}`, lines, c, WIDTH - 4);
 }
 
 const VERIFY_LABELS: Record<keyof VerifyMap, string> = {
@@ -881,7 +890,9 @@ export function renderResult(result: InitResult, inputs: InitInputs, c: Caps): s
   const line = (name: string, value: string, note = ''): string =>
     `  ${padEndDisplay(name, 20)}${t.emphasis(value)}${note ? `    ${color.dim(note)}` : ''}`;
 
-  const setupLines: string[] = [];
+  // 맨 첫 줄에 설치된 엔진 버전을 보여준다 — 스킬이 최신으로 갱신됐는지 이 화면
+  // 하나만 보고 바로 확인할 수 있게(사용자 피드백).
+  const setupLines: string[] = [t.emphasis(`[v${result.engineVersion}]`)];
   setupLines.push(line('~/.awl', result.globalCreated ? '생성됨' : '이미 있음'));
   setupLines.push(line('~/.awl/engine', result.engineVersion));
   setupLines.push(line('.awl/config.json', '생성됨', '<- 커밋하세요. 팀원은 이 파일을 씁니다'));
@@ -917,9 +928,9 @@ export function renderResult(result: InitResult, inputs: InitInputs, c: Caps): s
   }
   return [
     '',
-    card('설정 완료', setupLines, c, WIDTH - 4),
+    sectionBox('설정 완료', setupLines, c, WIDTH - 4),
     '',
-    card('다음 단계', nextLines, c, WIDTH - 4),
+    sectionBox('다음 단계', nextLines, c, WIDTH - 4),
   ].join('\n');
 }
 
@@ -1186,7 +1197,7 @@ async function interactiveInputs(
 
     // readline은 raw-mode 키 입력을 동시에 읽어 화면을 망가뜨린다. 따라서 첫
     // 선택기는 readline을 만들기 전에 실행하고, 이후 텍스트 질문 때만 만든다.
-    process.stdout.write(`\n${screens.lang}\n`);
+    process.stdout.write(`\n${screens.lang}\n\n`);
     const rawLanguage = useRawMode
       ? await runInteractiveSelect(LANG_OPTIONS, langDefaultIndex(projectRoot), false, c, [], {
           title: '주 언어',
@@ -1221,9 +1232,9 @@ async function interactiveInputs(
     const verify = located.verify;
     if (located.cwd) {
       // 패키지를 새로 골랐으면 그 패키지에서 감지한 값으로 화면도 다시 그린다.
-      process.stdout.write(`\n${stepBox('2/3', '검증 명령어', verifyStepLines(verify), c)}\n`);
+      process.stdout.write(`\n${stepBox('2/3', '검증 명령어', verifyStepLines(verify), c)}\n\n`);
     } else {
-      process.stdout.write(`\n${screens.verify}\n`);
+      process.stdout.write(`\n${screens.verify}\n\n`);
     }
     for (const k of Object.keys(VERIFY_LABELS) as (keyof VerifyMap)[]) {
       const cur = verify[k];
@@ -1236,12 +1247,12 @@ async function interactiveInputs(
     applyVerifyCwd(verify, located.cwd);
 
     // 3. [3/3] 규칙과 프로젝트 성격
-    process.stdout.write(`\n${screens.character}\n`);
+    process.stdout.write(`\n${screens.character}\n\n`);
     const character = (await ask(prompt(), '  > ')).trim();
 
     // 6. 마지막 선택기만 다시 raw-mode를 쓸 수 있다. readline을 먼저 완전히 닫아
     // stdin의 유일한 소비자가 선택기라는 것을 보장한다.
-    process.stdout.write(`\n${screens.skills}\n`);
+    process.stdout.write(`\n${screens.skills}\n\n`);
     const agents = detectAgents(projectRoot);
     const skillOptions = [
       '모두 설치 (Claude Code + Codex)',
@@ -1396,6 +1407,59 @@ export function resolveProjectChoice(
   return { kind: 'cancel' };
 }
 
+/** 경로를 realpath 로 정규화한다. 존재하지 않거나 실패하면 path.resolve 로 폴백한다
+ * (symlink·trailing slash 차이로 등록된 프로젝트를 놓치지 않으면서도, 이미 지워진
+ * 프로젝트의 옛 경로 문자열도 여전히 비교할 수 있게). */
+function realpathOrResolve(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+
+/**
+ * ~/.awl/projects.json 에 이미 등록된 프로젝트의 정규화된 절대경로 집합
+ * (init-project-picker). 하위 git 스캔 후보에서 이미 붙인 프로젝트를 다시 보여주지
+ * 않기 위해 쓴다. 파일이 없거나 깨졌으면 빈 집합(안전 폴백 — throw 하지 않는다).
+ */
+export function registeredProjectPaths(): Set<string> {
+  try {
+    const raw = JSON.parse(fs.readFileSync(projectsFile(), 'utf8'));
+    if (!Array.isArray(raw)) {
+      return new Set();
+    }
+    const paths = new Set<string>();
+    for (const entry of raw as unknown[]) {
+      if (
+        entry &&
+        typeof entry === 'object' &&
+        typeof (entry as { path?: unknown }).path === 'string'
+      ) {
+        paths.add(realpathOrResolve((entry as { path: string }).path));
+      }
+    }
+    return paths;
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * scanGitProjects 후보에서 이미 등록된 프로젝트를 뺀다(init-project-picker). 순수 함수
+ * — registeredProjectPaths 를 인자로 받아, 실제 ~/.awl/projects.json 없이도 테스트할 수
+ * 있다.
+ */
+export function excludeRegisteredProjects(
+  candidates: GitProjectCandidate[],
+  registered: Set<string>,
+): GitProjectCandidate[] {
+  if (registered.size === 0) {
+    return candidates;
+  }
+  return candidates.filter((c) => !registered.has(realpathOrResolve(c.path)));
+}
+
 /**
  * interactive init 첫 단계: 어느 프로젝트에 awl 을 붙일지 고른다(init-project-picker).
  * cwd 가 git 프로젝트면 "이 프로젝트/다른 곳/취소", 아니거나 원하면 하위 git 프로젝트를
@@ -1443,7 +1507,7 @@ async function pickProjectRoot(cwd: string, c: Caps): Promise<string | null> {
       }
       // idx === 1 → 하위 스캔으로 내려간다.
     }
-    const candidates = scanGitProjects(cwd);
+    const candidates = excludeRegisteredProjects(scanGitProjects(cwd), registeredProjectPaths());
     const labels = [...candidates.map((p) => `${p.name}  (${p.path})`), '직접 경로 입력', '취소'];
     const title =
       candidates.length > 0

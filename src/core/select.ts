@@ -1,4 +1,4 @@
-import { type Caps, card, makeColors, makeSymbols } from './tty.js';
+import { type Caps, makeColors, makeSymbols, sectionBox } from './tty.js';
 
 /**
  * 방향키 선택의 순수 상태 전이 + 렌더 (WI-Y).
@@ -165,7 +165,7 @@ function renderInteractiveSelect(
     lines.push('');
     lines.push(color.dim(presentation.hint));
   }
-  const text = card(presentation.title ?? '선택', lines, c);
+  const text = sectionBox(presentation.title ?? '선택', lines, c);
   return { text, lineCount: text.split('\n').length };
 }
 
