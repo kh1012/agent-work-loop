@@ -360,7 +360,7 @@ awl work switch <ID>       # 보관된 워크아이템으로 전환
 스킬 문서가 게이트에서 반드시 도구를 호출하도록 지시돼 있습니다. 계속 안 멈추면 스킬이 최신인지 확인하세요. `awl doctor`가 `claude-skill-vs-engine` 불일치를 경고하면 `awl init --yes`로 재설치합니다.
 
 **awl을 완전히 제거하려면**
-`awl uninstall`을 실행합니다. 기본은 드라이런이라 먼저 무엇이 지워질지 보여주고, 실제로 지우려면 `--yes`를 붙입니다. 기본은 이 프로젝트만 지우고, `~/.awl`까지 지우려면 `--global`을 명시해야 합니다. 자세한 플래그와 실제 출력은 [`commands.md`의 `awl uninstall`](docs/presentation/commands.md#awl-uninstall)을 참고하세요.
+`awl remove`를 실행합니다. 기본은 드라이런이라 먼저 무엇이 지워질지 보여주고, 실제로 지우려면 `--yes`를 붙입니다. 기본은 이 프로젝트만 지우고, `~/.awl`까지 지우려면 `--global`을 명시해야 합니다. 자세한 플래그와 실제 출력은 [`commands.md`의 `awl remove`](docs/presentation/commands.md#awl-remove)를 참고하세요.
 
 ---
 
