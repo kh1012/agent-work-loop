@@ -16,7 +16,11 @@ import { parseRuleFile } from './rules.js';
  *
  * 기법 (a) teardown 병합 — (b) always-global-write 는 전역 동시쓰기 락을 전제하는데
  *   그 락 신설은 concurrency(P0) 몫이라, 여기서는 teardown 때 로컬→전역으로 병합만 한다.
- *   records/state 는 병합하지 않는다 — 로컬 격리·폐기 그대로다(병렬 안전 유지).
+ *   state 는 병합하지 않는다 — 로컬 격리·폐기 그대로다. records 는 병합한다(아래
+ *   mergeIsolatedRecords) — gotcha 와 달리 전역 고유 ID 스키마가 없는 순수 append 로그라
+ *   read-modify-write 경쟁상태가 없다(이미 여러 awl 프로세스가 이 방식으로 동시에 전역
+ *   records 에 쓰고 있다 — appendRecord). 레인 출처는 archiveIsolatedRecords 스냅샷으로
+ *   별도 보존한다.
  *
  * 동시성 한계(P0 로 미룸): 전역 쓰기(mergeIsolatedLearning)는 락 없이 read-then-write 한다.
  *   직렬 teardown(정상 오케스트레이션 — git worktree remove 는 워크트리 내부에서 못 돌아
@@ -235,7 +239,9 @@ export interface MergeLearningResult {
 
 /**
  * fromRoot(격리 home) 의 학습을 toRoot(전역) 로 멱등 병합한다. gotchas/rules/generations 만
- * 대상 — records/state 는 안 건드린다(격리 유지). 부작용은 toRoot 아래 쓰기뿐.
+ * 대상 — records/state 는 안 건드린다(이 함수 스코프 밖). records 병합·아카이브는 별도 함수
+ * (mergeIsolatedRecords/archiveIsolatedRecords) — mergeIsolatedHome 이 이 셋을 합쳐 부른다.
+ * 부작용은 toRoot 아래 쓰기뿐.
  */
 export function mergeIsolatedLearning(fromRoot: string, toRoot: string): MergeLearningResult {
   const fromGotchas = readGotchasFrom(fromRoot);
@@ -251,6 +257,121 @@ export function mergeIsolatedLearning(fromRoot: string, toRoot: string): MergeLe
   const rulesAdded = mergeRules(fromRoot, toRoot, idMap);
   const generationsAdded = copyGenerations(fromRoot, toRoot);
   return { gotchasAdded: added.length, rulesAdded, generationsAdded };
+}
+
+/** root/records/*.jsonl 파일명(archive/·diffs/ 제외, 정렬). 없으면 빈 배열. */
+function recordFiles(root: string): string[] {
+  const dir = path.join(root, 'records');
+  try {
+    return fs
+      .readdirSync(dir)
+      .filter((f) => f.endsWith('.jsonl'))
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+/** at(ISO) 에서 YYYY-MM 월 키. record.ts monthFile 과 같은 규칙(root 를 파라미터로 받는 버전). */
+function monthOf(at: string): string {
+  return at.slice(0, 7);
+}
+
+/** fromRoot/records/diffs 하위 파일을 toRoot/records/diffs 로 copy-if-absent. */
+function copyRecordDiffs(fromRoot: string, toRoot: string): void {
+  const fromDir = path.join(fromRoot, 'records', 'diffs');
+  if (!fs.existsSync(fromDir)) {
+    return;
+  }
+  const toDir = path.join(toRoot, 'records', 'diffs');
+  for (const f of fs.readdirSync(fromDir)) {
+    const dest = path.join(toDir, f);
+    if (!fs.existsSync(dest)) {
+      fs.mkdirSync(toDir, { recursive: true });
+      fs.copyFileSync(path.join(fromDir, f), dest);
+    }
+  }
+}
+
+export interface MergeRecordsResult {
+  recordsMerged: number;
+}
+
+/**
+ * fromRoot(격리 home) 의 records 를 toRoot(전역) 로 재생(replay)한다 — 각 레코드의 at
+ * 필드로 월 파일을 정해 append 한다(record.ts appendRecord 와 같은 규칙). diffs/ 도
+ * copy-if-absent 로 같이 옮긴다(blocked 레코드의 diff 필드가 가리키는 patch 가 전역에도
+ * 있어야 나중에 조회된다). gotcha 와 달리 전역 고유 ID 재부여가 필요 없는 순수 append 라
+ * (records 는 애초에 전역 고유 ID 스키마가 없다) 동시 teardown 에도 read-modify-write
+ * 경쟁상태가 생기지 않는다 — appendFileSync 는 O_APPEND 로 각 write 가 원자적이고, 이미
+ * 여러 awl 프로세스가 이 방식으로 동시에 전역 records 에 쓰고 있다.
+ */
+export function mergeIsolatedRecords(fromRoot: string, toRoot: string): MergeRecordsResult {
+  let recordsMerged = 0;
+  for (const f of recordFiles(fromRoot)) {
+    const content = fs.readFileSync(path.join(fromRoot, 'records', f), 'utf8');
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed === '') {
+        continue;
+      }
+      let record: Record<string, unknown>;
+      try {
+        record = JSON.parse(trimmed) as Record<string, unknown>;
+      } catch {
+        continue; // 깨진 줄은 건너뛴다(readGotchasFrom 과 같은 원칙).
+      }
+      const at = typeof record.at === 'string' ? record.at : undefined;
+      if (!at) {
+        continue;
+      }
+      const dest = path.join(toRoot, 'records', `${monthOf(at)}.jsonl`);
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.appendFileSync(dest, `${trimmed}\n`);
+      recordsMerged += 1;
+    }
+  }
+  if (recordsMerged > 0) {
+    copyRecordDiffs(fromRoot, toRoot);
+  }
+  return { recordsMerged };
+}
+
+/**
+ * fromRoot(격리 home) 의 records 원본 줄을 재파싱 없이 그대로 toRoot(전역)
+ * /records/archive/<project>/<date>-<lane>.jsonl 스냅샷 하나로 남긴다(레인 출처 추적용,
+ * mergeIsolatedRecords 로 이미 전역에 재생된 것과 별개). records 가 없으면 null. 같은
+ * project+lane+날짜로 두 번 아카이브되면(레인을 지웠다 같은 이름으로 같은 날 다시 만든 뒤
+ * 또 지우는 드문 경우) 앞의 스냅샷을 덮어쓰지 않고 -2, -3 접미사로 비켜 쓴다.
+ */
+export function archiveIsolatedRecords(
+  fromRoot: string,
+  toRoot: string,
+  meta: { project: string; lane: string },
+): string | null {
+  const lines: string[] = [];
+  for (const f of recordFiles(fromRoot)) {
+    const content = fs.readFileSync(path.join(fromRoot, 'records', f), 'utf8');
+    for (const line of content.split('\n')) {
+      if (line.trim() !== '') {
+        lines.push(line);
+      }
+    }
+  }
+  if (lines.length === 0) {
+    return null;
+  }
+  const date = new Date().toISOString().slice(0, 10);
+  const dir = path.join(toRoot, 'records', 'archive', meta.project);
+  fs.mkdirSync(dir, { recursive: true });
+  let dest = path.join(dir, `${date}-${meta.lane}.jsonl`);
+  let n = 2;
+  while (fs.existsSync(dest)) {
+    dest = path.join(dir, `${date}-${meta.lane}-${n}.jsonl`);
+    n += 1;
+  }
+  fs.writeFileSync(dest, `${lines.join('\n')}\n`);
+  return dest;
 }
 
 /**
@@ -279,11 +400,21 @@ function resolveParentGlobal(isolatedHome: string): string {
   return globalRoot();
 }
 
+export interface MergeHomeResult extends MergeLearningResult {
+  recordsMerged: number;
+  recordsArchivePath: string | null;
+}
+
 /**
- * teardown 진입점 — 격리 home 의 학습을 전역으로 병합한다. 워크트리 삭제 전에 호출한다.
- * 병합할 게 없거나(격리 home 부재) 출발=목적(같은 store)이면 null(할 일 없음).
+ * teardown 진입점 — 격리 home 의 학습(gotchas/rules/generations)과 records 를 전역으로
+ * 넘긴다. 워크트리 삭제 전에 호출한다. meta.project/meta.lane 은 records 아카이브 경로
+ * (records/archive/<project>/<date>-<lane>.jsonl)에 쓴다. 병합할 게 없거나(격리 home 부재)
+ * 출발=목적(같은 store)이면 null(할 일 없음).
  */
-export function mergeIsolatedHome(isolatedHome: string): MergeLearningResult | null {
+export function mergeIsolatedHome(
+  isolatedHome: string,
+  meta: { project: string; lane: string },
+): MergeHomeResult | null {
   if (!fs.existsSync(isolatedHome)) {
     return null;
   }
@@ -291,5 +422,8 @@ export function mergeIsolatedHome(isolatedHome: string): MergeLearningResult | n
   if (path.resolve(isolatedHome) === path.resolve(toRoot)) {
     return null; // 격리 home 이 곧 전역 — 자기 자신으로의 병합은 무의미.
   }
-  return mergeIsolatedLearning(isolatedHome, toRoot);
+  const learning = mergeIsolatedLearning(isolatedHome, toRoot);
+  const recordsArchivePath = archiveIsolatedRecords(isolatedHome, toRoot, meta);
+  const { recordsMerged } = mergeIsolatedRecords(isolatedHome, toRoot);
+  return { ...learning, recordsMerged, recordsArchivePath };
 }

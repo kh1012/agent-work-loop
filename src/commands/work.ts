@@ -16,6 +16,7 @@ import { loadConfig, resolveProjectRoot } from './config.js';
 import { gitBranch } from './doctor.js';
 import { installClaudeSkill } from './init.js';
 import { mergeIsolatedHome, writeParentMarker } from './learning-merge.js';
+import { loadProjectName } from './record.js';
 import { loadState, migrateState, writeState } from './state.js';
 import {
   buildVerifyBaseline,
@@ -878,23 +879,28 @@ export async function runWorkDone(id: string, opts: { force?: boolean } = {}): P
   const c = caps();
   const color = makeColors(c.color);
 
-  // 격리(.awl/home) 학습을 전역으로 병합한다 — 워크트리/홈 삭제·완료 전에. --isolated 는
-  // worktree 유무로 홈 위치가 갈린다(work new): 워크트리 wi 는 worktree/.awl/home, 비워크트리
-  // 격리 wi 는 root/.awl/home. 격리가 아니면(.awl/home 부재) no-op. 멱등이라 --force 재시도에도
-  // 중복되지 않는다. 병합이 실패하면(전역 쓰기 오류 등) 깔끔히 중단해 학습을 보존한다 —
-  // 삭제 전이라 재시도로 복구된다.
+  // 격리(.awl/home) 학습·records 를 전역으로 병합한다 — 워크트리/홈 삭제·완료 전에.
+  // --isolated 는 worktree 유무로 홈 위치가 갈린다(work new): 워크트리 wi 는
+  // worktree/.awl/home, 비워크트리 격리 wi 는 root/.awl/home. 격리가 아니면(.awl/home
+  // 부재) no-op. 멱등이라 --force 재시도에도 중복되지 않는다. 병합이 실패하면(전역 쓰기
+  // 오류 등) 깔끔히 중단해 학습을 보존한다 — 삭제 전이라 재시도로 복구된다.
   let worktreeNote: string | null = null;
   let mergeNote: string | null = null;
+  let recordsNote: string | null = null;
   const isolatedHome = result.worktree
     ? path.join(result.worktree.path, '.awl', 'home')
     : path.join(root, '.awl', 'home');
   try {
-    const merged = mergeIsolatedHome(isolatedHome);
+    const project = loadProjectName(root) ?? path.basename(root);
+    const merged = mergeIsolatedHome(isolatedHome, { project, lane: id });
     if (
       merged &&
       (merged.gotchasAdded > 0 || merged.rulesAdded > 0 || merged.generationsAdded > 0)
     ) {
       mergeNote = `학습 전역 병합  gotcha ${merged.gotchasAdded} · rule ${merged.rulesAdded} · generation ${merged.generationsAdded}`;
+    }
+    if (merged && merged.recordsMerged > 0) {
+      recordsNote = `records 전역 병합  ${merged.recordsMerged}건${merged.recordsArchivePath ? ` · 아카이브 ${merged.recordsArchivePath}` : ''}`;
     }
   } catch (e) {
     process.stderr.write(
@@ -924,5 +930,8 @@ export async function runWorkDone(id: string, opts: { force?: boolean } = {}): P
   }
   if (mergeNote) {
     process.stdout.write(`    ${color.dim(mergeNote)}\n`);
+  }
+  if (recordsNote) {
+    process.stdout.write(`    ${color.dim(recordsNote)}\n`);
   }
 }
