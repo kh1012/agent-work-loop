@@ -5,6 +5,17 @@
 
 ## [Unreleased]
 
+## [0.6.33] - 2026-07-20
+
+### 변경
+
+- CLI 카드/프롬프트 시각 언어를 clack-prompts 스타일 연결 트랜스크립트(┌ ◇ ◆ │ └)로
+  재설계. `awl init`/`awl config`의 다단계 흐름은 세션 시작부터 끝까지 하나의 좌측
+  세로선으로 이어지고, `status`/`doctor`/`lane` 등 나머지 명령의 카드 출력도 같은
+  글리프로 자동 전환된다(`sectionBox` 시그니처는 그대로 — 새 `flowOpen`/`flowActiveNode`
+  /`flowClose` 위의 얇은 래퍼가 됐다). 신규 `src/core/flow.ts`가 세션 상태를 관리한다.
+  ASCII 폴백도 동일하게 지원(`+ o * > | +`).
+
 ## [0.6.32] - 2026-07-20
 
 ### 고침
