@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "ignore": ["dist", "node_modules", "ref-knowledge-graph"]
+    "ignore": ["dist", "node_modules"]
   },
   "formatter": {
     "enabled": true,
