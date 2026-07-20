@@ -159,9 +159,10 @@ describe('renderFeedback — 해법 미제시 (BC-05)', () => {
     expect(text).toContain('아직 수집된 awl-feedback 이 없습니다');
   });
 
-  it('반복 태그가 하드코딩 [!] 가 아니라 signal(warn) 로 caps 폴백한다 (cli-visual-consistency AC-05)', () => {
+  it('반복 태그가 하드코딩이 아니라 signal(warn) 로 caps 폴백한다 (cli-visual-consistency AC-05)', () => {
     const rep = buildFeedbackReport([fb({ area: 'commit' }), fb({ area: 'commit' })]);
     expect(renderFeedback(rep, ASCII)).toContain('[!] 반복'); // ASCII 폴백
-    expect(renderFeedback(rep, { unicode: true, color: false, tty: true })).toContain('⚠️ 반복'); // 유니코드
+    // signal() 이 유니코드 여부와 무관하게 텍스트 마커를 쓰므로(이모지 폐지) 동일하게 [!].
+    expect(renderFeedback(rep, { unicode: true, color: false, tty: true })).toContain('[!] 반복');
   });
 });

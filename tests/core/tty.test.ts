@@ -160,8 +160,8 @@ describe('makeSymbols — 유니코드/ASCII 폴백', () => {
     expect(ascii.checkOn).toBe('[x]');
   });
 
-  it('상태 이모지는 유니코드 TTY에서만 쓴다', () => {
-    expect(signal({ unicode: true, color: false, tty: true }, 'warn')).toBe('⚠️');
+  it('상태 신호는 유니코드 여부와 무관하게 텍스트 마커를 쓴다(이모지 폐지)', () => {
+    expect(signal({ unicode: true, color: false, tty: true }, 'warn')).toBe('[!]');
     expect(signal({ unicode: false, color: false, tty: false }, 'warn')).toBe('[!]');
   });
 });
@@ -332,8 +332,8 @@ describe('wrapToWidth — hanging indent(cli-design-tokens AC-03)', () => {
 });
 
 describe('signal error 폴백(cli-visual-consistency AC-01)', () => {
-  it('유니코드는 ❌, ASCII(CI/파이프)는 [x] — raw 이모지 없음', () => {
-    expect(signal({ unicode: true, color: false, tty: true }, 'error')).toBe('❌');
+  it('유니코드·ASCII(CI/파이프) 모두 [x] — raw 이모지 없음', () => {
+    expect(signal({ unicode: true, color: false, tty: true }, 'error')).toBe('[x]');
     expect(signal({ unicode: false, color: false, tty: false }, 'error')).toBe('[x]');
   });
 });

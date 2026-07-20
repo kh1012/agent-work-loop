@@ -621,12 +621,13 @@ export function makeTokens(c: Caps): Tokens {
   };
 }
 
-/** 사람용 상태 신호. 모든 명령이 같은 성공·경고·오류 어휘를 쓰게 한다. */
+/** 사람용 상태 신호. 모든 명령이 같은 성공·경고·오류 어휘를 쓰게 한다.
+ * 유니코드 여부와 무관하게 항상 텍스트 마커를 쓴다 — 이모지(✅⚠️❌ℹ️)는 터미널·
+ * 폰트마다 렌더 폭이 들쭉날쭉해 정렬이 깨지고, 색맹 등 색만으로 구분 못 하는
+ * 환경에서 접근성도 떨어진다는 지적(사용자 피드백)에 따라 색+텍스트로 통일했다. */
 export function signal(c: Caps, kind: 'ok' | 'warn' | 'error' | 'info'): string {
   const color = makeColors(c.color);
-  const raw = c.unicode
-    ? { ok: '✅', warn: '⚠️', error: '❌', info: 'ℹ️' }[kind]
-    : { ok: '[ok]', warn: '[!]', error: '[x]', info: '[i]' }[kind];
+  const raw = { ok: '[ok]', warn: '[!]', error: '[x]', info: '[i]' }[kind];
   if (kind === 'ok') {
     return color.green(raw);
   }
