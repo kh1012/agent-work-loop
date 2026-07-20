@@ -5,6 +5,19 @@
 
 ## [Unreleased]
 
+### 고침
+
+- `/awl-pipeline` 계열 세션이 `.tasks/{README.md,watch-inputs.sh,watch-exec.sh}`를 매번 즉흥 작성하던
+  문제를 고쳤다. `engine/skills/claude/awl-pipeline/templates/`를 신설해 `awl init`/`awl lane new`의
+  기존 스킬 설치 경로(`installClaudeSkill`)로 함께 배포하고, `awl-pipeline`/`awl-pipeline-plan`/
+  `awl-pipeline-exec`/`awl-pipeline-review` 4개 SKILL.md의 부트스트랩 절이 그 템플릿을 `cp`로 그대로
+  복사하도록 통일했다(내용 재작성 금지). 템플릿 원본은 이 저장소 루트 `.tasks/`에 남아있던 구버전
+  (`while true` 폴링) 대신, exec/review SKILL.md에 이미 박혀있던 최신 one-shot(`EMPTY_COUNT` 2단계
+  백오프) 워처를 채택했다 — exec/review에 중복 박혀있던 heredoc은 삭제해 향후 드리프트를 막았다.
+- `awl-pipeline-plan`이 목표 서술 없이 진입했을 때 AskUserQuestion(닫힌 선택지용 도구)을 열린 목표
+  질의에 오남용하지 않도록, 평서문으로 안내하고 대기하라고 명시했다(오케스트레이터 `awl-pipeline`에도
+  동일 규칙을 반영).
+
 ## [0.6.36] - 2026-07-20
 
 ### 추가

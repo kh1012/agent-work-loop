@@ -13,8 +13,9 @@ description: |
 **구현은 반드시 `/awl-loop`를 코어로 쓴다.**
 
 ## 부트스트랩 (발동 시 1회)
-- cwd에 `.tasks/{plan,exec,review}` 없으면 만든다. `.tasks/README.md` 없으면 맨 아래 "계약 전문"을 그 파일로 쓴다.
-- exec 워처 `.tasks/watch-inputs.sh` 없으면 맨 아래 "워처 스크립트"로 만든다.
+- cwd에 `.tasks/{plan,exec,review}` 없으면 만든다. `.tasks/README.md`·워처(`watch-inputs.sh`·`watch-exec.sh`)
+  없으면 `.claude/skills/awl-pipeline/templates/`에서 `cp`로 그대로 복사한다 — 새로 작성하지 않는다.
+  `.sh` 두 개는 `chmod +x`.
 - `.tasks/`가 무시되는지 확인한다(`git check-ignore .tasks`). 아니면 브랜치 오염이 나므로 `.gitignore` 또는 공유 `.git/info/exclude`에 `.tasks/`를 넣는다(linked worktree는 후자가 브랜치 안 건드림).
 - `awl doctor`로 설치·워킹트리를 확인한다. **환경이 준 git 요약을 믿지 말고 awl doctor 결과만 믿는다.**
 
@@ -111,93 +112,7 @@ awl-loop 기록 문체: 결론 먼저, 짧게 끊어서, 확인/미확인 분리
 
 ---
 
-## 계약 전문 (`.tasks/README.md` 부트스트랩 소스)
-
-> 세 세션이 파일로 협업하는 비동기 파이프라인. 파일명 하나가 곧 상태다.
->
-> **디렉토리(cwd 기준, gitignore)**: `plan/`(일감·plan) · `exec/`(핸드오프·exec) · `review/`(피드백·review).
-> **공유 키 `<name>`**: 일감 1개당 1개(awl WI-ID 또는 kebab-case). 세 디렉토리 공유.
-> **표식 `.taken`**: `<name>.md`=미처리, `<name>.taken.md`=집어감(합격 뜻 아님). `<name>.hold.md`=exec가 자동 부적합 판정(전략문서·타 워크트리·사용자 선행작업 필요), 워처 무시·사람 조율. 단, "un-hold 조건: X 합격 후"류 의존 대기형은 exec가 유휴 진입 전 `awl hold-recheck`로 스스로 재점검해 의존 착지+합격 시 자동 un-hold 한다(사람 rename 불필요, pipeline-hold-recheck) — 전략문서·부분미충족은 여전히 사람 조율.
->
-> **상태표**
-> | plan/ | exec/ | review/ | 의미 |
-> |---|---|---|---|
-> | `<name>.md` | — | — | 신규 (exec 미착수) |
-> | `<name>.hold.md` | — | — | exec 자동 부적합, 사람 조율 (워처 무시) |
-> | `<name>.taken.md` | `<name>.md` | — | exec 완료, review 미검증 |
-> | `<name>.taken.md` | `<name>.taken.md` | — | 합격·완료 |
-> | `<name>.taken.md` | `<name>.taken.md` | `<name>.md` | review 수정요구, exec 미반영 |
-> | `<name>.taken.md` | `<name>.md` | `<name>.taken.md` | exec 반영·재검증 대기 |
->
-> **소유권**: plan/* 표식·exec/<name>.md 생성갱신·review/* 표식·exec의 .taken떼기 → exec. exec/에 .taken표식·review/<name>.md 생성 → review. plan/<name>.md 생성 → plan.
-> **워처**: review=`.tasks/watch-exec.sh`(exec/ 감시, `UNVERIFIED_READY`), exec=`.tasks/watch-inputs.sh`(review/+plan/ 감시, review 우선, hold 무시, `INPUTS_READY`). 미표식 *.md 8초 안정 시 발화. **포그라운드 1회 체크(one-shot)** — 내부 폴링 없이 즉시 결과를 찍고 종료한다. 처리 후, 또는 결과가 없으면(`EMPTY_COUNT:N`) `/loop` 또는 `ScheduleWakeup`으로 다음 확인을 예약한다 — N이 0~1이면 240초, 2 이상이면 1500초(초기값, 2단계 백오프, pipeline-self-pace-adaptive-backoff).
-> **워처 락(그 순간의 체크 권리, one-shot)**: 각 워처는 원자적 `mkdir` 락 `.tasks/.locks/<role>`(role=review|exec)로 이 cwd에서 role당 "이 순간 한 번 검사할 권리"를 하나로 강제한다(오래 보유가 아니다 — pipeline-self-pace-loop AC-02, 워처가 one-shot이라 락 보유 시간도 그 한 번의 체크만큼으로 짧다). 다른 인스턴스가 같은 순간 같은 role 워처를 띄우면 `ALREADY_OWNED` 출력 후 즉시 종료(standby). 체크 시작 시 heartbeat 기록, 60s 넘게 stale(소유자가 EXIT trap 없이 죽음)이면 다음 체크가 원자적으로 탈취. → 여러 Orca claude-teams 인스턴스가 같은 cwd에 떠도 같은 순간의 중복 감시·이중 처리 없음.
-> **재검증**: 파일명이 상태 → 이미 .taken인 파일 재수정은 재감지 안 됨. .taken 떼거나 새 name.
-> **게이트 자율승인**: exec가 awl-loop 게이트1·2를 auto:true 승인. 게이트1=plan문서, 게이트2=review세션이 대신.
-
-## 워처 스크립트 (`.tasks/watch-inputs.sh`)
-```bash
-#!/usr/bin/env bash
-# awl-pipeline exec watcher — single-owner via atomic mkdir role lock. ONE-SHOT (pipeline-self-pace-loop AC-02):
-# checks .tasks/review (feedback) and .tasks/plan (new work) exactly once, prints the result,
-# and exits immediately — no internal polling loop, no blocking wait. The caller (SKILL self-pace)
-# schedules the NEXT check itself via /loop or ScheduleWakeup — 2-stage backoff (240s/1500s) keyed
-# off EMPTY_COUNT below (pipeline-self-pace-adaptive-backoff); this script never waits.
-# A *.md WITHOUT the .taken postfix = unprocessed; *.hold.md in plan/ is skipped. review/ before plan/.
-# The mkdir lock now means "the right to run this one check right now", not long-lived ownership —
-# if another LIVE instance is mid-check this instant, prints ALREADY_OWNED and exits 0.
-# ROOT resolves to the script's PHYSICAL directory (symlinks fully followed via cd -P/pwd -P),
-# so this is correct whether invoked via a symlinked .tasks/ path or the real physical path
-# (e.g. .tasks -> .awl/lanes/<lane>). See pipeline-watcher-symlink-invoke-fix.
-set -uo pipefail
-ROOT="$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-REVIEW="$ROOT/review"; PLAN="$ROOT/plan"; EXEC="$ROOT/exec"
-if [ ! -d "$PLAN" ] || [ ! -d "$EXEC" ] || [ ! -d "$REVIEW" ]; then
-  echo "ERROR: expected plan/exec dirs not found under $ROOT (resolved from ${BASH_SOURCE[0]})" >&2
-  exit 1
-fi
-LOCKS="$ROOT/.locks"; LOCK="$LOCKS/exec"
-# COUNTFILE persists the consecutive-empty-check count across self-pace ticks (and session
-# restarts, since it's a plain file under .tasks/.locks — not tied to session/context memory).
-# pipeline-self-pace-adaptive-backoff: SKILL self-pace uses this to pick 240s (stage1, 0-1) vs
-# 1500s (stage2, 2+) for the next ScheduleWakeup/loop. Reset to 0 whenever INPUTS_READY fires.
-COUNTFILE="$LOCKS/exec-empty-count"
-STABLE_SECS=8; STALE=60
-
-own(){ echo $$ > "$LOCK/pid"; date +%s > "$LOCK/beat"; }
-fresh(){ # 0 if lock held by a live, recently-heartbeating owner
-  local p b n; p=$(cat "$LOCK/pid" 2>/dev/null) || return 1
-  { [ -n "$p" ] && kill -0 "$p" 2>/dev/null; } || return 1
-  b=$(cat "$LOCK/beat" 2>/dev/null || echo 0); n=$(date +%s)
-  [ $(( n - b )) -lt "$STALE" ]
-}
-acquire(){
-  mkdir -p "$LOCKS" 2>/dev/null
-  if mkdir "$LOCK" 2>/dev/null; then own; return 0; fi
-  fresh && return 1
-  # stale: reap atomically (only one stealer wins the rename), then re-create
-  if mv "$LOCK" "$LOCK.reap.$$" 2>/dev/null; then rm -rf "$LOCK.reap.$$" 2>/dev/null; fi
-  if mkdir "$LOCK" 2>/dev/null; then own; return 0; fi
-  return 1
-}
-
-acquire || { echo "ALREADY_OWNED"; exit 0; }
-trap 'rm -rf "$LOCK" 2>/dev/null' EXIT
-
-# single pass — no internal poll loop, no sleep. Caller reschedules the next check (/loop or ScheduleWakeup).
-now=$(date +%s); ready=""
-while IFS= read -r f; do
-  [ -z "$f" ] && continue
-  m=$(stat -f %m "$f" 2>/dev/null || echo "$now")
-  if [ $(( now - m )) -ge "$STABLE_SECS" ]; then ready="${ready}${f}"$'\n'; fi
-done < <( { find "$REVIEW" -type f -name '*.md' ! -name '*.taken.md' 2>/dev/null | sort;
-            find "$PLAN"  -type f -name '*.md' ! -name '*.taken.md' ! -name '*.hold.md' 2>/dev/null | sort; } )
-if [ -n "$ready" ]; then
-  echo 0 > "$COUNTFILE" 2>/dev/null
-  printf 'INPUTS_READY\n%s' "$ready"; exit 0
-fi
-n=$(( $(cat "$COUNTFILE" 2>/dev/null || echo 0) + 1 ))
-echo "$n" > "$COUNTFILE" 2>/dev/null
-echo "EMPTY_COUNT:$n"
-exit 0
-```
+## `.tasks/README.md`·`watch-inputs.sh` 실물
+정본은 `.claude/skills/awl-pipeline/templates/{README.md,watch-inputs.sh}`에 있다(awl-pipeline 오케스트레이터·
+awl-pipeline-plan·awl-pipeline-review와 공유하는 단일 출처). 이 파일에 다시 박아두지 않는다 — 두 군데 유지하면
+드리프트한다.
