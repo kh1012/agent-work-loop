@@ -51,9 +51,9 @@ describe('awl 프로그램 구성', () => {
 
   it('배너에 핵심 문구가 담겨 있다', () => {
     expect(BANNER).toContain('Agent Work Loop');
-    expect(BANNER).toContain('같은 실패를 두 번 하지 않게');
-    expect(BANNER).toContain('awl 자체는 판단하지 않습니다');
-    expect(BANNER).toContain('판단은 Claude Code 나 Codex 가 합니다');
+    expect(BANNER).toContain('같은 실패를 두 번 하지 않는');
+    expect(BANNER).toContain('판단은 Claude Code나 Codex가 하고');
+    expect(BANNER).toContain('awl은 파일과 상태만 관리합니다');
     // 배너에 임시 진단 문구가 없어야 한다(cli-design-tokens AC-04 회귀잠금) — 재삽입 시 실패.
     expect(BANNER).not.toContain('/awl-improve-loop');
     expect(BANNER).not.toContain('임시 피드백');
@@ -324,7 +324,7 @@ describe.runIf(existsSync(distCli))('빌드된 CLI 실행', () => {
   it('--help 가 배너를 출력한다', () => {
     const out = execFileSync('node', [distCli, '--help']).toString();
     expect(out).toContain('Agent Work Loop');
-    expect(out).toContain('같은 실패를 두 번 하지 않게');
+    expect(out).toContain('같은 실패를 두 번 하지 않는');
   });
 
   it('제거된 deltas 명령은 unknown command 로 exit!=0 이다 (deltas-removal AC-01, dogfooding)', () => {
