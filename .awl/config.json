@@ -1,8 +1,6 @@
 {
   "project": "agent-work-loop",
-  "mainLanguage": [
-    "typescript"
-  ],
+  "mainLanguage": ["typescript"],
   "character": "",
   "engineVersion": "0.6.35",
   "verify": {
