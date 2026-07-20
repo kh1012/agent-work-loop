@@ -5,6 +5,22 @@
 
 ## [Unreleased]
 
+### 변경
+
+- `/awl-pipeline --gl` 실전 세션(0720_improve 레인, 14 workitem 무인 처리) 피드백을 awl-pipeline 계열
+  스킬 4개에 반영했다. (1) `Agent` 툴로 스폰된 exec/review 세션은 `ScheduleWakeup`/`CronCreate`가
+  툴셋에 없어 self-pace 절이 지시하는 자가 재예약이 불가능하다는 사실과, 그래서 오케스트레이터가
+  주기적으로 `SendMessage`로 재개시켜야 한다는 책임을 스폰 계약에 명시했다. (2) 위임한 구현/검증
+  서브에이전트의 구조화 응답이 지연되면 무한정 기다리지 말고 `git log`/diff를 직접 대조해 핸드오프·
+  판정을 메인이 직접 작성하는 폴백을 exec/review에 추가했다. (3) 스폰한 서브에이전트가 idle이 돼도
+  `TaskStop`은 시도하지 않는다(하위 세션은 소유권이 없어 실패, idle teammate는 자원을 점유하지
+  않음)고 명시했다. (4) 한 workitem에서 구현 서브에이전트를 동시에 여러 개 스폰할 때 공유
+  `AWL_HOME`의 `state.json` 활성 포인터 경합(gotcha G-001/G-002)을 피하도록, 각 서브에이전트에
+  pathspec 커밋(`git commit -- <파일>`)과 `awl record --workitem <id>` 명시를 표준 지침으로
+  승격했다. 게이트 record가 없는 예외 경로(단일 consolidated attempt record)는 `awl loop-summary`
+  개입·gate1배제 집계에서 조용히 0 기여로 빠진다는 사실도 참고로 남겼다(코드 변경 없음 — 저빈도
+  edge case).
+
 ## [0.6.38] - 2026-07-20
 
 ### 추가
