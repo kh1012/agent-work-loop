@@ -5,6 +5,22 @@
 
 ## [Unreleased]
 
+## [0.6.45] - 2026-07-21
+
+### 추가
+
+- feedback 노출·편집 + feedback-log 개명
+
+### 고침
+
+- 사람이 직접 push/publish 하면 막지 않는다
+
+### 변경
+
+- style: biome 포맷 정정(config.ts/feedback-log.test.ts 긴 줄바꿈)
+- 발표 자료 최신화, 스토리라인 재배치, 휴머나이즈
+- 이건 추적할 필요가 없는 파일
+
 ## [0.6.44] - 2026-07-21
 
 ### 추가
