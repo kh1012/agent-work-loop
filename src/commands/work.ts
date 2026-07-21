@@ -12,7 +12,12 @@ import {
   signal,
 } from '../core/tty.js';
 import { DEFAULT_USAGE_PATH, readCostSnapshot } from '../core/usage.js';
-import { loadConfig, resolveProjectRoot } from './config.js';
+import {
+  loadConfig,
+  multiProjectFooter,
+  resolveProjectRoot,
+  resolveProjectScope,
+} from './config.js';
 import { gitBranch } from './doctor.js';
 import { installClaudeSkill } from './init.js';
 import { mergeIsolatedHome, writeParentMarker } from './learning-merge.js';
@@ -500,6 +505,29 @@ function requireRoot(): string {
 }
 
 export function runWorkList(opts: { json: boolean }): void {
+  const scope = resolveProjectScope();
+  if (scope.mode === 'multi' && scope.projects) {
+    const c = caps();
+    const color = makeColors(c.color);
+    const perProject = scope.projects.map((p) => ({
+      name: p.name,
+      path: p.path,
+      list: summarizeWorkitems(loadState(p.path)),
+    }));
+    if (opts.json) {
+      process.stdout.write(
+        `${JSON.stringify({ multiProject: true, projects: perProject }, null, 2)}\n`,
+      );
+      return;
+    }
+    const blocks = perProject.map(
+      ({ name, path, list }) =>
+        `${color.bold(`프로젝트: ${name}  (${path})`)}\n${renderWorkList(list, c)}`,
+    );
+    process.stdout.write(`${blocks.join('\n\n')}\n`);
+    process.stdout.write(`${multiProjectFooter(scope.projects, 'awl work list', c)}\n`);
+    return;
+  }
   const root = requireRoot();
   const list = summarizeWorkitems(loadState(root));
   if (opts.json) {

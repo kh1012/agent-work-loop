@@ -815,3 +815,59 @@ describe('collectChecks — record 트레일 공백 표면화 (record-trail-guar
     expect(check?.status).toBe('warn');
   });
 });
+
+describe('collectChecks — cwd 밖(config-anywhere-fallback)', () => {
+  /** ~/.awl/projects.json 에 project 를 등록한다(registerProject 와 같은 스키마). */
+  function register(home: string, name: string, projectPath: string): void {
+    const file = path.join(home, 'projects.json');
+    const existing = fs.existsSync(file)
+      ? (JSON.parse(fs.readFileSync(file, 'utf8')) as unknown[])
+      : [];
+    fs.writeFileSync(
+      file,
+      JSON.stringify([
+        ...existing,
+        {
+          name,
+          path: projectPath,
+          mainLanguage: [],
+          character: '',
+          registeredAt: '2026-01-01T00:00:00.000Z',
+        },
+      ]),
+    );
+  }
+
+  it('cwd 가 프로젝트 밖이고 등록된 프로젝트가 있으면 각각을 별도 그룹으로 점검한다', async () => {
+    process.env.AWL_HOME = makeInstalledHome();
+    const home = process.env.AWL_HOME;
+    const a = makeInstalledProject();
+    const b = makeInstalledProject();
+    register(home, 'proj-a', a);
+    register(home, 'proj-b', b);
+    process.chdir(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-doc-lonely-')));
+
+    const report = await collectChecks();
+    const groups = new Set(report.checks.map((c) => c.group));
+    expect(groups.has('프로젝트: proj-a')).toBe(true);
+    expect(groups.has('프로젝트: proj-b')).toBe(true);
+    // 각 프로젝트 블록에 자기 config.json 점검이 따로 있다(공유 안 됨).
+    const aConfig = report.checks.find(
+      (c) => c.group === '프로젝트: proj-a' && c.name === 'config.json',
+    );
+    const bConfig = report.checks.find(
+      (c) => c.group === '프로젝트: proj-b' && c.name === 'config.json',
+    );
+    expect(aConfig?.status).toBe('ok');
+    expect(bConfig?.status).toBe('ok');
+  });
+
+  it('등록된 프로젝트가 하나도 없으면 기존처럼 "아님" 한 줄만 낸다(회귀)', async () => {
+    process.env.AWL_HOME = makeInstalledHome();
+    process.chdir(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-doc-lonely2-')));
+
+    const report = await collectChecks();
+    const check = find(report.checks, '프로젝트 루트');
+    expect(check?.value).toBe('아님 (.git/.awl 없음)');
+  });
+});

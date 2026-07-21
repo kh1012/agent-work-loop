@@ -14,7 +14,7 @@ import {
   statusBadge,
   stringWidth,
 } from '../core/tty.js';
-import { resolveProjectRoot } from './config.js';
+import { multiProjectFooter, resolveProjectScope } from './config.js';
 import { WORKTREES_DIR } from './lane.js';
 import { archiveAllLanes } from './pipeline-archive.js';
 import { readRecords } from './record.js';
@@ -541,14 +541,61 @@ export async function runStatus(opts: {
   pipeline?: boolean;
   archive?: boolean;
 }): Promise<void> {
-  const root = resolveProjectRoot();
-  if (!root) {
+  const scope = resolveProjectScope();
+  if (scope.mode === 'multi' && scope.projects) {
+    const cc = caps();
+    const color = makeColors(cc.color);
+    if (opts.pipeline === true && opts.archive === true) {
+      process.stdout.write(
+        `  ${signal(cc, 'warn')} --archive 는 여러 프로젝트에 걸쳐 실행하지 않습니다. 해당 프로젝트로 이동한 뒤 실행하세요.\n\n`,
+      );
+    }
+    if (opts.json) {
+      const projects = await Promise.all(
+        scope.projects.map(async (p) => {
+          if (opts.pipeline === true) {
+            return {
+              name: p.name,
+              path: p.path,
+              lanes: [mainTreeGroup(p.path), ...collectPipelineLaneGroups(p.path)],
+            };
+          }
+          const report: StatusReport = {
+            ...buildStatus(p.path),
+            missingAcCommits: await checkMissingAcCommits(p.path),
+          };
+          return { name: p.name, path: p.path, ...report };
+        }),
+      );
+      process.stdout.write(`${JSON.stringify({ multiProject: true, projects }, null, 2)}\n`);
+      return;
+    }
+    const blocks: string[] = [];
+    for (const p of scope.projects) {
+      blocks.push(color.bold(`프로젝트: ${p.name}  (${p.path})`));
+      if (opts.pipeline === true) {
+        const groups = [mainTreeGroup(p.path), ...collectPipelineLaneGroups(p.path)];
+        blocks.push(renderPipelineGroups(groups, cc));
+      } else {
+        const report: StatusReport = {
+          ...buildStatus(p.path),
+          missingAcCommits: await checkMissingAcCommits(p.path),
+        };
+        blocks.push(renderStatus(report, cc));
+      }
+    }
+    process.stdout.write(`${blocks.join('\n\n')}\n`);
+    process.stdout.write(`${multiProjectFooter(scope.projects, 'awl status', cc)}\n`);
+    return;
+  }
+  if (scope.mode === 'none') {
     const cc = caps();
     process.stderr.write(
       `\n  ${signal(cc, 'error')} 프로젝트 루트를 찾을 수 없습니다.\n      ${makeSymbols(cc).lastBranch} awl init 을 실행하세요.\n`,
     );
     process.exit(1);
   }
+  const root = scope.projectRoot as string;
   // --pipeline: temp-loop 하네스의 .tasks/{plan,exec,review} 레인 상태를 배지로 낸다(opt-in).
   // awl 코어의 일반 status 와 분리 — .tasks 가 없으면 빈 뷰다(awl 은 하네스 유무를 판단 안 함).
   if (opts.pipeline === true) {

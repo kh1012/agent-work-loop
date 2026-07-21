@@ -715,3 +715,48 @@ describe('runLoopSummary 배치모드 glue — --since (AC-01, F-04)', () => {
     expect(parsed.aggregate.count).toBe(1);
   });
 });
+
+describe('runLoopSummary 단일모드 — cwd 밖(config-anywhere-fallback)', () => {
+  /** ~/.awl/projects.json 에 project 를 등록한다. */
+  function register(home: string, name: string, projectPath: string): void {
+    const file = path.join(home, 'projects.json');
+    const existing = fs.existsSync(file)
+      ? (JSON.parse(fs.readFileSync(file, 'utf8')) as unknown[])
+      : [];
+    fs.writeFileSync(
+      file,
+      JSON.stringify([
+        ...existing,
+        { name, path: projectPath, registeredAt: '2026-01-01T00:00:00.000Z' },
+      ]),
+    );
+  }
+
+  it('cwd 밖이면 등록된 프로젝트마다 자기 project 의 record 만 세어 보여준다(같은 workitem 이름이어도 안 섞임)', () => {
+    const home = useTmpHome();
+    // 두 프로젝트가 같은 workitem 이름을 쓴다 — project 필터가 없으면 record 가 합쳐져 보인다.
+    const projA = tmpProject({ workitem: 'WI-SAME' }, 'proj-a');
+    const projB = tmpProject({ workitem: 'WI-SAME' }, 'proj-b');
+    register(home, 'proj-a', projA);
+    register(home, 'proj-b', projB);
+    seedRecords([
+      { ...gateRec('WI-SAME', 1, '2026-07-18T05:00:00Z'), project: 'proj-a' },
+      { ...gateRec('WI-SAME', 2, '2026-07-18T06:00:00Z'), project: 'proj-a' },
+      { ...gateRec('WI-SAME', 1, '2026-07-18T05:00:00Z'), project: 'proj-b' },
+      { ...gateRec('WI-SAME', 2, '2026-07-18T06:00:00Z'), project: 'proj-b' },
+      { ...gateRec('WI-SAME', 3, '2026-07-18T07:00:00Z'), project: 'proj-b' },
+    ]);
+    process.chdir(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-loopsum-lonely-')));
+
+    const out = capture(() => runLoopSummary({ json: true }));
+    const parsed = JSON.parse(out) as {
+      multiProject: boolean;
+      projects: { name: string; intervention: { autonomous: number } }[];
+    };
+    expect(parsed.multiProject).toBe(true);
+    const byName = Object.fromEntries(parsed.projects.map((p) => [p.name, p]));
+    // 필터가 없으면 둘 다 5(합산)로 보였을 것 — project 별로 정확히 갈린다.
+    expect(byName['proj-a']?.intervention.autonomous).toBe(2);
+    expect(byName['proj-b']?.intervention.autonomous).toBe(3);
+  });
+});

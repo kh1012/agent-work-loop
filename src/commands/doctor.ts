@@ -20,6 +20,7 @@ import {
   type VersionMismatchKind,
   checkVersions,
 } from '../core/versions.js';
+import { listRegisteredProjects } from './init.js';
 import { loadProjectName, readRecords } from './record.js';
 import { loadState, readStateLock } from './state.js';
 import { gatherVersionInputs } from './version-check.js';
@@ -548,13 +549,25 @@ function collectGlobal(checks: Check[], versionResult: VersionCheckResult): void
   checks.push({ group: '전역 설치', name: '프로젝트', status: 'info', value: `${projectCount}개` });
 }
 
-/** 3. 이 프로젝트 (<project>/.awl) */
+/**
+ * 3. 이 프로젝트 (<project>/.awl)
+ *
+ * cwd 로 프로젝트를 못 찾으면(config-anywhere-fallback) ~/.awl/projects.json 에
+ * 등록된 프로젝트를 전부 순회해 보여준다. 한 프로젝트가 실패해도(경로 소실 등) 나머지는
+ * 계속 진행한다(update --local 의 skip 패턴과 같은 이유 — applyLocalUpdate, update.ts).
+ */
 async function collectProject(
   checks: Check[],
   projectRoot: string | null,
   versionResult: VersionCheckResult,
 ): Promise<void> {
-  if (!projectRoot) {
+  if (projectRoot) {
+    await collectSingleProject(checks, projectRoot, '이 프로젝트', versionResult);
+    return;
+  }
+
+  const registered = listRegisteredProjects().filter((p) => exists(p.path));
+  if (registered.length === 0) {
     checks.push({
       group: '이 프로젝트',
       name: '프로젝트 루트',
@@ -564,9 +577,23 @@ async function collectProject(
     return;
   }
 
+  for (const p of registered) {
+    // versionResult 는 projectRoot 별로 다시 계산해야 한다 — 바깥에서 한 번만(그것도
+    // projectRoot=null 로) 계산된 값을 재사용하면 project-vs-engine 대조가 틀어진다.
+    const pVersionResult = checkVersions(gatherVersionInputs(p.path));
+    await collectSingleProject(checks, p.path, `프로젝트: ${p.name}`, pVersionResult);
+  }
+}
+
+async function collectSingleProject(
+  checks: Check[],
+  projectRoot: string,
+  groupLabel: string,
+  versionResult: VersionCheckResult,
+): Promise<void> {
   // WI-C: 프로젝트를 찾았을 때도 그 경로를 보여준다(예전엔 못 찾았을 때만 보였다).
   checks.push({
-    group: '이 프로젝트',
+    group: groupLabel,
     name: '프로젝트 루트',
     status: 'info',
     value: projectRoot,
@@ -574,7 +601,7 @@ async function collectProject(
 
   const branch = await gitBranch(projectRoot);
   checks.push({
-    group: '이 프로젝트',
+    group: groupLabel,
     name: '브랜치',
     status: 'info',
     value: branch ?? '알 수 없음 (확인 실패)',
@@ -583,16 +610,16 @@ async function collectProject(
   const dirtyFiles = await gitDirtyFiles(projectRoot);
   if (dirtyFiles === null) {
     checks.push({
-      group: '이 프로젝트',
+      group: groupLabel,
       name: '워킹트리',
       status: 'info',
       value: '확인 안 됨 (git 저장소가 아니거나 확인 실패)',
     });
   } else if (dirtyFiles.length === 0) {
-    checks.push({ group: '이 프로젝트', name: '워킹트리', status: 'ok', value: '클린' });
+    checks.push({ group: groupLabel, name: '워킹트리', status: 'ok', value: '클린' });
   } else {
     checks.push({
-      group: '이 프로젝트',
+      group: groupLabel,
       name: '워킹트리',
       status: 'warn',
       value: `미커밋 변경 ${dirtyFiles.length}개`,
@@ -603,7 +630,7 @@ async function collectProject(
   const configPath = path.join(projectRoot, '.awl', 'config.json');
   if (!exists(configPath)) {
     checks.push({
-      group: '이 프로젝트',
+      group: groupLabel,
       name: 'config.json',
       status: 'missing',
       value: '없음',
@@ -615,7 +642,7 @@ async function collectProject(
   const raw = readJson(configPath);
   if (!isAwlConfig(raw)) {
     checks.push({
-      group: '이 프로젝트',
+      group: groupLabel,
       name: 'config.json',
       status: 'fail',
       value: '형식 오류',
@@ -623,7 +650,7 @@ async function collectProject(
     });
     return;
   }
-  checks.push({ group: '이 프로젝트', name: 'config.json', status: 'ok', value: '있음' });
+  checks.push({ group: groupLabel, name: 'config.json', status: 'ok', value: '있음' });
 
   // 네이밍 컨벤션 감지(WI-I AC-01) — 세기만 한다, 강제하지 않는다. doctor 는
   // 아무것도 고치지 않으므로 config.json 기록은 여기서 안 하고 hint 로 명령만
@@ -632,7 +659,7 @@ async function collectProject(
     typeof raw.namingConvention === 'string' ? raw.namingConvention : undefined;
   if (recordedNaming) {
     checks.push({
-      group: '이 프로젝트',
+      group: groupLabel,
       name: '네이밍 컨벤션',
       status: 'info',
       value: recordedNaming,
@@ -643,17 +670,17 @@ async function collectProject(
     );
     if (naming.reason === 'detected' && naming.convention) {
       checks.push({
-        group: '이 프로젝트',
+        group: groupLabel,
         name: '네이밍 컨벤션',
         status: 'info',
         value: `${naming.convention} (${naming.counts[naming.convention]}/${naming.decisiveTotal} 파일, 미기록)`,
         hint: `config.json 에 기록하려면: awl config set namingConvention ${naming.convention}`,
       });
     } else if (naming.reason === 'mixed') {
-      checks.push({ group: '이 프로젝트', name: '네이밍 컨벤션', status: 'info', value: '혼재' });
+      checks.push({ group: groupLabel, name: '네이밍 컨벤션', status: 'info', value: '혼재' });
     } else {
       checks.push({
-        group: '이 프로젝트',
+        group: groupLabel,
         name: '네이밍 컨벤션',
         status: 'info',
         value: '판단 보류 (파일 부족)',
@@ -665,16 +692,16 @@ async function collectProject(
   const sizeReport = computeFileSizeOutliers(countFileLines(projectRoot));
   if (sizeReport.threshold === null) {
     checks.push({
-      group: '이 프로젝트',
+      group: groupLabel,
       name: '파일 크기',
       status: 'info',
       value: '판단 보류 (파일 부족)',
     });
   } else if (sizeReport.outliers.length === 0) {
-    checks.push({ group: '이 프로젝트', name: '파일 크기', status: 'ok', value: '이상치 없음' });
+    checks.push({ group: groupLabel, name: '파일 크기', status: 'ok', value: '이상치 없음' });
   } else {
     checks.push({
-      group: '이 프로젝트',
+      group: groupLabel,
       name: '파일 크기',
       status: 'warn',
       value: `이상치 ${sizeReport.outliers.length}개 (임계값 ${Math.round(sizeReport.threshold)}줄)`,
@@ -692,7 +719,7 @@ async function collectProject(
   if (installed !== null) {
     const projectMismatch = findMismatch(versionResult, 'project-vs-engine');
     checks.push({
-      group: '이 프로젝트',
+      group: groupLabel,
       name: '엔진 버전 일치',
       status: projectMismatch ? 'warn' : 'ok',
       value: projectMismatch
@@ -711,7 +738,7 @@ async function collectProject(
     const first = tokenize(spec.cmd)[0] ?? '';
     if (!first) {
       checks.push({
-        group: '이 프로젝트',
+        group: groupLabel,
         name: `검증: ${vname}`,
         status: 'warn',
         value: '명령 비어 있음',
@@ -727,7 +754,7 @@ async function collectProject(
       : undefined;
     if (cwd && !isDirectory(cwd)) {
       checks.push({
-        group: '이 프로젝트',
+        group: groupLabel,
         name: `검증: ${vname}`,
         status: 'missing',
         value: 'cwd 없음',
@@ -740,7 +767,7 @@ async function collectProject(
       await run({ cmd: first, args: ['--version'], cwd, timeoutMs: 3000 });
       // exitCode 가 0이 아니어도 실행은 됐으므로 "존재함"으로 본다(--version 미지원 도구 대비).
       checks.push({
-        group: '이 프로젝트',
+        group: groupLabel,
         name: `검증: ${vname}`,
         status: 'ok',
         value: `${first} 실행 가능`,
@@ -748,7 +775,7 @@ async function collectProject(
     } catch (e) {
       if (e instanceof CommandNotFoundError) {
         checks.push({
-          group: '이 프로젝트',
+          group: groupLabel,
           name: `검증: ${vname}`,
           status: 'missing',
           value: '명령 없음',
@@ -756,7 +783,7 @@ async function collectProject(
         });
       } else {
         checks.push({
-          group: '이 프로젝트',
+          group: groupLabel,
           name: `검증: ${vname}`,
           status: 'warn',
           value: '확인 실패',
@@ -770,7 +797,7 @@ async function collectProject(
   const statePath = path.join(projectRoot, '.awl', 'state.json');
   if (!exists(statePath)) {
     checks.push({
-      group: '이 프로젝트',
+      group: groupLabel,
       name: 'state.json',
       status: 'info',
       value: '없음 (아직 시작 전)',
@@ -784,9 +811,9 @@ async function collectProject(
         (typeof o.step === 'string' && o.step) ||
         (typeof o.position === 'string' && o.position) ||
         '있음';
-      checks.push({ group: '이 프로젝트', name: 'state.json', status: 'ok', value: String(pos) });
+      checks.push({ group: groupLabel, name: 'state.json', status: 'ok', value: String(pos) });
     } else {
-      checks.push({ group: '이 프로젝트', name: 'state.json', status: 'warn', value: '형식 오류' });
+      checks.push({ group: groupLabel, name: 'state.json', status: 'warn', value: '형식 오류' });
     }
     // 크기 이상치(피드백 F-1): commit --start 의 untracked 스냅샷 누적 등으로 비대해질 수 있다.
     // warn only — doctor 의 ok 판정(problems = missing/fail)에는 영향을 주지 않는다.
@@ -798,7 +825,7 @@ async function collectProject(
     }
     if (stateBytes !== null && stateBytes > STATE_SIZE_WARN_BYTES) {
       checks.push({
-        group: '이 프로젝트',
+        group: groupLabel,
         name: 'state.json 크기',
         status: 'warn',
         value: `${(stateBytes / (1024 * 1024)).toFixed(1)}MB`,
@@ -822,7 +849,7 @@ async function collectProject(
   if (leftoverWorktrees.length > 0) {
     const shown = leftoverWorktrees.slice(0, 3).join(', ');
     checks.push({
-      group: '이 프로젝트',
+      group: groupLabel,
       name: '워크트리 잔존',
       status: 'warn',
       value: `${leftoverWorktrees.length}개`,
@@ -848,7 +875,7 @@ async function collectProject(
     const hasCommits = await gitHasCommits(projectRoot);
     if (detectRecordTrailGap({ hasCommits, activeWorkitem, gateAttemptRecords })) {
       checks.push({
-        group: '이 프로젝트',
+        group: groupLabel,
         name: 'record 트레일',
         status: 'warn',
         value: '공백 (활성 워크아이템 없이 커밋 이력)',
@@ -877,7 +904,7 @@ async function collectProject(
       const fmt = (iso: string): string => (iso ? iso.slice(0, 16).replace('T', ' ') : '없음');
       const lockNote = lock ? ` · 다른 세션이 state 쓰는 중(${lock.token})` : '';
       checks.push({
-        group: '이 프로젝트',
+        group: groupLabel,
         name: '최근 활동',
         status: lock ? 'warn' : 'info',
         value: `기록 ${fmt(lastAt)} · state ${fmt(stateMtime)}${lockNote}`,

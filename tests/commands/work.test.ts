@@ -21,6 +21,7 @@ import {
   resolveGitWorktreeTimeoutMs,
   restoreWorkitem,
   runWorkDone,
+  runWorkList,
   runWorkNew,
   runWorkSwitch,
   summarizeWorkitems,
@@ -1178,5 +1179,69 @@ describe('renderWorkList — 상태 색코딩 + 값 강조 + 정렬 (cli-visual-
     const rows = out.split('\n').filter((l) => l.includes('통과'));
     const prefixWidths = rows.map((l) => visibleWidth(l.slice(0, l.indexOf('\x1b[1m'))));
     expect(new Set(prefixWidths).size).toBe(1); // 색이 padEnd 폭을 안 깬다
+  });
+});
+
+describe('runWorkList — cwd 밖(config-anywhere-fallback)', () => {
+  const origCwd = process.cwd();
+  const origHome = process.env.AWL_HOME;
+
+  afterEach(() => {
+    process.chdir(origCwd);
+    if (origHome === undefined) {
+      delete process.env.AWL_HOME;
+    } else {
+      process.env.AWL_HOME = origHome;
+    }
+  });
+
+  /** .awl/config.json + state.json 을 갖춘 프로젝트를 만들고 ~/.awl/projects.json 에 등록한다. */
+  function registeredProject(home: string, name: string, workitem: string): string {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `awl-worklist-${name}-`)));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, '.awl', 'config.json'),
+      JSON.stringify({ project: name, engineVersion: '0.0.0', verify: {} }),
+    );
+    fs.writeFileSync(
+      path.join(root, '.awl', 'state.json'),
+      JSON.stringify({ workitem, criteria: [{ id: 'AC-01', status: 'passed' }] }),
+    );
+    const file = path.join(home, 'projects.json');
+    const existing = fs.existsSync(file)
+      ? (JSON.parse(fs.readFileSync(file, 'utf8')) as unknown[])
+      : [];
+    fs.writeFileSync(
+      file,
+      JSON.stringify([...existing, { name, path: root, registeredAt: '2026-01-01T00:00:00.000Z' }]),
+    );
+    return root;
+  }
+
+  it('cwd 밖이면 등록된 프로젝트마다 workitem 목록을 프로젝트별로 --json 에 담는다', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-worklist-home-'));
+    process.env.AWL_HOME = home;
+    registeredProject(home, 'work-a', 'WI-A');
+    registeredProject(home, 'work-b', 'WI-B');
+    process.chdir(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-worklist-lonely-')));
+
+    let buf = '';
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((c: unknown) => {
+      buf += String(c);
+      return true;
+    });
+    try {
+      runWorkList({ json: true });
+    } finally {
+      spy.mockRestore();
+    }
+    const j = JSON.parse(buf) as {
+      multiProject: boolean;
+      projects: { name: string; list: { id: string }[] }[];
+    };
+    expect(j.multiProject).toBe(true);
+    const byName = Object.fromEntries(j.projects.map((p) => [p.name, p.list.map((w) => w.id)]));
+    expect(byName['work-a']).toEqual(['WI-A']);
+    expect(byName['work-b']).toEqual(['WI-B']);
   });
 });

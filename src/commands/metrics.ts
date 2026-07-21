@@ -9,7 +9,7 @@ import {
   sectionBox,
   stringWidth,
 } from '../core/tty.js';
-import { requireConfig } from './config.js';
+import { loadConfig, multiProjectFooter, requireConfig, resolveProjectScope } from './config.js';
 
 /**
  * awl metrics — 세대(워크아이템)별 프록시 지표 추세를 보여준다.
@@ -254,6 +254,42 @@ export function renderCompare(groups: CaseGroup[], untagged: number, c: Caps): s
 
 /** awl metrics [--compare] */
 export function runMetrics(opts: { json?: boolean; compare?: boolean }): void {
+  const scope = resolveProjectScope();
+  if (scope.mode === 'multi' && scope.projects) {
+    const c = caps();
+    const color = makeColors(c.color);
+    const perProject = scope.projects.map((p) => {
+      const loaded = loadConfig(p.path);
+      const generations = loaded.config ? loadGenerations(loaded.config.project) : [];
+      return { name: p.name, path: p.path, generations };
+    });
+    if (opts.json) {
+      const projects = perProject.map(({ name, path, generations }) => {
+        if (opts.compare === true) {
+          const groups = groupByExperiment(generations);
+          const untagged = generations.filter((g) => g.experiment === undefined).length;
+          return { name, path, cases: groups, untagged };
+        }
+        return { name, path, generations };
+      });
+      process.stdout.write(
+        `${JSON.stringify({ multiProject: true, caveat: renderMetricsCaveat(), projects }, null, 2)}\n`,
+      );
+      return;
+    }
+    const blocks = perProject.map(({ name, path, generations }) => {
+      const header = color.bold(`프로젝트: ${name}  (${path})`);
+      if (opts.compare === true) {
+        const groups = groupByExperiment(generations);
+        const untagged = generations.filter((g) => g.experiment === undefined).length;
+        return `${header}\n${renderCompare(groups, untagged, c)}`;
+      }
+      return `${header}\n${renderMetrics(generations, c)}`;
+    });
+    process.stdout.write(`${blocks.join('\n\n')}\n`);
+    process.stdout.write(`${multiProjectFooter(scope.projects, 'awl metrics', c)}\n`);
+    return;
+  }
   const { config } = requireConfig();
   const generations = loadGenerations(config.project);
   if (opts.compare === true) {

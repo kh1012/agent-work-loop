@@ -21,6 +21,7 @@ import {
   characterScreenLines,
   detectVerify,
   langScreenLines,
+  listRegisteredProjects,
   promptNumber,
   selectMulti,
   verifyStepLines,
@@ -72,6 +73,50 @@ export function resolveProjectRoot(cwd: string = process.cwd()): string | null {
   } catch {
     return null;
   }
+}
+
+/** cwd 로 프로젝트를 못 찾았을 때 등록된 프로젝트로 폴백할지 판단하기 위한 결과. */
+export interface ProjectScope {
+  mode: 'single' | 'multi' | 'none';
+  /** mode === 'single' 일 때만 채워진다. */
+  projectRoot?: string;
+  /** mode === 'multi' 일 때만 채워진다. 경로가 실제로 존재하는 것만 남는다. */
+  projects?: { name: string; path: string }[];
+}
+
+/**
+ * cwd 기준으로 프로젝트를 못 찾으면(single 아님) ~/.awl/projects.json 에 등록된
+ * 프로젝트로 폴백한다(config-anywhere-fallback). cwd 가 프로젝트 안이면 등록
+ * 목록은 아예 보지 않는다 — 기존 단일 프로젝트 동작을 그대로 우선한다.
+ */
+export function resolveProjectScope(cwd: string = process.cwd()): ProjectScope {
+  const root = resolveProjectRoot(cwd);
+  if (root) {
+    return { mode: 'single', projectRoot: root };
+  }
+  const registered = listRegisteredProjects().filter((p) => fs.existsSync(p.path));
+  if (registered.length > 0) {
+    return { mode: 'multi', projects: registered };
+  }
+  return { mode: 'none' };
+}
+
+/** 여러 프로젝트 폴백 블록 끝에 붙이는 공용 안내 — 어디로 cd 해야 하는지 알려준다. */
+export function multiProjectFooter(
+  projects: { name: string; path: string }[],
+  exampleCmd: string,
+  c: Caps,
+): string {
+  const color = makeColors(c.color);
+  const lines = [
+    '',
+    color.dim(
+      `현재 위치가 특정 프로젝트에 속하지 않아 등록된 프로젝트 ${projects.length}개를 모두 보여줍니다.`,
+    ),
+    color.dim('특정 프로젝트만 보려면:'),
+    ...projects.map((p) => color.dim(`  cd ${p.path} && ${exampleCmd}`)),
+  ];
+  return lines.join('\n');
 }
 
 function isVerifyEntry(v: unknown): v is VerifyEntry {
@@ -701,13 +746,29 @@ export async function interactiveEditMenu(
  * TTY 가 아니면(파이프/CI) 조회만 하고 끝낸다.
  */
 export async function runConfig(): Promise<void> {
-  const projectRoot = resolveProjectRoot();
-  if (!projectRoot) {
+  const scope = resolveProjectScope();
+  if (scope.mode === 'multi' && scope.projects) {
+    const c = caps();
+    const blocks = scope.projects.map((p) => {
+      const color = makeColors(c.color);
+      const loaded = loadConfig(p.path);
+      const header = color.bold(`프로젝트: ${p.name}  (${p.path})`);
+      if (!loaded.config) {
+        return `${header}\n  ${signal(c, 'error')} config.json 에 문제가 있습니다: ${loaded.errors.join(', ')}`;
+      }
+      return `${header}\n${renderConfig(loaded.config, c)}`;
+    });
+    process.stdout.write(`${blocks.join('\n\n')}\n`);
+    process.stdout.write(`${multiProjectFooter(scope.projects, 'awl config', c)}\n`);
+    return;
+  }
+  if (scope.mode === 'none') {
     process.stderr.write(
       `\n  ${signal(caps(), 'error')} 프로젝트 루트를 찾을 수 없습니다. awl init 을 실행하세요.\n`,
     );
     process.exit(1);
   }
+  const projectRoot = scope.projectRoot as string;
   const loaded = loadConfig(projectRoot);
   if (!loaded.config) {
     process.stderr.write(`\n  ${signal(caps(), 'error')} config.json 에 문제가 있습니다:\n`);
@@ -774,13 +835,27 @@ export async function runConfigSet(
   value: string | undefined,
   opts: { force: boolean },
 ): Promise<void> {
-  const projectRoot = resolveProjectRoot();
-  if (!projectRoot) {
+  const scope = resolveProjectScope();
+  if (scope.mode === 'multi' && scope.projects) {
+    const c = caps();
+    process.stdout.write(
+      `\n  ${signal(c, 'warn')} 현재 위치가 특정 프로젝트에 속하지 않아 어느 프로젝트를 바꿀지 알 수 없습니다.\n`,
+    );
+    process.stdout.write('  해당 프로젝트로 이동한 뒤 다시 실행하세요:\n');
+    for (const p of scope.projects) {
+      process.stdout.write(
+        `    cd ${p.path} && awl config set${key ? ` ${key}` : ''}${value ? ` ${value}` : ''}\n`,
+      );
+    }
+    return;
+  }
+  if (scope.mode === 'none') {
     process.stderr.write(
       `\n  ${signal(caps(), 'error')} 프로젝트 루트를 찾을 수 없습니다. awl init 을 실행하세요.\n`,
     );
     process.exit(1);
   }
+  const projectRoot = scope.projectRoot as string;
   const loaded = loadConfig(projectRoot);
   if (!loaded.config) {
     process.stderr.write(

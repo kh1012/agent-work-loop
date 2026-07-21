@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import { PassThrough } from 'node:stream';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   type AwlConfig,
   SETTABLE_KEYS,
@@ -12,8 +12,12 @@ import {
   loadConfig,
   parseConfigKey,
   parseVerifyValue,
+  resolveProjectScope,
+  runConfig,
+  runConfigSet,
   validateConfig,
 } from '../../src/commands/config.js';
+import { applyInit, nonInteractiveInputs } from '../../src/commands/init.js';
 
 const NODE = process.execPath;
 
@@ -500,5 +504,123 @@ describe('interactiveEditMenu — init 의 buildScreens 를 재사용한 인터�
     expect(changed).toBe(true);
     expect(config.verify.typecheck?.cmd).toBe(NODE);
     expect(config.verify.lint).toBeNull(); // 안 바뀜
+  });
+});
+
+// --- config-anywhere-fallback: cwd 밖에서도 등록된 프로젝트를 보여준다 ---
+
+const origCwd = process.cwd();
+const origHome = process.env.AWL_HOME;
+
+function tmp(prefix: string): string {
+  return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+}
+
+/** applyInit 으로 config.json + projects.json 등록까지 한 번에 갖춘 프로젝트를 만든다. */
+function registeredProject(name: string): string {
+  const root = tmp(`awl-multi-${name}-`);
+  const inputs = nonInteractiveInputs(root);
+  inputs.project = name;
+  applyInit(root, inputs, '2026-01-01T00:00:00.000Z');
+  return root;
+}
+
+describe('resolveProjectScope — config-anywhere-fallback', () => {
+  afterEach(() => {
+    process.chdir(origCwd);
+    if (origHome === undefined) {
+      delete process.env.AWL_HOME;
+    } else {
+      process.env.AWL_HOME = origHome;
+    }
+  });
+
+  it('cwd 가 프로젝트 안이면 등록 목록과 무관하게 single 이다', () => {
+    process.env.AWL_HOME = tmp('awl-multi-home-');
+    const proj = registeredProject('solo');
+    expect(resolveProjectScope(proj).mode).toBe('single');
+  });
+
+  it('cwd 밖이고 등록된 프로젝트가 있으면 multi 로 폴백한다', () => {
+    process.env.AWL_HOME = tmp('awl-multi-home-');
+    const a = registeredProject('proj-a');
+    const b = registeredProject('proj-b');
+    const lonely = tmp('awl-multi-lonely-');
+
+    const scope = resolveProjectScope(lonely);
+    expect(scope.mode).toBe('multi');
+    expect(scope.projects?.map((p) => p.path).sort()).toEqual([a, b].sort());
+  });
+
+  it('cwd 밖이고 등록된 프로젝트도 없으면 none 이다', () => {
+    process.env.AWL_HOME = tmp('awl-multi-home-empty-');
+    expect(resolveProjectScope(tmp('awl-multi-lonely2-')).mode).toBe('none');
+  });
+
+  it('등록됐지만 경로가 사라진 프로젝트는 목록에서 빠진다', () => {
+    process.env.AWL_HOME = tmp('awl-multi-home-');
+    const a = registeredProject('proj-alive');
+    const gone = registeredProject('proj-gone');
+    fs.rmSync(gone, { recursive: true, force: true });
+
+    const scope = resolveProjectScope(tmp('awl-multi-lonely3-'));
+    expect(scope.mode).toBe('multi');
+    expect(scope.projects?.map((p) => p.path)).toEqual([a]);
+  });
+});
+
+describe('runConfig / runConfigSet — cwd 밖에서는 조회만, 쓰기는 거부(config-anywhere-fallback)', () => {
+  afterEach(() => {
+    process.chdir(origCwd);
+    if (origHome === undefined) {
+      delete process.env.AWL_HOME;
+    } else {
+      process.env.AWL_HOME = origHome;
+    }
+  });
+
+  it('runConfig: 등록된 프로젝트 전부를 읽기전용으로 보여주고 인터랙티브 메뉴로 안 들어간다', async () => {
+    process.env.AWL_HOME = tmp('awl-multi-home-');
+    const a = registeredProject('view-a');
+    const b = registeredProject('view-b');
+    process.chdir(tmp('awl-multi-lonely-'));
+
+    let buf = '';
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((c: unknown) => {
+      buf += String(c);
+      return true;
+    });
+    try {
+      await runConfig();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(buf).toContain('view-a');
+    expect(buf).toContain('view-b');
+    expect(buf).toContain(a);
+    expect(buf).toContain(b);
+    expect(buf).toContain('cd '); // cd 안내
+  });
+
+  it('runConfigSet: cwd 밖에서는 파일을 쓰지 않고 cd 안내만 한다', async () => {
+    process.env.AWL_HOME = tmp('awl-multi-home-');
+    const a = registeredProject('write-a');
+    const before = fs.readFileSync(path.join(a, '.awl', 'config.json'), 'utf8');
+    process.chdir(tmp('awl-multi-lonely-'));
+
+    let buf = '';
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((c: unknown) => {
+      buf += String(c);
+      return true;
+    });
+    try {
+      await runConfigSet('character', '바뀌면 안 됨', { force: false });
+    } finally {
+      spy.mockRestore();
+    }
+    const after = fs.readFileSync(path.join(a, '.awl', 'config.json'), 'utf8');
+    expect(after).toBe(before); // 안 바뀜
+    expect(buf).toContain('cd ');
+    expect(buf).toContain(a);
   });
 });

@@ -82,13 +82,19 @@ export function npmVersionCachePath(): string {
 /**
  * 현재 디렉토리에서 위로 올라가며 .git 또는 .awl 을 찾는다.
  * 파일 시스템 루트까지 못 찾으면 명확한 에러를 던진다.
+ *
+ * 전역 설치 디렉토리(globalRoot(), 기본 ~/.awl)는 .awl 마커에서 제외한다.
+ * 그렇지 않으면 홈 디렉토리(또는 AWL_HOME 자체)에서 실행했을 때 전역 설치 폴더를
+ * 프로젝트로 오판해 그 아래 config.json 이 없다는 혼란스러운 에러로 이어진다.
  */
 export function findProjectRoot(cwd: string = process.cwd()): string {
   let dir = path.resolve(cwd);
+  const global = globalRoot();
 
   // path.dirname은 루트에서 자기 자신을 반환한다. 그때 멈춘다.
   for (;;) {
-    if (fs.existsSync(path.join(dir, '.git')) || fs.existsSync(path.join(dir, '.awl'))) {
+    const awlPath = path.join(dir, '.awl');
+    if (fs.existsSync(path.join(dir, '.git')) || (awlPath !== global && fs.existsSync(awlPath))) {
       return dir;
     }
     const parent = path.dirname(dir);

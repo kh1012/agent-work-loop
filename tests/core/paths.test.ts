@@ -116,6 +116,28 @@ describe('findProjectRoot', () => {
     expect(() => findProjectRoot(lonely)).toThrow(/프로젝트 루트를 찾을 수 없습니다/);
   });
 
+  it('전역 설치 디렉토리(globalRoot)의 .awl 은 프로젝트 마커로 인정하지 않는다', () => {
+    // AWL_HOME 을 홈 디렉토리처럼 취급: 그 아래 .awl 은 전역 설치 폴더다.
+    const home = makeTmpDir('awl-fakehome-');
+    process.env.AWL_HOME = path.join(home, '.awl');
+    fs.mkdirSync(path.join(home, '.awl'), { recursive: true });
+
+    // home 자체에서 실행하면, home/.awl 이 있어도 그건 전역 폴더이므로 루트로 인정하면 안 된다.
+    expect(() => findProjectRoot(home)).toThrow(/프로젝트 루트를 찾을 수 없습니다/);
+  });
+
+  it('전역 설치 디렉토리 하위에 있는 실제 프로젝트는 정상적으로 루트를 찾는다', () => {
+    const home = makeTmpDir('awl-fakehome-');
+    process.env.AWL_HOME = path.join(home, '.awl');
+    fs.mkdirSync(path.join(home, '.awl'), { recursive: true });
+
+    // home 아래 별도 프로젝트 디렉토리에 자기만의 .awl 을 둔다(init 이 그 경로를 골랐을 때).
+    const proj = path.join(home, 'work', 'my-project');
+    fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+
+    expect(findProjectRoot(proj)).toBe(path.resolve(proj));
+  });
+
   it('projectConfigPath / projectStatePath는 루트 아래 .awl/*.json을 가리킨다', () => {
     const proj = makeTmpDir('awl-proj-');
     fs.mkdirSync(path.join(proj, '.git'));

@@ -1001,3 +1001,87 @@ describe('runStatus --pipeline --archive (pipeline-archive-cleanup AC-05/06)', (
     expect(countActive(after)).toBe(3); // 활성 카운트 불변 — complete 만 하나 더 사라짐(이미 없음).
   });
 });
+
+// --- config-anywhere-fallback: cwd 밖에서 등록된 프로젝트 전부를 보여준다 ---
+
+describe('runStatus — cwd 밖(config-anywhere-fallback)', () => {
+  const origCwd = process.cwd();
+  afterEach(() => process.chdir(origCwd));
+
+  function capture(fn: () => void): string {
+    let buf = '';
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((c: unknown) => {
+      buf += String(c);
+      return true;
+    });
+    try {
+      fn();
+    } finally {
+      spy.mockRestore();
+    }
+    return buf;
+  }
+
+  /** .awl/config.json + .awl/state.json 만 갖춘 최소 프로젝트(registerProject 로 등록). */
+  function seedProject(home: string, name: string): string {
+    const root = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), `awl-status-multi-${name}-`)),
+    );
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.awl', 'config.json'), JSON.stringify({ project: name }));
+    const projectsFile = path.join(home, 'projects.json');
+    const existing = fs.existsSync(projectsFile)
+      ? (JSON.parse(fs.readFileSync(projectsFile, 'utf8')) as unknown[])
+      : [];
+    fs.writeFileSync(
+      projectsFile,
+      JSON.stringify([...existing, { name, path: root, registeredAt: '2026-01-01T00:00:00.000Z' }]),
+    );
+    return root;
+  }
+
+  it('등록된 프로젝트 2개를 --json 에 multiProject 로 전부 담는다', async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-status-multi-home-'));
+    fs.mkdirSync(home, { recursive: true });
+    process.env.AWL_HOME = home;
+    const a = seedProject(home, 'alpha');
+    const b = seedProject(home, 'beta');
+    process.chdir(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-status-multi-lonely-')));
+
+    const buf = await new Promise<string>((resolve) => {
+      let out = '';
+      const spy = vi.spyOn(process.stdout, 'write').mockImplementation((c: unknown) => {
+        out += String(c);
+        return true;
+      });
+      void runStatus({ json: true }).finally(() => {
+        spy.mockRestore();
+        resolve(out);
+      });
+    });
+
+    const j = JSON.parse(buf);
+    expect(j.multiProject).toBe(true);
+    expect(j.projects.map((p: { name: string }) => p.name).sort()).toEqual(['alpha', 'beta']);
+    expect(j.projects.map((p: { path: string }) => p.path).sort()).toEqual([a, b].sort());
+  });
+
+  it('사람용 렌더에는 각 프로젝트 헤더와 cd 안내가 나온다', async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-status-multi-home2-'));
+    process.env.AWL_HOME = home;
+    const a = seedProject(home, 'gamma');
+    process.chdir(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-status-multi-lonely2-')));
+
+    let buf = '';
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((c: unknown) => {
+      buf += String(c);
+      return true;
+    });
+    await runStatus({ json: false });
+    spy.mockRestore();
+
+    expect(buf).toContain('gamma');
+    expect(buf).toContain(a);
+    expect(buf).toContain('cd ');
+  });
+});

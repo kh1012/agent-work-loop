@@ -7,7 +7,7 @@ import {
   sectionBox,
 } from '../core/tty.js';
 import { type CostSnapshot, computeCostDelta, readCostSnapshot } from '../core/usage.js';
-import { requireConfig } from './config.js';
+import { loadConfig, multiProjectFooter, requireConfig, resolveProjectScope } from './config.js';
 import { type Generation, computeDurationMs, fmtDuration, loadGenerations } from './metrics.js';
 import { collectDeferred, readRecords } from './record.js';
 import { loadState } from './state.js';
@@ -551,6 +551,49 @@ export function runLoopSummary(opts: {
   // 기존 단일모드 코드 경로는 이 분기 아래 한 글자도 안 바뀐다(AC-05).
   if ((opts.workitems && opts.workitems.length > 0) || opts.since !== undefined) {
     runLoopSummaryBatch(opts);
+    return;
+  }
+
+  // 배치모드는 이번 폴백 범위 밖(config-anywhere-fallback) — records 가 전역 저장소라
+  // --workitems/--since 배치는 project 필터링 설계가 더 필요해 후속으로 미룬다.
+  const scope = resolveProjectScope();
+  if (scope.mode === 'multi' && scope.projects) {
+    const c = caps();
+    const color = makeColors(c.color);
+    const perProject = scope.projects.map((p) => {
+      const loaded = loadConfig(p.path);
+      const projectName = loaded.config?.project;
+      const state = loadState(p.path);
+      const current = typeof state.workitem === 'string' ? state.workitem : null;
+      const workitem = opts.workitem ?? current;
+      // records 는 전역 저장소다 — project 로 걸러야 다른 프로젝트의 같은 workitem 이름과
+      // 안 섞인다(단일모드는 이 필터가 없다 — 거긴 애초에 프로젝트가 하나뿐이라 필요 없다).
+      const records = workitem
+        ? readRecords({ workitem }).filter((r) => r.project === projectName)
+        : [];
+      const criteria = criteriaFor(state, workitem, current);
+      const costDelta = computeCostDelta(
+        startCostOf(state, workitem, current),
+        readCostSnapshot(opts.usagePath),
+      );
+      const summary = assembleLoopSummary(workitem, records, criteria, costDelta);
+      return { name: p.name, path: p.path, summary };
+    });
+    if (opts.json) {
+      const projects = perProject.map(({ name, path, summary }) => ({
+        name,
+        path,
+        ...summaryToJson(summary),
+      }));
+      process.stdout.write(`${JSON.stringify({ multiProject: true, projects }, null, 2)}\n`);
+      return;
+    }
+    const blocks = perProject.map(
+      ({ name, path, summary }) =>
+        `${color.bold(`프로젝트: ${name}  (${path})`)}\n${renderLoopSummary(summary, c)}`,
+    );
+    process.stdout.write(`${blocks.join('\n\n')}\n`);
+    process.stdout.write(`${multiProjectFooter(scope.projects, 'awl loop-summary', c)}\n`);
     return;
   }
 

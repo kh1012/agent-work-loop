@@ -515,3 +515,67 @@ describe('runMetrics --compare 핸들러 + --json 계약 (experiment-harness AC-
     expect(out).toContain('난이도'); // 캐비트
   });
 });
+
+describe('runMetrics — cwd 밖(config-anywhere-fallback)', () => {
+  const origCwd = process.cwd();
+  afterEach(() => process.chdir(origCwd));
+
+  function capture(fn: () => void): string {
+    let buf = '';
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((c: unknown) => {
+      buf += String(c);
+      return true;
+    });
+    try {
+      fn();
+    } finally {
+      spy.mockRestore();
+    }
+    return buf;
+  }
+
+  /** .awl/config.json 을 갖춘 프로젝트를 만들고 ~/.awl/projects.json 에 등록한다. */
+  function registeredProject(home: string, name: string): string {
+    const root = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), `awl-metrics-multi-${name}-`)),
+    );
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, '.awl', 'config.json'),
+      JSON.stringify({
+        project: name,
+        mainLanguage: 'other',
+        character: '',
+        engineVersion: '0.6.7',
+        verify: {},
+      }),
+    );
+    const file = path.join(home, 'projects.json');
+    const existing = fs.existsSync(file)
+      ? (JSON.parse(fs.readFileSync(file, 'utf8')) as unknown[])
+      : [];
+    fs.writeFileSync(
+      file,
+      JSON.stringify([...existing, { name, path: root, registeredAt: '2026-01-01T00:00:00.000Z' }]),
+    );
+    return root;
+  }
+
+  it('cwd 밖이면 등록된 프로젝트 각각의 세대를 프로젝트별 블록으로 낸다', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-metrics-multi-home-'));
+    process.env.AWL_HOME = home;
+    registeredProject(home, 'metrics-a');
+    registeredProject(home, 'metrics-b');
+    seedGeneration('metrics-a', 'WI-A', { workitem: 'WI-A', at: '2026-07-16T09:00:00Z' });
+    seedGeneration('metrics-b', 'WI-B', { workitem: 'WI-B', at: '2026-07-16T09:00:00Z' });
+    process.chdir(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-metrics-multi-lonely-')));
+
+    const j = JSON.parse(capture(() => runMetrics({ json: true })));
+    expect(j.multiProject).toBe(true);
+    const byName = Object.fromEntries(
+      j.projects.map((p: { name: string; generations: unknown[] }) => [p.name, p.generations]),
+    );
+    expect(byName['metrics-a']).toHaveLength(1);
+    expect(byName['metrics-b']).toHaveLength(1);
+  });
+});
