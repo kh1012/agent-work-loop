@@ -1,7 +1,9 @@
+import os from 'node:os';
 import { Command } from 'commander';
 import { version } from '../package.json';
 import { installedEngineVersion } from './core/engine.js';
 import { readCachedLatestVersion } from './core/npm-registry.js';
+import { engineDir } from './core/paths.js';
 import {
   type Caps,
   caps,
@@ -174,10 +176,21 @@ export function renderBanner(c: Caps = caps()): string {
   return `${header}\n\n${renderGettingStartedCard(c)}\n\n  ${color.dim('예시는 awl --examples 로 봅니다.')}`;
 }
 
+/** 홈 디렉토리 하위 경로면 '~'로 줄인다(AWL_HOME 오버라이드 시엔 실제 경로 그대로 보여준다). */
+function displayHomePath(p: string): string {
+  const home = os.homedir();
+  return p.startsWith(home) ? `~${p.slice(home.length)}` : p;
+}
+
 /**
  * `awl --version` 이 보여줄 문자열을 만든다. 패키지 버전뿐 아니라 설치된
  * 엔진 템플릿도 위계로 보여준다. 설치 버전이 어긋나면 경고와 갱신 방법을
  * 바로 알려줘 doctor까지 들어가지 않아도 원인을 알 수 있다.
+ *
+ * 각 줄에 그 버전이 무엇을 가리키는지 괄호로 덧붙인다 — CLI 본체(npm 패키지)와
+ * 엔진 템플릿(engineDir, 기본 ~/.awl/engine)은 서로 다른 설치 단위라 숫자만 봐서는
+ * 헷갈리기 쉽다. 경로는 하드코딩하지 않고 engineDir()을 그대로 써서, AWL_HOME으로
+ * 재정의된 격리 레인(lane)에서도 실제 위치를 보여준다.
  *
  * npm 새 버전 안내(WI-npm-update-notice AC-03)는 로컬 캐시 파일만 동기로 읽는다
  * (readCachedLatestVersion — 네트워크 없음). 이 함수는 buildProgram() 에서 모든
@@ -189,7 +202,8 @@ export function versionString(c: Caps = caps()): string {
   const color = makeColors(c.color);
   const s = makeSymbols(c);
   const engineVer = installedEngineVersion();
-  const heading = `awl v${version}`;
+  const enginePath = displayHomePath(engineDir());
+  const heading = `awl v${version} ${color.dim('(설치된 npm 패키지 버전 — CLI 본체)')}`;
 
   let base: string;
   if (engineVer === null) {
@@ -201,7 +215,10 @@ export function versionString(c: Caps = caps()): string {
       `        ${color.dim("'awl init'을 실행하여 템플릿을 설치하세요.")}`,
     ].join('\n');
   } else {
-    const template = `    ${s.lastBranch} Engine Template: v${engineVer}`;
+    const template = [
+      `    ${s.lastBranch} Engine Template: v${engineVer} ${color.dim(`(${enginePath} 에 복사된 엔진 버전)`)}`,
+      `        ${color.dim('패키지 설치 후, 파일 관리를 위해 전역에 엔진 템플릿 형태로 복사본을 만듭니다.')}`,
+    ].join('\n');
     if (engineVer === version) {
       base = `${heading}\n${template}`;
     } else {
@@ -210,7 +227,7 @@ export function versionString(c: Caps = caps()): string {
         template,
         '',
         `    ${signal(c, 'warn')} 버전 불일치 감지!`,
-        '        CLI 본체와 홈 디렉토리(~/.awl/engine)의 스킬 템플릿 버전이 다릅니다.',
+        `        CLI 본체와 ${enginePath} 의 엔진 템플릿 버전이 다릅니다.`,
         `        ${color.dim('해결하려면 awl update 로 엔진을 갱신하세요.')}`,
       ].join('\n');
     }
