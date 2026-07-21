@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.6.46] - 2026-07-21
+
 ### 추가
 
 - `awl --skills` 명령을 새로 만들었다 — `/awl-loop`·`/awl-pipeline <lane명> <mode>`가 뭔지,
