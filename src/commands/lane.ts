@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { WORKTREES_DIR } from '../core/paths.js';
 import { run } from '../core/runner.js';
 import { type Caps, caps, feedback, makeColors, sectionBox, signal } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
@@ -20,9 +21,6 @@ import {
  * --isolated 원시경로를 그대로 재사용하고(runWorkNew), 정리는 removeGitWorktree 를
  * 재사용한다. lane 은 그 조립 + 레인 어휘의 기동 안내만 얹는다.
  */
-
-/** 레인 진실원천 디렉토리(F-05). status --pipeline 교차 레인 롤업도 이 단일 출처를 쓴다. */
-export const WORKTREES_DIR = '.awl-worktrees';
 
 // 레인의 각 역할 세션이 실행할 파이프라인 스킬 트리거(engine/skills/claude/ 에 대응).
 const PIPELINE_TRIGGERS = ['/awl-pipeline-plan', '/awl-pipeline-exec', '/awl-pipeline-review'];

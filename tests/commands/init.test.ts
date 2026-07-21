@@ -735,14 +735,37 @@ describe('applyInit — 전체 산출물', () => {
   it('같은 프로젝트를 다시 등록해도 프로젝트 수가 늘지 않는다', () => {
     const inputs = nonInteractiveInputs(proj);
     applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
-    const count = registerProject({
+    const result = registerProject({
       name: 'x',
       path: proj,
       mainLanguage: ['typescript'],
       character: '',
       registeredAt: '2026-01-01T00:00:00.000Z',
     });
-    expect(count).toBe(1);
+    expect(result.count).toBe(1);
+    expect(result.skipped).toBe(false);
+  });
+
+  it('레인 워크트리(.awl-worktrees 하위) 경로는 등록을 거부한다(registerProject-worktree-guard)', () => {
+    const before = registerProject({
+      name: 'sentinel',
+      path: path.join(proj, '__sentinel__'),
+      mainLanguage: [],
+      character: '',
+      registeredAt: '2026-01-01T00:00:00.000Z',
+    });
+    const worktreePath = path.join(proj, '.awl-worktrees', 'some-lane');
+    const result = registerProject({
+      name: 'some-lane',
+      path: worktreePath,
+      mainLanguage: ['typescript'],
+      character: '',
+      registeredAt: '2026-01-01T00:00:00.000Z',
+    });
+    expect(result.skipped).toBe(true);
+    expect(result.count).toBe(before.count); // 레지스트리 길이 불변
+    const raw = JSON.parse(fs.readFileSync(projectsFile(), 'utf8')) as { path: string }[];
+    expect(raw.some((p) => p.path === worktreePath)).toBe(false);
   });
 
   // ---- 다중-스킬 설치기 (pipeline-multi-skill-installer) ----
@@ -1145,6 +1168,7 @@ describe('renderResult — 결과 값 emphasis 강조 (cli-visual-consistency AC
     gitignore: 'added' as const,
     skills: ['claude'],
     projectCount: 1,
+    registrationSkipped: false,
     ruleCount: 0,
     lessonCount: 0,
     safetyHook: { installed: true },

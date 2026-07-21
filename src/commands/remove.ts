@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  WORKTREES_DIR,
   engineDir,
   globalRoot,
   gotchasDir,
@@ -17,7 +18,6 @@ import { resolveProjectRoot } from './config.js';
 import { packageEngineDir } from './init.js';
 import {
   type LaneInfo,
-  WORKTREES_DIR,
   branchOf,
   collectLanes,
   laneBranchMap,

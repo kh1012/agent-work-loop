@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { WORKTREES_DIR } from './lane.js';
+import { WORKTREES_DIR } from '../core/paths.js';
 import { markerBaseName, pipelineLanes, readDirNames } from './status.js';
 
 /**

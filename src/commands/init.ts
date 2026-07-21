@@ -11,7 +11,7 @@ import {
   selectStep,
   step,
 } from '../core/flow.js';
-import { engineDir, globalRoot, projectsFile } from '../core/paths.js';
+import { engineDir, globalRoot, isInsideWorktreesDir, projectsFile } from '../core/paths.js';
 import { runInteractiveSelect } from '../core/select.js';
 import {
   type Caps,
@@ -581,18 +581,28 @@ export function installSafetyHook(projectRoot: string): { installed: boolean; wa
   }
 }
 
-/** ~/.awl/projects.json 에 이 프로젝트를 등록한다. 같은 경로면 갱신한다. */
+/**
+ * ~/.awl/projects.json 에 이 프로젝트를 등록한다. 같은 경로면 갱신한다.
+ * 레인 워크트리(`<project>/.awl-worktrees/<lane>`) 경로는 등록을 거부한다 — 그 안에서
+ * `awl init`이 실행돼도(워크트리도 자기 `.git`/`.awl` 마커를 가진 유효한 위치라 init
+ * 자체는 성공한다) 독립 프로젝트가 아니라 부모가 `awl lane rm`/`awl remove`로 관리하는
+ * 일회성 작업 단위다 — 등록되면 `awl remove --global` 정리 안내와 project-scope 폴백
+ * (status/doctor 등)이 워크트리를 독립 프로젝트처럼 섞어 보여준다(registerProject-worktree-guard).
+ */
 export function registerProject(entry: {
   name: string;
   path: string;
   mainLanguage: string[];
   character: string;
   registeredAt: string;
-}): number {
+}): { count: number; skipped: boolean } {
   const raw = readJson(projectsFile());
   const list: Record<string, unknown>[] = Array.isArray(raw)
     ? (raw as Record<string, unknown>[])
     : [];
+  if (isInsideWorktreesDir(entry.path)) {
+    return { count: list.length, skipped: true };
+  }
   const idx = list.findIndex((p) => p.path === entry.path);
   if (idx >= 0) {
     list[idx] = { ...list[idx], ...entry };
@@ -600,7 +610,7 @@ export function registerProject(entry: {
     list.push(entry);
   }
   writeFileEnsuringDir(projectsFile(), `${JSON.stringify(list, null, 2)}\n`);
-  return list.length;
+  return { count: list.length, skipped: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -730,7 +740,7 @@ export function syncExistingInstall(
   projectRoot: string,
   engineVersion: string,
   now: string,
-): { configUpdated: boolean; skills: string[] } {
+): { configUpdated: boolean; skills: string[]; registrationSkipped: boolean } {
   // 1) config.engineVersion 만 엔진에 맞춘다(나머지 필드는 팀 설정이므로 보존).
   let configUpdated = false;
   const configPath = path.join(projectRoot, '.awl', 'config.json');
@@ -744,7 +754,7 @@ export function syncExistingInstall(
   // config 를 이미 있는 것으로 간주해 레지스트리를 건드리지 않았다. 그래서 awl remove
   // --all 등으로 ~/.awl/projects.json 이 비워진 뒤엔 재init 을 아무리 해도 이 경로로는
   // 복구되지 않았다(F-1). registerProject 는 path 기준 upsert 라 매번 불러도 안전하다.
-  registerProject({
+  const { skipped: registrationSkipped } = registerProject({
     name: typeof raw?.project === 'string' ? raw.project : path.basename(projectRoot),
     path: projectRoot,
     mainLanguage: Array.isArray(raw?.mainLanguage) ? (raw.mainLanguage as string[]) : [],
@@ -776,7 +786,7 @@ export function syncExistingInstall(
     engineVersion,
   );
 
-  return { configUpdated, skills };
+  return { configUpdated, skills, registrationSkipped };
 }
 
 function countEntries(dir: string): number {
@@ -824,6 +834,7 @@ export interface InitResult {
   gitignore: 'added' | 'exists';
   skills: string[];
   projectCount: number;
+  registrationSkipped: boolean;
   ruleCount: number;
   lessonCount: number;
   safetyHook: { installed: boolean; warning?: string };
@@ -836,7 +847,7 @@ export function applyInit(projectRoot: string, inputs: InitInputs, now: string):
   const statePath = writeState(projectRoot, now);
   const gitignore = ensureGitignore(projectRoot);
   const safetyHook = installSafetyHook(projectRoot);
-  const projectCount = registerProject({
+  const { count: projectCount, skipped: registrationSkipped } = registerProject({
     name: inputs.project,
     path: projectRoot,
     mainLanguage: inputs.mainLanguage,
@@ -867,6 +878,7 @@ export function applyInit(projectRoot: string, inputs: InitInputs, now: string):
     gitignore,
     skills,
     projectCount,
+    registrationSkipped,
     ruleCount: countEntries(path.join(globalRoot(), 'rules', 'active')),
     lessonCount: countEntries(path.join(globalRoot(), 'lessons')),
     safetyHook,
@@ -965,6 +977,13 @@ function resultSetupLines(result: InitResult, c: Caps): string[] {
       `규칙 ${result.ruleCount}개 · 교훈 ${result.lessonCount}개 · 등록된 프로젝트 ${result.projectCount}개 · 1세대`,
     ),
   );
+  if (result.registrationSkipped) {
+    setupLines.push(
+      color.dim(
+        '이 위치는 레인 워크트리입니다(.awl-worktrees 하위) — 전역 프로젝트 목록에는 등록하지 않습니다. 부모 프로젝트에서 awl lane rm/awl remove로 관리하세요.',
+      ),
+    );
+  }
   return setupLines;
 }
 
@@ -1485,6 +1504,11 @@ async function handleExistingConfig(
     } else {
       process.stdout.write('\n  설정을 그대로 씁니다. 이미 최신입니다.\n');
     }
+    if (synced.registrationSkipped) {
+      process.stdout.write(
+        `\n  ${makeColors(c.color).dim('이 위치는 레인 워크트리입니다(.awl-worktrees 하위) — 전역 프로젝트 목록에는 등록하지 않습니다. 부모 프로젝트에서 awl lane rm/awl remove로 관리하세요.')}\n`,
+      );
+    }
     return;
   }
   if (choice === 1) {
@@ -1730,8 +1754,11 @@ export async function runInit(opts: { yes: boolean }): Promise<void> {
         synced.configUpdated || synced.skills.length > 0
           ? `\n  ${signal(c, 'ok')} 버전 마커를 ${engine.engineVersion} 로 동기화했습니다${synced.skills.length ? ` (스킬: ${synced.skills.join(', ')})` : ''}.`
           : '';
+      const worktreeNote = synced.registrationSkipped
+        ? `\n  ${makeColors(c.color).dim('이 위치는 레인 워크트리입니다(.awl-worktrees 하위) — 전역 프로젝트 목록에는 등록하지 않습니다. 부모 프로젝트에서 awl lane rm/awl remove로 관리하세요.')}`
+        : '';
       process.stdout.write(
-        `\n  .awl/config.json 이 이미 있습니다. 그대로 씁니다.\n  ${signal(c, 'ok')} 엔진 템플릿을 ${engine.created ? '설치했습니다.' : '갱신했습니다.'}${syncNote}${hook.warning ? `\n  ${signal(c, 'warn')} ${hook.warning}` : hook.installed ? `\n  ${signal(c, 'ok')} git push 차단 훅 설치` : ''}\n`,
+        `\n  .awl/config.json 이 이미 있습니다. 그대로 씁니다.\n  ${signal(c, 'ok')} 엔진 템플릿을 ${engine.created ? '설치했습니다.' : '갱신했습니다.'}${syncNote}${hook.warning ? `\n  ${signal(c, 'warn')} ${hook.warning}` : hook.installed ? `\n  ${signal(c, 'ok')} git push 차단 훅 설치` : ''}${worktreeNote}\n`,
       );
       return;
     }

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { WORKTREES_DIR } from '../core/paths.js';
 import { run } from '../core/runner.js';
 import {
   type Caps,
@@ -15,7 +16,6 @@ import {
   stringWidth,
 } from '../core/tty.js';
 import { multiProjectFooter, resolveProjectScope } from './config.js';
-import { WORKTREES_DIR } from './lane.js';
 import { archiveAllLanes } from './pipeline-archive.js';
 import { readRecords } from './record.js';
 import { loadState } from './state.js';

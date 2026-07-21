@@ -118,3 +118,16 @@ export function projectConfigPath(cwd?: string): string {
 export function projectStatePath(cwd?: string): string {
   return path.join(findProjectRoot(cwd), '.awl', 'state.json');
 }
+
+/** 레인 진실원천 디렉토리(F-05). status --pipeline 교차 레인 롤업도 이 단일 출처를 쓴다. */
+export const WORKTREES_DIR = '.awl-worktrees';
+
+/**
+ * 경로가 어떤 레인 워크트리(`<project>/.awl-worktrees/<lane>[/...]`) 안에 있는지 본다.
+ * 레인 워크트리는 부모 프로젝트가 `awl lane rm`/`awl remove`로 관리하는 일회성 작업
+ * 단위라, 그 안에서 `awl init`이 실행돼도 독립 프로젝트처럼 `~/.awl/projects.json`에
+ * 등록되면 안 된다(registerProject 가드가 이 함수를 쓴다).
+ */
+export function isInsideWorktreesDir(p: string): boolean {
+  return path.resolve(p).split(path.sep).includes(WORKTREES_DIR);
+}
