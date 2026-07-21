@@ -5,6 +5,18 @@
 
 ## [Unreleased]
 
+### 추가
+
+- GitHub Actions CI(`.github/workflows/ci.yml`)를 신설했다 — main에 push/PR이 오면 Node 18/22
+  두 버전에서 typecheck·lint·test·build를 자동 실행한다.
+
+### 변경
+
+- README.md를 정갈하게 재편했다 — 상단에 배지(npm 버전·CI 상태·release 태그·license) 4개를
+  달고 목차를 추가했다. 더 이상 맞지 않는 "npm에 0.0.0 placeholder만 배포돼 있다"는 경고
+  문단을 지웠다(지금은 npm에 실제 버전이 배포돼 있다). 설치 확인/5분 시작의 `awl doctor`·
+  `awl init --yes` 예시 출력을 실제로 실행해 다시 캡처했다.
+
 ## [0.6.46] - 2026-07-21
 
 ### 추가
