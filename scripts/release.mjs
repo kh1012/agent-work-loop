@@ -286,6 +286,7 @@ try {
 console.log(`
 릴리스했습니다. ${currentVersion} -> ${newVersion}. 커밋·태그(v${newVersion})·원격 push까지 끝냈습니다.
 
-npm 배포만 사람이 실행하세요 (prepublishOnly 훅이 막으므로 AWL_ALLOW_PUBLISH=1 이 필요합니다):
-  AWL_ALLOW_PUBLISH=1 npm publish
+npm 배포만 사람이 실행하세요:
+  npm publish
+(비대화형으로 돌리는 경우에만 prepublishOnly 훅이 막으므로 AWL_ALLOW_PUBLISH=1 npm publish 가 필요합니다.)
 `);

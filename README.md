@@ -136,7 +136,7 @@ $ awl init
 - **`.awl/config.json`**: 검증 명령과 프로젝트 성격. **커밋하세요.** 팀원이 같이 씁니다.
 - **`.awl/state.json`**: 지금 어느 워크아이템의 어느 단계인지. gitignore 대상입니다.
 - **`.claude/skills/`** 또는 **`AGENTS.md`**: 작업 루프 스킬. 선택한 에이전트에 설치됩니다.
-- **`.git/hooks/pre-push`**: `AWL_ALLOW_PUSH=1` 없이는 `git push`를 막는 훅. "push는 사람이 한다"는 규칙을 git 레벨에서도 강제합니다(사람이 push할 때는 `AWL_ALLOW_PUSH=1 git push`로 명시적으로 통과시킵니다).
+- **`.git/hooks/pre-push`**: "push는 사람이 한다"는 규칙을 git 레벨에서도 강제하는 훅. 사람이 실제 터미널에서 직접 치는 `git push`는 그냥 통과합니다(제어 터미널이 잡히는지로 판별). 에이전트가 비대화형으로 실행한 push는 막히고, 이 경우엔 `AWL_ALLOW_PUSH=1 git push`로 명시적으로 통과시켜야 합니다.
 
 이제 에이전트(Claude Code / Codex)를 열고 목표를 서술문으로 줍니다.
 
@@ -354,7 +354,7 @@ awl work switch <ID>       # 보관된 워크아이템으로 전환
 정확한 동작입니다. 확신할 수 없으면 커밋하지 않고 사람에게 알리도록 설계했습니다. `git status`/`git diff`로 실제로 무엇이 섞였는지 확인하세요. 완료 조건마다 `awl commit <AC> -m`으로 닫고 넘어가는 습관을 들이세요(`awl commit --start`를 편집보다 먼저 호출하지 않으면 그 편집이 스냅샷에 흡수돼 격리 커밋이 무의미해집니다).
 
 **`git push`가 막힌다**
-`awl init`이 심는 pre-push 훅 때문입니다(위 5분 시작 참고). 정말 push하려면 `AWL_ALLOW_PUSH=1 git push`를 씁니다.
+`awl init`이 심는 pre-push 훅 때문입니다(위 5분 시작 참고). 실제 터미널에서 사람이 직접 치는 push는 막히지 않습니다 — 막혔다면 비대화형(에이전트, CI, 스크립트)으로 실행된 경우이고, 그때는 `AWL_ALLOW_PUSH=1 git push`를 씁니다.
 
 **대형 저장소에서 `awl lane new`/`awl work new --worktree`가 `Could not write new index file`로 실패한다**
 `git worktree add`가 기본 180초 안에 못 끝나 강제 종료됐다는 뜻입니다(대형 모노레포는
