@@ -112,7 +112,7 @@ awl evolve --record --json '{"lesson":"...","context":"...","source":{...},"same
 `awl evolve --collect` 출력의 `awlFeedback.prompt` 를 본다. 이번 워크아이템에서 awl 도구 자체(작업 대상 코드가 아니라)가 불편했다면 남긴다:
 
 `awl record awl-feedback --json '{"area":"commit","what":"...","impact":"...","severity":"high","suggestion":"..."}'`
-- `area`: 어느 기능인가 (commit/review/gate/verify/state/init/cli/기타) — 나중에 모으기(`awl feedback`)의 묶는 키.
+- `area`: 어느 기능인가 (commit/review/gate/verify/state/init/cli/기타) — 나중에 모으기(`awl feedback-log`)의 묶는 키.
 - `what`: 무슨 일이 있었나(사실). `impact`: 그래서 무엇을 해야 했나(아픔의 크기). `severity`: high/medium/low.
 - `suggestion`: 선택. 개선 아이디어. 강제 아님 — 번역(패치로 바꾸기)은 사람 몫이다.
 

@@ -122,7 +122,7 @@ function renderExamplesCard(c: Caps): string {
       examples: [
         { cmd: 'awl brief --today', note: '오늘 하루 요약' },
         { cmd: 'awl metrics --compare', note: '세대 간 비교' },
-        { cmd: 'awl feedback --severity high', note: 'awl 자체에 대한 피드백, 심각도 필터' },
+        { cmd: 'awl feedback-log --severity high', note: 'awl 자체에 대한 피드백, 심각도 필터' },
         { cmd: 'awl changelog --workitem WI-01', note: '그 워크아이템의 변경 이력' },
       ],
     },
@@ -638,17 +638,20 @@ export function buildProgram(): Command {
       },
     );
 
-  // 사람이 치는 명령: feedback (awl 도구 자체 피드백을 area 별로 모아서 본다)
+  // 사람이 치는 명령: feedback-log (이미 남겨진 awl-feedback 기록을 area 별로 모아서 본다.
+  // `awl config`의 feedback.*(다른 프로젝트로 실시간 라우팅하는 파이프라인 모드)와는 별개다.)
   program
-    .command('feedback')
-    .description('awl 도구 자체 피드백을 area 별로 묶어 봅니다 (해법은 제시하지 않습니다)')
+    .command('feedback-log')
+    .description(
+      'awl 도구 자체에 남겨진 피드백 기록(awl-feedback)을 area 별로 묶어 검토합니다 (해법은 제시하지 않습니다)',
+    )
     .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
     .option('--area <area>', 'area 로 거릅니다 (commit, gate, verify 등)')
     .option('--severity <sev>', 'severity 로 거릅니다 (high/medium/low)')
     .option('--since <date>', '이 ISO 날짜 이후 수집분만 봅니다 (예: 2026-07-01)')
     .action(async (opts: { json?: boolean; area?: string; severity?: string; since?: string }) => {
-      const { runFeedback } = await import('./commands/feedback.js');
-      runFeedback({
+      const { runFeedbackLog } = await import('./commands/feedback-log.js');
+      runFeedbackLog({
         json: opts.json === true,
         area: opts.area,
         severity: opts.severity,

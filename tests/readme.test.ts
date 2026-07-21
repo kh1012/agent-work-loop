@@ -40,7 +40,7 @@ describe('README 명령 참조가 program.ts 와 일치한다 (readme-refresh AC
 
   it('0.6.x 주요 신규 명령이 문서화돼 있다', () => {
     const referenced = new Set(readmeCommands());
-    for (const cmd of ['brief', 'metrics', 'feedback', 'version-check']) {
+    for (const cmd of ['brief', 'metrics', 'feedback-log', 'version-check']) {
       expect(referenced.has(cmd)).toBe(true);
     }
   });
@@ -58,7 +58,7 @@ describe('README 0.6.x 개념 정확성 (readme-refresh AC-02)', () => {
   it('awl-feedback 를 gotcha 와 구분해 설명한다', () => {
     const md = read('README.md');
     expect(md).toContain('awl-feedback'); // 개념 등장
-    expect(md).toContain('awl feedback'); // 모아보기 명령
+    expect(md).toContain('awl feedback-log'); // 모아보기 명령
     // 도구 자체 피드백은 규칙으로 승격되지 않는다는 구분
     expect(md).toMatch(/규칙으로 승격되지 않습니다|awl 도구 자체/);
   });

@@ -6,8 +6,8 @@ import {
   buildFeedbackReport,
   isInvalidSince,
   loadAwlFeedback,
-  renderFeedback,
-} from '../../src/commands/feedback.js';
+  renderFeedbackLog,
+} from '../../src/commands/feedback-log.js';
 
 const origHome = process.env.AWL_HOME;
 const ASCII = { unicode: false, color: false, tty: false };
@@ -143,26 +143,26 @@ describe('loadAwlFeedback — 필터 (BC-04)', () => {
   });
 });
 
-describe('renderFeedback — 해법 미제시 (BC-05)', () => {
+describe('renderFeedbackLog — 해법 미제시 (BC-05)', () => {
   it('반복 area 에 우선 검토 안내는 하되 에이전트 suggestion 을 해법으로 노출하지 않는다', () => {
     const rep = buildFeedbackReport([
       fb({ area: 'commit', suggestion: '특정해법XYZ' }),
       fb({ area: 'commit' }),
     ]);
-    const text = renderFeedback(rep, ASCII);
+    const text = renderFeedbackLog(rep, ASCII);
     expect(text).toContain('우선 검토'); // surfacing(안내)은 한다
     expect(text).not.toContain('특정해법XYZ'); // suggestion 을 awl 권고로 노출하지 않는다
   });
 
   it('수집된 게 없으면 빈 안내를 준다', () => {
-    const text = renderFeedback(buildFeedbackReport([]), ASCII);
+    const text = renderFeedbackLog(buildFeedbackReport([]), ASCII);
     expect(text).toContain('아직 수집된 awl-feedback 이 없습니다');
   });
 
   it('반복 태그가 하드코딩이 아니라 signal(warn) 로 caps 폴백한다 (cli-visual-consistency AC-05)', () => {
     const rep = buildFeedbackReport([fb({ area: 'commit' }), fb({ area: 'commit' })]);
-    expect(renderFeedback(rep, ASCII)).toContain('[!] 반복'); // ASCII 폴백
+    expect(renderFeedbackLog(rep, ASCII)).toContain('[!] 반복'); // ASCII 폴백
     // signal() 이 유니코드 여부와 무관하게 텍스트 마커를 쓰므로(이모지 폐지) 동일하게 [!].
-    expect(renderFeedback(rep, { unicode: true, color: false, tty: true })).toContain('[!] 반복');
+    expect(renderFeedbackLog(rep, { unicode: true, color: false, tty: true })).toContain('[!] 반복');
   });
 });

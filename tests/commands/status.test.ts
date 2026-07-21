@@ -1070,6 +1070,7 @@ describe('runStatus — cwd 밖(config-anywhere-fallback)', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-status-multi-home2-'));
     process.env.AWL_HOME = home;
     const a = seedProject(home, 'gamma');
+    seedProject(home, 'delta'); // 등록 2개 이상이라야 진짜 모호함(single 자동 선택 대상 아님).
     process.chdir(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-status-multi-lonely2-')));
 
     let buf = '';

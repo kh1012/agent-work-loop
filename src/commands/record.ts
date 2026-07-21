@@ -53,7 +53,7 @@ export const GATE2_DECISIONS = ['approved', 'more-work', 'abandoned'] as const;
 
 /**
  * awl-feedback.area 로 허용되는 값 (0.6.x). awl 도구의 어느 기능이 아팠나 —
- * 이게 모으기(awl feedback)의 묶는 키가 된다. gotcha 와 달리 작업 대상 코드가
+ * 이게 모으기(awl feedback-log)의 묶는 키가 된다. gotcha 와 달리 작업 대상 코드가
  * 아니라 awl 도구 자체에 대한 피드백이다.
  */
 export const AWL_FEEDBACK_AREAS = [

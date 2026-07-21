@@ -233,7 +233,7 @@ awl records   # 쌓인 기록
 awl gotchas   # 아직 규칙이 안 된 교훈
 awl rules     # 이 프로젝트에 적용되는 규칙
 awl metrics   # 워크아이템 세대별 지표 추세
-awl feedback  # awl 도구 자체에 대한 피드백
+awl feedback-log  # awl 도구 자체에 남겨진 피드백 기록 검토
 ```
 
 ---

@@ -34,3 +34,6 @@ ref-knowledge-graph/
 .awl-worktrees/
 .awl/state.lock
 .awl/home/
+
+# 이 저장소(agent-work-loop) 자신의 .awl/config.json 은 머신별 로컬 설정이라 추적하지 않는다.
+.awl/config.json

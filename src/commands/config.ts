@@ -24,6 +24,7 @@ import {
   listRegisteredProjects,
   promptNumber,
   selectMulti,
+  selectSingle,
   verifyStepLines,
 } from './init.js';
 
@@ -108,6 +109,11 @@ export function resolveProjectScope(cwd: string = process.cwd()): ProjectScope {
     return { mode: 'single', projectRoot: root };
   }
   const registered = listRegisteredProjects().filter((p) => fs.existsSync(p.path));
+  // 등록된 프로젝트가 정확히 1개면 고를 게 없다 — cd 안내 없이 바로 그 프로젝트를 쓴다.
+  // feedback.* 처럼 "어디서든 켜고 끌 수 있어야" 하는 설정에 특히 중요하다.
+  if (registered.length === 1) {
+    return { mode: 'single', projectRoot: registered[0]?.path };
+  }
   if (registered.length > 0) {
     return { mode: 'multi', projects: registered };
   }
@@ -639,6 +645,11 @@ function renderConfig(config: AwlConfig, c: Caps): string {
   out.push(`${s.branch} 주 언어  ${config.mainLanguage.join(', ') || '(없음)'}`);
   out.push(`${s.branch} 성격     ${config.character || '(없음)'}`);
   out.push(`${s.branch} 엔진     ${config.engineVersion}`);
+  const feedbackOn = config.feedback?.enabled ?? false;
+  out.push(`${s.branch} 피드백   ${feedbackOn ? '켜짐' : '꺼짐'}`);
+  out.push(
+    `${s.vGuide}   ${s.lastBranch} 경로: ${color.dim(config.feedback?.path || `(기본값) ${DEFAULT_FEEDBACK_PATH}`)}`,
+  );
   out.push('');
   for (const k of VERIFY_ORDER) {
     const entry = config.verify[k];
@@ -667,7 +678,7 @@ function writeConfigFile(projectRoot: string, config: AwlConfig): void {
 // awl config — 조회 + (TTY 면) 인터랙티브 수정
 // ---------------------------------------------------------------------------
 
-const EDIT_MENU = ['그대로 둔다', '주 언어', '검증 명령어', '성격', '프로젝트 이름'];
+const EDIT_MENU = ['그대로 둔다', '주 언어', '검증 명령어', '성격', '프로젝트 이름', '피드백 모드'];
 
 /** 감지된 검증 명령어를 보여준 뒤, 현재 설정값을 기본값 삼아 하나씩 고친다. */
 async function editVerifyCommands(
@@ -787,6 +798,56 @@ async function editProjectName(
   step(flow, outcome.message);
 }
 
+/** 피드백 모드: 켜짐/꺼짐 토글 + 경로 변경. */
+async function editFeedback(
+  rl: readline.Interface,
+  config: AwlConfig,
+  projectRoot: string,
+  c: Caps,
+  flow: FlowSession,
+): Promise<void> {
+  const curEnabled = config.feedback?.enabled ?? false;
+  process.stdout.write(
+    `${flowConnector(c)}\n${flowActiveNode(
+      '피드백 모드',
+      [
+        `현재: ${curEnabled ? '켜짐' : '꺼짐'}`,
+        `경로: ${config.feedback?.path || `(기본값) ${DEFAULT_FEEDBACK_PATH}`}`,
+        '',
+        'awl/awl-loop/awl-pipeline 스킬·CLI 자체의 설계 갭·버그·마찰을 다른 프로젝트로 라우팅합니다.',
+      ],
+      c,
+    )}\n`,
+  );
+  const choice = await selectSingle(rl, ['켜짐', '꺼짐'], curEnabled ? 0 : 1, c, false, '피드백 모드');
+  const toggled = await applyConfigValue(
+    config,
+    projectRoot,
+    { kind: 'feedback.enabled' },
+    choice === 0 ? 'true' : 'false',
+    { force: false },
+  );
+  step(flow, toggled.message);
+
+  const pathAnswer = (
+    await ask(
+      rl,
+      `${flowConnector(c)}  경로 [${config.feedback?.path || DEFAULT_FEEDBACK_PATH}] (비우면 그대로, '-'면 기본값): `,
+    )
+  ).trim();
+  if (pathAnswer === '') {
+    return;
+  }
+  const outcome = await applyConfigValue(
+    config,
+    projectRoot,
+    { kind: 'feedback.path' },
+    pathAnswer === '-' ? '' : pathAnswer,
+    { force: false },
+  );
+  step(flow, outcome.message);
+}
+
 /** 인터랙티브 수정 메뉴. 테스트에서 in-memory readline 으로 직접 구동한다. */
 export async function interactiveEditMenu(
   rl: readline.Interface,
@@ -812,6 +873,8 @@ export async function interactiveEditMenu(
     await editCharacter(rl, config, projectRoot, c, flow);
   } else if (idx === 4) {
     await editProjectName(rl, config, projectRoot, c, flow);
+  } else if (idx === 5) {
+    await editFeedback(rl, config, projectRoot, c, flow);
   }
   closeFlow(flow);
   return true;

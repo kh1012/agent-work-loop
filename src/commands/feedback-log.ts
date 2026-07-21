@@ -2,7 +2,11 @@ import { type Caps, caps, makeColors, sectionBox, signal } from '../core/tty.js'
 import { readRecords } from './record.js';
 
 /**
- * awl feedback — awl 도구 자체 피드백(awl-feedback)을 area 별로 묶어 보여준다.
+ * awl feedback-log — awl 도구 자체에 대해 이미 남겨진 피드백(awl-feedback 기록)을
+ * area 별로 묶어 보여준다. `awl config`의 `feedback.*`(awl-pipeline/awl-loop 세션이
+ * 다른 프로젝트로 관찰을 실시간 라우팅하는 파이프라인 모드)와는 다른 기능이다 — 이건
+ * `awl record awl-feedback`으로 이미 쌓인 구조화 기록을 사람이 나중에 훑어보는
+ * 조회 명령이다(engine/skills/claude/awl-pipeline/SKILL.md 참고).
  *
  * awl 은 판단하지 않는다. 묶고 세고 정렬만 한다 — "이렇게 고쳐라"를 말하지 않는다.
  * 2회 이상 반복된 area 를 강조하는 것까지가 awl 의 몫이다(반복이 곧 우선순위 신호).
@@ -61,7 +65,7 @@ export function loadAwlFeedback(filter: FeedbackFilter = {}): Record<string, unk
   return records;
 }
 
-/** --since 값이 파싱 불가한 날짜인가 (runFeedback 이 안내에 쓴다). */
+/** --since 값이 파싱 불가한 날짜인가 (runFeedbackLog 이 안내에 쓴다). */
 export function isInvalidSince(since: string | undefined): boolean {
   return typeof since === 'string' && since !== '' && Number.isNaN(new Date(since).getTime());
 }
@@ -94,7 +98,7 @@ export function buildFeedbackReport(records: Record<string, unknown>[]): Feedbac
 }
 
 /** 사람용 렌더. 해법을 제시하지 않는다 — 묶어 보여주고 "우선 검토하세요"까지만. */
-export function renderFeedback(report: FeedbackReport, c: Caps): string {
+export function renderFeedbackLog(report: FeedbackReport, c: Caps): string {
   const color = makeColors(c.color);
   const entries = Object.entries(report.areas).sort(([, a], [, b]) => b.count - a.count);
   if (entries.length === 0) {
@@ -133,8 +137,8 @@ export function renderFeedback(report: FeedbackReport, c: Caps): string {
   return sectionBox(`awl 자체 피드백 · 워크아이템 ${report.collectedFrom}개에서 수집`, out, c);
 }
 
-/** awl feedback */
-export function runFeedback(opts: {
+/** awl feedback-log */
+export function runFeedbackLog(opts: {
   json?: boolean;
   area?: string;
   severity?: string;
@@ -151,5 +155,5 @@ export function runFeedback(opts: {
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
     return;
   }
-  process.stdout.write(`${renderFeedback(report, caps())}\n`);
+  process.stdout.write(`${renderFeedbackLog(report, caps())}\n`);
 }

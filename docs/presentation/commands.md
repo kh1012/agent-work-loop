@@ -302,13 +302,13 @@
   ```
 - **읽는법**: 항목별 카드 다음에 "전체 집계" 카드가 붙는다. 집계의 "효율 소요 평균"은 각 워크아이템 `durationMs`를 있는 값만 평균한 것이지, 오케스트레이터가 벽시계로 잰 사이클 총 소요시간(wall-clock)이 아니다 — `engine/skills/claude/awl-pipeline/SKILL.md`의 "사이클 완료 요약" 절이 이 둘을 섞지 말라고 못박는다. `--json`을 붙이면 `{"summaries":[...], "aggregate":{...}}` 모양으로 나온다.
 
-### `awl feedback`
+### `awl feedback-log`
 
-- **역할**: awl 도구 자체에 대한 피드백(코드 교훈이 아니라 "도구가 아팠던 점")을 area별로 묶어 본다. 해법은 제시하지 않는다.
+- **역할**: awl 도구 자체에 이미 남겨진 피드백 기록(`awl record awl-feedback`으로 쌓인 것, 코드 교훈이 아니라 "도구가 아팠던 점")을 area별로 묶어 검토한다. 해법은 제시하지 않는다. `awl config`의 `feedback.*`(awl-pipeline/awl-loop 세션이 다른 프로젝트로 관찰을 실시간 라우팅하는 파이프라인 모드)와는 별개 기능이다.
 - **언제 쓰나**: awl 자신을 고칠 재료를 찾을 때.
 - **실행+실제출력**:
   ```
-  $ awl feedback --json
+  $ awl feedback-log --json
   {"collectedFrom":30,"areas":{"cli":{"count":3,"repeated":true,"items":[...]}, "review":{...}, ...}}
   ```
 - **읽는법**: `area`는 commit/review/gate/verify/state/init/cli/기타로 나뉜다. `repeated:true`면 같은 area에서 피드백이 반복됐다는 뜻이다.
