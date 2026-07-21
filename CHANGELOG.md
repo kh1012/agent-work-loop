@@ -5,6 +5,21 @@
 
 ## [Unreleased]
 
+### 변경
+
+- `/awl-pipeline --gl` 실전 세션 피드백 2편(0720_improve 레인 2차 배치, registry HMR 워처·캔버스
+  hover 커서·커서 시스템 통일 3건 처리 중 관측)을 awl-pipeline 계열 스킬 3개에 반영했다. (1) 스폰된
+  exec/review 세션에 `SendMessage` 재개를 시도했는데 "No transcript found" 에러가 나면 그 세션은
+  완전히 소실된 것이다 — 사전 감지는 불가능함을 확인했고(`SendMessage`/`TaskList`/`TaskGet`/
+  `TaskOutput` 직접 조회, 세션 생존여부 조회 API 없음), 재시도 대신 같은 스킬 트리거로 새 세션을
+  처음부터 스폰해 파일 기반 상태(`.tasks/`·git·records)를 이어받는 복구절차를 명문화했다. (2)
+  exec/review가 위임한 서브에이전트의 핸드오프가 지연될 때의 폴백에 구체적 임계치(재확인 2회 또는
+  30분)를 추가했다 — 임계치가 없어 8시간 넘게 무응답을 기다린 실전 사례를 방지한다. (3) review의
+  "검증 항목"에 CSS/시각 변경 전용 체크리스트를 추가했다 — computed style은 실제 렌더링 컨텍스트
+  (host document/iframe.contentDocument/Shadow DOM)에서 확인해야 하고, 기능적 동작 확인(예: 스크롤
+  발생)이 시각적 속성 검증(예: 커서 모양)을 대체할 수 없다는 실전 사례(iframe head 재조정으로 주입한
+  스타일이 무효화된 채 review를 통과) 기반. 코드 변경 없음 — SKILL.md 3개 문구만 갱신.
+
 ## [0.6.40] - 2026-07-20
 
 ### 변경
