@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.6.47] - 2026-07-21
+
 ### 추가
 
 - GitHub Actions CI(`.github/workflows/ci.yml`)를 신설했다 — main에 push/PR이 오면 Node 18/22
