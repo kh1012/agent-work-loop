@@ -23,11 +23,20 @@ export const BANNER = `
 판단은 Claude Code나 Codex가 하고,
 awl은 파일과 상태만 관리합니다.`;
 
-/** 로고 옆이 아니라 그 아래에 좌측 정렬 카드로 따로 배치하는 시작 안내(cli-banner-getting-started-card). */
-const GETTING_STARTED: { cmd: string; desc: string }[] = [
-  { cmd: 'awl init', desc: '이 프로젝트를 설정합니다' },
-  { cmd: 'awl status', desc: '지금 어디까지 왔는지 봅니다' },
-  { cmd: 'awl doctor', desc: '설치와 환경을 점검합니다' },
+/**
+ * 로고 옆이 아니라 그 아래에 좌측 정렬 카드로 따로 배치하는 시작 안내
+ * (cli-banner-getting-started-card, cli-skills-help-card). 2-1/2-2는 둘 중 하나만
+ * 실행해도 바로 시작되는 대등한 진입점이라 번호를 나란히 묶었다 — awl status/doctor는
+ * 점검용이라 "시작하기"에서 빼고 --help 명령 목록에서 찾게 둔다.
+ */
+const GETTING_STARTED: { label: string; cmd: string; desc: string }[] = [
+  { label: '1', cmd: 'awl init', desc: '작업 중인 프로젝트에 awl 환경을 설정합니다.' },
+  { label: '2-1', cmd: '/awl-loop <목표>', desc: '목표를 완수할 때까지 단일 루프를 실행합니다.' },
+  {
+    label: '2-2',
+    cmd: '/awl-pipeline <lane명> <mode>',
+    desc: '레인 단위로 exec·review 세션을 무인 실행합니다.',
+  },
 ];
 
 /** 표시폭(한글은 2칸) 기준 오른쪽 패딩. String.padEnd 는 UTF-16 코드유닛 수로만
@@ -38,10 +47,13 @@ function padVisible(s: string, width: number): string {
 
 function renderGettingStartedCard(c: Caps): string {
   const t = makeTokens(c);
+  const prefixWidth = Math.max(...GETTING_STARTED.map((g) => `${g.label}.`.length));
   const cmdWidth = Math.max(...GETTING_STARTED.map((g) => visibleWidth(g.cmd)));
   const lines = GETTING_STARTED.map(
-    (g, i) => `${i + 1}. ${t.accent(padVisible(g.cmd, cmdWidth))}  ${g.desc}`,
+    (g) =>
+      `${`${g.label}.`.padEnd(prefixWidth)} ${t.accent(padVisible(g.cmd, cmdWidth))}  ${g.desc}`,
   );
+  lines.push(t.muted('*2-1 혹은 2-2를 실행하면 바로 시작할 수 있습니다.'));
   return sectionBox('시작하기', lines, c);
 }
 
@@ -142,6 +154,80 @@ function renderExamplesCard(c: Caps): string {
   return sectionBox('예시', lines, c);
 }
 
+/**
+ * awl --skills — awl-loop/awl-pipeline 파이프라인 스킬을 부연설명한다(cli-skills-help-card).
+ * --examples와 달리 명령 예시가 아니라 개념(레인·파이프라인 구조·게이트 밀도)이 중심이다 —
+ * 이 스킬들은 awl 혼자가 아니라 Claude Code 같은 LLM 안에서 실행해야 의미가 있다.
+ * 내용은 engine/skills/claude/awl-pipeline/SKILL.md의 "mode 매핑"·"자동 레인"·"스폰 계약"·
+ * "한 사이클" 절과 awl-loop/SKILL.md의 역할 분담 절을 원문 대조해 옮긴 것 — 그 문서가 바뀌면
+ * 여기도 같이 바뀌어야 한다(단일 출처 아님, 사람이 손으로 맞춰야 함 — 자동 동기화 없음).
+ */
+function renderSkillsCard(c: Caps): string {
+  const t = makeTokens(c);
+  const lines: string[] = [
+    t.muted('반드시 Claude Code 같은 LLM 안에서 실행하세요 — awl 혼자서는 판단하지 않습니다.'),
+    '',
+    t.muted('/awl-loop <목표>'),
+    '  목표를 완료 조건으로 번역하고, 게이트 승인 후 한 세션이 처음부터 끝까지 직접',
+    '  자율 루프로 구현합니다. 워크아이템 하나를 한 세션이 관통합니다.',
+    '',
+    t.muted('/awl-pipeline <lane명> <mode>'),
+    '  레인(lane) 단위로 무인 파이프라인을 돌립니다. 오케스트레이터 세션은 목표를',
+    '  일감으로 옮겨 레인 큐에 넣기만 하고, exec·review는 각각 별도 백그라운드',
+    '  세션으로 스폰돼 그 레인 안에서 구현·검증을 진행합니다.',
+    '',
+    t.muted('레인(lane)이란'),
+    '  .awl-worktrees/<lane명> 격리 워크트리 하나에 대응하는 작업 단위입니다.',
+    '  레인명을 생략하면 unknown-lane-<N>이 자동 생성돼 cwd와 섞이지 않습니다',
+    '  (단, cwd가 이미 다른 레인 워크트리 안이면 그 레인을 그대로 씁니다).',
+    '',
+    t.muted('파이프라인 구조 (간략)'),
+    '  plan(오케스트레이터) → exec·review 스폰(레인별) → 수집·게이트 → 상태 표시.',
+    '  exec·review가 필요시 스폰하는 조사·검증용 서브에이전트는 더 재위임하지',
+    '  않고, 스폰된 exec·review 자신도 스스로 재개하지 못해 오케스트레이터가',
+    '  유휴 신호를 받을 때마다 다시 깨웁니다.',
+    '',
+    t.muted('<mode> — 게이트 밀도 (높을수록 사람 개입이 많습니다, 기본은 gate-high)'),
+  ];
+  const modes: { flag: string; desc: string }[] = [
+    { flag: '--gh, --gate-high', desc: '(기본값) 게이트마다 사람에게 승인받습니다 — 개입 최대' },
+    {
+      flag: '--gm, --gate-medium',
+      desc: '게이트를 자동 승인하되 심각 항목만 모아 보고합니다 — 개입 중간',
+    },
+    {
+      flag: '--gl, --gate-low',
+      desc: '게이트를 전부 자동 승인하고 끝까지 자율로 진행합니다 — 개입 최소',
+    },
+  ];
+  const flagWidth = Math.max(...modes.map((m) => visibleWidth(m.flag)));
+  for (const m of modes) {
+    lines.push(`  ${t.accent(padVisible(m.flag, flagWidth))}  ${m.desc}`);
+  }
+  return sectionBox('스킬', lines, c);
+}
+
+/**
+ * awl --help 맨 아래에 붙는 짧은 요약 + LLM 병용 경고(cli-skills-help-card). renderSkillsCard의
+ * 축약판이다 — 상세(레인·파이프라인 구조·<mode> 게이트 밀도)는 중복해 옮기지 않고
+ * awl --skills 로 유도한다(같은 내용을 두 곳에 다른 말로 적으면 나중에 어긋난다).
+ */
+function renderSkillsHelpFooter(c: Caps): string {
+  const t = makeTokens(c);
+  const color = makeColors(c.color);
+  const lines: string[] = [
+    t.muted('반드시 Claude Code 같은 LLM 안에서 실행하세요 — awl 혼자서는 판단하지 않습니다.'),
+    '',
+    `  ${t.accent('/awl-loop <목표>')}`,
+    '    단일 세션이 목표 하나를 완료 조건 → 게이트 → 구현까지 직접 관통합니다.',
+    `  ${t.accent('/awl-pipeline <lane명> <mode>')}`,
+    '    레인별로 exec·review 세션을 스폰해 무인 파이프라인을 돌립니다.',
+    '',
+    color.dim('레인·파이프라인 구조·<mode> 게이트 밀도(--gh/--gm/--gl)는 awl --skills 로 봅니다.'),
+  ];
+  return sectionBox('skills 부연설명', lines, c);
+}
+
 const DENSE_AWL = `
  █████╗ ██╗    ██╗██╗
 ██╔══██╗██║    ██║██║
@@ -173,7 +259,7 @@ export function renderBanner(c: Caps = caps()): string {
   // 명령×옵션 예시는 --help 본문에 안 넣고 awl --examples 로 뺐다(cli-help-examples-card)
   // — 여기서 짧게 그쪽으로 유도만 한다.
   const color = makeColors(c.color);
-  return `${header}\n\n${renderGettingStartedCard(c)}\n\n  ${color.dim('예시는 awl --examples 로 봅니다.')}`;
+  return `${header}\n\n${renderGettingStartedCard(c)}\n\n  ${color.dim('예시는 awl --examples 로, 스킬 설명은 awl --skills 로 봅니다.')}`;
 }
 
 /** 홈 디렉토리 하위 경로면 '~'로 줄인다(AWL_HOME 오버라이드 시엔 실제 경로 그대로 보여준다). */
@@ -303,10 +389,17 @@ export function buildProgram(): Command {
     // 배너는 루트(awl / awl --help)에서만 보여준다. 예전엔 beforeAll 이 모든
     // 서브커맨드 help(work --help 등)에도 배너를 반복 출력했다.
     .addHelpText('beforeAll', (ctx) => (ctx.command === program ? `${renderBanner()}\n` : ''))
+    // --help 맨 아래에 스킬(awl-loop/awl-pipeline) 부연설명 + LLM 병용 경고를 붙인다
+    // (cli-skills-help-card) — beforeAll이 위에 배너를 붙이는 것과 대칭으로 after를 쓴다.
+    // 이것도 루트에서만(서브커맨드 help마다 반복 안 함).
+    .addHelpText('after', (ctx) =>
+      ctx.command === program ? `\n${renderSkillsHelpFooter(caps())}\n` : '',
+    )
     // 명령 목록의 [options]/<criterion>/<range> 가 뭘 뜻하는지 감이 안 잡히는 문제
     // (cli-help-examples-card)의 대응은 --help 본문이 아니라 별도 --examples 로 뺐다 —
     // 모든 명령×옵션 조합까지 --help 에 다 욱여넣으면 분기가 너무 많아진다(사용자 판단).
     .option('--examples', '자주 쓰는 명령 예시를 보여줍니다')
+    .option('--skills', 'awl-loop/awl-pipeline 스킬을 부연설명합니다')
     .showHelpAfterError();
 
   // 사람이 치는 명령: init (처음 설정)
@@ -845,9 +938,13 @@ export function buildProgram(): Command {
   // 명령을 operand 로 받아 조용히 이 액션을 태우므로, 잔여 operand 를 직접 걸러야 한다.
   // 단, commander 내장 help 명령(awl help [cmd])도 루트 액션에 가려 여기로 오므로
   // 미등록으로 오판하지 않고 되살린다.
-  program.action((opts: { examples?: boolean }, command: Command) => {
+  program.action((opts: { examples?: boolean; skills?: boolean }, command: Command) => {
     if (opts.examples) {
       process.stdout.write(`${renderExamplesCard(caps())}\n`);
+      return;
+    }
+    if (opts.skills) {
+      process.stdout.write(`${renderSkillsCard(caps())}\n`);
       return;
     }
     const [first, second] = command.args;
