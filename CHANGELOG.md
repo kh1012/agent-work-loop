@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.6.41] - 2026-07-21
+
 ### 변경
 
 - `/awl-pipeline --gl` 실전 세션 피드백 2편(0720_improve 레인 2차 배치, registry HMR 워처·캔버스
