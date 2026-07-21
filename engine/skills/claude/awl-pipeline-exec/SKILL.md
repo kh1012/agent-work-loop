@@ -66,9 +66,13 @@ description: |
   턴을 끝내면(스킬 설계상 정상 동작), 그 자식의 완료 알림으로 스스로 재개되는지가 확인되지 않았다는
   쪽에 가깝다(오케스트레이터의 SendMessage 재개로 실제로 풀렸다는 사실과 들어맞는다) — 다만 이건
   짧은 단발 작업 기준 실측이라 실전 규모(동시 다건·수 분짜리 구현)까지 근본원인을 완전히 못박은
-  건 아니다. 그래서 아래 폴백은 근본 수정이 아니라 **방어수단으로 계속 유효**하다 — 무한정 기다리지 않는다:
-  `git log`로 해당 workitem의 커밋을 직접 확인하고, plan의 완료조건과 diff를 직접 대조해 충족
-  여부를 판단한 뒤 핸드오프를 메인이 직접 써서 `exec/<name>.md`를 완성한다(pipeline-spawned-subagent-lifecycle).
+  건 아니다. 그래서 아래 폴백은 근본 수정이 아니라 **방어수단으로 계속 유효**하다 — 무한정 기다리지 않는다.
+  **임계치(pipeline-session-loss-recovery-and-nested-stall-timeout)**: 오케스트레이터/자신의 재확인
+  시도가 2회를 넘거나, 스폰한 지 30분(self-pace 2단계 백오프 상한 25분보다 약간 여유를 둔 값)이
+  지났는데도 응답이 없으면 그 서브에이전트를 포기한다 — 8시간 넘게 무응답을 기다린 실전 사례가
+  있었다(임계치 부재가 원인). 포기 후: `git log`로 해당 workitem의 커밋을 직접 확인하고, plan의
+  완료조건과 diff를 직접 대조해 충족 여부를 판단한 뒤 핸드오프를 메인이 직접 써서
+  `exec/<name>.md`를 완성한다(pipeline-spawned-subagent-lifecycle).
 - **동시 구현 서브에이전트(공유 AWL_HOME 오염 방지)**: 한 workitem 안에서 구현 서브에이전트를
   여럿 동시에 스폰하면 전부 같은 레인 `AWL_HOME`을 공유해 `state.json`의 활성 워크아이템 포인터가
   서로의 `awl work new`/`switch`로 수초마다 플립할 수 있다(gotcha G-001/G-002 — partial-merge로 엉뚱한

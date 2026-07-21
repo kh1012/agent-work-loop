@@ -34,9 +34,12 @@ description: |
 지연의 실제 원인은 스폰된 review 세션이 검증 서브에이전트를 띄운 뒤 자기 턴을 끝내면, 그 자식의
 완료 알림으로 스스로 재개되는지가 확인되지 않았다는 쪽에 가깝다 — 짧은 단발 작업 기준 실측이라
 실전 규모까지 근본원인을 완전히 못박진 못했다. 그래서 아래는 근본 수정이 아니라 방어수단으로
-계속 유효하다 — 무한정 기다리지 않는다: 서브에이전트에게 넘겼던 `exec/<name>.md`·
+계속 유효하다 — 무한정 기다리지 않는다. **임계치(pipeline-session-loss-recovery-and-nested-stall-timeout)**:
+재확인 시도가 2회를 넘거나 스폰한 지 30분이 지났는데도 응답이 없으면 그 검증 서브에이전트를
+포기한다 — 실전에서 8시간 넘게 무응답을 기다리다 review가 즉흥적으로 포기한 사례가 있었다(임계치
+부재가 원인, 이번에 명문화). 포기 후: 서브에이전트에게 넘겼던 `exec/<name>.md`·
 `plan/<name>.taken.md`를 메인이 직접 열어 커밋·완료조건을 대조하고, 판정을 메인이 직접 내려 위
-3(판정)을 진행한다(pipeline-spawned-subagent-lifecycle, pipeline-followup-handoff-cause-and-isolated-home-decision).
+3(판정)을 진행한다(pipeline-spawned-subagent-lifecycle, pipeline-followup-handoff-cause-and-isolated-home-decision, pipeline-session-loss-recovery-and-nested-stall-timeout).
 
 ## 검증 항목 (awl-loop 리뷰어 준용 — 정확성은 awl verify가 이미 봤다, 너는 그 너머를 본다)
 - **부정행위 탐지(최우선)**: `any`/`@ts-ignore`/`eslint-disable` 추가, 테스트 삭제·약화·`skip`·assertion 제거,
@@ -45,6 +48,12 @@ description: |
 - **완료조건 충족**: 각 AC를 기계 판정한다. 핸드오프에 적힌 커밋을 실제로 확인한다. plan의 "범위 밖"이 슬쩍 확장되진 않았나.
 - **품질·구조**: 형용사가 아니라 **코드 근거**로 지목한다. "가독성 나쁨"이 아니라 "이 함수가 X와 Y를 동시에 해 테스트 불가". 불필요한 추상화·기존 패턴 불일치·중복.
 - **실행 가능성**: diff만으로 판단이 안 서면 워크트리 파일을 직접 열어 확인한다(정적 자료만으론 여러 파일 상호작용 결함이 안 잡힌다).
+- **CSS/시각 변경의 렌더링 컨텍스트(pipeline-session-loss-recovery-and-nested-stall-timeout)**: computed
+  style을 확인할 땐 실제로 렌더링되는 정확한 DOM 컨텍스트(호스트 document / `iframe.contentDocument` /
+  Shadow DOM 등)를 특정해서 **그 안에서** 확인한다. 기능적 동작 확인(예: "스크롤이 실제로 발생")을
+  시각적 속성 검증(예: "커서 모양이 실제로 바뀜")의 대체물로 쓰지 않는다 — 둘은 다른 것이고,
+  기능은 되는데 시각 속성만 조용히 무효화되는 사례(예: iframe head 재조정 로직이 주입한 `<style>`을
+  덮어씀)가 실전에서 review-pass를 통과한 채 발견됐다.
 
 ## 판정 문서 형식 (`review/<name>.md`) — exec의 입력, **수정 필요일 때만 생성**
 ```
