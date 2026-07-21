@@ -140,7 +140,9 @@ describe('parseConfigKey — 지원하는 모든 키 (Part 0-4)', () => {
     expect(SETTABLE_KEYS).toContain('namingConvention');
     expect(SETTABLE_KEYS).toContain('relatedCmd');
     expect(SETTABLE_KEYS).toContain('protectedFiles');
-    expect(SETTABLE_KEYS.length).toBe(6 + 4 * 3);
+    expect(SETTABLE_KEYS).toContain('feedback.enabled');
+    expect(SETTABLE_KEYS).toContain('feedback.path');
+    expect(SETTABLE_KEYS.length).toBe(8 + 4 * 3);
   });
 });
 
@@ -254,6 +256,123 @@ describe('applyConfigValue — 키마다 검증 규칙이 다르다', () => {
     });
     expect(outcome.ok).toBe(false);
     expect(config.project).toBe('maxflow'); // 안 바뀜
+  });
+
+  it('parseConfigKey: feedback.enabled / feedback.path 를 인식한다', () => {
+    expect(parseConfigKey('feedback.enabled')).toEqual({ kind: 'feedback.enabled' });
+    expect(parseConfigKey('feedback.path')).toEqual({ kind: 'feedback.path' });
+  });
+
+  it.each(['true', 'TRUE', 'on', '1'])(
+    'feedback.enabled: "%s" 는 true 로 저장한다',
+    async (raw) => {
+      const config = freshConfig();
+      const outcome = await applyConfigValue(config, '/tmp', { kind: 'feedback.enabled' }, raw, {
+        force: false,
+      });
+      expect(outcome.ok).toBe(true);
+      expect(config.feedback?.enabled).toBe(true);
+    },
+  );
+
+  it.each(['false', 'off', '0'])('feedback.enabled: "%s" 는 false 로 저장한다', async (raw) => {
+    const config = freshConfig();
+    config.feedback = { enabled: true };
+    const outcome = await applyConfigValue(config, '/tmp', { kind: 'feedback.enabled' }, raw, {
+      force: false,
+    });
+    expect(outcome.ok).toBe(true);
+    expect(config.feedback?.enabled).toBe(false);
+  });
+
+  it('feedback.enabled: true/false 가 아닌 값은 거부하고 기존 값을 보존한다', async () => {
+    const config = freshConfig();
+    const outcome = await applyConfigValue(config, '/tmp', { kind: 'feedback.enabled' }, 'maybe', {
+      force: false,
+    });
+    expect(outcome.ok).toBe(false);
+    expect(config.feedback).toBeUndefined();
+  });
+
+  it('feedback.enabled: 이미 path 가 설정돼 있으면 enabled 만 바꿔도 path 를 보존한다', async () => {
+    const config = freshConfig();
+    config.feedback = { enabled: false, path: '/tmp/custom-feedback' };
+    const outcome = await applyConfigValue(config, '/tmp', { kind: 'feedback.enabled' }, 'true', {
+      force: false,
+    });
+    expect(outcome.ok).toBe(true);
+    expect(config.feedback).toEqual({ enabled: true, path: '/tmp/custom-feedback' });
+  });
+
+  it('feedback.path: 절대경로를 저장한다', async () => {
+    const config = freshConfig();
+    const outcome = await applyConfigValue(
+      config,
+      '/tmp',
+      { kind: 'feedback.path' },
+      '/tmp/custom-feedback',
+      { force: false },
+    );
+    expect(outcome.ok).toBe(true);
+    expect(config.feedback?.path).toBe('/tmp/custom-feedback');
+  });
+
+  it('feedback.path: 상대경로는 저장하되 경고를 붙인다', async () => {
+    const config = freshConfig();
+    const outcome = await applyConfigValue(
+      config,
+      '/tmp',
+      { kind: 'feedback.path' },
+      'relative/feedback',
+      { force: false },
+    );
+    expect(outcome.ok).toBe(true);
+    expect(config.feedback?.path).toBe('relative/feedback');
+    expect(outcome.message).toMatch(/상대경로/);
+  });
+
+  it('feedback.path: 빈 값이면 비워서 기본값으로 되돌린다', async () => {
+    const config = freshConfig();
+    config.feedback = { enabled: true, path: '/tmp/custom-feedback' };
+    const outcome = await applyConfigValue(config, '/tmp', { kind: 'feedback.path' }, '  ', {
+      force: false,
+    });
+    expect(outcome.ok).toBe(true);
+    expect(config.feedback?.path).toBeUndefined();
+    expect(config.feedback?.enabled).toBe(true); // enabled 는 안 건드림
+  });
+
+  it('validateConfig: feedback.enabled 가 boolean 이 아니면 에러', () => {
+    const errors = validateConfig({
+      project: 'x',
+      engineVersion: '0.1.0',
+      verify: {},
+      feedback: { enabled: 'yes' },
+    });
+    expect(errors.some((e) => e.includes('feedback.enabled'))).toBe(true);
+  });
+
+  it('loadConfig: feedback 필드를 왕복한다(round-trip)', () => {
+    const root = projectWithConfig(
+      JSON.stringify({
+        project: 'x',
+        engineVersion: '0.1.0',
+        verify: {},
+        feedback: { enabled: true, path: '/tmp/custom-feedback' },
+      }),
+    );
+    const result = loadConfig(root);
+    expect(result.errors).toEqual([]);
+    expect(result.config?.feedback).toEqual({ enabled: true, path: '/tmp/custom-feedback' });
+  });
+
+  it('loadConfig: feedback 필드가 없으면 undefined(기본 disabled)로 읽힌다', () => {
+    const root = projectWithConfig(
+      JSON.stringify({ project: 'x', engineVersion: '0.1.0', verify: {} }),
+    );
+    const result = loadConfig(root);
+    expect(result.errors).toEqual([]);
+    expect(result.config?.feedback).toBeUndefined();
   });
 
   it('verify.cmd: 실제 존재하는 명령이면 통과하고 저장한다', async () => {

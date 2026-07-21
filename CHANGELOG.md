@@ -5,6 +5,34 @@
 
 ## [Unreleased]
 
+### 변경
+
+- cwd가 프로젝트 밖일 때(홈 디렉터리 등에서 `awl` 커맨드를 실행했을 때) 겪는 두 가지 문제를
+  고쳤다. 하나는 버그: `findProjectRoot`가 전역 설치 폴더(`~/.awl`)를 프로젝트로 오판했다.
+  `awl init`으로 cwd가 아닌 다른 경로를 골라 설치한 뒤 홈 디렉터리에서 `awl config`/`awl doctor`를
+  실행하면, `~/.awl` 자체가 `.awl` 마커에 걸려 "여기가 프로젝트"로 잘못 인식되고 그 안에
+  config.json이 없다는 혼란스러운 에러로 이어졌다 — `globalRoot()`와 경로가 같으면 `.awl` 마커에서
+  제외하도록 고쳤다. 다른 하나는 기능 개선: cwd가 어떤 프로젝트에도 속하지 않을 때 그냥 에러로
+  죽는 대신, `~/.awl/projects.json`에 등록된 프로젝트가 있으면 그 커맨드를 각 프로젝트에 대해
+  실제로 실행해 전부 보여주는 폴백을 `status`·`doctor`·`config`·`metrics`·`loop-summary`(단일모드)·
+  `work list`에 추가했다. `config`/`config set`은 여러 프로젝트 중 무엇을 수정할지 모호하므로 이
+  폴백에서는 조회만 허용하고, 실제 수정은 `cd <경로> && awl config`로 안내한다. `loop-summary`는
+  records가 프로젝트 무관 전역 저장소라 project 필드로 걸러 다른 프로젝트의 같은 이름 워크아이템과
+  안 섞이게 했다. `loop-summary --workitems/--since` 배치모드와 `work new/switch/abandon/done` 같은
+  쓰기 서브커맨드는 같은 모호성이 있어 이번 범위에서 제외했다(후속 과제).
+- `/awl-pipeline`·`/awl-loop`에 `--fb`/`--feedback` 피드백 모드를 추가했다. 켜져 있으면(플래그
+  또는 `awl config`의 `feedback.enabled` 전역 설정) 작업 중 awl/awl-pipeline/awl-loop 스킬·CLI
+  자체의 설계 갭·버그·마찰을 발견할 때마다 누적해뒀다가, 유휴 진입 직전(exec/review) 또는 evolve
+  직전(awl-loop)에 한 번에 정리해 `<feedbackPath>/<date>-<project>-<lane>-<title>.md` 형식으로
+  기록한다 — 이번 대화에서 두 차례 수작업으로 반복했던 관례(다른 프로젝트에서 awl-pipeline을 돌리다
+  발견한 스킬 설계 갭을 이 저장소의 `.tasks/plan/`에 남기고 exec가 읽어 반영)를 정식 옵션으로
+  승격한 것이다. `awl config`에 `feedback.enabled`(boolean)·`feedback.path`(문자열, 기본값은 이
+  저장소의 `.tasks/plan/`)를 추가했다. 기존 `awl record awl-feedback`(evolve 시점 1회, 구조화 JSON,
+  프로젝트 로컬 저장, 사람이 나중에 수동 수집)과는 다르다 — 이건 다른 프로젝트로 즉시 라우팅돼
+  그 프로젝트의 exec가 실제로 감시하는 큐에 바로 꽂히는 능동적 경로다. 코드는 `awl config`의
+  `feedback.*` 키 배선만이고(`src/commands/config.ts`), 관찰을 실제로 언제·어떻게 쓰는지는 전부
+  SKILL.md 지침이다.
+
 ## [0.6.41] - 2026-07-21
 
 ### 변경

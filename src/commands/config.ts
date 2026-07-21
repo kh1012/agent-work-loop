@@ -55,7 +55,20 @@ export interface AwlConfig {
   /** awl verify --related 가 쓸 명령 템플릿(WI-I AC-04). {files} 는 변경 파일 목록으로 치환된다. */
   relatedCmd?: string;
   protectedFiles?: string[];
+  /**
+   * awl-pipeline/awl-loop 피드백 모드(pipeline-feedback-mode). enabled 면 --fb 플래그 없이도
+   * 전역 기본으로 켜진다. path 미설정 시 DEFAULT_FEEDBACK_PATH 를 쓴다.
+   */
+  feedback?: { enabled: boolean; path?: string };
 }
+
+/**
+ * feedback.path 미설정 시 기본값. 이 저장소(agent-work-loop, awl 자기 자신의 소스)의
+ * .tasks/plan/ — awl/awl-pipeline 스킬 자체에 대한 관찰을 프로젝트를 가리지 않고 이
+ * 한 곳으로 모으는 게 의도적 설계다(사용자 개인 워크플로 — 다른 설치에서는
+ * `awl config set feedback.path <경로>`로 바꾼다).
+ */
+export const DEFAULT_FEEDBACK_PATH = '/Users/kh1012/MIDAS/Research/agent-work-loop/.tasks/plan/';
 
 export interface ConfigResult {
   config: AwlConfig | null;
@@ -169,6 +182,19 @@ export function validateConfig(obj: unknown): string[] {
   ) {
     errors.push('protectedFiles 형식 오류 (문자열 배열)');
   }
+  if ('feedback' in o && o.feedback !== undefined) {
+    if (typeof o.feedback !== 'object' || o.feedback === null) {
+      errors.push('feedback 형식 오류 (객체 필수)');
+    } else {
+      const fb = o.feedback as Record<string, unknown>;
+      if (typeof fb.enabled !== 'boolean') {
+        errors.push('feedback.enabled 형식 오류 (boolean 필수)');
+      }
+      if ('path' in fb && fb.path !== undefined && typeof fb.path !== 'string') {
+        errors.push('feedback.path 형식 오류 (문자열)');
+      }
+    }
+  }
   return errors;
 }
 
@@ -222,6 +248,18 @@ export function loadConfig(projectRoot: string): ConfigResult {
     ...(typeof raw.relatedCmd === 'string' ? { relatedCmd: raw.relatedCmd } : {}),
     ...(Array.isArray(raw.protectedFiles)
       ? { protectedFiles: raw.protectedFiles as string[] }
+      : {}),
+    ...(typeof raw.feedback === 'object' &&
+    raw.feedback !== null &&
+    typeof (raw.feedback as Record<string, unknown>).enabled === 'boolean'
+      ? {
+          feedback: {
+            enabled: (raw.feedback as Record<string, unknown>).enabled as boolean,
+            ...(typeof (raw.feedback as Record<string, unknown>).path === 'string'
+              ? { path: (raw.feedback as Record<string, unknown>).path as string }
+              : {}),
+          },
+        }
       : {}),
     verify: {
       typecheck: (rv.typecheck ?? null) as VerifyEntry,
@@ -289,6 +327,8 @@ export type ConfigKeyKind =
   | 'namingConvention'
   | 'relatedCmd'
   | 'protectedFiles'
+  | 'feedback.enabled'
+  | 'feedback.path'
   | 'verify.cmd'
   | 'verify.cwd'
   | 'verify.env';
@@ -312,6 +352,8 @@ export const SETTABLE_KEYS: string[] = [
   'namingConvention',
   'relatedCmd',
   'protectedFiles',
+  'feedback.enabled',
+  'feedback.path',
   ...VERIFY_ORDER.flatMap((n) => [`verify.${n}.cmd`, `verify.${n}.cwd`, `verify.${n}.env`]),
 ];
 
@@ -333,6 +375,8 @@ export function parseConfigKey(key: string): ParsedConfigKey | null {
     return { kind: 'relatedCmd' };
   }
   if (key === 'protectedFiles') return { kind: 'protectedFiles' };
+  if (key === 'feedback.enabled') return { kind: 'feedback.enabled' };
+  if (key === 'feedback.path') return { kind: 'feedback.path' };
   const names = VERIFY_ORDER.join('|');
   const cmdMatch = new RegExp(`^verify\\.(${names})(?:\\.cmd)?$`).exec(key);
   if (cmdMatch?.[1]) {
@@ -482,6 +526,39 @@ export async function applyConfigValue(
     }
     config.protectedFiles = files;
     return { ok: true, message: `protectedFiles = ${files.join(', ') || '(비움)'}` };
+  }
+
+  if (parsed.kind === 'feedback.enabled') {
+    const v = rawValue.trim().toLowerCase();
+    const truthy = ['true', 'on', '1'];
+    const falsy = ['false', 'off', '0'];
+    if (!truthy.includes(v) && !falsy.includes(v)) {
+      return {
+        ok: false,
+        message: `feedback.enabled 는 true/false(또는 on/off, 1/0)만 허용합니다: '${rawValue}'`,
+      };
+    }
+    const enabled = truthy.includes(v);
+    config.feedback = { enabled, ...(config.feedback?.path ? { path: config.feedback.path } : {}) };
+    return { ok: true, message: `feedback.enabled = ${enabled}` };
+  }
+
+  if (parsed.kind === 'feedback.path') {
+    const v = rawValue.trim();
+    if (v === '') {
+      if (config.feedback) {
+        config.feedback.path = undefined;
+      }
+      return {
+        ok: true,
+        message: `feedback.path = (비움, 기본값 사용 — ${DEFAULT_FEEDBACK_PATH})`,
+      };
+    }
+    const warn = path.isAbsolute(v)
+      ? ''
+      : '\n참고: 상대경로입니다 — 프로젝트 루트 기준으로 해석됩니다.';
+    config.feedback = { enabled: config.feedback?.enabled ?? false, path: v };
+    return { ok: true, message: `feedback.path = ${v}${warn}` };
   }
 
   const name = parsed.verifyName as keyof VerifyMap;
@@ -807,6 +884,9 @@ function renderSettableKeys(config: AwlConfig, c: Caps): string {
     if (key === 'project') return config.project;
     if (key === 'mainLanguage') return config.mainLanguage.join(', ') || '(없음)';
     if (key === 'character') return config.character || '(없음)';
+    if (key === 'feedback.enabled') return String(config.feedback?.enabled ?? false);
+    if (key === 'feedback.path')
+      return config.feedback?.path || `(기본값) ${DEFAULT_FEEDBACK_PATH}`;
     const m = /^verify\.(typecheck|lint|test|e2e)\.(cmd|cwd|env)$/.exec(key);
     if (!m?.[1] || !m[2]) return '';
     const entry = config.verify[m[1] as keyof VerifyMap];
