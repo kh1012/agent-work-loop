@@ -163,6 +163,8 @@ describe('renderFeedbackLog — 해법 미제시 (BC-05)', () => {
     const rep = buildFeedbackReport([fb({ area: 'commit' }), fb({ area: 'commit' })]);
     expect(renderFeedbackLog(rep, ASCII)).toContain('[!] 반복'); // ASCII 폴백
     // signal() 이 유니코드 여부와 무관하게 텍스트 마커를 쓰므로(이모지 폐지) 동일하게 [!].
-    expect(renderFeedbackLog(rep, { unicode: true, color: false, tty: true })).toContain('[!] 반복');
+    expect(renderFeedbackLog(rep, { unicode: true, color: false, tty: true })).toContain(
+      '[!] 반복',
+    );
   });
 });

@@ -819,7 +819,14 @@ async function editFeedback(
       c,
     )}\n`,
   );
-  const choice = await selectSingle(rl, ['켜짐', '꺼짐'], curEnabled ? 0 : 1, c, false, '피드백 모드');
+  const choice = await selectSingle(
+    rl,
+    ['켜짐', '꺼짐'],
+    curEnabled ? 0 : 1,
+    c,
+    false,
+    '피드백 모드',
+  );
   const toggled = await applyConfigValue(
     config,
     projectRoot,
