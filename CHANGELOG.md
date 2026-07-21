@@ -5,6 +5,22 @@
 
 ## [Unreleased]
 
+### 추가
+
+- `awl --skills` 명령을 새로 만들었다 — `/awl-loop`·`/awl-pipeline <lane명> <mode>`가 뭔지,
+  레인(lane)이 뭔지, 파이프라인의 병렬 구조(plan 오케스트레이터가 exec·review를 레인별로
+  스폰), `<mode>` 게이트 밀도 3단계(--gh/--gate-high 기본값·최대개입, --gm/--gate-medium
+  중간, --gl/--gate-low 최소개입·자율)를 설명한다. `awl --help` 맨 아래에도 "skills
+  부연설명" 섹션을 추가해 이 스킬들은 반드시 Claude Code 같은 LLM 안에서 실행해야
+  한다는 걸 먼저 알리고, 상세는 `awl --skills`로 유도한다.
+
+### 변경
+
+- `awl`(인자 없이 실행)의 "시작하기" 카드를 `awl init`(설정) → `/awl-loop <목표>`(단일 루프)
+  또는 `/awl-pipeline <lane명> <mode>`(무인 파이프라인) 2-1/2-2 구성으로 바꿨다 — 이 둘 중
+  하나만 실행해도 바로 시작된다는 각주를 붙였다. `awl status`/`awl doctor`는 점검용이라
+  이 카드에서 빼고 `--help` 명령 목록에서 찾게 뒀다.
+
 ## [0.6.45] - 2026-07-21
 
 ### 추가
