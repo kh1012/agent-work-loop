@@ -15,6 +15,10 @@ description: |
 - cwd에 `.tasks/{plan,exec,review}` 없으면 만든다. `.tasks/README.md`·워처(`watch-inputs.sh`·`watch-exec.sh`)
   없으면 `.claude/skills/awl-pipeline/templates/`에서 `cp`로 그대로 복사한다 — 새로 작성하지 않는다.
   `.sh` 두 개는 `chmod +x`.
+- **피드백 모드**: 오케스트레이터가 스폰했다면 그 프롬프트의 신호를 그대로 받는다. 단독 최상위
+  세션으로 기동됐다면 인자의 `--fb`/`--feedback`, 또는 `awl config`의 `feedback.enabled`를 스스로
+  확인한다. 켜져 있으면 첫 응답에 "피드백 모드 켜짐(--fb)" 또는 "피드백 모드 켜짐(전역 config
+  설정)"을 명시한다(awl-pipeline "피드백 모드" 절 — 실물은 거기, 여기서는 참조만).
 
 ## 한 틱
 1. 검증 대상 = `exec/<name>.md`(.taken 없는 것). 워처가 8초 안정된 것만 준다(반쯤 쓰인 파일 오검 방지).
@@ -26,7 +30,9 @@ description: |
    - `exec/<name>.md` → `exec/<name>.taken.md` (**검증함 표식** — 합격/불합격 무관, "리뷰함" 뜻).
    - `verdict:"pass"`(fixes·cheating 비어있음) → review에 아무것도 만들지 않는다. 상태표상 이게 "합격·완료"다.
    - `verdict:"fail"` → 서브의 fixes/checked/notChecked/cheating을 아래 형식에 채워 `review/<name>.md`를 생성한다. exec가 이벤트 워처로 반영한다.
-4. 처리할 대상이 남아있는 동안 반복한다. 없으면 워처를 1회 체크하고, 없으면 다음 확인을 예약한 뒤 턴을 끝낸다(아래 self-pace).
+4. 처리할 대상이 남아있는 동안 반복한다. 없으면(**피드백 모드가 켜져 있고 누적한 관찰이 있으면
+   먼저 awl-pipeline "피드백 모드" 절대로 한 번에 정리해 기록한다** — 관찰이 없으면 아무것도 안
+   쓴다) 워처를 1회 체크하고, 없으면 다음 확인을 예약한 뒤 턴을 끝낸다(아래 self-pace).
 
 **핸드오프 지연 폴백**: 위임한 검증 서브에이전트가 실제로 검증을 끝냈는데도 판정 JSON이 합리적
 시간 내 우편함으로 안 돌아오는 지연이 실전에서 반복 관측됐다. **원인 실측 보강**: depth-2 재현
