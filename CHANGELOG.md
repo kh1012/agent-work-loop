@@ -5,6 +5,22 @@
 
 ## [Unreleased]
 
+## [0.6.48] - 2026-07-22
+
+### 추가
+
+- 동시성 병렬 exec 세션을 위한 state --workitem 가드 + commit --files 안전망
+
+### 고침
+
+- linked worktree(.git이 파일)에서 훅 설치 ENOTDIR로 init이 깨지던 문제 수정
+
+### 변경
+
+- 피드백 플러시를 조건부 서술에서 필수 게이트로 격상
+- 스폰 직후 선제적 ScheduleWakeup 예약을 필수 절차로 격상
+- update
+
 ## [0.6.47] - 2026-07-21
 
 ### 추가
