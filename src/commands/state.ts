@@ -311,6 +311,12 @@ export function runStateGet(opts: { json: boolean }): void {
 
 export interface RunStateSetOpts {
   /**
+   * 현재 활성 워크아이템과 일치할 때만 state 갱신을 허용하는 가드다. state.json 은
+   * 워크아이템별 저장소가 아니라 활성 워크아이템 하나의 실시간 뷰이므로, 이 값으로
+   * 다른 워크아이템 state 에 기록을 리다이렉트하지 않는다.
+   */
+  workitem?: string;
+  /**
    * phase 를 "loop" 로 전환할 때 호출된다. false 를 돌려주면 전환을 거부한다.
    * state.ts 는 record.ts 를 import 하지 않는다(record.ts 가 이미 state.ts 를
    * import 하므로 역방향 import 는 순환 참조가 된다 — D-35 와 같은 이유). 그래서
@@ -347,19 +353,30 @@ export function runStateSet(jsonPatch: string, opts: RunStateSetOpts = {}): void
   // 게이트 거부는 여기서 exit 하지 않고 플래그로 미룬다 — 해제를 finally 한 곳으로 모아
   // (단일 해제 경로), process.exit 로 인한 락 누수를 구조적으로 없앤다(리뷰 지적).
   let gateRejected = false;
+  let workitemRejected = false;
+  let activeWorkitem: string | undefined;
   try {
     const current = loadState(root);
-    if (p.phase === 'loop' && opts.requireGateForLoop) {
-      const workitem = typeof current.workitem === 'string' ? current.workitem : undefined;
-      gateRejected = !opts.requireGateForLoop(workitem);
+    activeWorkitem = typeof current.workitem === 'string' ? current.workitem : undefined;
+    // --workitem 은 record 처럼 대상 리다이렉트가 아니라, 활성 포인터가 다른 세션에
+    // 의해 바뀐 경우 잘못된 state 를 덮어쓰지 않게 하는 낙관적 동시성 가드다.
+    workitemRejected = opts.workitem !== undefined && activeWorkitem !== opts.workitem;
+    if (!workitemRejected && p.phase === 'loop' && opts.requireGateForLoop) {
+      gateRejected = !opts.requireGateForLoop(activeWorkitem);
     }
-    if (!gateRejected) {
+    if (!workitemRejected && !gateRejected) {
       const merged = mergeState(current, p);
       writeState(root, merged);
       process.stdout.write(`${JSON.stringify(merged, null, 2)}\n`);
     }
   } finally {
     releaseStateLock(root, token);
+  }
+  if (workitemRejected) {
+    process.stderr.write(
+      `\n  활성 워크아이템이 ${activeWorkitem ?? '(없음)'}으로 바뀌어 있어 ${opts.workitem} 대상 갱신을 거부했습니다.\n`,
+    );
+    process.exit(1);
   }
   if (gateRejected) {
     process.stderr.write(

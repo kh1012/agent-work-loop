@@ -175,6 +175,7 @@ export async function isolatedCommit(
   snapshot: string,
   untrackedAtStart: string[] = [],
   expectedHead?: string,
+  files?: string[],
 ): Promise<CommitOutcome> {
   const empty = { stagedFiles: [], excludedFiles: [], extraFiles: [] };
 
@@ -256,6 +257,27 @@ export async function isolatedCommit(
   }
 
   const stagedFiles = await namesZ(['diff', '--cached', '--name-only'], cwd);
+  // --files 는 pathspec 으로 일부만 골라 커밋하는 기능이 아니라 안전 가드다. 기존
+  // baseline-diff 가 찾은 대상이 명시 목록을 벗어나면, 그 목록 전체를 커밋하지 않고
+  // 중단한다. 입력은 CLI cwd 기준 경로와 git 이 돌려주는 저장소 상대 경로를 모두
+  // 비교할 수 있게 정규화한다(절대 경로도 허용).
+  if (files !== undefined) {
+    const allowedFiles = new Set(
+      files.map((file) => path.relative(cwd, path.resolve(cwd, file)).split(path.sep).join('/')),
+    );
+    const unexpectedFiles = stagedFiles.filter((file) => !allowedFiles.has(file));
+    if (unexpectedFiles.length > 0) {
+      await git(['reset', '-q'], cwd);
+      return {
+        committed: false,
+        reason: `--files 안전장치가 커밋을 중단했습니다. 명시하지 않은 변경이 포함되어 있습니다: ${unexpectedFiles.join(', ')}`,
+        selfCheckOk: false,
+        stagedFiles,
+        excludedFiles: [],
+        extraFiles: [],
+      };
+    }
+  }
   // 제외: tracked 남의 변경(unstaged) + 시작 시점부터 있던 남의 untracked.
   const excludedFiles = [
     ...(await namesZ(['diff', '--name-only'], cwd)),
@@ -413,7 +435,7 @@ function requireRoot(): string {
 
 export async function runCommit(
   ac: string,
-  opts: { start?: boolean; message?: string; base?: string; force?: boolean },
+  opts: { start?: boolean; message?: string; base?: string; force?: boolean; files?: string[] },
 ): Promise<void> {
   const root = requireRoot();
   const c = caps();
@@ -513,6 +535,7 @@ export async function runCommit(
     snapshot,
     untrackedAtStart,
     expectedHead,
+    opts.files,
   );
 
   // 무엇이 커밋될지/제외됐는지 보여준다.

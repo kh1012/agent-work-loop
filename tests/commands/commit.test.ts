@@ -790,3 +790,77 @@ describe('runCommit — 정상 흐름(워크아이템+gate1 승인)은 트레일
     expect(log).toContain('정상 작업');
   });
 });
+
+describe('runCommit --files — 명시적 커밋 대상 안전장치', () => {
+  const origCwd = process.cwd();
+  const origHome = process.env.AWL_HOME;
+
+  afterEach(() => {
+    process.chdir(origCwd);
+    if (origHome === undefined) delete process.env.AWL_HOME;
+    else process.env.AWL_HOME = origHome;
+  });
+
+  function project(): { dir: string; g: (args: string[]) => string } {
+    const repo = makeRepo();
+    fs.writeFileSync(path.join(repo.dir, 'base.txt'), 'base\n');
+    fs.mkdirSync(path.join(repo.dir, '.awl'), { recursive: true });
+    repo.g(['add', '.']);
+    repo.g(['commit', '-q', '-m', 'base']);
+    process.chdir(repo.dir);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-files-home-'));
+    return repo;
+  }
+
+  it('--files 없이도 기존처럼 baseline 이후 모든 내 변경을 격리 커밋한다', async () => {
+    const { dir, g } = project();
+    await runCommit('AC-FILES-1', { start: true });
+    fs.writeFileSync(path.join(dir, 'one.txt'), 'one\n');
+    fs.writeFileSync(path.join(dir, 'two.txt'), 'two\n');
+
+    await runCommit('AC-FILES-1', { message: '기존 동작' });
+
+    const committed = g(['show', '--name-only', '--format=', 'HEAD']);
+    expect(committed).toContain('one.txt');
+    expect(committed).toContain('two.txt');
+  });
+
+  it('--files 가 baseline-diff 대상과 정확히 일치하면 정상 커밋한다', async () => {
+    const { dir, g } = project();
+    await runCommit('AC-FILES-2', { start: true });
+    fs.writeFileSync(path.join(dir, 'mine.txt'), 'mine\n');
+
+    await runCommit('AC-FILES-2', { message: '명시 대상', files: ['mine.txt'] });
+
+    expect(g(['show', '--name-only', '--format=', 'HEAD'])).toContain('mine.txt');
+  });
+
+  it('--files 밖의 변경이 baseline-diff 에 섞이면 커밋 전에 중단하고 파일명을 알린다', async () => {
+    const { dir, g } = project();
+    await runCommit('AC-FILES-3', { start: true });
+    fs.writeFileSync(path.join(dir, 'mine.txt'), 'mine\n');
+    fs.writeFileSync(path.join(dir, 'other-session.txt'), 'other\n');
+    const stderr: string[] = [];
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((s: unknown) => {
+      stderr.push(String(s));
+      return true;
+    });
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+
+    try {
+      await expect(
+        runCommit('AC-FILES-3', { message: '섞이면 안 됨', files: ['mine.txt'] }),
+      ).rejects.toThrow('exit:1');
+    } finally {
+      stderrSpy.mockRestore();
+      exitSpy.mockRestore();
+    }
+
+    expect(stderr.join('')).toContain('other-session.txt');
+    expect(g(['log', '--oneline'])).not.toContain('섞이면 안 됨');
+    expect(fs.existsSync(path.join(dir, 'mine.txt'))).toBe(true);
+    expect(fs.existsSync(path.join(dir, 'other-session.txt'))).toBe(true);
+  });
+});

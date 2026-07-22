@@ -230,6 +230,54 @@ describe('runStateSet — phase:loop 전환에 게이트 1 기록 요구 (WI-Q A
   });
 });
 
+describe('runStateSet --workitem — 활성 워크아이템 일치 가드', () => {
+  const origCwd = process.cwd();
+
+  afterEach(() => {
+    process.chdir(origCwd);
+  });
+
+  function project(): string {
+    const root = fs.realpathSync(tmp());
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    writeState(root, { workitem: 'WI-active', phase: 'audit' });
+    process.chdir(root);
+    return root;
+  }
+
+  it('--workitem 을 생략하면 기존처럼 활성 state 에 패치를 적용한다', () => {
+    const root = project();
+    runStateSet('{"phase":"loop"}');
+    expect(loadState(root)).toMatchObject({ workitem: 'WI-active', phase: 'loop' });
+  });
+
+  it('--workitem 이 현재 활성 워크아이템과 일치하면 패치를 적용한다', () => {
+    const root = project();
+    runStateSet('{"phase":"loop"}', { workitem: 'WI-active' });
+    expect(loadState(root)).toMatchObject({ workitem: 'WI-active', phase: 'loop' });
+  });
+
+  it('--workitem 이 활성 워크아이템과 다르면 state 를 바꾸지 않고 명확히 거부한다', () => {
+    const root = project();
+    const stateFile = path.join(root, '.awl', 'state.json');
+    const before = fs.readFileSync(stateFile, 'utf8');
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    try {
+      expect(() => runStateSet('{"phase":"loop"}', { workitem: 'WI-requested' })).toThrow('exit:1');
+      expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('WI-active'))).toBe(true);
+      expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('WI-requested'))).toBe(true);
+      expect(fs.readFileSync(stateFile, 'utf8')).toBe(before);
+    } finally {
+      exitSpy.mockRestore();
+      stderrSpy.mockRestore();
+    }
+  });
+});
+
 describe('setCriterion — commit 필드 보존 불변식 (wi8-F3 AC-01)', () => {
   it('--start 모사 패치(baseline 만, commit 없음)를 재적용해도 기존 commit 을 보존한다', () => {
     // 성공 격리 커밋이 commit SHA 를 심었다고 가정.

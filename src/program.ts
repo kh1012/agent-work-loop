@@ -770,10 +770,17 @@ export function buildProgram(): Command {
     .option('-m, --message <msg>', '커밋 메시지')
     .option('--base <ref>', '베이스 드리프트를 확인할 기준 브랜치')
     .option('--force', '보호 파일 변경 검사를 사람이 확인하고 우회합니다')
+    .option('--files <paths...>', '이 파일들만 커밋 대상으로 좁힙니다(안전장치)')
     .action(
       async (
         criterion: string,
-        opts: { start?: boolean; message?: string; base?: string; force?: boolean },
+        opts: {
+          start?: boolean;
+          message?: string;
+          base?: string;
+          force?: boolean;
+          files?: string[];
+        },
       ) => {
         const { runCommit } = await import('./commands/commit.js');
         await runCommit(criterion, {
@@ -781,6 +788,7 @@ export function buildProgram(): Command {
           message: opts.message,
           base: opts.base,
           force: opts.force,
+          files: opts.files,
         });
       },
     );
@@ -872,10 +880,12 @@ export function buildProgram(): Command {
   state
     .command('set')
     .requiredOption('--json <patch>', '부분 갱신 (JSON 문자열)')
-    .action(async (opts: { json: string }) => {
+    .option('--workitem <id>', '활성 워크아이템 일치 가드(불일치 시 갱신 거부)')
+    .action(async (opts: { json: string; workitem?: string }) => {
       const { runStateSet } = await import('./commands/state.js');
       const { hasApprovedGate1 } = await import('./commands/record.js');
       runStateSet(opts.json, {
+        workitem: opts.workitem,
         // phase:'loop' 로의 전이는 이 워크아이템에 "승인된" 게이트1 레코드가 있을
         // 때만 허용한다(0.6.3, 적대검증 발견). 예전엔 gate:1 레코드의 존재만 봐서
         // (decision 무관) 사람이 REJECT 한 계획도 루프에 진입할 수 있었다.
