@@ -576,6 +576,41 @@ describe('applyInit — 전체 산출물', () => {
     expect(result.projectCount).toBe(1);
   });
 
+  it('일반 프로젝트의 .git/hooks 에 pre-push 안전 훅을 설치한다', () => {
+    const result = applyInit(proj, nonInteractiveInputs(proj), '2026-01-01T00:00:00.000Z');
+
+    expect(result.safetyHook).toEqual({ installed: true });
+    expect(fs.existsSync(path.join(proj, '.git', 'hooks', 'pre-push'))).toBe(true);
+  });
+
+  it('linked worktree의 gitdir/commondir를 따라 공용 hooks에 설치하고 config를 완성한다', () => {
+    const commonGitDir = path.join(tmp('awl-common-git-'), '.git');
+    const worktreeGitDir = path.join(commonGitDir, 'worktrees', 'lane');
+    fs.mkdirSync(worktreeGitDir, { recursive: true });
+    fs.writeFileSync(path.join(worktreeGitDir, 'commondir'), '../..\n');
+    fs.rmSync(path.join(proj, '.git'), { recursive: true });
+    fs.writeFileSync(path.join(proj, '.git'), `gitdir: ${worktreeGitDir}\n`);
+
+    const result = applyInit(proj, nonInteractiveInputs(proj), '2026-01-01T00:00:00.000Z');
+
+    expect(result.safetyHook).toEqual({ installed: true });
+    expect(fs.existsSync(path.join(commonGitDir, 'hooks', 'pre-push'))).toBe(true);
+    expect(readJson(path.join(proj, '.awl', 'config.json'))).toMatchObject({
+      project: path.basename(proj),
+    });
+  });
+
+  it('훅 경로를 해석하지 못해도 config 생성은 계속한다', () => {
+    fs.rmSync(path.join(proj, '.git'), { recursive: true });
+    fs.writeFileSync(path.join(proj, '.git'), 'not a gitdir file\n');
+
+    const result = applyInit(proj, nonInteractiveInputs(proj), '2026-01-01T00:00:00.000Z');
+
+    expect(result.safetyHook.installed).toBe(false);
+    expect(result.safetyHook.warning).toContain('push 차단 훅을 설치하지 못했습니다');
+    expect(fs.existsSync(path.join(proj, '.awl', 'config.json'))).toBe(true);
+  });
+
   it('스킬을 하나만 설치하면 스탬프에도 그 키만 생긴다', () => {
     const inputs = nonInteractiveInputs(proj);
     inputs.skills = { claude: true, codex: false };

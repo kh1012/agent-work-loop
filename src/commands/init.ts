@@ -565,10 +565,53 @@ export function ensureGitignore(projectRoot: string): 'added' | 'exists' {
   return 'added';
 }
 
+/**
+ * Git 기본 hooks 디렉터리를 구한다.
+ *
+ * linked worktree의 최상위 `.git`은 디렉터리가 아니라 worktree 전용 gitdir를
+ * 가리키는 파일이다. 그 gitdir의 `commondir` 파일은 공용 gitdir를 (보통 상대
+ * 경로로) 가리키며, Git은 hooks를 포함한 공용 경로를 거기에서 찾는다.
+ * `git worktree`의 DETAILS 및 `git rev-parse --git-path hooks`와 같은 경로
+ * 해석을 파일시스템 접근만으로 재현한다.
+ */
+function safetyHookPath(projectRoot: string): string {
+  const dotGit = path.join(projectRoot, '.git');
+  const dotGitStat = fs.statSync(dotGit);
+
+  if (dotGitStat.isDirectory()) {
+    return path.join(dotGit, 'hooks', 'pre-push');
+  }
+  if (!dotGitStat.isFile()) {
+    throw new Error(`${dotGit} is neither a directory nor a gitdir file`);
+  }
+
+  const gitdirMatch = fs.readFileSync(dotGit, 'utf8').match(/^gitdir:\s*(.+?)\s*$/m);
+  if (!gitdirMatch) {
+    throw new Error(`${dotGit} does not contain a gitdir: line`);
+  }
+  // Git의 gitdir 파일과 commondir 파일 모두 상대경로를 각각 자신의 파일이 있는
+  // 디렉터리 기준으로 해석한다.
+  const gitdir = gitdirMatch[1];
+  if (!gitdir) {
+    throw new Error(`${dotGit} has an empty gitdir: line`);
+  }
+  const worktreeGitDir = path.resolve(path.dirname(dotGit), gitdir);
+  const commonDirFile = path.join(worktreeGitDir, 'commondir');
+  let commonGitDir = worktreeGitDir;
+  if (exists(commonDirFile)) {
+    const commonDir = fs.readFileSync(commonDirFile, 'utf8').trim();
+    if (commonDir === '') {
+      throw new Error(`${commonDirFile} is empty`);
+    }
+    commonGitDir = path.resolve(worktreeGitDir, commonDir);
+  }
+  return path.join(commonGitDir, 'hooks', 'pre-push');
+}
+
 /** 정적 템플릿을 설치한다. 기존 사용자 훅은 덮어쓰지 않고 경고만 돌린다. */
 export function installSafetyHook(projectRoot: string): { installed: boolean; warning?: string } {
   try {
-    const hook = path.join(projectRoot, '.git', 'hooks', 'pre-push');
+    const hook = safetyHookPath(projectRoot);
     if (exists(hook))
       return { installed: false, warning: '기존 pre-push 훅이 있어 awl 훅을 덮어쓰지 않았습니다.' };
     const template = path.join(packageEngineDir(), 'templates', 'pre-push.sample');
