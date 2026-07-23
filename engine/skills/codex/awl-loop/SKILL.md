@@ -1,16 +1,26 @@
 ---
 name: awl-loop
 description: >-
-  Turn an implementation goal without acceptance criteria into an evidence-backed work loop:
-  investigate, define measurable criteria, stop at approval gates, implement, verify, commit
-  with awl, review, and record reusable lessons. Use for `$awl-loop`, feature goals,
-  non-trivial fixes, or requests such as "이 기능 구현하자". Do not use for simple questions,
-  one-line edits, or requests that only run an awl command.
+  Use `$awl-loop goal [--fb]` to turn an implementation goal without acceptance criteria
+  into an evidence-backed loop: investigate, define measurable criteria, stop at approval
+  gates, implement, verify, commit with awl, review, and record reusable lessons. Trigger for
+  feature goals, non-trivial fixes, or requests such as "이 기능 구현하자". Do not use for
+  simple questions, one-line edits, or requests that only run an awl command.
 ---
 
 # awl-loop for Codex
 
 Translate a goal into completion criteria, stop at the required gates, then implement autonomously while recording evidence. Treat `awl` as the state/recording tool and Codex as the decision-maker.
+
+## Quick start
+
+```text
+$awl-loop <목표> [--fb]
+$awl-loop 결제 실패 재시도 정책을 추가해줘
+```
+
+- `<목표>`: acceptance criteria가 아직 없는 구현 목표.
+- `--fb` or `--feedback`: 이번 실행에서 AWL 도구·스킬 사용 중 불편도 함께 수집.
 
 ## Invocation contract
 

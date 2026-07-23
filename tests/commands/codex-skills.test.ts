@@ -21,8 +21,24 @@ describe('Codex AWL skills', () => {
       const skill = read(`${name}/SKILL.md`);
       expect(skill).toMatch(new RegExp(`^---\\nname: ${name}\\ndescription: [\\s\\S]+?\\n---`));
       expect(fs.existsSync(path.join(root, name, 'agents', 'openai.yaml'))).toBe(true);
-      expect(read(`${name}/agents/openai.yaml`)).toContain(`$${name}`);
+      const metadata = read(`${name}/agents/openai.yaml`);
+      expect(metadata).toContain(`$${name}`);
+      const shortDescription = metadata.match(/short_description: "(.+)"/)?.[1] ?? '';
+      expect([...shortDescription].length).toBeGreaterThanOrEqual(25);
+      expect([...shortDescription].length).toBeLessThanOrEqual(64);
     }
+  });
+
+  it('Pipeline UI 설명과 본문이 lane/mode 호출 계약과 대표 예시를 바로 노출한다', () => {
+    const metadata = read('awl-pipeline/agents/openai.yaml');
+    const pipeline = read('awl-pipeline/SKILL.md');
+    for (const token of ['<lane명>', '<mode>', '--gh', '--gm', '--gl']) {
+      expect(metadata).toContain(token);
+      expect(pipeline).toContain(token);
+    }
+    expect(pipeline).toContain('$awl-pipeline design-tokens --gh');
+    expect(pipeline).toContain('$awl-pipeline --gm');
+    expect(pipeline).toContain('$awl-pipeline . --gl');
   });
 
   it('Codex 문서에 Claude 전용 도구·설치 경로·스케줄 폴링이 남아있지 않다', () => {

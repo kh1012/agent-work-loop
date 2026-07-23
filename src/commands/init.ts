@@ -568,6 +568,9 @@ export function ensureGitignore(projectRoot: string): 'added' | 'exists' {
 /**
  * Git 기본 hooks 디렉터리를 구한다.
  *
+ * awl 프로젝트 루트가 모노레포의 하위 디렉터리일 수 있으므로, `.git`은 프로젝트
+ * 루트에서 시작해 상위로 올라가며 찾는다. 훅은 실제 Git 저장소 전체에 적용된다.
+ *
  * linked worktree의 최상위 `.git`은 디렉터리가 아니라 worktree 전용 gitdir를
  * 가리키는 파일이다. 그 gitdir의 `commondir` 파일은 공용 gitdir를 (보통 상대
  * 경로로) 가리키며, Git은 hooks를 포함한 공용 경로를 거기에서 찾는다.
@@ -575,7 +578,28 @@ export function ensureGitignore(projectRoot: string): 'added' | 'exists' {
  * 해석을 파일시스템 접근만으로 재현한다.
  */
 function safetyHookPath(projectRoot: string): string {
-  const dotGit = path.join(projectRoot, '.git');
+  let cursor = path.resolve(projectRoot);
+  let dotGit: string | undefined;
+  while (true) {
+    const candidate = path.join(cursor, '.git');
+    try {
+      fs.lstatSync(candidate);
+      dotGit = candidate;
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+    }
+    const parent = path.dirname(cursor);
+    if (parent === cursor) {
+      break;
+    }
+    cursor = parent;
+  }
+  if (!dotGit) {
+    throw new Error(`${projectRoot} 또는 상위 경로에서 .git을 찾지 못했습니다.`);
+  }
   const dotGitStat = fs.statSync(dotGit);
 
   if (dotGitStat.isDirectory()) {
@@ -747,6 +771,26 @@ function upsertAwlAgentsBlock(current: string, snippet: string): string {
   return `${current}${prefix}${current.length > 0 ? '\n' : ''}${snippet}`;
 }
 
+/**
+ * AWL이 소유한 스킬 경로를 디렉터리 복사 대상으로 준비한다.
+ *
+ * 0.7.0 이전에는 Codex 스킬을 Claude 스킬로 연결한 symlink 설치가 가능했다. Node의
+ * cpSync는 디렉터리를 그 symlink 위에 덮어쓸 수 없으므로 링크 자체만 제거한다.
+ * 일반 파일도 같은 이름의 옛 설치물로 보고 제거하되, 실제 디렉터리는 기존처럼
+ * 덮어써 사용자 추가 파일을 보존한다.
+ */
+function prepareSkillDirectoryDestination(dest: string): void {
+  try {
+    if (!fs.lstatSync(dest).isDirectory()) {
+      fs.unlinkSync(dest);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error;
+    }
+  }
+}
+
 /** Codex 스킬을 .agents/skills/ 에 복사하고, 짧은 저장소 지침을 AGENTS.md 에 갱신한다. */
 export function installCodexSkill(projectRoot: string): boolean {
   const src = path.join(engineDir(), 'skills', 'codex', 'AGENTS.awl.md');
@@ -761,6 +805,7 @@ export function installCodexSkill(projectRoot: string): boolean {
     const skillSrc = path.join(engineDir(), 'skills', 'codex', name);
     const dest = path.join(projectRoot, '.agents', 'skills', name);
     fs.mkdirSync(path.dirname(dest), { recursive: true });
+    prepareSkillDirectoryDestination(dest);
     fs.cpSync(skillSrc, dest, { recursive: true });
   }
   const snippet = fs.readFileSync(src, 'utf8');

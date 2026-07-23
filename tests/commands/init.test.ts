@@ -22,6 +22,7 @@ import {
   excludeRegisteredProjects,
   installClaudeSkill,
   installCodexSkill,
+  installSafetyHook,
   listRegisteredProjects,
   nonInteractiveInputs,
   promptVerifyLocation,
@@ -607,6 +608,16 @@ describe('applyInit — 전체 산출물', () => {
     });
   });
 
+  it('모노레포 하위 프로젝트에서는 상위 저장소의 hooks에 안전 훅을 설치한다', () => {
+    const nestedProject = path.join(proj, 'packages', 'maxflow');
+    fs.mkdirSync(nestedProject, { recursive: true });
+
+    const result = installSafetyHook(nestedProject);
+
+    expect(result).toEqual({ installed: true });
+    expect(fs.existsSync(path.join(proj, '.git', 'hooks', 'pre-push'))).toBe(true);
+  });
+
   it('훅 경로를 해석하지 못해도 config 생성은 계속한다', () => {
     fs.rmSync(path.join(proj, '.git'), { recursive: true });
     fs.writeFileSync(path.join(proj, '.git'), 'not a gitdir file\n');
@@ -693,6 +704,25 @@ describe('applyInit — 전체 산출물', () => {
     for (const name of codexSkillNames()) {
       expect(fs.existsSync(path.join(proj, '.agents', 'skills', name, 'SKILL.md'))).toBe(true);
     }
+  });
+
+  it('Codex의 옛 Claude 스킬 symlink를 실제 repo 스킬 디렉터리로 마이그레이션한다', () => {
+    scaffoldGlobal();
+    const claudeSkill = path.join(proj, '.claude', 'skills', 'awl-loop');
+    const codexSkill = path.join(proj, '.agents', 'skills', 'awl-loop');
+    fs.mkdirSync(claudeSkill, { recursive: true });
+    fs.writeFileSync(path.join(claudeSkill, 'sentinel.txt'), 'keep the Claude target\n');
+    fs.mkdirSync(path.dirname(codexSkill), { recursive: true });
+    fs.symlinkSync(path.relative(path.dirname(codexSkill), claudeSkill), codexSkill, 'dir');
+
+    expect(installCodexSkill(proj)).toBe(true);
+
+    expect(fs.lstatSync(codexSkill).isSymbolicLink()).toBe(false);
+    expect(fs.statSync(codexSkill).isDirectory()).toBe(true);
+    expect(fs.existsSync(path.join(codexSkill, 'SKILL.md'))).toBe(true);
+    expect(fs.readFileSync(path.join(claudeSkill, 'sentinel.txt'), 'utf8')).toBe(
+      'keep the Claude target\n',
+    );
   });
 
   it('syncExistingInstall — 옛 마커(config·skills-version)를 설치된 엔진 버전으로 끌어올린다 (F-2)', () => {

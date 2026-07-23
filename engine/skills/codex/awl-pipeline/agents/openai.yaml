@@ -1,4 +1,4 @@
 interface:
   display_name: "AWL Pipeline"
-  short_description: "Codex 에이전트로 plan·exec·review 파이프라인 조정"
-  default_prompt: "Use $awl-pipeline to plan, implement, and independently review this goal in an isolated lane."
+  short_description: "<lane명> <mode(--gh/--gm/--gl)>로 plan·exec·review 파이프라인 실행"
+  default_prompt: "Use $awl-pipeline <lane명> <mode> to run plan, exec, and independent review in an isolated lane; choose --gh, --gm, or --gl."

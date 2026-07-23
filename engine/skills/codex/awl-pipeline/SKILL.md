@@ -1,11 +1,31 @@
 ---
 name: awl-pipeline
-description: Orchestrate one or more AWL work items through isolated lanes, planning, implementation, independent review, feedback rounds, and status reporting with Codex subagents. Use for `$awl-pipeline [lane] [gate-high|gate-medium|gate-low]`, multiple independent work items, or work that should run in an isolated worktree. Do not use for a single role-only plan, exec, or review session.
+description: >-
+  Use `$awl-pipeline lane-name mode [--fb]` to orchestrate one or more AWL work items through
+  an isolated lane, planning, implementation, independent review, feedback rounds, and status
+  reporting with Codex subagents. The lane may be a named worktree lane, `.`, or omitted for
+  an automatic lane. Mode accepts `--gh`, `--gm`, or `--gl` (gate-high/medium/low) and
+  defaults to gate-high. Use for multiple independent work items or isolated execution. Do not
+  use for a single role-only plan, exec, or review session.
 ---
 
 # awl-pipeline for Codex
 
 Act as the coordinator. Use filesystem state as the durable source of truth and Codex subagents as bounded workers. `awl` does not spawn models.
+
+## Quick start
+
+```text
+$awl-pipeline <lane명> <mode> [--fb]
+$awl-pipeline design-tokens --gh   # named isolated lane, approval at both gates
+$awl-pipeline --gm                 # automatic unknown-lane-N, defer high-severity decisions
+$awl-pipeline . --gl               # current cwd, fully automatic gates
+```
+
+- `<lane명>` omitted: create the smallest unused `unknown-lane-<N>` unless already inside a lane.
+- `<mode>` omitted: use `gate-high` (`--gh`), the conservative default.
+- Higher gate density means more human intervention: `--gh` > `--gm` > `--gl`.
+- `--fb` or `--feedback`: collect AWL tool/skill friction for this pipeline run.
 
 ## Arguments
 

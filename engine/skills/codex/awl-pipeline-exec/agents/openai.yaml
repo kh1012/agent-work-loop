@@ -1,4 +1,4 @@
 interface:
   display_name: "AWL Pipeline Exec"
-  short_description: "AWL plan과 review 입력을 구현·검증·핸드오프"
-  default_prompt: "Use $awl-pipeline-exec to claim the next pipeline input, implement it with AWL, and write a review-ready handoff."
+  short_description: "레인의 plan·review 입력을 구현·검증하고 exec 핸드오프 작성"
+  default_prompt: "Use $awl-pipeline-exec to claim the next lane input, implement and verify it with AWL, then write an exec handoff."

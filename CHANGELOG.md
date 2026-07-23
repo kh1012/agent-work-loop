@@ -5,6 +5,15 @@
 
 ## [Unreleased]
 
+### 고침
+
+- 기존 Codex `awl-loop`가 Claude 스킬을 가리키는 symlink여도 실제 repo 스킬 디렉터리로 안전하게 마이그레이션한다.
+- 모노레포 하위 디렉터리를 awl 프로젝트로 쓰는 경우 상위 Git 저장소의 hooks 경로를 찾아 pre-push 훅을 설치한다.
+
+### 변경
+
+- Codex 스킬 UI 설명에 실제 입력·산출물을 명시하고, pipeline에는 `<lane명> <mode(--gh/--gm/--gl)>` 호출 형식과 대표 예시를 추가한다.
+
 ## [0.7.0] - 2026-07-23
 
 ### 추가
