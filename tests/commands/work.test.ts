@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isolatedCommit, startBaseline } from '../../src/commands/commit.js';
 import { collectChecks } from '../../src/commands/doctor.js';
 import * as initModule from '../../src/commands/init.js';
+import { projectSkillsSyncReport } from '../../src/commands/skills.js';
 import * as stateModule from '../../src/commands/state.js';
 import * as verifyModule from '../../src/commands/verify.js';
 import { readVerifyBaseline } from '../../src/commands/verify.js';
@@ -905,6 +906,49 @@ describe('runWorkNew --worktree (WI-F AC-03, 실제 git 저장소로 통합 확�
     expect(
       fs.readFileSync(path.join(wtRoot, '.claude/skills/component-create/SKILL.md'), 'utf8'),
     ).toBe('# component-create\n');
+
+    const resumed = projectSkillsSyncReport(wtRoot);
+    expect(resumed.ok).toBe(true);
+    expect(
+      resumed.results.map(({ name, status, canonicalSource }) => ({
+        name,
+        status,
+        canonicalSource,
+      })),
+    ).toEqual([
+      {
+        name: 'page-create',
+        status: 'current',
+        canonicalSource: path.join(wtRoot, 'workspace/packages/page/skills/page-create'),
+      },
+      {
+        name: 'component-create',
+        status: 'current',
+        canonicalSource: path.join(wtRoot, 'workspace/packages/page/skills/component-create'),
+      },
+    ]);
+
+    fs.writeFileSync(
+      path.join(wtRoot, 'workspace/packages/page/skills/page-create/SKILL.md'),
+      '# page-create v2\n',
+    );
+    const changed = projectSkillsSyncReport(wtRoot);
+    expect(changed.results.map(({ name, status }) => ({ name, status }))).toEqual([
+      { name: 'page-create', status: 'installed' },
+      { name: 'component-create', status: 'current' },
+    ]);
+    expect(fs.readFileSync(path.join(wtRoot, '.agents/skills/page-create/SKILL.md'), 'utf8')).toBe(
+      '# page-create v2\n',
+    );
+    expect(
+      fs.readFileSync(path.join(wtRoot, '.claude/skills/component-create/SKILL.md'), 'utf8'),
+    ).toBe('# component-create\n');
+    expect(
+      fs.readFileSync(
+        path.join(proj, 'workspace/packages/page/skills/page-create/SKILL.md'),
+        'utf8',
+      ),
+    ).toBe('# page-create\n');
   });
 
   it('--worktree project skill sync 실패는 재현 명령과 lane 경로를 포함해 dispatch 전에 중단한다', async () => {
