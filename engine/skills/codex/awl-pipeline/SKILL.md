@@ -58,10 +58,11 @@ Gate density does not change Codex sandbox or approval permissions.
 ## Bootstrap
 
 1. Run `awl version-check --json`. Treat `updateAvailable` as information. For mismatches, show every hint and ask whether to continue.
-2. Resolve the lane with `awl lane ls`/`awl lane new`, then use its absolute path for every agent prompt.
-3. Create `.tasks/{plan,exec,review,archive}` in the lane. If `.tasks/README.md` is missing, copy it from `.agents/skills/awl-pipeline/templates/README.md` in the lane/repository skill installation.
-4. Ensure `.tasks/` is ignored. Prefer `.git/info/exclude` for a linked worktree when changing the shared branch ignore file would be unrelated.
-5. Run `awl doctor` in the lane.
+2. Apply `absolute-lane-resume`: when the invocation supplies an existing absolute lane path, treat that path and its `.tasks` markers as authoritative and reuse it without calling `awl lane ls`, `awl lane new`, or creating a replacement lane. Otherwise resolve the lane with `awl lane ls`/`awl lane new`, then use its absolute path for every agent prompt.
+3. In the resolved lane, run `awl init --yes` only when `.awl/config.json` is missing. Do not reinitialize a configured lane.
+4. Create `.tasks/{plan,exec,review,archive}` in the lane. If `.tasks/README.md` is missing, copy it from `.agents/skills/awl-pipeline/templates/README.md` in the lane/repository skill installation.
+5. Ensure `.tasks/` is ignored. Prefer `.git/info/exclude` for a linked worktree when changing the shared branch ignore file would be unrelated.
+6. Run `awl doctor` in the lane after the conditional initialization.
 
 ## Native Scheduled task lifecycle (`--poll`)
 

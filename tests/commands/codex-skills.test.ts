@@ -135,6 +135,21 @@ describe('Codex AWL skills', () => {
     expect(pipeline).toContain('Scheduled capability is unavailable');
   });
 
+  it('Codex와 Claude pipeline bootstrap은 absolute lane 재개와 missing config 초기화 순서를 고정한다', () => {
+    const codex = read('awl-pipeline/SKILL.md');
+    const claude = fs.readFileSync(
+      path.join(process.cwd(), 'engine', 'skills', 'claude', 'awl-pipeline', 'SKILL.md'),
+      'utf8',
+    );
+
+    for (const skill of [codex, claude]) {
+      expect(skill).toContain('absolute-lane-resume');
+      expect(skill).toContain('.awl/config.json');
+      expect(skill).toContain('awl init --yes');
+      expect(skill.indexOf('absolute-lane-resume')).toBeLessThan(skill.indexOf('awl doctor'));
+    }
+  });
+
   it('Codex 문서에 Claude 전용 도구·설치 경로가 남아있지 않다', () => {
     const all = skillNames.map((name) => read(`${name}/SKILL.md`)).join('\n');
     for (const stale of [
