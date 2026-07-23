@@ -327,6 +327,72 @@ describe('installation-scoped service port leases', () => {
     );
   });
 
+  it('bounds production listener discovery without blocking guarded acquisition', async () => {
+    const root = tmp();
+    const port = await freePort();
+    const bin = path.join(root, 'bin');
+    const lsof = path.join(bin, 'lsof');
+    const invoked = path.join(root, 'lsof-invoked');
+    fs.mkdirSync(bin);
+    fs.writeFileSync(
+      lsof,
+      `#!/bin/sh\nprintf x > ${JSON.stringify(invoked)}\nexec ${JSON.stringify(process.execPath)} -e 'setTimeout(() => {}, 60_000)'\n`,
+    );
+    fs.chmodSync(lsof, 0o755);
+
+    const originalPath = process.env.PATH;
+    process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ''}`;
+    let lease: Awaited<ReturnType<typeof acquirePortLease>> | undefined;
+    let server: net.Server | undefined;
+    try {
+      const acquiredAt = Date.now();
+      lease = await acquirePortLease(root, port, {
+        lane: path.join(root, 'bounded-lane'),
+        branch: 'work/bounded',
+        head: '7'.repeat(40),
+        workitem: 'WI-bounded',
+      });
+      expect(Date.now() - acquiredAt).toBeLessThan(750);
+      expect(lease.status).toBe('acquired');
+      expect(fs.existsSync(invoked)).toBe(false);
+      if (lease.status !== 'acquired') {
+        return;
+      }
+      expect(await updatePortLeaseChild(root, lease.lease, process.pid)).not.toBeNull();
+
+      server = net.createServer();
+      await new Promise<void>((resolve, reject) => {
+        server?.once('error', reject);
+        server?.listen({ host: '127.0.0.1', port }, resolve);
+      });
+      const inspectedAt = Date.now();
+      const inspection = await inspectPortLease(root, port, {
+        lane: path.join(root, 'bounded-lane'),
+        branch: 'work/bounded',
+        head: '7'.repeat(40),
+        workitem: 'WI-bounded',
+      });
+      expect(Date.now() - inspectedAt).toBeLessThan(750);
+      expect(inspection).toMatchObject({
+        status: 'foreign',
+        listening: true,
+        listenerPids: null,
+        reusable: false,
+      });
+      expect(server.listening).toBe(true);
+    } finally {
+      process.env.PATH = originalPath;
+      if (server?.listening) {
+        await new Promise<void>((resolve, reject) =>
+          server?.close((error) => (error ? reject(error) : resolve())),
+        );
+      }
+      if (lease?.status === 'acquired') {
+        await releasePortLease(root, port, lease.lease.token);
+      }
+    }
+  });
+
   it.each([
     ['SIGINT', 130],
     ['SIGTERM', 143],

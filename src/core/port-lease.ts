@@ -62,6 +62,8 @@ export interface PortLeaseInspection {
 
 const GUARD_RETRY_MS = 5;
 const GUARD_RETRIES = 200;
+const LISTENER_PID_TIMEOUT_MS = 250;
+const LISTENER_PID_MAX_BUFFER = 64 * 1024;
 
 export function portLeaseLocation(installationRoot: string, port: number): PortLeaseLocation {
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
@@ -178,13 +180,8 @@ function localProbeAddresses(): string[] {
 }
 
 export async function isPortListening(port: number): Promise<boolean> {
-  // The lease namespace is keyed only by port, not by address. lsof covers listeners whose
-  // address disappeared after bind; exact bind probes cover every current IPv4/IPv6 interface
-  // without relying on wildcard-conflict semantics, which differ across operating systems.
-  const listenerPids = listPortListenerPids(port);
-  if (listenerPids && listenerPids.length > 0) {
-    return true;
-  }
+  // Acquisition needs only occupancy, never listener identity. Keep synchronous process
+  // discovery out of the guarded path and probe every current IPv4/IPv6 interface directly.
   for (const address of localProbeAddresses()) {
     if (await isPortBindingOccupied(port, address)) {
       return true;
@@ -196,6 +193,9 @@ export async function isPortListening(port: number): Promise<boolean> {
 export function listPortListenerPids(port: number): number[] | null {
   const result = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], {
     encoding: 'utf8',
+    timeout: LISTENER_PID_TIMEOUT_MS,
+    killSignal: 'SIGKILL',
+    maxBuffer: LISTENER_PID_MAX_BUFFER,
   });
   if (result.error) {
     return null;
