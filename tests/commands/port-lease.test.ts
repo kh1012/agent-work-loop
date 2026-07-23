@@ -1,3 +1,4 @@
+import { type ChildProcess, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -9,6 +10,7 @@ import {
   portLeaseLocation,
   readPortLease,
   releasePortLease,
+  runWithPortLease,
   updatePortLeaseChild,
 } from '../../src/core/port-lease.js';
 import { buildProgram } from '../../src/program.js';
@@ -34,6 +36,94 @@ function freePort(): Promise<number> {
       server.close((error) => (error ? reject(error) : resolve(address.port)));
     });
   });
+}
+
+function waitForFile(file: string): Promise<void> {
+  if (fs.existsSync(file)) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve, reject) => {
+    const watcher = fs.watch(path.dirname(file), (event, name) => {
+      if (event === 'rename' && name === path.basename(file) && fs.existsSync(file)) {
+        watcher.close();
+        resolve();
+      }
+    });
+    watcher.once('error', reject);
+    if (fs.existsSync(file)) {
+      watcher.close();
+      resolve();
+    }
+  });
+}
+
+function waitForOutput(child: ChildProcess, output: () => string, pattern: RegExp): Promise<void> {
+  if (pattern.test(output())) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve, reject) => {
+    const onData = (): void => {
+      if (pattern.test(output())) {
+        child.stdout?.off('data', onData);
+        resolve();
+      }
+    };
+    child.stdout?.on('data', onData);
+    child.once('error', reject);
+    child.once('exit', (code) => {
+      if (!pattern.test(output())) {
+        reject(new Error(`worker exited ${code} before output matched ${pattern}`));
+      }
+    });
+  });
+}
+
+function waitForExit(child: ChildProcess): Promise<number | null> {
+  if (child.exitCode !== null) {
+    return Promise.resolve(child.exitCode);
+  }
+  return new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('exit', resolve);
+  });
+}
+
+function spawnContender(
+  root: string,
+  port: number,
+  start: string,
+  marker: string,
+  stop: string,
+  label: string,
+): { child: ChildProcess; output: () => string } {
+  const fixture = path.resolve('tests/fixtures/port-lease-worker.ts');
+  const child = spawn(
+    process.execPath,
+    [
+      '--experimental-strip-types',
+      fixture,
+      'contender',
+      root,
+      String(port),
+      start,
+      marker,
+      stop,
+      label,
+    ],
+    { stdio: ['ignore', 'pipe', 'pipe'] },
+  );
+  let stdout = '';
+  let stderr = '';
+  child.stdout?.on('data', (chunk) => {
+    stdout += String(chunk);
+  });
+  child.stderr?.on('data', (chunk) => {
+    stderr += String(chunk);
+  });
+  return {
+    child,
+    output: () => `${stdout}${stderr}`,
+  };
 }
 
 afterEach(() => {
@@ -93,6 +183,75 @@ describe('installation-scoped service port leases', () => {
     expect(run).toBeDefined();
     expect(run?.options.map((option) => option.long)).toEqual(
       expect.arrayContaining(['--port', '--workitem', '--url', '--json']),
+    );
+  });
+
+  it('lets exactly one of two processes start a child and reports the owner to the loser', async () => {
+    const root = tmp();
+    const port = await freePort();
+    const start = path.join(root, 'start');
+    const marker = path.join(root, 'child-started');
+    const stop = path.join(root, 'stop');
+    const first = spawnContender(root, port, start, marker, stop, 'a');
+    const second = spawnContender(root, port, start, marker, stop, 'b');
+
+    await Promise.all([
+      waitForOutput(first.child, first.output, /READY a/),
+      waitForOutput(second.child, second.output, /READY b/),
+    ]);
+    fs.writeFileSync(start, '');
+    await waitForFile(marker);
+    fs.writeFileSync(stop, '');
+
+    const [firstCode, secondCode] = await Promise.all([
+      waitForExit(first.child),
+      waitForExit(second.child),
+    ]);
+    expect([firstCode, secondCode].sort()).toEqual([0, 2]);
+    expect(fs.readFileSync(marker, 'utf8').trim().split('\n')).toHaveLength(1);
+
+    const outputs = [first.output(), second.output()];
+    const busy = outputs.find((output) => output.includes('"status":"busy"'));
+    expect(busy).toBeDefined();
+    expect(busy).toMatch(/"ownerPid":\d+/);
+    expect(busy).toMatch(/"lane":".*lane-[ab]"/);
+    expect(busy).toMatch(/"workitem":"WI-[ab]"/);
+  });
+
+  it('classifies an existing listener as unmanaged and never starts or kills a child', async () => {
+    const root = tmp();
+    const server = net.createServer();
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen({ host: '127.0.0.1', port: 0 }, resolve);
+    });
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('missing listener address');
+    }
+    const marker = path.join(root, 'must-not-start');
+    const result = await runWithPortLease({
+      installationRoot: root,
+      port: address.port,
+      url: `http://127.0.0.1:${address.port}/`,
+      identity: {
+        lane: path.join(root, 'lane'),
+        branch: 'work/test',
+        head: 'a'.repeat(40),
+        workitem: 'WI-port',
+      },
+      command: [
+        process.execPath,
+        '-e',
+        `require('fs').writeFileSync(${JSON.stringify(marker)}, '')`,
+      ],
+    });
+
+    expect(result.status).toBe('unmanaged-listener');
+    expect(fs.existsSync(marker)).toBe(false);
+    expect(server.listening).toBe(true);
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
     );
   });
 });
