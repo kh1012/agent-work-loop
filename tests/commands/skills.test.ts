@@ -240,6 +240,30 @@ describe('project skill materialization', () => {
     );
   });
 
+  it('tracked file의 executable mode 변경을 한 번 재설치하고 이후 current로 본다', () => {
+    const root = project();
+    writeSkill(root, 'skills/page-create');
+    const sourceScript = path.join(root, 'skills/page-create/run.sh');
+    const installedScript = path.join(root, '.agents/skills/page-create/run.sh');
+    fs.writeFileSync(sourceScript, '#!/bin/sh\nexit 0\n', { mode: 0o644 });
+    writeManifest(root, [
+      {
+        name: 'page-create',
+        agent: 'codex',
+        source: 'skills/page-create',
+        target: '.agents/skills/page-create',
+      },
+    ]);
+
+    expect(syncProjectSkills(root).map(({ status }) => status)).toEqual(['installed']);
+    expect(fs.statSync(installedScript).mode & 0o777).toBe(0o644);
+
+    fs.chmodSync(sourceScript, 0o755);
+    expect(syncProjectSkills(root).map(({ status }) => status)).toEqual(['installed']);
+    expect(fs.statSync(installedScript).mode & 0o777).toBe(0o755);
+    expect(syncProjectSkills(root).map(({ status }) => status)).toEqual(['current']);
+  });
+
   it('항목별 JSON 결과에 canonical source, install target, error status를 낸다', () => {
     const root = project();
     writeSkill(root, 'skills/page-create');

@@ -213,6 +213,7 @@ function directoryDigest(root: string): string {
         visit(fullPath, relativePath);
       } else if (stat.isFile()) {
         updateDigest(hash, 'file', relativePath);
+        updateDigest(hash, 'executable', (stat.mode & 0o111) === 0 ? '0' : '1');
         hash.update(fs.readFileSync(fullPath));
       } else if (stat.isSymbolicLink()) {
         updateDigest(hash, 'symlink', relativePath);
