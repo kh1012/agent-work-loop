@@ -1,5 +1,7 @@
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { findProjectRoot } from '../core/paths.js';
 
 export const PROJECT_SKILLS_MANIFEST = '.awl/skills.json';
 
@@ -12,6 +14,23 @@ export interface ProjectSkillEntry {
   canonicalSource: string;
   target: string;
   installTarget: string;
+}
+
+export type ProjectSkillSyncStatus = 'installed' | 'current' | 'error';
+
+export interface ProjectSkillSyncResult {
+  name: string;
+  agent: ProjectSkillAgent;
+  canonicalSource: string;
+  installTarget: string;
+  status: ProjectSkillSyncStatus;
+  error?: string;
+}
+
+export interface ProjectSkillsSyncReport {
+  ok: boolean;
+  manifest: string;
+  results: ProjectSkillSyncResult[];
 }
 
 export class ProjectSkillsManifestError extends Error {
@@ -173,4 +192,139 @@ export function readProjectSkillsManifest(projectRoot: string): ProjectSkillEntr
   }
 
   return entries;
+}
+
+function updateDigest(hash: ReturnType<typeof createHash>, kind: string, value: string): void {
+  hash.update(`${kind.length}:${kind}${value.length}:${value}`);
+}
+
+function directoryDigest(root: string): string {
+  const hash = createHash('sha256');
+
+  const visit = (dir: string, relativeDir: string): void => {
+    const names = fs.readdirSync(dir).sort((a, b) => a.localeCompare(b));
+    for (const name of names) {
+      const fullPath = path.join(dir, name);
+      const relativePath = relativeDir === '' ? name : `${relativeDir}/${name}`;
+      const stat = fs.lstatSync(fullPath);
+      if (stat.isDirectory()) {
+        updateDigest(hash, 'directory', relativePath);
+        visit(fullPath, relativePath);
+      } else if (stat.isFile()) {
+        updateDigest(hash, 'file', relativePath);
+        hash.update(fs.readFileSync(fullPath));
+      } else if (stat.isSymbolicLink()) {
+        updateDigest(hash, 'symlink', relativePath);
+        updateDigest(hash, 'target', fs.readlinkSync(fullPath));
+      } else {
+        throw new Error(`unsupported skill entry: ${relativePath}`);
+      }
+    }
+  };
+
+  visit(root, '');
+  return hash.digest('hex');
+}
+
+function materializeEntry(entry: ProjectSkillEntry): 'installed' | 'current' {
+  if (
+    fs.existsSync(entry.installTarget) &&
+    fs.lstatSync(entry.installTarget).isDirectory() &&
+    directoryDigest(entry.canonicalSource) === directoryDigest(entry.installTarget)
+  ) {
+    return 'current';
+  }
+
+  const parent = path.dirname(entry.installTarget);
+  const token = `${process.pid}-${randomUUID()}`;
+  const temp = path.join(parent, `.${path.basename(entry.installTarget)}.awl-sync-${token}`);
+  const backup = path.join(parent, `.${path.basename(entry.installTarget)}.awl-backup-${token}`);
+  fs.mkdirSync(parent, { recursive: true });
+
+  let previousMoved = false;
+  let replacementInstalled = false;
+  try {
+    fs.cpSync(entry.canonicalSource, temp, {
+      recursive: true,
+      errorOnExist: true,
+      force: false,
+      verbatimSymlinks: true,
+    });
+    if (fs.existsSync(entry.installTarget)) {
+      fs.renameSync(entry.installTarget, backup);
+      previousMoved = true;
+    }
+    fs.renameSync(temp, entry.installTarget);
+    replacementInstalled = true;
+    if (previousMoved) {
+      fs.rmSync(backup, { recursive: true, force: true });
+    }
+    return 'installed';
+  } catch (error) {
+    fs.rmSync(temp, { recursive: true, force: true });
+    if (previousMoved && !replacementInstalled && fs.existsSync(backup)) {
+      fs.renameSync(backup, entry.installTarget);
+    } else if (fs.existsSync(backup)) {
+      fs.rmSync(backup, { recursive: true, force: true });
+    }
+    throw error;
+  }
+}
+
+/**
+ * Materialize every validated manifest entry into the current worktree. Parsing validates the
+ * complete manifest before this function performs its first write.
+ */
+export function syncProjectSkills(projectRoot: string): ProjectSkillSyncResult[] {
+  const entries = readProjectSkillsManifest(projectRoot);
+  return entries.map((entry) => {
+    try {
+      return {
+        name: entry.name,
+        agent: entry.agent,
+        canonicalSource: entry.canonicalSource,
+        installTarget: entry.installTarget,
+        status: materializeEntry(entry),
+      };
+    } catch (error) {
+      return {
+        name: entry.name,
+        agent: entry.agent,
+        canonicalSource: entry.canonicalSource,
+        installTarget: entry.installTarget,
+        status: 'error',
+        error: String(error),
+      };
+    }
+  });
+}
+
+export function projectSkillsSyncReport(projectRoot: string): ProjectSkillsSyncReport {
+  const canonicalRoot = fs.realpathSync(projectRoot);
+  const results = syncProjectSkills(canonicalRoot);
+  return {
+    ok: results.every((result) => result.status !== 'error'),
+    manifest: path.join(canonicalRoot, PROJECT_SKILLS_MANIFEST),
+    results,
+  };
+}
+
+export function runSkillsSync(
+  opts: { json?: boolean },
+  projectRoot: string = findProjectRoot(),
+): ProjectSkillsSyncReport {
+  const report = projectSkillsSyncReport(projectRoot);
+  if (opts.json) {
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  } else if (report.results.length === 0) {
+    process.stdout.write('  프로젝트 스킬 manifest가 없습니다.\n');
+  } else {
+    for (const result of report.results) {
+      const detail = result.error ? ` — ${result.error}` : '';
+      process.stdout.write(
+        `  ${result.status.padEnd(9)} ${result.agent}:${result.name} -> ${result.installTarget}${detail}\n`,
+      );
+    }
+  }
+  return report;
 }

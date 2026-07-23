@@ -495,6 +495,21 @@ export function buildProgram(): Command {
       runUpdate(opts);
     });
 
+  const skills = program
+    .command('skills')
+    .description('tracked 프로젝트 스킬을 agent catalog surface에 동기화합니다');
+  skills
+    .command('sync')
+    .description('.awl/skills.json 선언을 현재 worktree에 materialize합니다')
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .action(async (opts: { json?: boolean }) => {
+      const { runSkillsSync } = await import('./commands/skills.js');
+      const report = runSkillsSync({ json: opts.json === true });
+      if (!report.ok) {
+        process.exitCode = 1;
+      }
+    });
+
   // 사람이 치는 명령: remove (awl 이 손댄 흔적을 지운다 — 기본은 드라이런, 이전 이름 uninstall)
   program
     .command('remove')
