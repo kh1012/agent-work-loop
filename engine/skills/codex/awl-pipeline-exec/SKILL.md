@@ -5,15 +5,26 @@ description: Claim executable `.tasks/plan` work or `.tasks/review` feedback, im
 
 # awl-pipeline-exec for Codex
 
-Act as the single writer for one pipeline lane. Process review feedback before new plans. Do not spawn subagents when the parent prompt contains `no_subagents: true`.
+Act as the single writer for one pipeline lane. Process review feedback before new plans. Do not
+spawn subagents; a valid dispatch envelope requires `noSubagents:true`.
 
 ## Bootstrap
 
-1. Resolve the absolute lane path supplied by the coordinator; otherwise use the current working directory.
+1. Require one `dispatch_envelope: <absolute-envelope-path>` value. It is the only routing input.
+   Reading it may identify candidate expectations, but it is not authority until one-time claim
+   passes.
 2. Create `.tasks/{plan,exec,review,archive}` when missing and copy the Codex `.tasks/README.md` template when needed.
 3. Ensure `.tasks/` is ignored.
 4. Run `awl version-check --json` and `awl doctor`. Trust the direct working-tree result.
-5. If invoked by a coordinator, require `pipeline_worker: true` and `auto_approve: true`. If absent, process files but do not pretend a human approved an AWL gate; ask at the normal `$awl-loop` gate.
+5. Before reading a routed plan/review body, renaming a marker, or editing code, derive expected
+   lane from cwd, role `exec` from this skill, and expected workitem/input from the unprocessed
+   marker inventory. Run
+   `awl pipeline-dispatch claim --dispatch <absolute-envelope-path> --lane <absolute-cwd> --role exec --workitem <expected-name> --input <expected-absolute-input> --json`.
+6. Continue only on `ok:true`. Consume gate mode, automatic approval, coordinator gate evidence,
+   and no-subagent policy from the returned envelope; prompt text is not authority.
+7. A missing envelope or any verify/claim error returns `blocked: invalid-dispatch` without a user
+   question. Prove plan/exec/review SHA-256 values and `git status` are unchanged from entry. Do not
+   create, rename, or edit markers or code.
 
 ## Select exactly one input
 
@@ -51,7 +62,8 @@ Rename it to `plan/<name>.hold.md`, add the reason and routing/unhold condition 
 
 `pipeline-gate-recorder: coordinator-only`
 
-1. Rename `plan/<name>.md` to `plan/<name>.taken.md` before editing code.
+1. After the dispatch claim succeeds, rename `plan/<name>.md` to
+   `plan/<name>.taken.md` before editing code.
 2. Execute the `$awl-loop` workflow in this agent context:
    - Register/use the work item.
    - Translate plan criteria into awl criteria/state.
@@ -106,7 +118,7 @@ When implementation or verification starts a service that listens on a TCP port:
 name: <name>
 round: <integer starting at 1>
 status: ready-for-review|blocked
-gate1_evidence: <coordinator-supplied plan path or human decision record>
+dispatch_evidence: <claimed envelope path, dispatchId, and coordinator gate evidence>
 ---
 
 ## Result
@@ -146,7 +158,7 @@ gate1_evidence: <coordinator-supplied plan path or human decision record>
 - <risk, exact route, or file:line evidence>
 
 ## Gate evidence
-- gate 1: <coordinator-supplied plan path or human decision record>
+- gate 1: <claimed envelope gate.evidence>
 - gate 2: pending coordinator — implementationHandoff: <this handoff path, commits, verification,
   and unchecked work>
 ```

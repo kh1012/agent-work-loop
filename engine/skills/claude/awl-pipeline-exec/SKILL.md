@@ -13,6 +13,15 @@ description: |
 **구현은 반드시 `/awl-loop`를 코어로 쓴다.**
 
 ## 부트스트랩 (발동 시 1회)
+- `dispatch_envelope: <absolute-envelope-path>` 한 줄을 유일한 routing input으로 요구한다.
+  routed plan/review 본문을 읽거나 marker/code를 바꾸기 **before**, cwd의 absolute lane,
+  이 스킬의 role `exec`, unprocessed marker inventory에서 독립 도출한 workitem/input으로
+  `awl pipeline-dispatch claim --dispatch <absolute-envelope-path> --lane <absolute-cwd> --role exec --workitem <expected-name> --input <expected-absolute-input> --json`
+  을 실행한다. `ok:true`의 claimed envelope만 gate mode, auto approval, coordinator evidence,
+  `noSubagents:true`의 권한 근거다.
+- envelope 누락·만료·tamper·role/input/lane mismatch·replay는 질문 없이
+  `blocked: invalid-dispatch`로 즉시 반환한다. entry 전후 plan/exec/review SHA-256과
+  `git status`가 같음을 확인하고 marker/code를 생성·rename·edit하지 않는다.
 - cwd에 `.tasks/{plan,exec,review}` 없으면 만든다. `.tasks/README.md`·워처(`watch-inputs.sh`·`watch-exec.sh`)
   없으면 `.claude/skills/awl-pipeline/templates/`에서 `cp`로 그대로 복사한다 — 새로 작성하지 않는다.
   `.sh` 두 개는 `chmod +x`.
@@ -147,7 +156,7 @@ name: <name>
 workitem: <awl WI-ID>
 round: <N>
 verify: pass|fail
-gate1_evidence: <오케스트레이터가 전달한 plan 경로 또는 human decision record>
+dispatch_evidence: <claimed envelope path, dispatchId, coordinator gate evidence>
 ---
 ## 한 일 (완료조건별)
 - AC-01 (addresses F-01): <무엇을 했나> — 커밋 <hash>
@@ -175,7 +184,7 @@ gate1_evidence: <오케스트레이터가 전달한 plan 경로 또는 human dec
 ## 직접 볼 리뷰 포인트 (review가 확인)
 - <파일:라인> — <왜 봐야 하나>
 ## Gate evidence
-- gate 1: <오케스트레이터가 전달한 plan 경로 또는 human decision record>
+- gate 1: <claimed envelope gate.evidence>
 - gate 2: pending coordinator — implementationHandoff: <이 핸드오프 경로·커밋·검증·미확인 항목>
 ## 범위 밖 (조사에서 발견했으나 안 다룸 + 이유)
 - F-0x: ... (이유)

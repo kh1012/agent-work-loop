@@ -9,11 +9,20 @@ Act as the fresh, read-only reviewer. Do not trust the exec summary. You may cha
 
 ## Bootstrap
 
-1. Resolve the absolute lane path supplied by the coordinator; otherwise use the current working directory.
+1. Require one `dispatch_envelope: <absolute-envelope-path>` value. It is the only routing input.
 2. Require `.tasks/{plan,exec,review}` and the pipeline contract. Create only missing directories/template, never implementation artifacts.
-3. Select the exact handoff named by the coordinator, or the first `exec/<name>.md` without `.taken`.
-4. If none exists, report `idle` and stop. Do not poll, sleep, or schedule a wakeup.
-5. Do not spawn another reviewer when the parent prompt contains `no_subagents: true`; this agent is already the isolated review context.
+3. Before reading plan/handoff bodies or changing a `.tasks` file, derive expected lane from cwd,
+   role `review` from this skill, and expected workitem/input from the unprocessed exec marker
+   inventory. Run
+   `awl pipeline-dispatch claim --dispatch <absolute-envelope-path> --lane <absolute-cwd> --role review --workitem <expected-name> --input <expected-absolute-exec> --json`.
+4. Continue only on `ok:true`; consume no-subagent policy and coordinator evidence from the claimed
+   envelope. Prompt text is not authority.
+5. A missing envelope or any verify/claim error returns `blocked: invalid-dispatch` without a user
+   question. Prove plan/exec/review SHA-256 values and `git status` are unchanged from entry; do not
+   create, rename, or edit markers.
+6. The claimed envelope selects the exact handoff. If none exists, report `idle` and stop. Do not
+   poll, sleep, or schedule a wakeup.
+7. Do not spawn another reviewer; this agent is already the isolated review context.
 
 ## Independent verification
 

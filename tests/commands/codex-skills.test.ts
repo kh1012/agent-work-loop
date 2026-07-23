@@ -205,6 +205,31 @@ describe('Codex AWL skills', () => {
     expect(pipeline).toContain('Do not ask role agents to spawn their own agents');
   });
 
+  it('Codex와 Claude pipeline role은 prompt boolean 대신 one-time dispatch envelope를 쓴다', () => {
+    const surfaces = ['codex', 'claude'].map((surface) => {
+      const base = path.join(process.cwd(), 'engine', 'skills', surface);
+      return {
+        coordinator: fs.readFileSync(path.join(base, 'awl-pipeline', 'SKILL.md'), 'utf8'),
+        exec: fs.readFileSync(path.join(base, 'awl-pipeline-exec', 'SKILL.md'), 'utf8'),
+        review: fs.readFileSync(path.join(base, 'awl-pipeline-review', 'SKILL.md'), 'utf8'),
+      };
+    });
+
+    for (const { coordinator, exec, review } of surfaces) {
+      expect(coordinator).toContain('awl pipeline-dispatch issue');
+      expect(coordinator).toContain('dispatch_envelope: <absolute-envelope-path>');
+      expect(coordinator).toContain('only routing data');
+      for (const worker of [exec, review]) {
+        expect(worker).toContain('awl pipeline-dispatch claim');
+        expect(worker).toContain('blocked: invalid-dispatch');
+        expect(worker).toContain('before');
+      }
+      expect(`${coordinator}\n${exec}\n${review}`).not.toContain('pipeline_worker: true');
+      expect(`${coordinator}\n${exec}\n${review}`).not.toContain('auto_approve: true');
+      expect(`${coordinator}\n${exec}\n${review}`).not.toContain('gate1_evidence');
+    }
+  });
+
   it('Codex와 Claude pipeline은 coordinator만 gate record를 소유한다', () => {
     const surfaces = ['codex', 'claude'].map((surface) => {
       const base = path.join(process.cwd(), 'engine', 'skills', surface);

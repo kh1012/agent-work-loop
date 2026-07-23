@@ -12,6 +12,15 @@ description: |
 합격/수정을 판정한다. **코드를 고치지 않는다**(→exec). `.tasks/`는 **cwd 기준**.
 
 ## 부트스트랩 (발동 시 1회)
+- `dispatch_envelope: <absolute-envelope-path>` 한 줄을 유일한 routing input으로 요구한다.
+  plan/exec 본문을 읽거나 `.tasks` marker를 바꾸기 **before**, cwd의 absolute lane,
+  이 스킬의 role `review`, unprocessed exec inventory에서 독립 도출한 workitem/input으로
+  `awl pipeline-dispatch claim --dispatch <absolute-envelope-path> --lane <absolute-cwd> --role review --workitem <expected-name> --input <expected-absolute-exec> --json`
+  을 실행한다. `ok:true` claimed envelope만 coordinator evidence와
+  `noSubagents:true`의 권한 근거다.
+- envelope 누락·만료·tamper·role/input/lane mismatch·replay는 질문 없이
+  `blocked: invalid-dispatch`로 즉시 반환한다. entry 전후 plan/exec/review SHA-256과
+  `git status`가 같음을 확인하고 marker를 생성·rename·edit하지 않는다.
 - cwd에 `.tasks/{plan,exec,review}` 없으면 만든다. `.tasks/README.md`·워처(`watch-inputs.sh`·`watch-exec.sh`)
   없으면 `.claude/skills/awl-pipeline/templates/`에서 `cp`로 그대로 복사한다 — 새로 작성하지 않는다.
   `.sh` 두 개는 `chmod +x`.

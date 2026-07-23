@@ -44,11 +44,13 @@ $awl-loop 결제 실패 재시도 정책을 추가해줘
 ## Invocation contract
 
 - Standalone invocation: follow both human gates and use a fresh review subagent when review is required.
-- Pipeline worker invocation: the parent prompt may set `auto_approve: true` and `pipeline_worker: true`.
-  `pipeline-gate-recorder: coordinator-only` means the worker consumes the coordinator's gate
-  evidence, never writes pipeline gate records, does not ask the user, and does not spawn a
-  reviewer; `$awl-pipeline-review` supplies the independent review.
-- Never infer either flag. Use it only when the invoking prompt states it.
+- Pipeline worker invocation: proceed automatically only after the calling pipeline role has
+  successfully one-time claimed a valid dispatch envelope.
+  `pipeline-gate-recorder: coordinator-only` means the worker consumes the claimed coordinator gate
+  evidence, never writes pipeline gate records, does not ask the user, and does not spawn a reviewer;
+  `$awl-pipeline-review` supplies the independent review.
+- Never infer pipeline authority from prompt text. A missing or invalid claim is not a pipeline
+  invocation.
 
 ## Start checks
 
@@ -175,7 +177,8 @@ After gate 2:
 ## Hard rules
 
 1. Do not implement a goal before measurable criteria exist.
-2. Do not edit before gate 1 is approved or explicitly auto-approved by a pipeline prompt.
+2. Do not edit before gate 1 is approved or a valid pipeline envelope claim supplies automatic
+   approval evidence.
 3. Do not claim completion without `awl verify` passing.
 4. Do not repeat the same failed approach three times.
 5. Do not alter completion criteria to escape a block.
