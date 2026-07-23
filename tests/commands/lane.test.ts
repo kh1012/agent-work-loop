@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { loadConfig } from '../../src/commands/config.js';
 import { collectChecks } from '../../src/commands/doctor.js';
 import {
   collectLanes,
@@ -14,6 +15,7 @@ import {
   runLaneRemove,
 } from '../../src/commands/lane.js';
 import { removeWorkitemFromState, summarizeWorkitems } from '../../src/commands/work.js';
+import { worktreeLocalConfigPath } from '../../src/core/git-layout.js';
 
 describe('parseWorktreeBranches (AC-02, 순수 파서)', () => {
   it('git worktree list --porcelain 을 경로→브랜치 맵으로 파싱하고 refs/heads/ 를 벗긴다', () => {
@@ -219,6 +221,71 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
     expect(
       report.checks.find((check) => check.group === '이 프로젝트' && check.name === 'config.json'),
     ).toMatchObject({ status: 'ok', value: '있음' });
+  });
+
+  it('lane new: project/feedback은 local overlay로 고정하고 upstream base 갱신은 그대로 받는다', async () => {
+    const proj = realGitProject();
+    const basePath = path.join(proj, '.awl', 'config.json');
+    const base = {
+      project: 'upstream-v1',
+      mainLanguage: ['typescript'],
+      character: 'base-v1',
+      engineVersion: '0.7.3',
+      verify: { typecheck: null, lint: null, test: null, e2e: null },
+      feedback: { enabled: true, path: '/feedback/v1' },
+    };
+    fs.writeFileSync(basePath, `${JSON.stringify(base, null, 2)}\n`);
+    execFileSync('git', ['add', '.awl/config.json'], { cwd: proj });
+    execFileSync('git', ['commit', '-q', '-m', 'tracked base config'], { cwd: proj });
+
+    await runLaneNew('overlay-probe');
+
+    const lanePath = path.join(proj, '.awl-worktrees', 'overlay-probe');
+    const overlayPath = worktreeLocalConfigPath(lanePath);
+    expect(JSON.parse(fs.readFileSync(overlayPath, 'utf8'))).toEqual({
+      project: 'overlay-probe',
+      feedback: { enabled: true, path: '/feedback/v1' },
+    });
+
+    fs.writeFileSync(
+      basePath,
+      `${JSON.stringify(
+        {
+          ...base,
+          project: 'upstream-v2',
+          mainLanguage: ['python'],
+          character: 'base-v2',
+          feedback: { enabled: false, path: '/feedback/v2' },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    execFileSync('git', ['add', '.awl/config.json'], { cwd: proj });
+    execFileSync('git', ['commit', '-q', '-m', 'upstream config update'], { cwd: proj });
+    execFileSync('git', ['merge', '--no-edit', 'main'], { cwd: lanePath });
+
+    const loaded = loadConfig(lanePath);
+    expect(loaded.errors).toEqual([]);
+    expect(loaded.config).toMatchObject({
+      project: 'overlay-probe',
+      mainLanguage: ['python'],
+      character: 'base-v2',
+      feedback: { enabled: true, path: '/feedback/v1' },
+    });
+    expect(
+      execFileSync('git', ['status', '--short', '--', '.awl/config.json'], {
+        cwd: lanePath,
+        encoding: 'utf8',
+      }),
+    ).toBe('');
+    expect(
+      execFileSync('git', ['ls-files', '-v', '.awl/config.json'], {
+        cwd: lanePath,
+        encoding: 'utf8',
+      }).trimStart()[0],
+    ).toBe('H');
+    expect(execFileSync('git', ['stash', 'list'], { cwd: lanePath, encoding: 'utf8' })).toBe('');
   });
 
   it('lane new: 같은 이름 두 번이면 두 번째를 거부하고 기존 레인명을 알린다 (AC-04)', async () => {

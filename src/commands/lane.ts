@@ -3,7 +3,7 @@ import path from 'node:path';
 import { WORKTREES_DIR } from '../core/paths.js';
 import { run } from '../core/runner.js';
 import { type Caps, caps, feedback, makeColors, sectionBox, signal } from '../core/tty.js';
-import { resolveProjectRoot } from './config.js';
+import { loadConfig, resolveProjectRoot, writeLocalConfigOverlay } from './config.js';
 import { applyInit, nonInteractiveInputs } from './init.js';
 import { type MergeHomeResult, mergeIsolatedHome } from './learning-merge.js';
 import { loadProjectName } from './record.js';
@@ -86,6 +86,8 @@ export async function runLaneNew(name: string, description?: string): Promise<vo
     process.exit(1);
   }
 
+  const inheritedFeedback = loadConfig(root).config?.feedback;
+
   // 원시경로 재사용(AC-01) — worktree + isolated home + 스킬 재설치 + export AWL_HOME
   // 안내 + orphan 롤백을 runWorkNew 가 전부 처리한다. lane 은 이 위에 얇게 얹는다.
   await runWorkNew(name, description, { worktree: true, isolated: true });
@@ -100,6 +102,10 @@ export async function runLaneNew(name: string, description?: string): Promise<vo
       skipGitignore: true,
     });
   }
+  writeLocalConfigOverlay(lanePath, {
+    project: laneName,
+    ...(inheritedFeedback ? { feedback: { ...inheritedFeedback } } : {}),
+  });
 
   // 레인 기동 안내(AC-01 c) — export AWL_HOME 은 runWorkNew 가 이미 찍었다(단일 출처,
   // 표면 중복 금지). 여기선 역할 세션이 실행할 파이프라인 스킬 트리거만 얹는다.
