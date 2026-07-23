@@ -9,6 +9,7 @@ import {
   collectDeferred,
   computeCoverage,
   detailTierFor,
+  loadProjectName,
   measureDiffSize,
   monthFile,
   newRecordId,
@@ -33,6 +34,28 @@ afterEach(() => {
 });
 
 const DEFAULTS = { project: 'maxflow', id: 'rec_test1', at: '2026-07-14T12:30:00.000Z' };
+
+describe('loadProjectName — effective worktree config', () => {
+  it('worktree-local overlay의 project를 사용한다', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-record-project-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.git', 'awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, '.awl', 'config.json'),
+      JSON.stringify({
+        project: 'tracked-project',
+        engineVersion: '0.0.0',
+        verify: {},
+      }),
+    );
+    fs.writeFileSync(
+      path.join(root, '.git', 'awl', 'config.local.json'),
+      JSON.stringify({ project: 'lane-project' }),
+    );
+
+    expect(loadProjectName(root)).toBe('lane-project');
+  });
+});
 
 describe('buildRecord — awl-feedback (0.6.x, AC-01)', () => {
   it('area/what/impact/severity 가 다 있으면 기록을 만든다 (suggestion 은 선택)', () => {
@@ -882,7 +905,7 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
     fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
     fs.writeFileSync(
       path.join(root, '.awl', 'config.json'),
-      JSON.stringify({ project: 'p', mainLanguage: 'other', verify: {} }),
+      JSON.stringify({ project: 'p', mainLanguage: 'other', engineVersion: '0.0.0', verify: {} }),
     );
     if (state) {
       fs.writeFileSync(path.join(root, '.awl', 'state.json'), JSON.stringify(state));
@@ -998,7 +1021,7 @@ describe('runRecord — gate:2 기록 시 리뷰 누락 경고 (WI-S AC-03)', ()
     fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
     fs.writeFileSync(
       path.join(root, '.awl', 'config.json'),
-      JSON.stringify({ project: 'p', mainLanguage: 'other', verify: {} }),
+      JSON.stringify({ project: 'p', mainLanguage: 'other', engineVersion: '0.0.0', verify: {} }),
     );
     fs.writeFileSync(
       path.join(root, '.awl', 'state.json'),
@@ -1090,7 +1113,7 @@ describe('runRecord — 게이트 2 "너무 쉬웠나" 안내 (WI-T AC-03)', () 
     fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
     fs.writeFileSync(
       path.join(root, '.awl', 'config.json'),
-      JSON.stringify({ project: 'p', mainLanguage: 'other', verify: {} }),
+      JSON.stringify({ project: 'p', mainLanguage: 'other', engineVersion: '0.0.0', verify: {} }),
     );
     fs.writeFileSync(
       path.join(root, '.awl', 'state.json'),
@@ -1260,7 +1283,7 @@ describe('runRecord — 게이트 1 배제 목록 강제 (WI-T AC-02, 핵심)', 
     fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
     fs.writeFileSync(
       path.join(root, '.awl', 'config.json'),
-      JSON.stringify({ project: 'p', mainLanguage: 'other', verify: {} }),
+      JSON.stringify({ project: 'p', mainLanguage: 'other', engineVersion: '0.0.0', verify: {} }),
     );
     fs.writeFileSync(
       path.join(root, '.awl', 'state.json'),
@@ -1448,7 +1471,7 @@ describe('runRecord — attempt 기록 상세도를 diff 크기에 맞춘다 (WI
     fs.mkdirSync(path.join(dir, '.awl'), { recursive: true });
     fs.writeFileSync(
       path.join(dir, '.awl', 'config.json'),
-      JSON.stringify({ project: 'p', mainLanguage: 'other', verify: {} }),
+      JSON.stringify({ project: 'p', mainLanguage: 'other', engineVersion: '0.0.0', verify: {} }),
     );
     fs.writeFileSync(
       path.join(dir, '.awl', 'state.json'),
@@ -1745,7 +1768,7 @@ describe('runDeferSummary — --json 기계 계약 + workitem 폴백(skip-gate-d
     fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
     fs.writeFileSync(
       path.join(root, '.awl', 'config.json'),
-      JSON.stringify({ project: 'p', mainLanguage: 'other', verify: {} }),
+      JSON.stringify({ project: 'p', mainLanguage: 'other', engineVersion: '0.0.0', verify: {} }),
     );
     if (state) {
       fs.writeFileSync(path.join(root, '.awl', 'state.json'), JSON.stringify(state));

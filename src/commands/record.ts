@@ -4,7 +4,7 @@ import path from 'node:path';
 import { recordsDir } from '../core/paths.js';
 import { run } from '../core/runner.js';
 import { type Caps, caps, makeColors, sectionBox, signal } from '../core/tty.js';
-import { resolveProjectRoot } from './config.js';
+import { loadConfig, resolveProjectRoot } from './config.js';
 import { getCriterion, loadState, writeState } from './state.js';
 
 /**
@@ -1023,15 +1023,9 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
   process.stdout.write(`${JSON.stringify({ id, at, file })}\n`);
 }
 
-/** config.json 에서 project 이름만 가볍게 읽는다(스키마 검증은 requireConfig 몫). */
+/** 검증된 effective config에서 project 이름을 읽는다. */
 export function loadProjectName(projectRoot: string): string | undefined {
-  try {
-    const p = path.join(projectRoot, '.awl', 'config.json');
-    const j = JSON.parse(fs.readFileSync(p, 'utf8')) as Record<string, unknown>;
-    return typeof j.project === 'string' ? j.project : undefined;
-  } catch {
-    return undefined;
-  }
+  return loadConfig(projectRoot).config?.project;
 }
 
 /** awl records — 사람이 읽는 조회. */
