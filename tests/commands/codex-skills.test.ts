@@ -230,6 +230,21 @@ describe('Codex AWL skills', () => {
     }
   });
 
+  it('dispatch 실패는 immutable blocked handoff이고 유효 gate-low는 manual gate 없이 진행한다', () => {
+    for (const surface of ['codex', 'claude']) {
+      const base = path.join(process.cwd(), 'engine', 'skills', surface);
+      for (const role of ['awl-pipeline-exec', 'awl-pipeline-review']) {
+        const worker = fs.readFileSync(path.join(base, role, 'SKILL.md'), 'utf8');
+        expect(worker).toContain('blocked: invalid-dispatch');
+        expect(worker).toContain('SHA-256');
+        expect(worker).toContain('git status');
+      }
+      const exec = fs.readFileSync(path.join(base, 'awl-pipeline-exec', 'SKILL.md'), 'utf8');
+      expect(exec).toContain('valid gate-low envelope');
+      expect(exec).toContain('without a manual gate');
+    }
+  });
+
   it('Codex와 Claude pipeline은 coordinator만 gate record를 소유한다', () => {
     const surfaces = ['codex', 'claude'].map((surface) => {
       const base = path.join(process.cwd(), 'engine', 'skills', surface);

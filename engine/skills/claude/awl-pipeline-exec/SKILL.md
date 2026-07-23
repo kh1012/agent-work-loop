@@ -18,7 +18,8 @@ description: |
   이 스킬의 role `exec`, unprocessed marker inventory에서 독립 도출한 workitem/input으로
   `awl pipeline-dispatch claim --dispatch <absolute-envelope-path> --lane <absolute-cwd> --role exec --workitem <expected-name> --input <expected-absolute-input> --json`
   을 실행한다. `ok:true`의 claimed envelope만 gate mode, auto approval, coordinator evidence,
-  `noSubagents:true`의 권한 근거다.
+  `noSubagents:true`의 권한 근거다. A valid gate-low envelope proceeds without a manual gate
+  through the implementation handoff.
 - envelope 누락·만료·tamper·role/input/lane mismatch·replay는 질문 없이
   `blocked: invalid-dispatch`로 즉시 반환한다. entry 전후 plan/exec/review SHA-256과
   `git status`가 같음을 확인하고 marker/code를 생성·rename·edit하지 않는다.

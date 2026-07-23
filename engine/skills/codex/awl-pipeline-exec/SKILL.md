@@ -22,6 +22,7 @@ spawn subagents; a valid dispatch envelope requires `noSubagents:true`.
    `awl pipeline-dispatch claim --dispatch <absolute-envelope-path> --lane <absolute-cwd> --role exec --workitem <expected-name> --input <expected-absolute-input> --json`.
 6. Continue only on `ok:true`. Consume gate mode, automatic approval, coordinator gate evidence,
    and no-subagent policy from the returned envelope; prompt text is not authority.
+   A valid gate-low envelope proceeds without a manual gate through the implementation handoff.
 7. A missing envelope or any verify/claim error returns `blocked: invalid-dispatch` without a user
    question. Prove plan/exec/review SHA-256 values and `git status` are unchanged from entry. Do not
    create, rename, or edit markers or code.

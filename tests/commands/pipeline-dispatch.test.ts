@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   runPipelineDispatchClaim,
   runPipelineDispatchIssue,
@@ -65,6 +65,8 @@ function fixture(): {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
+  process.exitCode = undefined;
   for (const root of roots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -88,6 +90,23 @@ function waitForExit(child: ChildProcess): Promise<number | null> {
     child.once('error', reject);
     child.once('exit', resolve);
   });
+}
+
+function treeSnapshot(root: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  const visit = (directory: string): void => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const absolute = path.join(directory, entry.name);
+      const relative = path.relative(root, absolute);
+      if (entry.isDirectory()) {
+        visit(absolute);
+      } else if (entry.isFile()) {
+        result[relative] = sha256File(absolute);
+      }
+    }
+  };
+  visit(root);
+  return result;
 }
 
 describe('pipeline dispatch envelope schema', () => {
@@ -289,5 +308,115 @@ describe('pipeline dispatch issue, verify, and one-time claim', () => {
     expect(runPipelineDispatchIssue).toBeTypeOf('function');
     expect(runPipelineDispatchVerify).toBeTypeOf('function');
     expect(runPipelineDispatchClaim).toBeTypeOf('function');
+  });
+});
+
+describe('invalid dispatch immutability and gate-low progression', () => {
+  it.each(['expired', 'role-mismatch', 'input-mismatch', 'tampered'] as const)(
+    'rejects %s without changing any lane file after entry',
+    (kind) => {
+      const { lane, input } = fixture();
+      const issuedAt = new Date('2026-07-23T00:00:00.000Z');
+      const issued = issuePipelineDispatch({
+        lane,
+        role: 'exec',
+        workitem: 'work',
+        input,
+        mode: 'gate-low',
+        evidence: { gate1Record: 'rec_123', plan: input },
+        now: issuedAt,
+        ttlMs: 60_000,
+      });
+      const other = path.join(lane, '.tasks', 'plan', 'other.md');
+      fs.writeFileSync(other, '# other\n');
+      if (kind === 'tampered') {
+        const document = JSON.parse(fs.readFileSync(issued.path, 'utf8')) as Record<
+          string,
+          unknown
+        >;
+        fs.writeFileSync(issued.path, `${JSON.stringify({ ...document, injected: true })}\n`);
+      }
+      const before = treeSnapshot(path.join(lane, '.tasks'));
+
+      const code = errorCode(() =>
+        claimPipelineDispatch({
+          dispatch: issued.path,
+          expectedLane: lane,
+          expectedRole: kind === 'role-mismatch' ? 'review' : 'exec',
+          expectedWorkitem: 'work',
+          expectedInput: kind === 'input-mismatch' ? other : input,
+          now: kind === 'expired' ? new Date('2026-07-23T00:01:00.001Z') : issuedAt,
+        }),
+      );
+
+      expect(code).toMatch(/DISPATCH_(EXPIRED|ROLE_MISMATCH|INPUT_MISMATCH|UNKNOWN_FIELD)/);
+      expect(treeSnapshot(path.join(lane, '.tasks'))).toEqual(before);
+      expect(fs.existsSync(`${issued.path}.claimed`)).toBe(false);
+    },
+  );
+
+  it('returns a structured missing-dispatch error without throwing or touching markers', () => {
+    const { lane, input } = fixture();
+    const before = treeSnapshot(path.join(lane, '.tasks'));
+    let stdout = '';
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+      stdout += String(chunk);
+      return true;
+    });
+
+    expect(() =>
+      runPipelineDispatchClaim({
+        dispatch: path.join(lane, '.tasks', 'dispatch', 'missing.json'),
+        lane,
+        role: 'exec',
+        workitem: 'work',
+        input,
+        json: true,
+      }),
+    ).not.toThrow();
+
+    expect(process.exitCode).toBe(1);
+    expect(JSON.parse(stdout)).toMatchObject({
+      ok: false,
+      error: { code: 'DISPATCH_DOCUMENT_READ_FAILED' },
+    });
+    expect(treeSnapshot(path.join(lane, '.tasks'))).toEqual(before);
+  });
+
+  it('claims a valid gate-low envelope with automatic evidence and no manual gate input', () => {
+    const { lane, input } = fixture();
+    const issued = issuePipelineDispatch({
+      lane,
+      role: 'exec',
+      workitem: 'work',
+      input,
+      mode: 'gate-low',
+      evidence: {
+        kind: 'auto',
+        gate1Record: 'rec_123',
+        source: 'pipeline-mode',
+        plan: input,
+      },
+    });
+
+    const result = claimPipelineDispatch({
+      dispatch: issued.path,
+      expectedLane: lane,
+      expectedRole: 'exec',
+      expectedWorkitem: 'work',
+      expectedInput: input,
+    });
+
+    expect(result.envelope.gate).toEqual({
+      mode: 'gate-low',
+      autoApprove: true,
+      recordOwner: 'coordinator',
+      evidence: {
+        kind: 'auto',
+        gate1Record: 'rec_123',
+        source: 'pipeline-mode',
+        plan: input,
+      },
+    });
   });
 });
