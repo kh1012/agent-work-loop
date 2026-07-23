@@ -106,6 +106,25 @@ description: |
 - **게이트 통계**: 오케스트레이터가 유일한 기록자이므로 exec의 AWL_HOME 활성 포인터와 무관하게
   gate1/gate2 기록이 workitem별 loop-summary 집계에 포함된다.
 
+## Package-owned test runner 해석
+
+`package-owned-runner-resolution: compare(package-owned,generic)->package-owned-on-mismatch-or-duplicate`
+
+JavaScript/TypeScript focused test를 실행하기 전에 다음 순서로 결정한다.
+
+1. target package manifest, lockfile entry, test config import에서 runner package를 정하고,
+   repository root나 shell `PATH`가 아니라 target package directory 기준으로 해석한다.
+2. 해석된 package metadata(`package.json`의 `bin`, exports 또는 공식 CLI entry)에서
+   package-owned CLI를 찾아 real path와 resolved version을 기록한다.
+3. 예정한 package-manager command의 generic alias가 실제 고르는 executable도 해석해 real path,
+   package root, resolved version을 기록한다.
+4. 실행 전에 package root/version을 비교한다. 서로 다르거나 이전 실행이
+   duplicate-module/duplicate test instance 오류를 냈으면 package-owned CLI를 실행한다. 같은 package
+   instance로 확인될 때만 generic alias를 써도 된다.
+
+Playwright는 target package에서 `@playwright/test`를 해석하고 package metadata로 실제 CLI
+entrypoint를 찾는 예시다. 저장소별 상대 `node_modules` 경로를 하드코딩하지 않는다.
+
 ## 핸드오프 형식 (`exec/<name>.md`) — review의 입력
 ```
 ---

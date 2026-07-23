@@ -64,6 +64,26 @@ Rename it to `plan/<name>.hold.md`, add the reason and routing/unhold condition 
 3. Write `exec/<name>.md` using the handoff format.
 4. Return the same concise handoff in the final result so the coordinator can react.
 
+## Package-owned test runner resolution
+
+`package-owned-runner-resolution: compare(package-owned,generic)->package-owned-on-mismatch-or-duplicate`
+
+Before a focused JavaScript/TypeScript test command:
+
+1. Start from the target package manifest, its lockfile entry, and the test config imports. Identify
+   the runner package and resolve it from the target package directory, not from the repository
+   root or shell `PATH`.
+2. Resolve the package-owned CLI from that package's package metadata (`package.json` `bin`,
+   exports, or documented CLI entry), then record its real path and resolved version.
+3. Resolve the generic alias that the proposed package-manager command would execute and record
+   that executable's real path, package root, and resolved version.
+4. Compare the package roots and versions before running tests. When they differ, or when a prior
+   attempt reports a duplicate-module/duplicate test instance error, invoke the package-owned CLI.
+   Use the generic alias only when it resolves to the same package instance.
+
+For Playwright, resolve `@playwright/test` from the target package and locate its CLI through package
+metadata. Never hardcode a repository-specific relative `node_modules` path.
+
 ## Handoff format
 
 ```markdown

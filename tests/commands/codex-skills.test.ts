@@ -316,6 +316,34 @@ describe('Codex AWL skills', () => {
     }
   });
 
+  it('Codex와 Claude exec는 package-owned runner를 generic alias보다 결정적으로 해석한다', () => {
+    const execSkills = ['codex', 'claude'].map((surface) =>
+      fs.readFileSync(
+        path.join(process.cwd(), 'engine', 'skills', surface, 'awl-pipeline-exec', 'SKILL.md'),
+        'utf8',
+      ),
+    );
+
+    for (const execSkill of execSkills) {
+      const contract =
+        'package-owned-runner-resolution: compare(package-owned,generic)->package-owned-on-mismatch-or-duplicate';
+      expect(execSkill.match(new RegExp(contract.replace(/[+()]/g, '\\$&'), 'g'))).toHaveLength(1);
+      for (const evidence of [
+        'target package manifest',
+        'lockfile',
+        'test config',
+        'real path',
+        'resolved version',
+        'duplicate-module',
+        '@playwright/test',
+        'package metadata',
+      ]) {
+        expect(execSkill).toContain(evidence);
+      }
+      expect(execSkill).not.toContain('../../node_modules/@playwright/test/cli.js');
+    }
+  });
+
   it('AGENTS 블록은 긴 워크플로우 복제 대신 실제 스킬로 라우팅한다', () => {
     const agents = read('AGENTS.awl.md');
     expect(agents).toContain('$awl-loop');
