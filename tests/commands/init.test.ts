@@ -584,6 +584,27 @@ describe('applyInit — 전체 산출물', () => {
     expect(result.projectCount).toBe(1);
   });
 
+  it('Codex와 Claude gate ownership 계약을 engine에서 설치 surface로 그대로 복사한다', () => {
+    const inputs = nonInteractiveInputs(proj);
+    inputs.skills = { claude: true, codex: true };
+    applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
+
+    for (const surface of ['codex', 'claude']) {
+      const installedRoot =
+        surface === 'codex'
+          ? path.join(proj, '.agents', 'skills')
+          : path.join(proj, '.claude', 'skills');
+      for (const skill of ['awl-pipeline', 'awl-pipeline-exec', 'awl-loop']) {
+        const engineSkill = fs.readFileSync(
+          path.join(home, 'engine', 'skills', surface, skill, 'SKILL.md'),
+          'utf8',
+        );
+        const installedSkill = fs.readFileSync(path.join(installedRoot, skill, 'SKILL.md'), 'utf8');
+        expect(installedSkill).toBe(engineSkill);
+      }
+    }
+  });
+
   it('일반 프로젝트의 .git/hooks 에 pre-push 안전 훅을 설치한다', () => {
     const result = applyInit(proj, nonInteractiveInputs(proj), '2026-01-01T00:00:00.000Z');
 
