@@ -547,6 +547,64 @@ export function buildProgram(): Command {
       await runPortLeaseInspectCommand(opts);
     });
 
+  const pipelineDispatch = program
+    .command('pipeline-dispatch', { hidden: true })
+    .description('pipeline role dispatch envelope를 발급·검증·claim합니다');
+  pipelineDispatch
+    .command('issue')
+    .description('coordinator가 exact input용 dispatch envelope를 원자적으로 발급합니다')
+    .requiredOption('--lane <absolute-path>', 'absolute pipeline lane')
+    .requiredOption('--role <exec|review>', 'consumer role')
+    .requiredOption('--workitem <id>', 'routed workitem')
+    .requiredOption('--input <absolute-path>', 'canonical plan/review/exec input')
+    .requiredOption('--mode <gate-mode>', 'gate-high, gate-medium, or gate-low')
+    .requiredOption('--gate-evidence <json>', 'coordinator gate record/evidence JSON object')
+    .option('--ttl-seconds <seconds>', 'claim expiry window (default 1800)')
+    .option('--json', 'machine-readable result')
+    .action(
+      async (opts: {
+        lane: string;
+        role: string;
+        workitem: string;
+        input: string;
+        mode: string;
+        gateEvidence: string;
+        ttlSeconds?: string;
+        json?: boolean;
+      }) => {
+        const { runPipelineDispatchIssue } = await import('./commands/pipeline-dispatch.js');
+        runPipelineDispatchIssue(opts);
+      },
+    );
+  for (const operation of ['verify', 'claim'] as const) {
+    pipelineDispatch
+      .command(operation)
+      .description(`${operation} an exact pipeline role dispatch`)
+      .requiredOption('--dispatch <absolute-path>', 'issued envelope path')
+      .requiredOption('--lane <absolute-path>', 'expected absolute pipeline lane')
+      .requiredOption('--role <exec|review>', 'expected consumer role')
+      .requiredOption('--workitem <id>', 'expected workitem')
+      .requiredOption('--input <absolute-path>', 'expected canonical input')
+      .option('--json', 'machine-readable result')
+      .action(
+        async (opts: {
+          dispatch: string;
+          lane: string;
+          role: string;
+          workitem: string;
+          input: string;
+          json?: boolean;
+        }) => {
+          const command = await import('./commands/pipeline-dispatch.js');
+          if (operation === 'verify') {
+            command.runPipelineDispatchVerify(opts);
+          } else {
+            command.runPipelineDispatchClaim(opts);
+          }
+        },
+      );
+  }
+
   // 사람이 치는 명령: remove (awl 이 손댄 흔적을 지운다 — 기본은 드라이런, 이전 이름 uninstall)
   program
     .command('remove')

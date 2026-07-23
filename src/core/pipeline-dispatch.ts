@@ -31,17 +31,20 @@ export interface PipelineDispatchEnvelope {
 
 export type PipelineDispatchErrorCode =
   | 'DISPATCH_INVALID_DOCUMENT'
+  | 'DISPATCH_DOCUMENT_READ_FAILED'
   | 'DISPATCH_MISSING_FIELD'
   | 'DISPATCH_UNKNOWN_FIELD'
   | 'DISPATCH_INVALID_FIELD'
   | 'DISPATCH_UNSUPPORTED_VERSION'
+  | 'DISPATCH_PATH_OUTSIDE_LANE'
   | 'DISPATCH_LANE_MISMATCH'
   | 'DISPATCH_ROLE_MISMATCH'
   | 'DISPATCH_WORKITEM_MISMATCH'
   | 'DISPATCH_INPUT_MISMATCH'
   | 'DISPATCH_INPUT_OUTSIDE_LANE'
   | 'DISPATCH_INPUT_HASH_MISMATCH'
-  | 'DISPATCH_EXPIRED';
+  | 'DISPATCH_EXPIRED'
+  | 'DISPATCH_ALREADY_CLAIMED';
 
 export class PipelineDispatchError extends Error {
   readonly code: PipelineDispatchErrorCode;
@@ -69,6 +72,34 @@ export interface ValidatePipelineDispatchOptions {
   expectedWorkitem?: string;
   expectedInput?: string;
   now?: Date;
+}
+
+export interface IssuePipelineDispatchOptions {
+  lane: string;
+  role: PipelineDispatchRole;
+  workitem: string;
+  input: string;
+  mode: PipelineGateMode;
+  evidence: Record<string, unknown>;
+  now?: Date;
+  ttlMs?: number;
+}
+
+export interface VerifyPipelineDispatchOptions {
+  dispatch: string;
+  expectedLane: string;
+  expectedRole: PipelineDispatchRole;
+  expectedWorkitem: string;
+  expectedInput: string;
+  now?: Date;
+}
+
+export interface PipelineDispatchClaim {
+  dispatchId: string;
+  nonce: string;
+  envelopeSha256: string;
+  claimedAt: string;
+  consumerPid: number;
 }
 
 function fail(code: PipelineDispatchErrorCode, message: string, field?: string): never {
@@ -149,6 +180,48 @@ function isInside(parent: string, candidate: string): boolean {
 
 export function sha256File(file: string): string {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
+
+function readDispatchDocument(file: string): unknown {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(file, 'utf8');
+  } catch {
+    fail('DISPATCH_DOCUMENT_READ_FAILED', 'dispatch document could not be read', 'dispatch');
+  }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    fail('DISPATCH_INVALID_DOCUMENT', 'dispatch document is not valid JSON', 'dispatch');
+  }
+}
+
+function dispatchDirectory(lane: string): string {
+  return path.join(lane, '.tasks', 'dispatch');
+}
+
+function canonicalDispatchPath(dispatch: string, lane: string): string {
+  if (!path.isAbsolute(dispatch)) {
+    fail('DISPATCH_INVALID_FIELD', 'dispatch path must be absolute', 'dispatch');
+  }
+  let canonical: string;
+  try {
+    canonical = fs.realpathSync(dispatch);
+  } catch {
+    fail('DISPATCH_DOCUMENT_READ_FAILED', 'dispatch document could not be read', 'dispatch');
+  }
+  if (
+    canonical !== dispatch ||
+    path.dirname(canonical) !== dispatchDirectory(lane) ||
+    path.extname(canonical) !== '.json'
+  ) {
+    fail(
+      'DISPATCH_PATH_OUTSIDE_LANE',
+      'dispatch path must be a canonical JSON file directly inside lane .tasks/dispatch',
+      'dispatch',
+    );
+  }
+  return canonical;
 }
 
 export function validatePipelineDispatchEnvelope(
@@ -302,4 +375,123 @@ export function validatePipelineDispatchEnvelope(
     issuedAt: issuedAt.raw,
     expiresAt: expiresAt.raw,
   };
+}
+
+export function issuePipelineDispatch(options: IssuePipelineDispatchOptions): {
+  path: string;
+  envelope: PipelineDispatchEnvelope;
+} {
+  const lane = canonicalExistingPath(options.lane, 'lane');
+  const input = canonicalExistingPath(options.input, 'input.path');
+  const ttlMs = options.ttlMs ?? 30 * 60 * 1_000;
+  if (!Number.isInteger(ttlMs) || ttlMs <= 0 || ttlMs > 24 * 60 * 60 * 1_000) {
+    fail('DISPATCH_INVALID_FIELD', 'ttlMs must be an integer between 1 and 86400000', 'ttlMs');
+  }
+  const issuedAt = options.now ?? new Date();
+  const candidate: PipelineDispatchEnvelope = {
+    version: PIPELINE_DISPATCH_VERSION,
+    dispatchId: `dispatch_${crypto.randomBytes(12).toString('hex')}`,
+    nonce: crypto.randomBytes(24).toString('hex'),
+    lane,
+    role: options.role,
+    workitem: options.workitem,
+    input: {
+      path: input,
+      sha256: sha256File(input),
+    },
+    gate: {
+      mode: options.mode,
+      autoApprove: options.mode !== 'gate-high',
+      recordOwner: 'coordinator',
+      evidence: options.evidence,
+    },
+    noSubagents: true,
+    issuedAt: issuedAt.toISOString(),
+    expiresAt: new Date(issuedAt.getTime() + ttlMs).toISOString(),
+  };
+
+  let durable: unknown;
+  try {
+    durable = JSON.parse(JSON.stringify(candidate));
+  } catch {
+    fail('DISPATCH_INVALID_FIELD', 'dispatch evidence must be JSON serializable', 'gate.evidence');
+  }
+  const envelope = validatePipelineDispatchEnvelope(durable, {
+    expectedLane: lane,
+    expectedRole: options.role,
+    expectedWorkitem: options.workitem,
+    expectedInput: input,
+    now: issuedAt,
+  });
+  const directory = dispatchDirectory(lane);
+  fs.mkdirSync(directory, { recursive: true });
+  const target = path.join(directory, `${envelope.dispatchId}.json`);
+  const temporary = path.join(directory, `.${envelope.dispatchId}.tmp-${process.pid}`);
+  const fd = fs.openSync(temporary, 'wx', 0o600);
+  try {
+    fs.writeFileSync(fd, `${JSON.stringify(envelope, null, 2)}\n`);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  try {
+    fs.linkSync(temporary, target);
+  } finally {
+    fs.rmSync(temporary, { force: true });
+  }
+  return { path: target, envelope };
+}
+
+export function verifyPipelineDispatch(
+  options: VerifyPipelineDispatchOptions,
+): PipelineDispatchEnvelope {
+  const lane = canonicalExistingPath(options.expectedLane, 'expectedLane');
+  const dispatch = canonicalDispatchPath(options.dispatch, lane);
+  return validatePipelineDispatchEnvelope(readDispatchDocument(dispatch), {
+    expectedLane: lane,
+    expectedRole: options.expectedRole,
+    expectedWorkitem: options.expectedWorkitem,
+    expectedInput: options.expectedInput,
+    now: options.now,
+  });
+}
+
+export function claimPipelineDispatch(options: VerifyPipelineDispatchOptions): {
+  envelope: PipelineDispatchEnvelope;
+  claimPath: string;
+  claim: PipelineDispatchClaim;
+} {
+  const envelope = verifyPipelineDispatch(options);
+  const claimPath = `${options.dispatch}.claimed`;
+  try {
+    fs.mkdirSync(claimPath, { mode: 0o700 });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+      fail(
+        'DISPATCH_ALREADY_CLAIMED',
+        `dispatch ${envelope.dispatchId} was already claimed`,
+        'dispatch',
+      );
+    }
+    throw error;
+  }
+
+  try {
+    const reverified = verifyPipelineDispatch(options);
+    const claim: PipelineDispatchClaim = {
+      dispatchId: reverified.dispatchId,
+      nonce: reverified.nonce,
+      envelopeSha256: sha256File(options.dispatch),
+      claimedAt: (options.now ?? new Date()).toISOString(),
+      consumerPid: process.pid,
+    };
+    fs.writeFileSync(path.join(claimPath, 'claim.json'), `${JSON.stringify(claim, null, 2)}\n`, {
+      flag: 'wx',
+      mode: 0o600,
+    });
+    return { envelope: reverified, claimPath, claim };
+  } catch (error) {
+    fs.rmSync(claimPath, { recursive: true, force: true });
+    throw error;
+  }
 }
