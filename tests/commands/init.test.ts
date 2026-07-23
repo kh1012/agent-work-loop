@@ -584,7 +584,7 @@ describe('applyInit — 전체 산출물', () => {
     expect(result.projectCount).toBe(1);
   });
 
-  it('Codex와 Claude gate ownership 계약을 engine에서 설치 surface로 그대로 복사한다', () => {
+  it('Codex와 Claude pipeline 계약을 review와 runner provenance까지 설치 surface로 그대로 복사한다', () => {
     const inputs = nonInteractiveInputs(proj);
     inputs.skills = { claude: true, codex: true };
     applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
@@ -594,7 +594,12 @@ describe('applyInit — 전체 산출물', () => {
         surface === 'codex'
           ? path.join(proj, '.agents', 'skills')
           : path.join(proj, '.claude', 'skills');
-      for (const skill of ['awl-pipeline', 'awl-pipeline-exec', 'awl-loop']) {
+      for (const skill of [
+        'awl-pipeline',
+        'awl-pipeline-exec',
+        'awl-pipeline-review',
+        'awl-loop',
+      ]) {
         const engineSkill = fs.readFileSync(
           path.join(home, 'engine', 'skills', surface, skill, 'SKILL.md'),
           'utf8',
@@ -602,6 +607,20 @@ describe('applyInit — 전체 산출물', () => {
         const installedSkill = fs.readFileSync(path.join(installedRoot, skill, 'SKILL.md'), 'utf8');
         expect(installedSkill).toBe(engineSkill);
       }
+
+      const installedExec = fs.readFileSync(
+        path.join(installedRoot, 'awl-pipeline-exec', 'SKILL.md'),
+        'utf8',
+      );
+      const installedReview = fs.readFileSync(
+        path.join(installedRoot, 'awl-pipeline-review', 'SKILL.md'),
+        'utf8',
+      );
+      expect(installedExec).toContain('package-owned-runner-resolution:');
+      expect(installedExec).toContain('## Test runner provenance');
+      expect(installedReview).toContain(
+        'package-owned-runner-review: independently-resolve-and-rerun; provenance-missing=fail',
+      );
     }
   });
 
