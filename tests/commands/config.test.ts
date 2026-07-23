@@ -43,6 +43,13 @@ function projectWithConfig(text: string): string {
   return root;
 }
 
+function writeLocalOverlay(root: string, value: unknown): string {
+  const overlayPath = path.join(root, '.git', 'awl', 'config.local.json');
+  fs.mkdirSync(path.dirname(overlayPath), { recursive: true });
+  fs.writeFileSync(overlayPath, `${JSON.stringify(value, null, 2)}\n`);
+  return overlayPath;
+}
+
 const VALID = JSON.stringify({
   project: 'maxflow',
   mainLanguage: 'typescript',
@@ -93,6 +100,67 @@ describe('loadConfig', () => {
     const { config, errors } = loadConfig(root);
     expect(config).toBeNull();
     expect(errors[0]).toContain('awl init');
+  });
+
+  it('tracked base를 먼저 검증한 뒤 local project와 partial feedback만 병합한다', () => {
+    const root = projectWithConfig(
+      JSON.stringify({
+        project: 'base-project',
+        mainLanguage: ['typescript'],
+        character: 'upstream character',
+        engineVersion: '0.7.3',
+        verify: { lint: { cmd: 'biome check .' } },
+        feedback: { enabled: false, path: '/base/feedback' },
+      }),
+    );
+    fs.mkdirSync(path.join(root, '.git'));
+    const overlayPath = writeLocalOverlay(root, {
+      project: 'lane-project',
+      feedback: { enabled: true },
+    });
+
+    const loaded = loadConfig(root);
+
+    expect(loaded.errors).toEqual([]);
+    expect(loaded.basePath).toBe(path.join(root, '.awl', 'config.json'));
+    expect(loaded.overlayPath).toBe(
+      path.join(fs.realpathSync(path.join(root, '.git')), 'awl', 'config.local.json'),
+    );
+    expect(fs.realpathSync(overlayPath)).toBe(loaded.overlayPath);
+    expect(loaded.config).toMatchObject({
+      project: 'lane-project',
+      character: 'upstream character',
+      feedback: { enabled: true, path: '/base/feedback' },
+    });
+  });
+
+  it('overlay JSON/schema 오류는 base 오류와 구분하고 effective config를 반환하지 않는다', () => {
+    const root = projectWithConfig(VALID);
+    fs.mkdirSync(path.join(root, '.git'));
+    const overlayPath = writeLocalOverlay(root, { verify: {} });
+
+    const invalidSchema = loadConfig(root);
+    expect(invalidSchema.config).toBeNull();
+    expect(invalidSchema.errors.join('\n')).toContain('local config overlay');
+    expect(invalidSchema.errors.join('\n')).toContain('지원하지 않는 키');
+
+    fs.writeFileSync(overlayPath, '{ broken');
+    const invalidJson = loadConfig(root);
+    expect(invalidJson.config).toBeNull();
+    expect(invalidJson.errors.join('\n')).toContain('local config overlay JSON 파싱 오류');
+  });
+
+  it('base가 잘못되면 malformed overlay보다 base 오류를 먼저 보고한다', () => {
+    const root = projectWithConfig('{\n broken');
+    fs.mkdirSync(path.join(root, '.git'));
+    const overlayPath = writeLocalOverlay(root, {});
+    fs.writeFileSync(overlayPath, '{ also broken');
+
+    const loaded = loadConfig(root);
+
+    expect(loaded.config).toBeNull();
+    expect(loaded.errors[0]).toContain('config.json JSON 파싱 오류');
+    expect(loaded.errors.join('\n')).not.toContain('local config overlay');
   });
 });
 

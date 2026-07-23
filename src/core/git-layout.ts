@@ -7,7 +7,7 @@ export interface GitLayout {
   commonGitDir: string;
 }
 
-function findDotGit(start: string): string | null {
+export function findDotGitPath(start: string): string | null {
   let cursor = path.resolve(start);
   for (;;) {
     const candidate = path.join(cursor, '.git');
@@ -42,7 +42,7 @@ function requireDirectory(candidate: string, label: string): string {
 
 /** Resolve worktree-specific and shared Git storage without invoking Git. */
 export function resolveGitLayout(projectRoot: string): GitLayout {
-  const dotGitPath = findDotGit(projectRoot);
+  const dotGitPath = findDotGitPath(projectRoot);
   if (!dotGitPath) {
     throw new Error(`${path.resolve(projectRoot)} 또는 상위 경로에서 .git을 찾지 못했습니다.`);
   }

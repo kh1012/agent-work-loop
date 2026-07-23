@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { type FlowSession, closeFlow, openFlow, step } from '../core/flow.js';
+import { findDotGitPath, worktreeLocalConfigPath } from '../core/git-layout.js';
 import { findProjectRoot } from '../core/paths.js';
 import { CommandNotFoundError, run } from '../core/runner.js';
 import {
@@ -75,7 +76,32 @@ export interface ConfigResult {
   config: AwlConfig | null;
   errors: string[];
   path: string;
+  basePath: string;
+  overlayPath: string | null;
+  sources: ConfigSources;
 }
+
+export type ConfigSource = 'base' | 'local';
+
+export interface ConfigSources {
+  project: ConfigSource;
+  'feedback.enabled': ConfigSource;
+  'feedback.path': ConfigSource;
+}
+
+export interface LocalConfigOverlay {
+  project?: string;
+  feedback?: {
+    enabled?: boolean;
+    path?: string;
+  };
+}
+
+const BASE_SOURCES: ConfigSources = {
+  project: 'base',
+  'feedback.enabled': 'base',
+  'feedback.path': 'base',
+};
 
 /** 검증 명령의 순서. 이 순서로 실행/표시한다. */
 export const VERIFY_ORDER: (keyof VerifyMap)[] = ['typecheck', 'lint', 'test', 'e2e'];
@@ -215,31 +241,84 @@ function jsonErrorLocation(text: string, err: unknown): string {
   return msg;
 }
 
-/** .awl/config.json 을 읽고 검증한다. */
+export function validateLocalConfigOverlay(obj: unknown): string[] {
+  const errors: string[] = [];
+  if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) {
+    return ['local config overlay가 객체가 아닙니다'];
+  }
+  const overlay = obj as Record<string, unknown>;
+  for (const key of Object.keys(overlay)) {
+    if (key !== 'project' && key !== 'feedback') {
+      errors.push(`local config overlay의 지원하지 않는 키: ${key}`);
+    }
+  }
+  if (
+    'project' in overlay &&
+    (typeof overlay.project !== 'string' || overlay.project.trim() === '')
+  ) {
+    errors.push('local config overlay project 형식 오류 (비어 있지 않은 문자열 필수)');
+  }
+  if ('feedback' in overlay) {
+    if (
+      typeof overlay.feedback !== 'object' ||
+      overlay.feedback === null ||
+      Array.isArray(overlay.feedback)
+    ) {
+      errors.push('local config overlay feedback 형식 오류 (객체 필수)');
+    } else {
+      const feedback = overlay.feedback as Record<string, unknown>;
+      for (const key of Object.keys(feedback)) {
+        if (key !== 'enabled' && key !== 'path') {
+          errors.push(`local config overlay의 지원하지 않는 키: feedback.${key}`);
+        }
+      }
+      if ('enabled' in feedback && typeof feedback.enabled !== 'boolean') {
+        errors.push('local config overlay feedback.enabled 형식 오류 (boolean 필수)');
+      }
+      if ('path' in feedback && typeof feedback.path !== 'string') {
+        errors.push('local config overlay feedback.path 형식 오류 (문자열 필수)');
+      }
+    }
+  }
+  return errors;
+}
+
+/** tracked base .awl/config.json 뒤에 optional worktree-local overlay를 병합한다. */
 export function loadConfig(projectRoot: string): ConfigResult {
-  const p = path.join(projectRoot, '.awl', 'config.json');
-  if (!fs.existsSync(p)) {
-    return { config: null, errors: ['config.json 이 없습니다. awl init 을 실행하세요.'], path: p };
+  const basePath = path.join(projectRoot, '.awl', 'config.json');
+  const baseResult = (
+    config: AwlConfig | null,
+    errors: string[],
+    overlayPath: string | null = null,
+    sources: ConfigSources = BASE_SOURCES,
+  ): ConfigResult => ({
+    config,
+    errors,
+    path: basePath,
+    basePath,
+    overlayPath,
+    sources,
+  });
+  if (!fs.existsSync(basePath)) {
+    return baseResult(null, ['config.json 이 없습니다. awl init 을 실행하세요.']);
   }
   let text: string;
   try {
-    text = fs.readFileSync(p, 'utf8');
+    text = fs.readFileSync(basePath, 'utf8');
   } catch (e) {
-    return { config: null, errors: [`config.json 을 읽지 못했습니다: ${String(e)}`], path: p };
+    return baseResult(null, [`config.json 을 읽지 못했습니다: ${String(e)}`]);
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch (e) {
     return {
-      config: null,
-      errors: [`config.json JSON 파싱 오류: ${jsonErrorLocation(text, e)}`],
-      path: p,
+      ...baseResult(null, [`config.json JSON 파싱 오류: ${jsonErrorLocation(text, e)}`]),
     };
   }
   const errors = validateConfig(parsed);
   if (errors.length > 0) {
-    return { config: null, errors, path: p };
+    return baseResult(null, errors);
   }
   const raw = parsed as Record<string, unknown>;
   const rv = raw.verify as Record<string, unknown>;
@@ -274,7 +353,65 @@ export function loadConfig(projectRoot: string): ConfigResult {
       e2e: (rv.e2e ?? null) as VerifyEntry,
     },
   };
-  return { config, errors: [], path: p };
+  if (!findDotGitPath(projectRoot)) {
+    return baseResult(config, []);
+  }
+  let overlayPath: string;
+  try {
+    overlayPath = worktreeLocalConfigPath(projectRoot);
+  } catch (error) {
+    return baseResult(null, [`local config overlay 경로 오류: ${String(error)}`]);
+  }
+  if (!fs.existsSync(overlayPath)) {
+    return baseResult(config, [], overlayPath);
+  }
+  let overlayText: string;
+  try {
+    overlayText = fs.readFileSync(overlayPath, 'utf8');
+  } catch (error) {
+    return baseResult(
+      null,
+      [`local config overlay를 읽지 못했습니다: ${String(error)}`],
+      overlayPath,
+    );
+  }
+  let overlayRaw: unknown;
+  try {
+    overlayRaw = JSON.parse(overlayText);
+  } catch (error) {
+    return baseResult(
+      null,
+      [`local config overlay JSON 파싱 오류: ${jsonErrorLocation(overlayText, error)}`],
+      overlayPath,
+    );
+  }
+  const overlayErrors = validateLocalConfigOverlay(overlayRaw);
+  if (overlayErrors.length > 0) {
+    return baseResult(null, overlayErrors, overlayPath);
+  }
+  const overlay = overlayRaw as LocalConfigOverlay;
+  const effective: AwlConfig = {
+    ...config,
+    ...(overlay.project ? { project: overlay.project } : {}),
+    ...(config.feedback || overlay.feedback
+      ? {
+          feedback: {
+            enabled: overlay.feedback?.enabled ?? config.feedback?.enabled ?? false,
+            ...(overlay.feedback?.path !== undefined
+              ? { path: overlay.feedback.path }
+              : config.feedback?.path !== undefined
+                ? { path: config.feedback.path }
+                : {}),
+          },
+        }
+      : {}),
+  };
+  const sources: ConfigSources = {
+    project: overlay.project === undefined ? 'base' : 'local',
+    'feedback.enabled': overlay.feedback?.enabled === undefined ? 'base' : 'local',
+    'feedback.path': overlay.feedback?.path === undefined ? 'base' : 'local',
+  };
+  return baseResult(effective, [], overlayPath, sources);
 }
 
 /**
