@@ -11,6 +11,7 @@ import {
   selectStep,
   step,
 } from '../core/flow.js';
+import { resolveGitLayout } from '../core/git-layout.js';
 import { engineDir, globalRoot, isInsideWorktreesDir, projectsFile } from '../core/paths.js';
 import { runInteractiveSelect } from '../core/select.js';
 import {
@@ -578,58 +579,7 @@ export function ensureGitignore(projectRoot: string): 'added' | 'exists' {
  * 해석을 파일시스템 접근만으로 재현한다.
  */
 function safetyHookPath(projectRoot: string): string {
-  let cursor = path.resolve(projectRoot);
-  let dotGit: string | undefined;
-  while (true) {
-    const candidate = path.join(cursor, '.git');
-    try {
-      fs.lstatSync(candidate);
-      dotGit = candidate;
-      break;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        throw error;
-      }
-    }
-    const parent = path.dirname(cursor);
-    if (parent === cursor) {
-      break;
-    }
-    cursor = parent;
-  }
-  if (!dotGit) {
-    throw new Error(`${projectRoot} 또는 상위 경로에서 .git을 찾지 못했습니다.`);
-  }
-  const dotGitStat = fs.statSync(dotGit);
-
-  if (dotGitStat.isDirectory()) {
-    return path.join(dotGit, 'hooks', 'pre-push');
-  }
-  if (!dotGitStat.isFile()) {
-    throw new Error(`${dotGit} is neither a directory nor a gitdir file`);
-  }
-
-  const gitdirMatch = fs.readFileSync(dotGit, 'utf8').match(/^gitdir:\s*(.+?)\s*$/m);
-  if (!gitdirMatch) {
-    throw new Error(`${dotGit} does not contain a gitdir: line`);
-  }
-  // Git의 gitdir 파일과 commondir 파일 모두 상대경로를 각각 자신의 파일이 있는
-  // 디렉터리 기준으로 해석한다.
-  const gitdir = gitdirMatch[1];
-  if (!gitdir) {
-    throw new Error(`${dotGit} has an empty gitdir: line`);
-  }
-  const worktreeGitDir = path.resolve(path.dirname(dotGit), gitdir);
-  const commonDirFile = path.join(worktreeGitDir, 'commondir');
-  let commonGitDir = worktreeGitDir;
-  if (exists(commonDirFile)) {
-    const commonDir = fs.readFileSync(commonDirFile, 'utf8').trim();
-    if (commonDir === '') {
-      throw new Error(`${commonDirFile} is empty`);
-    }
-    commonGitDir = path.resolve(worktreeGitDir, commonDir);
-  }
-  return path.join(commonGitDir, 'hooks', 'pre-push');
+  return path.join(resolveGitLayout(projectRoot).commonGitDir, 'hooks', 'pre-push');
 }
 
 /** 정적 템플릿을 설치한다. 기존 사용자 훅은 덮어쓰지 않고 경고만 돌린다. */
