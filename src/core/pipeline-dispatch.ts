@@ -43,6 +43,8 @@ export type PipelineDispatchErrorCode =
   | 'DISPATCH_INPUT_MISMATCH'
   | 'DISPATCH_INPUT_OUTSIDE_LANE'
   | 'DISPATCH_INPUT_HASH_MISMATCH'
+  | 'DISPATCH_ISSUANCE_BINDING_INVALID'
+  | 'DISPATCH_TAMPERED'
   | 'DISPATCH_EXPIRED'
   | 'DISPATCH_ALREADY_CLAIMED';
 
@@ -100,6 +102,12 @@ export interface PipelineDispatchClaim {
   envelopeSha256: string;
   claimedAt: string;
   consumerPid: number;
+}
+
+interface PipelineDispatchIssuanceBinding {
+  version: typeof PIPELINE_DISPATCH_VERSION;
+  dispatchId: string;
+  envelopeSha256: string;
 }
 
 function fail(code: PipelineDispatchErrorCode, message: string, field?: string): never {
@@ -182,15 +190,21 @@ export function sha256File(file: string): string {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
-function readDispatchDocument(file: string): unknown {
-  let raw: string;
+function sha256Bytes(value: Buffer | string): string {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function readDispatchBytes(file: string): Buffer {
   try {
-    raw = fs.readFileSync(file, 'utf8');
+    return fs.readFileSync(file);
   } catch {
     fail('DISPATCH_DOCUMENT_READ_FAILED', 'dispatch document could not be read', 'dispatch');
   }
+}
+
+function parseDispatchDocument(raw: Buffer): unknown {
   try {
-    return JSON.parse(raw);
+    return JSON.parse(raw.toString('utf8'));
   } catch {
     fail('DISPATCH_INVALID_DOCUMENT', 'dispatch document is not valid JSON', 'dispatch');
   }
@@ -198,6 +212,65 @@ function readDispatchDocument(file: string): unknown {
 
 function dispatchDirectory(lane: string): string {
   return path.join(lane, '.tasks', 'dispatch');
+}
+
+function issuanceDirectory(dispatch: string): string {
+  return `${dispatch}.issued`;
+}
+
+function readIssuanceBinding(dispatch: string): PipelineDispatchIssuanceBinding {
+  const bindingPath = path.join(issuanceDirectory(dispatch), 'binding.json');
+  let raw: string;
+  try {
+    raw = fs.readFileSync(bindingPath, 'utf8');
+  } catch {
+    fail(
+      'DISPATCH_ISSUANCE_BINDING_INVALID',
+      'dispatch issuance binding could not be read',
+      'dispatch',
+    );
+  }
+
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    fail(
+      'DISPATCH_ISSUANCE_BINDING_INVALID',
+      'dispatch issuance binding is not valid JSON',
+      'dispatch',
+    );
+  }
+  const binding = record(value, 'dispatch.issuance');
+  exactKeys(binding, ['version', 'dispatchId', 'envelopeSha256'], 'dispatch.issuance');
+  if (binding.version !== PIPELINE_DISPATCH_VERSION) {
+    fail(
+      'DISPATCH_ISSUANCE_BINDING_INVALID',
+      `dispatch issuance binding version must be ${PIPELINE_DISPATCH_VERSION}`,
+      'dispatch',
+    );
+  }
+  const dispatchId = nonEmptyString(binding.dispatchId, 'dispatch.issuance.dispatchId');
+  if (!/^dispatch_[a-f0-9]{24}$/.test(dispatchId)) {
+    fail(
+      'DISPATCH_ISSUANCE_BINDING_INVALID',
+      'dispatch issuance binding has an invalid dispatchId',
+      'dispatch',
+    );
+  }
+  const envelopeSha256 = nonEmptyString(binding.envelopeSha256, 'dispatch.issuance.envelopeSha256');
+  if (!/^[a-f0-9]{64}$/.test(envelopeSha256)) {
+    fail(
+      'DISPATCH_ISSUANCE_BINDING_INVALID',
+      'dispatch issuance binding has an invalid envelope digest',
+      'dispatch',
+    );
+  }
+  return {
+    version: PIPELINE_DISPATCH_VERSION,
+    dispatchId,
+    envelopeSha256,
+  };
 }
 
 function canonicalDispatchPath(dispatch: string, lane: string): string {
@@ -450,33 +523,87 @@ export function issuePipelineDispatch(options: IssuePipelineDispatchOptions): {
   fs.mkdirSync(directory, { recursive: true });
   const target = path.join(directory, `${envelope.dispatchId}.json`);
   const temporary = path.join(directory, `.${envelope.dispatchId}.tmp-${process.pid}`);
+  const serialized = `${JSON.stringify(envelope, null, 2)}\n`;
   const fd = fs.openSync(temporary, 'wx', 0o600);
   try {
-    fs.writeFileSync(fd, `${JSON.stringify(envelope, null, 2)}\n`);
+    fs.writeFileSync(fd, serialized);
     fs.fsyncSync(fd);
   } finally {
     fs.closeSync(fd);
   }
+
+  const binding: PipelineDispatchIssuanceBinding = {
+    version: PIPELINE_DISPATCH_VERSION,
+    dispatchId: envelope.dispatchId,
+    envelopeSha256: sha256Bytes(serialized),
+  };
+  const issuedDirectory = issuanceDirectory(target);
+  const temporaryIssuedDirectory = path.join(
+    directory,
+    `.${envelope.dispatchId}.issued-tmp-${process.pid}-${crypto.randomBytes(6).toString('hex')}`,
+  );
   try {
-    fs.linkSync(temporary, target);
+    fs.mkdirSync(temporaryIssuedDirectory, { mode: 0o700 });
+    const bindingFd = fs.openSync(path.join(temporaryIssuedDirectory, 'binding.json'), 'wx', 0o400);
+    try {
+      fs.writeFileSync(bindingFd, `${JSON.stringify(binding, null, 2)}\n`);
+      fs.fsyncSync(bindingFd);
+    } finally {
+      fs.closeSync(bindingFd);
+    }
+    fs.renameSync(temporaryIssuedDirectory, issuedDirectory);
+    try {
+      fs.linkSync(temporary, target);
+    } catch (error) {
+      fs.rmSync(issuedDirectory, { recursive: true, force: true });
+      throw error;
+    }
   } finally {
     fs.rmSync(temporary, { force: true });
+    fs.rmSync(temporaryIssuedDirectory, { recursive: true, force: true });
   }
   return { path: target, envelope };
 }
 
-export function verifyPipelineDispatch(
-  options: VerifyPipelineDispatchOptions,
-): PipelineDispatchEnvelope {
+function verifyPipelineDispatchState(options: VerifyPipelineDispatchOptions): {
+  envelope: PipelineDispatchEnvelope;
+  envelopeSha256: string;
+} {
   const lane = canonicalExistingPath(options.expectedLane, 'expectedLane');
   const dispatch = canonicalDispatchPath(options.dispatch, lane);
-  return validatePipelineDispatchEnvelope(readDispatchDocument(dispatch), {
+  const raw = readDispatchBytes(dispatch);
+  const binding = readIssuanceBinding(dispatch);
+  if (sha256Bytes(raw) !== binding.envelopeSha256) {
+    fail(
+      'DISPATCH_TAMPERED',
+      'dispatch bytes do not match the immutable issuance binding',
+      'dispatch',
+    );
+  }
+  const envelope = validatePipelineDispatchEnvelope(parseDispatchDocument(raw), {
     expectedLane: lane,
     expectedRole: options.expectedRole,
     expectedWorkitem: options.expectedWorkitem,
     expectedInput: options.expectedInput,
     now: options.now,
   });
+  if (
+    binding.dispatchId !== envelope.dispatchId ||
+    path.basename(dispatch) !== `${envelope.dispatchId}.json`
+  ) {
+    fail(
+      'DISPATCH_TAMPERED',
+      'dispatch identity does not match the immutable issuance binding',
+      'dispatch',
+    );
+  }
+  return { envelope, envelopeSha256: binding.envelopeSha256 };
+}
+
+export function verifyPipelineDispatch(
+  options: VerifyPipelineDispatchOptions,
+): PipelineDispatchEnvelope {
+  return verifyPipelineDispatchState(options).envelope;
 }
 
 export function claimPipelineDispatch(options: VerifyPipelineDispatchOptions): {
@@ -484,7 +611,7 @@ export function claimPipelineDispatch(options: VerifyPipelineDispatchOptions): {
   claimPath: string;
   claim: PipelineDispatchClaim;
 } {
-  const envelope = verifyPipelineDispatch(options);
+  const { envelope } = verifyPipelineDispatchState(options);
   const claimPath = `${options.dispatch}.claimed`;
   try {
     fs.mkdirSync(claimPath, { mode: 0o700 });
@@ -500,11 +627,11 @@ export function claimPipelineDispatch(options: VerifyPipelineDispatchOptions): {
   }
 
   try {
-    const reverified = verifyPipelineDispatch(options);
+    const reverified = verifyPipelineDispatchState(options);
     const claim: PipelineDispatchClaim = {
-      dispatchId: reverified.dispatchId,
-      nonce: reverified.nonce,
-      envelopeSha256: sha256File(options.dispatch),
+      dispatchId: reverified.envelope.dispatchId,
+      nonce: reverified.envelope.nonce,
+      envelopeSha256: reverified.envelopeSha256,
       claimedAt: (options.now ?? new Date()).toISOString(),
       consumerPid: process.pid,
     };
@@ -512,7 +639,7 @@ export function claimPipelineDispatch(options: VerifyPipelineDispatchOptions): {
       flag: 'wx',
       mode: 0o600,
     });
-    return { envelope: reverified, claimPath, claim };
+    return { envelope: reverified.envelope, claimPath, claim };
   } catch (error) {
     fs.rmSync(claimPath, { recursive: true, force: true });
     throw error;

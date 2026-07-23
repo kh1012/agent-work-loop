@@ -209,6 +209,13 @@ describe('pipeline dispatch issue, verify, and one-time claim', () => {
       fs.readdirSync(path.dirname(issued.path)).filter((name) => name.includes('.tmp-')),
     ).toEqual([]);
     expect(
+      JSON.parse(fs.readFileSync(path.join(`${issued.path}.issued`, 'binding.json'), 'utf8')),
+    ).toEqual({
+      version: PIPELINE_DISPATCH_VERSION,
+      dispatchId: issued.envelope.dispatchId,
+      envelopeSha256: sha256File(issued.path),
+    });
+    expect(
       verifyPipelineDispatch({
         dispatch: issued.path,
         expectedLane: lane,
@@ -355,9 +362,111 @@ describe('invalid dispatch immutability and gate-low progression', () => {
         }),
       );
 
-      expect(code).toMatch(/DISPATCH_(EXPIRED|ROLE_MISMATCH|INPUT_MISMATCH|UNKNOWN_FIELD)/);
+      expect(code).toMatch(
+        /DISPATCH_(EXPIRED|ROLE_MISMATCH|INPUT_MISMATCH|UNKNOWN_FIELD|TAMPERED)/,
+      );
       expect(treeSnapshot(path.join(lane, '.tasks'))).toEqual(before);
       expect(fs.existsSync(`${issued.path}.claimed`)).toBe(false);
+    },
+  );
+
+  it.each([
+    [
+      'gate-high authorization to gate-low',
+      (document: PipelineDispatchEnvelope, input: string) => ({
+        ...document,
+        gate: {
+          mode: 'gate-low' as const,
+          autoApprove: true,
+          recordOwner: 'coordinator' as const,
+          evidence: autoEvidence(input),
+        },
+      }),
+    ],
+    [
+      'gate evidence',
+      (document: PipelineDispatchEnvelope) => ({
+        ...document,
+        gate: {
+          ...document.gate,
+          evidence: {
+            kind: 'human',
+            gate1Record: 'rec_forged',
+            source: 'human-decision',
+            humanDecision: 'forged approval',
+            plan: document.input.path,
+          },
+        },
+      }),
+    ],
+    [
+      'nonce',
+      (document: PipelineDispatchEnvelope) => ({
+        ...document,
+        nonce: crypto.randomBytes(24).toString('hex'),
+      }),
+    ],
+    [
+      'expiry',
+      (document: PipelineDispatchEnvelope) => ({
+        ...document,
+        expiresAt: '2026-07-23T01:00:00.000Z',
+      }),
+    ],
+  ] as const)(
+    'rejects schema-valid tampering of %s against immutable issuance bytes',
+    (_kind, mutate) => {
+      const { lane, input } = fixture();
+      const issuedAt = new Date('2026-07-23T00:00:00.000Z');
+      const issued = issuePipelineDispatch({
+        lane,
+        role: 'exec',
+        workitem: 'work',
+        input,
+        mode: 'gate-high',
+        evidence: {
+          kind: 'human',
+          gate1Record: 'rec_human',
+          source: 'human-decision',
+          humanDecision: 'approved by user',
+          plan: input,
+        },
+        now: issuedAt,
+        ttlMs: 60_000,
+      });
+      const execMarker = path.join(lane, '.tasks', 'exec', 'work.md');
+      const reviewMarker = path.join(lane, '.tasks', 'review', 'work.md');
+      fs.mkdirSync(path.dirname(execMarker), { recursive: true });
+      fs.mkdirSync(path.dirname(reviewMarker), { recursive: true });
+      fs.writeFileSync(execMarker, '# exec marker\n');
+      fs.writeFileSync(reviewMarker, '# review marker\n');
+      const routedBefore = {
+        plan: sha256File(input),
+        exec: sha256File(execMarker),
+        review: sha256File(reviewMarker),
+      };
+
+      const document = JSON.parse(fs.readFileSync(issued.path, 'utf8')) as PipelineDispatchEnvelope;
+      fs.writeFileSync(issued.path, `${JSON.stringify(mutate(document, input), null, 2)}\n`);
+
+      expect(
+        errorCode(() =>
+          claimPipelineDispatch({
+            dispatch: issued.path,
+            expectedLane: lane,
+            expectedRole: 'exec',
+            expectedWorkitem: 'work',
+            expectedInput: input,
+            now: new Date('2026-07-23T00:00:30.000Z'),
+          }),
+        ),
+      ).toBe('DISPATCH_TAMPERED');
+      expect(fs.existsSync(`${issued.path}.claimed`)).toBe(false);
+      expect({
+        plan: sha256File(input),
+        exec: sha256File(execMarker),
+        review: sha256File(reviewMarker),
+      }).toEqual(routedBefore);
     },
   );
 
