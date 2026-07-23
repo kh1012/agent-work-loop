@@ -63,6 +63,31 @@ Gate density does not change Codex sandbox or approval permissions.
 4. Ensure `.tasks/` is ignored. Prefer `.git/info/exclude` for a linked worktree when changing the shared branch ignore file would be unrelated.
 5. Run `awl doctor` in the lane.
 
+## Native Scheduled task lifecycle (`--poll`)
+
+Use this lifecycle only when `--poll` or an equivalent natural-language cadence was requested.
+Known plans and active exec/review rounds still use the normal dispatch contract below.
+
+1. Check whether the current product surface exposes its native Scheduled-task capability. Create
+   or update one task in the current chat at the exact requested cadence. Do not silently choose a
+   nearby interval.
+2. The durable Scheduled prompt must include the absolute lane path, resolved gate mode, the
+   requested cadence, and instructions to run `awl status --pipeline`, inspect all
+   `.tasks/plan/exec/review` markers, finish review feedback before claiming a new plan, preserve
+   one writer and one reviewer for the lane, and Never push.
+3. Each tick processes every ready item through the existing sequential implementation and review
+   flow. If no work is ready, it reports one compact no-change status and ends that turn. The tick
+   does not reschedule itself; the native Scheduled task owns the next wakeup.
+4. Claim that polling is active only after a confirmed schedule result identifies the current chat
+   and exact requested cadence. Report the resolved lane path and cadence to the user.
+5. When the user says to stop polling, pause or remove that Scheduled task and verify the result.
+   Also stop and report if the lane no longer exists; never recreate a missing lane from an idle
+   tick.
+
+If the Scheduled capability is unavailable, say so explicitly and point the user to the product's
+Scheduled interface for a current-chat task. Never emulate polling with an active goal, `sleep`, a
+shell watcher, cron, or `codex exec resume`. Do not claim that monitoring is active.
+
 ## Plan the cycle
 
 Perform the `$awl-pipeline-plan` workflow in the coordinator unless the user explicitly requested a separate plan agent. Write one `.tasks/plan/<name>.md` per independent work item.
@@ -104,7 +129,8 @@ Wait with `wait_agent`.
 - Pass: `exec/<name>.taken.md` exists and no unprocessed `review/<name>.md` exists. The work item is complete.
 - Fail: reactivate the idle exec agent with `followup_task`, pointing it to `review/<name>.md`. Wait, then reactivate the reviewer with `followup_task` for the new unverified handoff.
 - If an agent handle is unavailable, inspect state with `list_agents` and spawn a replacement. File markers, commits, and awl records are the recovery source; do not reconstruct state from memory.
-- Never use timer polling, background sleeps, scheduled wakeups, or shell watcher loops. `wait_agent` handles active work; `followup_task` restarts an idle role when a new file is ready.
+- `wait_agent` handles active work; `followup_task` restarts an idle role when a new file is ready.
+  The optional native Scheduled lifecycle above is only for idle arrival of future plans.
 - Keep at most one writer and one reviewer associated with a lane. Do not ask role agents to spawn their own agents.
 
 ## Completion and gates

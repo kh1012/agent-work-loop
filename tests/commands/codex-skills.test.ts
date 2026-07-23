@@ -110,6 +110,31 @@ describe('Codex AWL skills', () => {
     expect(pipeline).toContain('natural-language cadence');
   });
 
+  it('Codex pipeline은 native current-chat Scheduled lifecycle과 안전한 fallback을 명시한다', () => {
+    const pipeline = read('awl-pipeline/SKILL.md');
+    const normalized = pipeline.replace(/\s+/g, ' ');
+
+    for (const contract of [
+      'Native Scheduled task lifecycle',
+      'current chat',
+      'exact requested cadence',
+      'confirmed schedule result',
+      'absolute lane path',
+      'gate mode',
+      'awl status --pipeline',
+      'plan/exec/review',
+      'Never push',
+      'does not reschedule itself',
+      'stop polling',
+    ]) {
+      expect(pipeline).toContain(contract);
+    }
+    expect(normalized).toContain(
+      'Never emulate polling with an active goal, `sleep`, a shell watcher, cron, or `codex exec resume`.',
+    );
+    expect(pipeline).toContain('Scheduled capability is unavailable');
+  });
+
   it('Codex 문서에 Claude 전용 도구·설치 경로·스케줄 폴링이 남아있지 않다', () => {
     const all = skillNames.map((name) => read(`${name}/SKILL.md`)).join('\n');
     for (const stale of [
