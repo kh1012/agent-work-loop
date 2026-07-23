@@ -355,7 +355,7 @@ export function validatePipelineDispatchEnvelope(
   }
 
   if (options.expectedLane) {
-    const expectedLane = fs.realpathSync(options.expectedLane);
+    const expectedLane = canonicalExistingPath(options.expectedLane, 'expectedLane');
     if (lane !== expectedLane) {
       fail('DISPATCH_LANE_MISMATCH', 'dispatch lane does not match expected lane', 'lane');
     }
@@ -371,7 +371,10 @@ export function validatePipelineDispatchEnvelope(
     );
   }
   if (options.expectedInput) {
-    const expectedInput = fs.realpathSync(options.expectedInput);
+    const expectedInput = canonicalExistingPath(options.expectedInput, 'expectedInput');
+    if (!fs.statSync(expectedInput).isFile()) {
+      fail('DISPATCH_INVALID_FIELD', 'expectedInput must identify a file', 'expectedInput');
+    }
     if (inputPath !== expectedInput) {
       fail('DISPATCH_INPUT_MISMATCH', 'dispatch input does not match expected input', 'input.path');
     }

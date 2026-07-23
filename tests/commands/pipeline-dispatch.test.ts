@@ -389,6 +389,55 @@ describe('invalid dispatch immutability and gate-low progression', () => {
     expect(treeSnapshot(path.join(lane, '.tasks'))).toEqual(before);
   });
 
+  it.each([
+    ['verify', runPipelineDispatchVerify, 'expectedInput'],
+    ['claim', runPipelineDispatchClaim, 'expectedInput'],
+    ['verify', runPipelineDispatchVerify, 'expectedLane'],
+    ['claim', runPipelineDispatchClaim, 'expectedLane'],
+  ] as const)(
+    'returns structured JSON when %s receives a missing %s path',
+    (_command, run, missingField) => {
+      const { lane, input } = fixture();
+      const issued = issuePipelineDispatch({
+        lane,
+        role: 'exec',
+        workitem: 'work',
+        input,
+        mode: 'gate-low',
+        evidence: autoEvidence(input),
+      });
+      const before = treeSnapshot(path.join(lane, '.tasks'));
+      let stdout = '';
+      vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+        stdout += String(chunk);
+        return true;
+      });
+
+      expect(() =>
+        run({
+          dispatch: issued.path,
+          lane: missingField === 'expectedLane' ? path.join(lane, 'missing-lane') : lane,
+          role: 'exec',
+          workitem: 'work',
+          input: missingField === 'expectedInput' ? path.join(lane, 'missing-input.md') : input,
+          json: true,
+        }),
+      ).not.toThrow();
+
+      expect(process.exitCode).toBe(1);
+      expect(JSON.parse(stdout)).toEqual({
+        ok: false,
+        error: {
+          code: 'DISPATCH_INVALID_FIELD',
+          message: `${missingField} does not exist`,
+          field: missingField,
+        },
+      });
+      expect(treeSnapshot(path.join(lane, '.tasks'))).toEqual(before);
+      expect(fs.existsSync(`${issued.path}.claimed`)).toBe(false);
+    },
+  );
+
   it('claims a valid gate-low envelope with automatic evidence and no manual gate input', () => {
     const { lane, input } = fixture();
     const issued = issuePipelineDispatch({
