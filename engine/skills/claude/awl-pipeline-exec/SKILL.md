@@ -139,6 +139,16 @@ gate1_evidence: <오케스트레이터가 전달한 plan 경로 또는 human dec
 - AC-02 ...
 ## 검증 결과
 - awl verify: <출력 요지>
+## Test runner provenance
+- runner package: <package name>
+- target package manifest: <절대 또는 package-relative package.json path>
+- package-owned CLI real path: <해석한 real path>
+- package-owned resolved version: <version>
+- generic alias real path: <해석한 real path 또는 unresolved>
+- generic alias resolved version: <version 또는 unresolved>
+- selected command: <review가 재실행할 정확한 command>
+- result: <exit code와 출력 요지>
+- fallback from generic: <없음, 또는 시도한 command와 mismatch/duplicate-module 실패>
 ## 직접 볼 리뷰 포인트 (review가 확인)
 - <파일:라인> — <왜 봐야 하나>
 ## Gate evidence

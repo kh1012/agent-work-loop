@@ -104,6 +104,17 @@ gate1_evidence: <coordinator-supplied plan path or human decision record>
 - checked: <command and result>
 - not checked: <item and reason>
 
+## Test runner provenance
+- runner package: <package name>
+- target package manifest: <absolute or package-relative package.json path>
+- package-owned CLI real path: <resolved real path>
+- package-owned resolved version: <version>
+- generic alias real path: <resolved real path or unresolved>
+- generic alias resolved version: <version or unresolved>
+- selected command: <exact reproducible command>
+- result: <exit code and concise output>
+- fallback from generic: <none, or attempted command plus mismatch/duplicate-module failure>
+
 ## Criteria
 - AC-01: pass|blocked — <evidence>
 

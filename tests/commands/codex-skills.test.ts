@@ -344,6 +344,32 @@ describe('Codex AWL skills', () => {
     }
   });
 
+  it('Codex와 Claude exec handoff는 선택한 runner provenance와 fallback 실패를 재현 가능하게 남긴다', () => {
+    const execSkills = ['codex', 'claude'].map((surface) =>
+      fs.readFileSync(
+        path.join(process.cwd(), 'engine', 'skills', surface, 'awl-pipeline-exec', 'SKILL.md'),
+        'utf8',
+      ),
+    );
+
+    for (const execSkill of execSkills) {
+      for (const field of [
+        '## Test runner provenance',
+        'runner package:',
+        'target package manifest:',
+        'package-owned CLI real path:',
+        'package-owned resolved version:',
+        'generic alias real path:',
+        'generic alias resolved version:',
+        'selected command:',
+        'result:',
+        'fallback from generic:',
+      ]) {
+        expect(execSkill).toContain(field);
+      }
+    }
+  });
+
   it('AGENTS 블록은 긴 워크플로우 복제 대신 실제 스킬로 라우팅한다', () => {
     const agents = read('AGENTS.awl.md');
     expect(agents).toContain('$awl-loop');
