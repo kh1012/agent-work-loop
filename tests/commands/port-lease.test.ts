@@ -43,18 +43,13 @@ function waitForFile(file: string): Promise<void> {
   if (fs.existsSync(file)) {
     return Promise.resolve();
   }
-  return new Promise((resolve, reject) => {
-    const watcher = fs.watch(path.dirname(file), (event, name) => {
-      if (event === 'rename' && name === path.basename(file) && fs.existsSync(file)) {
-        watcher.close();
+  return new Promise((resolve) => {
+    const poll = setInterval(() => {
+      if (fs.existsSync(file)) {
+        clearInterval(poll);
         resolve();
       }
-    });
-    watcher.once('error', reject);
-    if (fs.existsSync(file)) {
-      watcher.close();
-      resolve();
-    }
+    }, 10);
   });
 }
 
