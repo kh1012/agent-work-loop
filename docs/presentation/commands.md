@@ -430,8 +430,8 @@
 
 - **역할**: 오케스트레이터. plan 역할로 진입해 exec·review를 백그라운드 LLM CLI 에이전트로 스폰하고, 한 레인의 파이프라인을 무인으로 돌린다.
 - **언제 쓰나**: 여러 워크아이템을 동시에 격리해서 돌리고 싶을 때(3절의 3단). 사람은 목표만 던진다.
-- **트리거**: `/awl-pipeline [레인] [모드]`.
-- **읽는법**: 첫 인자가 레인 이름, `.`(cwd를 단일 레인으로), 인자 없음(자동 레인 `unknown-lane-<N>` 생성), 또는 mode 토큰만 온 경우(자동 레인 + 그 모드) 넷 중 하나로 해석된다. mode는 `gate-high`(기본, 매 게이트 사람 승인) / `gate-medium`(승인 자동, high만 최종 요약) / `gate-low`(전부 자율) 세 단계다. 방향 규약은 "높을수록 게이트가 많다". `awl`은 스폰하지 않는다는 게 이 스킬의 경계다(스폰은 스킬 몫, awl은 설치·데이터만).
+- **트리거**: Claude는 `/awl-pipeline [레인] [모드]`, Codex는 `$awl-pipeline <lane명> <mode> [--poll <interval>]`.
+- **읽는법**: 첫 인자가 레인 이름, `.`(cwd를 단일 레인으로), 인자 없음(자동 레인 `unknown-lane-<N>` 생성), 또는 mode 토큰만 온 경우(자동 레인 + 그 모드) 넷 중 하나로 해석된다. mode는 `gate-high`(기본, 매 게이트 사람 승인) / `gate-medium`(승인 자동, high만 최종 요약) / `gate-low`(전부 자율) 세 단계다. 방향 규약은 "높을수록 게이트가 많다". Codex의 `--poll 30m`은 현재 chat의 native Scheduled task로 미래 plan을 30분마다 확인한다. Scheduled capability가 없으면 goal·sleep·shell watcher·cron으로 대체하지 않는다. `awl`은 스폰하지 않는다는 게 이 스킬의 경계다(스폰은 스킬 몫, awl은 설치·데이터만).
 
 ### `/awl-pipeline-plan`
 

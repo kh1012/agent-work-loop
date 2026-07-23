@@ -174,7 +174,9 @@ function renderSkillsCard(c: Caps): string {
     '  목표를 완료 조건으로 번역하고, 게이트 승인 후 한 세션이 처음부터 끝까지 직접',
     '  자율 루프로 구현합니다. 워크아이템 하나를 한 세션이 관통합니다.',
     '',
-    t.muted('Claude: /awl-pipeline <lane명> <mode>  |  Codex: $awl-pipeline <lane명> <mode>'),
+    t.muted(
+      'Claude: /awl-pipeline <lane명> <mode>  |  Codex: $awl-pipeline <lane명> <mode> [--poll <interval>]',
+    ),
     '  레인(lane) 단위로 무인 파이프라인을 돌립니다. 오케스트레이터 세션은 목표를',
     '  일감으로 옮겨 레인 큐에 넣기만 하고, exec·review는 각각 별도 백그라운드',
     '  에이전트로 스폰돼 그 레인 안에서 구현·검증을 진행합니다.',
@@ -188,6 +190,11 @@ function renderSkillsCard(c: Caps): string {
     '  plan(오케스트레이터) → exec·review 스폰(레인별) → 수집·게이트 → 상태 표시.',
     '  한 레인에는 writer 하나만 둡니다. Claude는 워처로 역할을 깨우고, Codex는',
     '  wait_agent로 완료를 기다린 뒤 followup_task로 idle 역할을 다시 깨웁니다.',
+    '',
+    t.muted('Codex idle polling'),
+    '  $awl-pipeline feedback-loop --gl --poll 30m',
+    '  --poll <interval>은 현재 chat의 native Scheduled task로 미래 plan을 확인합니다.',
+    '  Scheduled capability가 없으면 goal·sleep·shell watcher·cron으로 대체하지 않습니다.',
     '',
     t.muted('<mode> — 게이트 밀도 (높을수록 사람 개입이 많습니다, 기본은 gate-high)'),
   ];

@@ -18,4 +18,7 @@ Ownership:
 - review claims exec handoffs and creates `review/<name>.md` only on failure.
 - `.taken` means processed, not approved.
 
-Codex orchestration uses `wait_agent` for active work and `followup_task` for new input to an idle role. It does not require background watcher processes or scheduled polling.
+Codex orchestration uses `wait_agent` for active work and `followup_task` for new input to an idle
+role. Optional `$awl-pipeline <lane명> <mode> --poll <interval>` uses the current chat's native
+Scheduled task for future plan arrival; `--poll 30m` is the canonical 30-minute example. If the
+Scheduled capability is unavailable, do not emulate it with a goal, sleep, shell watcher, or cron.

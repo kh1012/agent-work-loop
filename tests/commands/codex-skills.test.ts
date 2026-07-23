@@ -197,6 +197,22 @@ describe('Codex AWL skills', () => {
     expect(program).toContain('wait_agent');
     expect(program).toContain('followup_task');
   });
+
+  it('공개 README·CLI 도움말·template·프레젠테이션이 --poll 계약을 함께 노출한다', () => {
+    const docs = [
+      fs.readFileSync(path.join(process.cwd(), 'README.md'), 'utf8'),
+      fs.readFileSync(path.join(process.cwd(), 'src', 'program.ts'), 'utf8'),
+      read('awl-pipeline/templates/README.md'),
+      fs.readFileSync(path.join(process.cwd(), 'docs', 'presentation', 'commands.md'), 'utf8'),
+    ];
+
+    for (const doc of docs.map((value) => value.replace(/\s+/g, ' '))) {
+      expect(doc).toContain('--poll <interval>');
+      expect(doc).toContain('--poll 30m');
+      expect(doc).toContain('native Scheduled');
+    }
+    expect(docs.join('\n')).toContain('Scheduled capability');
+  });
 });
 
 describe('awl-loop 자동 발동 계약', () => {
