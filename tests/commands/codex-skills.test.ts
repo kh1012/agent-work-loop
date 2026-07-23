@@ -230,6 +230,27 @@ describe('Codex AWL skills', () => {
     }
   });
 
+  it('Claude noSubagents envelope는 worker의 nested Task delegation과 모순되지 않는다', () => {
+    const base = path.join(process.cwd(), 'engine', 'skills', 'claude');
+    const coordinator = fs.readFileSync(path.join(base, 'awl-pipeline', 'SKILL.md'), 'utf8');
+    const workers = ['awl-pipeline-exec', 'awl-pipeline-review'].map((role) =>
+      fs.readFileSync(path.join(base, role, 'SKILL.md'), 'utf8'),
+    );
+
+    expect(coordinator).toContain('worker nested delegation 금지');
+    expect(coordinator).toContain('`noSubagents:true`');
+    expect(coordinator).not.toContain('다시 팬아웃할 수');
+    for (const worker of workers) {
+      expect(worker).toContain('claimed envelope의 `noSubagents:true`');
+      expect(worker).toContain('추가\n  agent를 spawn하지 않고');
+      expect(worker).not.toContain('`Task`');
+      expect(worker).not.toContain('subagent_type');
+      expect(worker).not.toContain('TaskStop');
+      expect(worker).not.toContain('pipeline-subagent-delegation');
+      expect(worker).not.toMatch(/서브에이전트.{0,80}(위임|스폰|팬아웃)/);
+    }
+  });
+
   it('dispatch 실패는 immutable blocked handoff이고 유효 gate-low는 manual gate 없이 진행한다', () => {
     for (const surface of ['codex', 'claude']) {
       const base = path.join(process.cwd(), 'engine', 'skills', surface);
