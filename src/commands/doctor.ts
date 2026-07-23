@@ -1,7 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { installedEngineVersion } from '../core/engine.js';
-import { findProjectRoot, globalRoot, gotchasDir, projectsFile, rulesDir } from '../core/paths.js';
+import {
+  findProjectRoot,
+  gotchasDir,
+  installationRoot,
+  projectsFile,
+  rulesDir,
+} from '../core/paths.js';
 import { CommandNotFoundError, run, tokenize } from '../core/runner.js';
 import {
   type Caps,
@@ -466,7 +472,7 @@ function collectEnv(checks: Check[]): void {
 
 /** 2. 전역 설치 (~/.awl) */
 function collectGlobal(checks: Check[], versionResult: VersionCheckResult): void {
-  const root = globalRoot();
+  const root = installationRoot();
   if (!exists(root)) {
     checks.push({
       group: '전역 설치',

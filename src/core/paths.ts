@@ -22,9 +22,30 @@ export function globalRoot(): string {
   return path.join(os.homedir(), '.awl');
 }
 
+/** Isolated homes point back to the complete installation with this marker. */
+export const AWL_PARENT_MARKER = '.awl-parent';
+
+/** Read the parent installation recorded for an isolated data home. */
+export function parentGlobalRoot(home: string = globalRoot()): string | null {
+  try {
+    const raw = fs.readFileSync(path.join(home, AWL_PARENT_MARKER), 'utf8').trim();
+    return raw === '' ? null : path.resolve(raw);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Root containing the installed engine and machine-wide registry.
+ * Data paths remain under globalRoot() so records and learning stay isolated.
+ */
+export function installationRoot(): string {
+  return parentGlobalRoot() ?? globalRoot();
+}
+
 /** ~/.awl/engine — 설치된 스킬·검사기·템플릿·마이그레이션 */
 export function engineDir(): string {
-  return path.join(globalRoot(), 'engine');
+  return path.join(installationRoot(), 'engine');
 }
 
 /** ~/.awl/records — 작업 기록 */
@@ -56,7 +77,7 @@ export function rulesDir(): string {
 
 /** ~/.awl/templates — 템플릿 */
 export function templatesDir(): string {
-  return path.join(globalRoot(), 'templates');
+  return path.join(installationRoot(), 'templates');
 }
 
 /** ~/.awl/generations/<project> — 프로젝트별 세대 */
@@ -66,7 +87,7 @@ export function generationsDir(project: string): string {
 
 /** ~/.awl/projects.json — 등록된 프로젝트 목록 */
 export function projectsFile(): string {
-  return path.join(globalRoot(), 'projects.json');
+  return path.join(installationRoot(), 'projects.json');
 }
 
 /** ~/.awl/.lock — 전역 잠금 파일 */
@@ -76,7 +97,7 @@ export function lockFile(): string {
 
 /** ~/.awl/npm-latest-cache.json — npm 레지스트리 최신 버전 조회 캐시(TTL, 프로젝트 무관) */
 export function npmVersionCachePath(): string {
-  return path.join(globalRoot(), 'npm-latest-cache.json');
+  return path.join(installationRoot(), 'npm-latest-cache.json');
 }
 
 /**

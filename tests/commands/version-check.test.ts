@@ -92,6 +92,20 @@ describe('gatherVersionInputs — 실제 값 수집 (WI-X AC-03)', () => {
     expect(inputs.installedEngineVersion).toBeNull();
   });
 
+  it('격리 AWL_HOME 의 .awl-parent 를 따라 부모 설치 엔진을 찾는다', () => {
+    const parent = tmp('awl-vc-parent-');
+    fs.mkdirSync(path.join(parent, 'engine'), { recursive: true });
+    fs.writeFileSync(
+      path.join(parent, 'engine', 'version.json'),
+      JSON.stringify({ engineVersion: '0.9.8' }),
+    );
+    const isolated = tmp('awl-vc-isolated-');
+    fs.writeFileSync(path.join(isolated, '.awl-parent'), `${parent}\n`);
+    process.env.AWL_HOME = isolated;
+
+    expect(gatherVersionInputs(null).installedEngineVersion).toBe('0.9.8');
+  });
+
   it('packageVersion 은 실제 package.json 의 버전 문자열이다', () => {
     process.env.AWL_HOME = tmp('awl-vc-home-');
     const inputs = gatherVersionInputs(null);

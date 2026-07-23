@@ -1,6 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { globalRoot } from '../core/paths.js';
+import {
+  AWL_PARENT_MARKER,
+  globalRoot,
+  installationRoot,
+  parentGlobalRoot,
+} from '../core/paths.js';
 import { type Gotcha, nextGotchaId } from './evolve.js';
 import { parseRuleFile } from './rules.js';
 
@@ -36,7 +41,7 @@ import { parseRuleFile } from './rules.js';
  */
 
 /** 생성 시점의 부모 전역 경로를 담는 마커 파일명(.awl/home 루트에 둔다). */
-export const PARENT_MARKER = '.awl-parent';
+export const PARENT_MARKER = AWL_PARENT_MARKER;
 
 /** 두 gotcha 가 같은 교훈인지 판정하는 키. 같은 lesson = 같은 학습. */
 function lessonKey(g: Gotcha): string {
@@ -381,7 +386,7 @@ export function archiveIsolatedRecords(
  */
 export function writeParentMarker(isolatedHome: string): void {
   try {
-    fs.writeFileSync(path.join(isolatedHome, PARENT_MARKER), `${globalRoot()}\n`);
+    fs.writeFileSync(path.join(isolatedHome, PARENT_MARKER), `${installationRoot()}\n`);
   } catch {
     // best-effort: 마커 실패해도 생성은 진행. teardown 은 globalRoot() 로 폴백한다.
   }
@@ -389,15 +394,7 @@ export function writeParentMarker(isolatedHome: string): void {
 
 /** 격리 home 의 마커에서 부모 전역 경로를 읽는다. 없으면 현재 globalRoot() 로 폴백. */
 function resolveParentGlobal(isolatedHome: string): string {
-  try {
-    const raw = fs.readFileSync(path.join(isolatedHome, PARENT_MARKER), 'utf8').trim();
-    if (raw !== '') {
-      return path.resolve(raw);
-    }
-  } catch {
-    // 마커 없음 — 폴백.
-  }
-  return globalRoot();
+  return parentGlobalRoot(isolatedHome) ?? globalRoot();
 }
 
 export interface MergeHomeResult extends MergeLearningResult {

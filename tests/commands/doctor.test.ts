@@ -112,6 +112,22 @@ describe('collectChecks — 설치됨 흉내', () => {
     expect(report.ok).toBe(false);
   });
 
+  it('격리 AWL_HOME 에서는 .awl-parent 의 전역 설치와 엔진을 점검한다', async () => {
+    const parent = makeInstalledHome();
+    const isolated = tmp('awl-isolated-home-');
+    fs.writeFileSync(path.join(isolated, '.awl-parent'), `${parent}\n`);
+    process.env.AWL_HOME = isolated;
+
+    const report = await collectChecks();
+
+    expect(find(report.checks, '~/.awl')).toMatchObject({ status: 'ok', value: '있음' });
+    expect(find(report.checks, '엔진 버전')?.value).toBe('0.0.0');
+    expect(find(report.checks, '엔진 버전')?.status).not.toBe('missing');
+    expect(
+      report.checks.some((check) => check.group === '전역 설치' && check.status === 'missing'),
+    ).toBe(false);
+  });
+
   it('검증 명령 확인은 빠르다(전체 테스트를 돌리지 않는다)', async () => {
     const start = Date.now();
     await collectChecks();
