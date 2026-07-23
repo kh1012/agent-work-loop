@@ -2,6 +2,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
+import os from 'node:os';
 import path from 'node:path';
 
 export interface PortLeaseIdentity {
@@ -59,7 +60,6 @@ export interface PortLeaseInspection {
   reusable: boolean;
 }
 
-const HOST = '127.0.0.1';
 const GUARD_RETRY_MS = 5;
 const GUARD_RETRIES = 200;
 
@@ -140,7 +140,7 @@ export function isPortLeaseStale(lease: PortLeaseRecord): boolean {
   return !isProcessAlive(lease.ownerPid) && !isProcessAlive(lease.childPid);
 }
 
-export async function isPortListening(port: number): Promise<boolean> {
+async function isPortBindingOccupied(port: number, host: string): Promise<boolean> {
   return await new Promise<boolean>((resolve, reject) => {
     const server = net.createServer();
     server.unref();
@@ -149,9 +149,13 @@ export async function isPortListening(port: number): Promise<boolean> {
         resolve(true);
         return;
       }
+      if (host.includes(':') && (error.code === 'EAFNOSUPPORT' || error.code === 'EADDRNOTAVAIL')) {
+        resolve(false);
+        return;
+      }
       reject(error);
     });
-    server.listen({ host: HOST, port, exclusive: true }, () => {
+    server.listen({ host, port, exclusive: true, ipv6Only: host.includes(':') }, () => {
       server.close((error) => {
         if (error) {
           reject(error);
@@ -161,6 +165,32 @@ export async function isPortListening(port: number): Promise<boolean> {
       });
     });
   });
+}
+
+function localProbeAddresses(): string[] {
+  const addresses = new Set(['127.0.0.1', '::1']);
+  for (const entries of Object.values(os.networkInterfaces())) {
+    for (const entry of entries ?? []) {
+      addresses.add(entry.address);
+    }
+  }
+  return [...addresses];
+}
+
+export async function isPortListening(port: number): Promise<boolean> {
+  // The lease namespace is keyed only by port, not by address. lsof covers listeners whose
+  // address disappeared after bind; exact bind probes cover every current IPv4/IPv6 interface
+  // without relying on wildcard-conflict semantics, which differ across operating systems.
+  const listenerPids = listPortListenerPids(port);
+  if (listenerPids && listenerPids.length > 0) {
+    return true;
+  }
+  for (const address of localProbeAddresses()) {
+    if (await isPortBindingOccupied(port, address)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function listPortListenerPids(port: number): number[] | null {

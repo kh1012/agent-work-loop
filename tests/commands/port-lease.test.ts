@@ -279,6 +279,54 @@ describe('installation-scoped service port leases', () => {
     );
   });
 
+  it('rejects and preserves a real IPv6-only unmanaged listener across acquire and inspect', async () => {
+    const root = tmp();
+    const server = net.createServer((socket) => socket.end('alive'));
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen({ host: '::1', ipv6Only: true, port: 0 }, resolve);
+    });
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('missing IPv6 listener address');
+    }
+    const identity = {
+      lane: path.join(root, 'ipv6-lane'),
+      branch: 'work/ipv6',
+      head: '6'.repeat(40),
+      workitem: 'WI-ipv6',
+    };
+
+    const acquired = await acquirePortLease(root, address.port, identity);
+    expect(acquired.status).toBe('unmanaged-listener');
+    expect(readPortLease(root, address.port)).toBeNull();
+    expect(fs.existsSync(portLeaseLocation(root, address.port).leaseFile)).toBe(false);
+
+    const inspection = await inspectPortLease(root, address.port, identity);
+    expect(inspection).toMatchObject({
+      status: 'unmanaged-listener',
+      listening: true,
+      reusable: false,
+    });
+    expect(server.listening).toBe(true);
+
+    const response = await new Promise<string>((resolve, reject) => {
+      const socket = net.createConnection({ host: '::1', port: address.port });
+      let received = '';
+      socket.setEncoding('utf8');
+      socket.on('data', (chunk) => {
+        received += chunk;
+      });
+      socket.once('end', () => resolve(received));
+      socket.once('error', reject);
+    });
+    expect(response).toBe('alive');
+    expect(server.listening).toBe(true);
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+  });
+
   it.each([
     ['SIGINT', 130],
     ['SIGTERM', 143],
