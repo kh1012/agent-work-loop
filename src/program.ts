@@ -536,6 +536,16 @@ export function buildProgram(): Command {
         await runPortLeaseCommand(command, opts);
       },
     );
+  portLease
+    .command('inspect')
+    .description('현재 lane/branch/HEAD/workitem 과 lease/listener 소유권을 비교합니다')
+    .requiredOption('--port <number>', '검사할 서비스 포트')
+    .requiredOption('--workitem <id>', '요청 워크아이템')
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .action(async (opts: { port: string; workitem: string; json?: boolean }) => {
+      const { runPortLeaseInspectCommand } = await import('./commands/port-lease.js');
+      await runPortLeaseInspectCommand(opts);
+    });
 
   // 사람이 치는 명령: remove (awl 이 손댄 흔적을 지운다 — 기본은 드라이런, 이전 이름 uninstall)
   program

@@ -84,6 +84,21 @@ Before a focused JavaScript/TypeScript test command:
 For Playwright, resolve `@playwright/test` from the target package and locate its CLI through package
 metadata. Never hardcode a repository-specific relative `node_modules` path.
 
+## Service port lease contract
+
+`port-lease-run-contract: installation-scoped-wrapper; reuse-only-when-inspect=owned`
+
+When implementation or verification starts a service that listens on a TCP port:
+
+1. Start it through `awl port lease run --port <n> --workitem <id> --url <resolved-url> -- <command...>`.
+   Do not run the listening command bare. Consume the resolved port from `PORT`/`AWL_PORT` and the
+   resolved URL from `AWL_SERVICE_URL`.
+2. Before reusing an existing service, run
+   `awl port lease inspect --port <n> --workitem <id> --json`. Reuse only when the status is exactly
+   `owned`, which proves the absolute lane, branch, HEAD, workitem, lease, and listener PID match.
+3. Treat `foreign`, `stale`, `unmanaged-listener`, and `free` as non-reusable. A stale/free port may
+   be acquired by a new wrapper run; never kill or replace an unmanaged or foreign listener.
+
 ## Handoff format
 
 ```markdown

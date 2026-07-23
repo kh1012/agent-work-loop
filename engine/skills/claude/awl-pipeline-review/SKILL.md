@@ -63,6 +63,12 @@ description: |
   independently resolve한 뒤 핸드오프와 대조하고, 그 CLI로 동일한 focused verification 인자를 재실행한다.
   provenance가 없거나 path/version을 재현할 수 없거나 다른 test instance가 선택되면 구체적인 수정 요구를
   actionable failure로 반환한다. 이는 not unchecked이며 합격 근거로 세지 않는다.
+- **서비스 포트 lease**:
+  `port-lease-review-contract: independently-inspect; reuse-only-when-status=owned`.
+  실행 중 서비스 재사용을 인정하기 전에 정확한 review lane에서
+  `awl port lease inspect --port <n> --workitem <id> --json`을 독립 실행한다. absolute lane,
+  branch, HEAD, workitem, child/listener PID와 `owned` 상태를 확인한다. 다른 모든 상태는 재사용 불가다.
+  review 중 foreign/unmanaged listener를 종료·교체·탈취하지 않는다.
 - **CSS/시각 변경의 렌더링 컨텍스트(pipeline-session-loss-recovery-and-nested-stall-timeout)**: computed
   style을 확인할 땐 실제로 렌더링되는 정확한 DOM 컨텍스트(호스트 document / `iframe.contentDocument` /
   Shadow DOM 등)를 특정해서 **그 안에서** 확인한다. 기능적 동작 확인(예: "스크롤이 실제로 발생")을

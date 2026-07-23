@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { parseServicePort, resolveServiceUrl } from '../../src/commands/port-lease.js';
 import {
   acquirePortLease,
+  inspectPortLease,
   portLeaseLocation,
   readPortLease,
   releasePortLease,
@@ -195,9 +196,13 @@ describe('installation-scoped service port leases', () => {
     const port = program.commands.find((command) => command.name() === 'port');
     const lease = port?.commands.find((command) => command.name() === 'lease');
     const run = lease?.commands.find((command) => command.name() === 'run');
+    const inspect = lease?.commands.find((command) => command.name() === 'inspect');
     expect(run).toBeDefined();
     expect(run?.options.map((option) => option.long)).toEqual(
       expect.arrayContaining(['--port', '--workitem', '--url', '--json']),
+    );
+    expect(inspect?.options.map((option) => option.long)).toEqual(
+      expect.arrayContaining(['--port', '--workitem', '--json']),
     );
   });
 
@@ -365,5 +370,107 @@ describe('installation-scoped service port leases', () => {
     });
     expect(contender).toEqual({ status: 'busy', lease: held.lease });
     expect(await releasePortLease(root, port, held.lease.token)).toBe(true);
+  });
+
+  it('inspects owned identity strictly and marks only the matching listener reusable', async () => {
+    const root = tmp();
+    const server = net.createServer();
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen({ host: '127.0.0.1', port: 0 }, resolve);
+    });
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('missing listener address');
+    }
+    const identity = {
+      lane: path.join(root, 'lane'),
+      branch: 'work/owned',
+      head: 'd'.repeat(40),
+      workitem: 'WI-owned',
+    };
+    const acquired = await acquirePortLease(root, address.port, identity);
+    expect(acquired.status).toBe('unmanaged-listener');
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+
+    const held = await acquirePortLease(root, address.port, identity);
+    expect(held.status).toBe('acquired');
+    if (held.status !== 'acquired') {
+      return;
+    }
+    const updated = await updatePortLeaseChild(root, held.lease, process.pid);
+    expect(updated).not.toBeNull();
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen({ host: '127.0.0.1', port: address.port }, resolve);
+    });
+
+    const owned = await inspectPortLease(root, address.port, identity, () => [process.pid]);
+    expect(owned).toMatchObject({
+      status: 'owned',
+      listening: true,
+      listenerPids: [process.pid],
+      reusable: true,
+    });
+    const foreign = await inspectPortLease(
+      root,
+      address.port,
+      { ...identity, head: 'e'.repeat(40) },
+      () => [process.pid],
+    );
+    expect(foreign).toMatchObject({ status: 'foreign', reusable: false });
+
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+    expect(await releasePortLease(root, address.port, held.lease.token)).toBe(true);
+  });
+
+  it('distinguishes free, unmanaged-listener, and stale inspection states', async () => {
+    const root = tmp();
+    const port = await freePort();
+    const identity = {
+      lane: path.join(root, 'lane'),
+      branch: 'work/inspect',
+      head: 'f'.repeat(40),
+      workitem: 'WI-inspect',
+    };
+    expect(await inspectPortLease(root, port, identity)).toMatchObject({
+      status: 'free',
+      reusable: false,
+    });
+
+    const server = net.createServer();
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen({ host: '127.0.0.1', port }, resolve);
+    });
+    expect(await inspectPortLease(root, port, identity, () => [process.pid])).toMatchObject({
+      status: 'unmanaged-listener',
+      reusable: false,
+    });
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+
+    const location = portLeaseLocation(root, port);
+    fs.mkdirSync(location.directory, { recursive: true });
+    fs.writeFileSync(
+      location.leaseFile,
+      `${JSON.stringify({
+        ...identity,
+        port,
+        ownerPid: 99_999_998,
+        childPid: 99_999_999,
+        token: 'abandoned',
+        acquiredAt: new Date(0).toISOString(),
+      })}\n`,
+    );
+    expect(await inspectPortLease(root, port, identity)).toMatchObject({
+      status: 'stale',
+      reusable: false,
+    });
   });
 });

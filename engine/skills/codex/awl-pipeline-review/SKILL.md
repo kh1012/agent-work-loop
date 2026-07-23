@@ -37,6 +37,13 @@ resolved CLI. If the provenance is missing, the path/version cannot be reproduce
 or the rerun selects another test instance, report a concrete required fix as an
 actionable failure, not unchecked work.
 
+For service-port evidence, apply:
+`port-lease-review-contract: independently-inspect; reuse-only-when-status=owned`.
+Independently run `awl port lease inspect --port <n> --workitem <id> --json` in the exact reviewed
+lane before accepting reuse of a running service. Confirm the absolute lane, branch, HEAD,
+workitem, child/listener PID, and `owned` status. Any other status is non-reusable. Never kill,
+replace, or commandeer a foreign or unmanaged listener during review.
+
 Separate checked and unchecked work; every unchecked item needs a reason.
 
 ## Verdict and markers

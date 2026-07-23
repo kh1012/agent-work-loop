@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import net from 'node:net';
@@ -45,6 +45,18 @@ export type PortLeaseRunResult =
   | { status: 'completed'; lease: PortLeaseRecord; exitCode: number; cleanup: boolean }
   | { status: 'busy'; lease: PortLeaseRecord | null }
   | { status: 'unmanaged-listener'; lease: PortLeaseRecord | null };
+
+export type PortLeaseInspectStatus = 'owned' | 'foreign' | 'stale' | 'unmanaged-listener' | 'free';
+
+export interface PortLeaseInspection {
+  status: PortLeaseInspectStatus;
+  port: number;
+  requested: PortLeaseIdentity;
+  lease: PortLeaseRecord | null;
+  listening: boolean;
+  listenerPids: number[] | null;
+  reusable: boolean;
+}
 
 const HOST = '127.0.0.1';
 const GUARD_RETRY_MS = 5;
@@ -148,6 +160,73 @@ export async function isPortListening(port: number): Promise<boolean> {
       });
     });
   });
+}
+
+export function listPortListenerPids(port: number): number[] | null {
+  const result = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], {
+    encoding: 'utf8',
+  });
+  if (result.error) {
+    return null;
+  }
+  if (result.status !== 0 && result.status !== 1) {
+    return null;
+  }
+  const pids = result.stdout
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(Number)
+    .filter((pid) => Number.isInteger(pid) && pid > 0);
+  return [...new Set(pids)];
+}
+
+function sameIdentity(lease: PortLeaseRecord, requested: PortLeaseIdentity): boolean {
+  return (
+    path.resolve(lease.lane) === path.resolve(requested.lane) &&
+    lease.branch === requested.branch &&
+    lease.head === requested.head &&
+    lease.workitem === requested.workitem
+  );
+}
+
+export async function inspectPortLease(
+  installationRoot: string,
+  port: number,
+  requested: PortLeaseIdentity,
+  listenerPidProvider: (port: number) => number[] | null = listPortListenerPids,
+): Promise<PortLeaseInspection> {
+  const location = portLeaseLocation(installationRoot, port);
+  const leaseFileExists = fs.existsSync(location.leaseFile);
+  const lease = readPortLease(installationRoot, port);
+  const listening = await isPortListening(port);
+  const listenerPids = listening ? listenerPidProvider(port) : [];
+  let status: PortLeaseInspectStatus;
+
+  if (!lease) {
+    status = leaseFileExists ? 'foreign' : listening ? 'unmanaged-listener' : 'free';
+  } else if (isPortLeaseStale(lease)) {
+    status = listening ? 'unmanaged-listener' : 'stale';
+  } else if (
+    !sameIdentity(lease, requested) ||
+    !listening ||
+    lease.childPid === null ||
+    listenerPids === null ||
+    !listenerPids.includes(lease.childPid)
+  ) {
+    status = 'foreign';
+  } else {
+    status = 'owned';
+  }
+
+  return {
+    status,
+    port,
+    requested: { ...requested, lane: path.resolve(requested.lane) },
+    lease,
+    listening,
+    listenerPids,
+    reusable: status === 'owned',
+  };
 }
 
 function readGuardOwner(guardFile: string): number | null {

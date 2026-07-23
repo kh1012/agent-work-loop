@@ -4,6 +4,7 @@ import { installationRoot } from '../core/paths.js';
 import {
   type PortLeaseIdentity,
   type PortLeaseRecord,
+  inspectPortLease,
   runWithPortLease,
 } from '../core/port-lease.js';
 import { resolveProjectRoot } from './config.js';
@@ -12,6 +13,12 @@ export interface PortLeaseRunCommandOptions {
   port: string;
   workitem: string;
   url?: string;
+  json?: boolean;
+}
+
+export interface PortLeaseInspectCommandOptions {
+  port: string;
+  workitem: string;
   json?: boolean;
 }
 
@@ -109,4 +116,23 @@ export async function runPortLeaseCommand(
     );
   }
   process.exitCode = result.exitCode;
+}
+
+export async function runPortLeaseInspectCommand(
+  options: PortLeaseInspectCommandOptions,
+): Promise<void> {
+  const root = resolveProjectRoot();
+  if (!root) {
+    throw new Error('AWL project root was not found');
+  }
+  const port = parseServicePort(options.port);
+  const requested = currentPortLeaseIdentity(root, options.workitem);
+  const inspection = await inspectPortLease(installationRoot(), port, requested);
+  if (options.json) {
+    printJson(inspection);
+  } else {
+    process.stdout.write(
+      `${inspection.status}: port ${port} (${inspection.reusable ? 'reusable' : 'do not reuse'})\n`,
+    );
+  }
 }
