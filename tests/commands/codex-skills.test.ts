@@ -255,6 +255,29 @@ describe('Codex AWL skills', () => {
     }
   });
 
+  it('gate-high human decision은 auto로 오표기하지 않고 independent review 뒤 coordinator가 기록한다', () => {
+    const coordinators = ['codex', 'claude'].map((surface) =>
+      fs.readFileSync(
+        path.join(process.cwd(), 'engine', 'skills', surface, 'awl-pipeline', 'SKILL.md'),
+        'utf8',
+      ),
+    );
+
+    for (const coordinator of coordinators) {
+      expect(
+        coordinator.match(/human-gate-1: auto=false; evidence=human-decision\+plan/g),
+      ).toHaveLength(1);
+      expect(
+        coordinator.match(/human-gate-2: auto=false; evidence=human-decision\+independent-review/g),
+      ).toHaveLength(1);
+      expect(coordinator).toContain('"auto":false');
+      expect(coordinator).toContain('"source":"human-decision"');
+      expect(coordinator.indexOf('fresh independent review')).toBeLessThan(
+        coordinator.indexOf('human-gate-2:'),
+      );
+    }
+  });
+
   it('AGENTS 블록은 긴 워크플로우 복제 대신 실제 스킬로 라우팅한다', () => {
     const agents = read('AGENTS.awl.md');
     expect(agents).toContain('$awl-loop');

@@ -104,7 +104,15 @@ gates themselves.
 
 `pipeline-auto-gate-records: gate1=once(auto:true,plan-evidence); gate2=once(auto:true,exec+review-evidence)`
 
-For `gate-high`, present the plan files, measurable criteria, dependencies, and exclusions, then ask for approval and end the turn. Do not spawn an implementation agent before approval. After the reply, record gate 1 and continue.
+For `gate-high`, present the plan files, measurable criteria, dependencies, and exclusions, then ask
+for approval and end the turn. Do not spawn an implementation agent before approval. After the
+reply, record gate 1 exactly once and continue:
+
+`human-gate-1: auto=false; evidence=human-decision+plan`
+
+```bash
+awl record gate --json '{"gate":1,"decision":"approved","auto":false,"actor":"coordinator","source":"human-decision","evidence":{"humanDecision":"user reply","plan":".tasks/plan/<name>.taken.md"}}'
+```
 
 For `gate-medium` and `gate-low`, record gate 1 exactly once before dispatch:
 
@@ -158,7 +166,15 @@ After every work item reaches pass:
 
 1. Run `awl status --pipeline` and `awl loop-summary --workitems <comma-separated ids>`.
 2. For `gate-medium`, record and show high-severity deferred decisions with `awl record defer`/`awl defer-summary`; do not silently resolve them.
-3. For `gate-high`, show status, verification, review evidence, unchecked work, and exclusions; ask for gate 2 approval and end the turn. Record the reply when it arrives.
+3. For `gate-high`, after the fresh independent review passes, show status, verification, review
+   evidence, unchecked work, and exclusions; ask for gate 2 approval and end the turn. Record the
+   reply exactly once when it arrives:
+
+   `human-gate-2: auto=false; evidence=human-decision+independent-review`
+
+   ```bash
+   awl record gate --json '{"gate":2,"decision":"approved","auto":false,"actor":"coordinator","source":"human-decision","evidence":{"humanDecision":"user reply","implementationHandoff":".tasks/exec/<name>.taken.md","independentReview":"fresh review pass"}}'
+   ```
 4. For `gate-medium` and `gate-low`, record gate 2 exactly once after the implementation handoff
    and fresh independent review both pass:
 
