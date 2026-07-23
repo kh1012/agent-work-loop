@@ -22,8 +22,12 @@ import {
  * 재사용한다. lane 은 그 조립 + 레인 어휘의 기동 안내만 얹는다.
  */
 
-// 레인의 각 역할 세션이 실행할 파이프라인 스킬 트리거(engine/skills/claude/ 에 대응).
-const PIPELINE_TRIGGERS = ['/awl-pipeline-plan', '/awl-pipeline-exec', '/awl-pipeline-review'];
+// 레인의 각 역할 세션이 실행할 파이프라인 스킬 트리거. Claude Code는 `/`, Codex는 `$`.
+const PIPELINE_TRIGGERS = [
+  '/awl-pipeline-plan  |  $awl-pipeline-plan',
+  '/awl-pipeline-exec  |  $awl-pipeline-exec',
+  '/awl-pipeline-review  |  $awl-pipeline-review',
+];
 
 function requireRoot(): string {
   const root = resolveProjectRoot();

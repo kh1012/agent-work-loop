@@ -20,7 +20,7 @@ import {
   type VersionMismatchKind,
   checkVersions,
 } from '../core/versions.js';
-import { listRegisteredProjects } from './init.js';
+import { codexSkillNames, listRegisteredProjects } from './init.js';
 import { loadProjectName, readRecords } from './record.js';
 import { loadState, readStateLock } from './state.js';
 import { gatherVersionInputs } from './version-check.js';
@@ -948,15 +948,27 @@ function collectAgents(checks: Check[], base: string, versionResult: VersionChec
     hint: !claudeInstalled ? 'awl init 에서 설치할 수 있습니다' : claudeMismatch?.hint,
   });
 
-  const codexInstalled =
+  const expectedCodexSkills = codexSkillNames();
+  const missingCodexSkills = expectedCodexSkills.filter(
+    (name) => !exists(path.join(base, '.agents', 'skills', name, 'SKILL.md')),
+  );
+  const hasCodexMarker =
     exists(agentsMd) && fs.readFileSync(agentsMd, 'utf8').includes('awl-loop:start');
+  const codexInstalled =
+    hasCodexMarker && expectedCodexSkills.length > 0 && missingCodexSkills.length === 0;
   const codexMismatch = findMismatch(versionResult, 'codex-skill-vs-engine');
   checks.push({
     group: '에이전트',
     name: 'Codex 스킬 버전',
     status: !codexInstalled ? 'warn' : codexMismatch ? 'warn' : 'ok',
-    value: !codexInstalled ? '설치 안 됨' : codexMismatch ? codexMismatch.a : '엔진과 일치',
-    hint: !codexInstalled ? 'awl init 에서 설치할 수 있습니다' : codexMismatch?.hint,
+    value: !codexInstalled
+      ? `불완전 (${expectedCodexSkills.length - missingCodexSkills.length}/${expectedCodexSkills.length})`
+      : codexMismatch
+        ? codexMismatch.a
+        : '엔진과 일치',
+    hint: !codexInstalled
+      ? `awl init 에서 재설치하세요${missingCodexSkills.length > 0 ? ` — 누락: ${missingCodexSkills.join(', ')}` : ''}`
+      : codexMismatch?.hint,
   });
 }
 

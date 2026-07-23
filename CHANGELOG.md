@@ -5,6 +5,17 @@
 
 ## [Unreleased]
 
+### 추가
+
+- Codex용 `awl-loop`와 `awl-pipeline` 역할 스킬 5개를 `.agents/skills/` 배포본으로 추가했다.
+- Codex pipeline이 `spawn_agent`·`wait_agent`·`followup_task`로 exec/review 라운드를 이어가도록 했다.
+
+### 변경
+
+- 기존 Codex `AGENTS.md` 장문 블록은 짧은 스킬 라우팅 블록으로 마이그레이션한다.
+- `awl init --yes`·`awl update --local`·새 lane/worktree가 Codex repo 스킬도 설치·동기화한다.
+- `awl doctor`와 `awl remove`가 `.agents/skills/`의 누락 및 정리를 함께 처리한다.
+
 ## [0.6.48] - 2026-07-22
 
 ### 추가

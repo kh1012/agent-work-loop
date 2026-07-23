@@ -670,11 +670,11 @@ export function registerProject(entry: {
  * 보이지 않는다(scaffoldGlobal() 이 곧 그 내용을 engineDir 로 복사하므로 라벨과 실제
  * 설치가 어긋나지 않는다).
  */
-function claudeSkillNames(): string[] {
+function bundledSkillNames(agent: 'claude' | 'codex'): string[] {
   for (const base of [engineDir(), packageEngineDir()]) {
     try {
       return fs
-        .readdirSync(path.join(base, 'skills', 'claude'), { withFileTypes: true })
+        .readdirSync(path.join(base, 'skills', agent), { withFileTypes: true })
         .filter((e) => e.isDirectory())
         .map((e) => e.name)
         .sort();
@@ -683,6 +683,15 @@ function claudeSkillNames(): string[] {
     }
   }
   return [];
+}
+
+function claudeSkillNames(): string[] {
+  return bundledSkillNames('claude');
+}
+
+/** engine/skills/codex/ 아래 Codex 스킬 디렉토리 이름들(AGENTS.awl.md 제외). */
+export function codexSkillNames(): string[] {
+  return bundledSkillNames('codex');
 }
 
 /**
@@ -718,20 +727,46 @@ export function claudeSkillLabel(names: string[] = claudeSkillNames()): string {
   return `Claude Code (.claude/skills/ 에 ${names.length}개 스킬 설치)`;
 }
 
-/** Codex 지침을 AGENTS.md 에 추가한다. 마커로 중복을 막는다. */
+/** 설치 메뉴에 보여줄 Codex 항목 라벨. 실제 번들 디렉토리 수에서 파생한다. */
+export function codexSkillLabel(names: string[] = codexSkillNames()): string {
+  return `Codex (.agents/skills/ 에 ${names.length}개 스킬 + AGENTS.md)`;
+}
+
+const AWL_AGENTS_START = '<!-- awl-loop:start -->';
+const AWL_AGENTS_END = '<!-- awl-loop:end -->';
+
+/** 기존 awl 마커 블록은 최신 snippet으로 교체하고, 없으면 파일 끝에 추가한다. */
+function upsertAwlAgentsBlock(current: string, snippet: string): string {
+  const start = current.indexOf(AWL_AGENTS_START);
+  const end = start >= 0 ? current.indexOf(AWL_AGENTS_END, start) : -1;
+  if (start >= 0 && end >= 0) {
+    const blockEnd = end + AWL_AGENTS_END.length;
+    return `${current.slice(0, start)}${snippet.trimEnd()}${current.slice(blockEnd)}`;
+  }
+  const prefix = current.length > 0 && !current.endsWith('\n') ? '\n' : '';
+  return `${current}${prefix}${current.length > 0 ? '\n' : ''}${snippet}`;
+}
+
+/** Codex 스킬을 .agents/skills/ 에 복사하고, 짧은 저장소 지침을 AGENTS.md 에 갱신한다. */
 export function installCodexSkill(projectRoot: string): boolean {
   const src = path.join(engineDir(), 'skills', 'codex', 'AGENTS.awl.md');
   if (!exists(src)) {
     return false;
   }
+  const names = codexSkillNames();
+  if (names.length === 0) {
+    return false;
+  }
+  for (const name of names) {
+    const skillSrc = path.join(engineDir(), 'skills', 'codex', name);
+    const dest = path.join(projectRoot, '.agents', 'skills', name);
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.cpSync(skillSrc, dest, { recursive: true });
+  }
   const snippet = fs.readFileSync(src, 'utf8');
   const agents = path.join(projectRoot, 'AGENTS.md');
   const current = exists(agents) ? fs.readFileSync(agents, 'utf8') : '';
-  if (current.includes('awl-loop:start')) {
-    return true; // 이미 추가됨
-  }
-  const prefix = current.length > 0 && !current.endsWith('\n') ? '\n' : '';
-  fs.writeFileSync(agents, `${current}${prefix}${current.length > 0 ? '\n' : ''}${snippet}`);
+  fs.writeFileSync(agents, upsertAwlAgentsBlock(current, snippet));
   return true;
 }
 
@@ -819,7 +854,10 @@ export function syncExistingInstall(
   }
   const agentsMd = path.join(projectRoot, 'AGENTS.md');
   const codexInstalled =
-    exists(agentsMd) && fs.readFileSync(agentsMd, 'utf8').includes('awl-loop:start');
+    (exists(agentsMd) && fs.readFileSync(agentsMd, 'utf8').includes('awl-loop:start')) ||
+    codexSkillNames().some((name) =>
+      exists(path.join(projectRoot, '.agents', 'skills', name, 'SKILL.md')),
+    );
   if (codexInstalled && installCodexSkill(projectRoot)) {
     skills.push('codex');
   }
@@ -840,11 +878,11 @@ function countEntries(dir: string): number {
   }
 }
 
-/** 설치된 에이전트를 감지한다(.claude/, AGENTS.md). */
+/** 설치된 에이전트를 감지한다(.claude/, AGENTS.md 또는 .agents/skills). */
 export function detectAgents(projectRoot: string): { claude: boolean; codex: boolean } {
   return {
     claude: exists(path.join(projectRoot, '.claude')),
-    codex: exists(path.join(projectRoot, 'AGENTS.md')),
+    codex: exists(path.join(projectRoot, 'AGENTS.md')) || exists(path.join(projectRoot, '.agents')),
   };
 }
 
@@ -1044,9 +1082,9 @@ function resultNextLines(inputs: InitInputs, c: Caps): string[] {
   } else if (inputs.skills.codex) {
     nextLines.push('Codex 에게 이렇게 말하세요.');
     nextLines.push('');
-    nextLines.push(`${color.bold('/awl-loop')}  페이지 편집기에 여백 시스템을 넣고 싶어`);
+    nextLines.push(`${color.bold('$awl-loop')}  페이지 편집기에 여백 시스템을 넣고 싶어`);
     nextLines.push('');
-    nextLines.push(`${color.bold('/awl-pipeline')} <레인명> --gl 을 실행해보세요.`);
+    nextLines.push(`${color.bold('$awl-pipeline')} <레인명> --gl 을 실행해보세요.`);
     nextLines.push(color.dim('(격리된 작업 세션이 생성되며, 자율 모드로 실행됩니다.)'));
   } else {
     nextLines.push('나중에 스킬을 설치하려면 awl init 을 다시 실행하세요.');
@@ -1437,11 +1475,7 @@ async function interactiveInputs(
     // 마지막 선택기만 다시 raw-mode를 쓸 수 있다. readline을 먼저 완전히 닫아
     // stdin의 유일한 소비자가 선택기라는 것을 보장한다.
     const agents = detectAgents(projectRoot);
-    const skillOptions = [
-      '모두 설치 (Claude Code + Codex)',
-      claudeSkillLabel(),
-      'Codex (AGENTS.md 에 추가)',
-    ];
+    const skillOptions = ['모두 설치 (Claude Code + Codex)', claudeSkillLabel(), codexSkillLabel()];
     const defaultChecked =
       agents.claude && agents.codex
         ? [0, 1, 2]

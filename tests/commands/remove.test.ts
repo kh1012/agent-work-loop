@@ -87,6 +87,8 @@ describe('remove', () => {
     fs.writeFileSync(path.join(proj, '.awl', 'config.json'), '{}\n');
     fs.mkdirSync(path.join(proj, '.claude', 'skills', 'awl-loop'), { recursive: true });
     fs.writeFileSync(path.join(proj, '.claude', 'skills', 'awl-loop', 'SKILL.md'), '# x\n');
+    fs.mkdirSync(path.join(proj, '.agents', 'skills', 'awl-pipeline'), { recursive: true });
+    fs.writeFileSync(path.join(proj, '.agents', 'skills', 'awl-pipeline', 'SKILL.md'), '# x\n');
     fs.writeFileSync(
       path.join(proj, 'AGENTS.md'),
       '<!-- awl-loop:start -->\nfoo\n<!-- awl-loop:end -->\n',
@@ -107,6 +109,7 @@ describe('remove', () => {
 
       const dotAwlPath = path.join(proj, '.awl');
       const skillPath = path.join(proj, '.claude', 'skills', 'awl-loop');
+      const codexSkillPath = path.join(proj, '.agents', 'skills', 'awl-pipeline');
       const agentsPath = path.join(proj, 'AGENTS.md');
       const tasksPlanPath = path.join(proj, '.tasks', 'plan');
       const homeRecordsPath = path.join(process.env.AWL_HOME as string, 'records');
@@ -127,12 +130,20 @@ describe('remove', () => {
       // 목록에 실제 발견 항목이 나온다.
       expect(out).toContain('.awl/');
       expect(out).toContain('.claude/skills/awl-loop');
+      expect(out).toContain('.agents/skills/awl-pipeline');
       expect(out).toContain('AGENTS.md');
       expect(out).toContain('.tasks/plan');
       expect(out).toContain('records/');
 
       // 아무것도 안 지워짐 — 존재 + mtime 불변(뮤테이션 저항: rm 이 실수로 불려도 잡힌다).
-      for (const p of [dotAwlPath, skillPath, agentsPath, tasksPlanPath, homeRecordsPath]) {
+      for (const p of [
+        dotAwlPath,
+        skillPath,
+        codexSkillPath,
+        agentsPath,
+        tasksPlanPath,
+        homeRecordsPath,
+      ]) {
         expect(fs.existsSync(p)).toBe(true);
       }
       expect(fs.statSync(dotAwlPath).mtimeMs).toBe(beforeAwlMtime);
@@ -152,6 +163,7 @@ describe('remove', () => {
       const out = cap.writes.join('');
       expect(out).toContain('.awl/');
       expect(out).not.toContain('.claude/skills');
+      expect(out).not.toContain('.agents/skills');
       expect(out).not.toContain('AGENTS.md');
       expect(out).not.toContain('.tasks/plan');
     });
@@ -160,11 +172,13 @@ describe('remove', () => {
       const proj = fixtureProject();
       fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
       fs.mkdirSync(path.join(proj, '.claude', 'skills', 'awl-loop'), { recursive: true });
+      fs.mkdirSync(path.join(proj, '.agents', 'skills', 'awl-loop'), { recursive: true });
       const home = process.env.AWL_HOME as string;
       fs.mkdirSync(path.join(home, 'records'), { recursive: true });
 
       const dotAwlPath = path.join(proj, '.awl');
       const skillPath = path.join(proj, '.claude', 'skills', 'awl-loop');
+      const codexSkillPath = path.join(proj, '.agents', 'skills', 'awl-loop');
       const homeRecordsPath = path.join(home, 'records');
 
       const cap = captureStdout();
@@ -177,6 +191,7 @@ describe('remove', () => {
 
       expect(fs.existsSync(dotAwlPath)).toBe(false);
       expect(fs.existsSync(skillPath)).toBe(false);
+      expect(fs.existsSync(codexSkillPath)).toBe(false);
       expect(fs.existsSync(homeRecordsPath)).toBe(false);
     });
   });

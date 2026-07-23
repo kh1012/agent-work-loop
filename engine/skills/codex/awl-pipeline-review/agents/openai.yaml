@@ -1,0 +1,4 @@
+interface:
+  display_name: "AWL Pipeline Review"
+  short_description: "exec 핸드오프를 독립 검증하고 수정 요구 판정"
+  default_prompt: "Use $awl-pipeline-review to independently verify the next exec handoff and record a pass or actionable fixes."

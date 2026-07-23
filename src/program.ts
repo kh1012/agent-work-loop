@@ -31,11 +31,15 @@ awl은 파일과 상태만 관리합니다.`;
  */
 const GETTING_STARTED: { label: string; cmd: string; desc: string }[] = [
   { label: '1', cmd: 'awl init', desc: '작업 중인 프로젝트에 awl 환경을 설정합니다.' },
-  { label: '2-1', cmd: '/awl-loop <목표>', desc: '목표를 완수할 때까지 단일 루프를 실행합니다.' },
+  {
+    label: '2-1',
+    cmd: '/awl-loop | $awl-loop <목표>',
+    desc: 'Claude/Codex에서 목표를 완수할 때까지 단일 루프를 실행합니다.',
+  },
   {
     label: '2-2',
-    cmd: '/awl-pipeline <lane명> <mode>',
-    desc: '레인 단위로 exec·review 세션을 무인 실행합니다.',
+    cmd: '/awl-pipeline | $awl-pipeline <lane명> <mode>',
+    desc: 'Claude/Codex에서 레인 단위로 exec·review 세션을 실행합니다.',
   },
 ];
 
@@ -157,24 +161,23 @@ function renderExamplesCard(c: Caps): string {
 /**
  * awl --skills — awl-loop/awl-pipeline 파이프라인 스킬을 부연설명한다(cli-skills-help-card).
  * --examples와 달리 명령 예시가 아니라 개념(레인·파이프라인 구조·게이트 밀도)이 중심이다 —
- * 이 스킬들은 awl 혼자가 아니라 Claude Code 같은 LLM 안에서 실행해야 의미가 있다.
- * 내용은 engine/skills/claude/awl-pipeline/SKILL.md의 "mode 매핑"·"자동 레인"·"스폰 계약"·
- * "한 사이클" 절과 awl-loop/SKILL.md의 역할 분담 절을 원문 대조해 옮긴 것 — 그 문서가 바뀌면
- * 여기도 같이 바뀌어야 한다(단일 출처 아님, 사람이 손으로 맞춰야 함 — 자동 동기화 없음).
+ * 이 스킬들은 awl 혼자가 아니라 Claude Code나 Codex 안에서 실행해야 의미가 있다.
+ * 내용은 engine/skills/{claude,codex}/의 loop/pipeline 역할 계약을 요약한 것 — 그 문서가
+ * 바뀌면 여기도 같이 바뀌어야 한다(단일 출처 아님, 사람이 손으로 맞춰야 함).
  */
 function renderSkillsCard(c: Caps): string {
   const t = makeTokens(c);
   const lines: string[] = [
-    t.muted('반드시 Claude Code 같은 LLM 안에서 실행하세요 — awl 혼자서는 판단하지 않습니다.'),
+    t.muted('Claude Code 또는 Codex 안에서 실행하세요 — awl 혼자서는 판단하지 않습니다.'),
     '',
-    t.muted('/awl-loop <목표>'),
+    t.muted('Claude: /awl-loop <목표>  |  Codex: $awl-loop <목표>'),
     '  목표를 완료 조건으로 번역하고, 게이트 승인 후 한 세션이 처음부터 끝까지 직접',
     '  자율 루프로 구현합니다. 워크아이템 하나를 한 세션이 관통합니다.',
     '',
-    t.muted('/awl-pipeline <lane명> <mode>'),
+    t.muted('Claude: /awl-pipeline <lane명> <mode>  |  Codex: $awl-pipeline <lane명> <mode>'),
     '  레인(lane) 단위로 무인 파이프라인을 돌립니다. 오케스트레이터 세션은 목표를',
     '  일감으로 옮겨 레인 큐에 넣기만 하고, exec·review는 각각 별도 백그라운드',
-    '  세션으로 스폰돼 그 레인 안에서 구현·검증을 진행합니다.',
+    '  에이전트로 스폰돼 그 레인 안에서 구현·검증을 진행합니다.',
     '',
     t.muted('레인(lane)이란'),
     '  .awl-worktrees/<lane명> 격리 워크트리 하나에 대응하는 작업 단위입니다.',
@@ -183,9 +186,8 @@ function renderSkillsCard(c: Caps): string {
     '',
     t.muted('파이프라인 구조 (간략)'),
     '  plan(오케스트레이터) → exec·review 스폰(레인별) → 수집·게이트 → 상태 표시.',
-    '  exec·review가 필요시 스폰하는 조사·검증용 서브에이전트는 더 재위임하지',
-    '  않고, 스폰된 exec·review 자신도 스스로 재개하지 못해 오케스트레이터가',
-    '  유휴 신호를 받을 때마다 다시 깨웁니다.',
+    '  한 레인에는 writer 하나만 둡니다. Claude는 워처로 역할을 깨우고, Codex는',
+    '  wait_agent로 완료를 기다린 뒤 followup_task로 idle 역할을 다시 깨웁니다.',
     '',
     t.muted('<mode> — 게이트 밀도 (높을수록 사람 개입이 많습니다, 기본은 gate-high)'),
   ];
@@ -216,11 +218,11 @@ function renderSkillsHelpFooter(c: Caps): string {
   const t = makeTokens(c);
   const color = makeColors(c.color);
   const lines: string[] = [
-    t.muted('반드시 Claude Code 같은 LLM 안에서 실행하세요 — awl 혼자서는 판단하지 않습니다.'),
+    t.muted('Claude Code 또는 Codex 안에서 실행하세요 — awl 혼자서는 판단하지 않습니다.'),
     '',
-    `  ${t.accent('/awl-loop <목표>')}`,
+    `  ${t.accent('Claude /awl-loop <목표>  |  Codex $awl-loop <목표>')}`,
     '    단일 세션이 목표 하나를 완료 조건 → 게이트 → 구현까지 직접 관통합니다.',
-    `  ${t.accent('/awl-pipeline <lane명> <mode>')}`,
+    `  ${t.accent('Claude /awl-pipeline <lane명> <mode>  |  Codex $awl-pipeline <lane명> <mode>')}`,
     '    레인별로 exec·review 세션을 스폰해 무인 파이프라인을 돌립니다.',
     '',
     color.dim('레인·파이프라인 구조·<mode> 게이트 밀도(--gh/--gm/--gl)는 awl --skills 로 봅니다.'),

@@ -1,0 +1,4 @@
+interface:
+  display_name: "AWL Loop"
+  short_description: "목표를 검증 가능한 자율 작업 루프로 바꾸고 기록"
+  default_prompt: "Use $awl-loop to turn this goal into measurable criteria and complete it through the AWL gates."

@@ -19,7 +19,7 @@ import {
   resolveProjectScope,
 } from './config.js';
 import { gitBranch } from './doctor.js';
-import { installClaudeSkill } from './init.js';
+import { installClaudeSkill, installCodexSkill } from './init.js';
 import { mergeIsolatedHome, writeParentMarker } from './learning-merge.js';
 import { loadProjectName } from './record.js';
 import { loadState, migrateState, writeState } from './state.js';
@@ -832,6 +832,26 @@ export async function runWorkNew(
       process.stderr.write(
         `\n${feedback(c, 'warn', '워크트리 스킬 재설치 실패', `${String(e)} — 이 워크트리에서 awl init 로 수동 설치하세요`)}\n`,
       );
+    }
+    // Codex는 repo 스킬을 .agents/skills 에서 찾는다. 부모 프로젝트가 Codex AWL을
+    // 사용 중일 때만 새 워크트리에도 같은 번들을 설치한다(Claude-only 프로젝트에
+    // Codex 파일을 새로 만들지 않는다). AGENTS 마커도 최신 짧은 라우팅 블록으로 갱신된다.
+    const rootAgents = path.join(root, 'AGENTS.md');
+    const codexInUse =
+      fs.existsSync(path.join(root, '.agents', 'skills', 'awl-loop', 'SKILL.md')) ||
+      (fs.existsSync(rootAgents) && fs.readFileSync(rootAgents, 'utf8').includes('awl-loop:start'));
+    if (codexInUse) {
+      try {
+        if (installCodexSkill(worktreePath)) {
+          process.stdout.write(
+            `    ${color.dim('스킬 재설치  .agents/skills/ + AGENTS.md (engine)')}\n`,
+          );
+        }
+      } catch (e) {
+        process.stderr.write(
+          `\n${feedback(c, 'warn', 'Codex 워크트리 스킬 재설치 실패', `${String(e)} — 이 워크트리에서 awl init 로 수동 설치하세요`)}\n`,
+        );
+      }
     }
   }
 

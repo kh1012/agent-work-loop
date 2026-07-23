@@ -827,6 +827,17 @@ describe('runWorkNew --worktree (WI-F AC-03, 실제 git 저장소로 통합 확�
     fs.writeFileSync(path.join(dir, 'SKILL.md'), `# ${name}\n`);
   }
 
+  function seedCodexEngineSkill(name: string): void {
+    const base = path.join(process.env.AWL_HOME as string, 'engine', 'skills', 'codex');
+    const dir = path.join(base, name);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), `---\nname: ${name}\ndescription: test\n---\n`);
+    fs.writeFileSync(
+      path.join(base, 'AGENTS.awl.md'),
+      '<!-- awl-loop:start -->\nUse $awl-loop and $awl-pipeline.\n<!-- awl-loop:end -->\n',
+    );
+  }
+
   it('--worktree 가 워크트리 생성 직후 engine Claude 스킬을 워크트리 루트에 재설치한다 (pipeline-lane-skill-reinstall AC-01)', async () => {
     const proj = realGitProject();
     seedEngineSkill('awl-loop');
@@ -843,6 +854,30 @@ describe('runWorkNew --worktree (WI-F AC-03, 실제 git 저장소로 통합 확�
     expect(
       fs.existsSync(path.join(wtRoot, '.claude', 'skills', 'awl-pipeline-plan', 'SKILL.md')),
     ).toBe(true);
+  });
+
+  it('부모가 Codex AWL을 쓰면 새 워크트리에 .agents/skills와 AGENTS 라우팅 블록을 재설치한다', async () => {
+    const proj = realGitProject();
+    seedEngineSkill('awl-loop');
+    seedCodexEngineSkill('awl-loop');
+    seedCodexEngineSkill('awl-pipeline');
+    fs.writeFileSync(
+      path.join(proj, 'AGENTS.md'),
+      '<!-- awl-loop:start -->\nlegacy\n<!-- awl-loop:end -->\n',
+    );
+
+    await runWorkNew('WI-CODEX-SKILL', undefined, { worktree: true });
+
+    const wtRoot = path.join(proj, '.awl-worktrees', 'WI-CODEX-SKILL');
+    expect(fs.existsSync(path.join(wtRoot, '.agents', 'skills', 'awl-loop', 'SKILL.md'))).toBe(
+      true,
+    );
+    expect(fs.existsSync(path.join(wtRoot, '.agents', 'skills', 'awl-pipeline', 'SKILL.md'))).toBe(
+      true,
+    );
+    const agents = fs.readFileSync(path.join(wtRoot, 'AGENTS.md'), 'utf8');
+    expect(agents).toContain('$awl-pipeline');
+    expect(agents).not.toContain('legacy');
   });
 
   it('engine 스킬 원본이 없어도 재설치 실패가 워크트리·workitem 생성을 중단하지 않는다 — best-effort 경고만 (AC-02)', async () => {

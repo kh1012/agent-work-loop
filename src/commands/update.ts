@@ -11,7 +11,7 @@ import { listRegisteredProjects, packageEngineDir, syncExistingInstall } from '.
  * 세 스코프는 서로 독립이다:
  * - `--global`(기본): 홈 엔진만. 프로젝트는 하나도 안 건드린다.
  * - `--local`: 등록된 프로젝트 전부(현재 프로젝트 하나가 아니다)의 `.claude/skills`·
- *   `AGENTS.md`·`.awl/config.json`을 지금 설치된 엔진 버전에 맞춰 재동기화한다
+ *   `.agents/skills`·`AGENTS.md`·`.awl/config.json`을 지금 설치된 엔진 버전에 맞춰 재동기화한다
  *   (`awl init --yes`가 이미 설정된 프로젝트에서 하는 것과 같은 동작 — syncExistingInstall
  *   재사용). 홈 엔진 자체는 안 건드린다.
  * - `--all`: 위 둘 다.
@@ -127,7 +127,7 @@ function renderLocal(results: ProjectSyncResult[], c: Caps): string[] {
       );
     }
     lines.push(
-      '    이 프로젝트들의 변경(.claude/skills, AGENTS.md, .awl/config.json)은 커밋 대상입니다.',
+      '    이 프로젝트들의 변경(.claude/skills, .agents/skills, AGENTS.md, .awl/config.json)은 커밋 대상입니다.',
     );
   }
   for (const r of skipped) {

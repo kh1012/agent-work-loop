@@ -436,6 +436,34 @@ describe('collectChecks — 버전 4쌍 (WI-X)', () => {
     const report = await collectChecks();
     expect(find(report.checks, 'Claude 스킬 버전')?.status).toBe('ok');
   });
+
+  it('Codex는 AGENTS 라우팅 블록과 engine의 repo 스킬 전부가 있어야 설치 완료다', async () => {
+    const proj = tmp('awl-proj-');
+    fs.mkdirSync(path.join(proj, '.git'), { recursive: true });
+    fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(proj, 'AGENTS.md'),
+      '<!-- awl-loop:start -->\nUse $awl-loop.\n<!-- awl-loop:end -->\n',
+    );
+    for (const name of [
+      'awl-loop',
+      'awl-pipeline',
+      'awl-pipeline-exec',
+      'awl-pipeline-plan',
+      'awl-pipeline-review',
+    ]) {
+      fs.mkdirSync(path.join(proj, '.agents', 'skills', name), { recursive: true });
+      fs.writeFileSync(path.join(proj, '.agents', 'skills', name, 'SKILL.md'), '# test\n');
+    }
+    fs.writeFileSync(
+      path.join(proj, '.awl', 'skills-version.json'),
+      JSON.stringify({ codex: '0.0.0' }),
+    );
+    process.chdir(proj);
+
+    const report = await collectChecks();
+    expect(find(report.checks, 'Codex 스킬 버전')?.status).toBe('ok');
+  });
 });
 
 describe('collectChecks — 워킹트리 더러움 점검 (WI-F, 환경이 준 git 요약을 안 믿는다)', () => {

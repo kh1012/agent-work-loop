@@ -1,0 +1,4 @@
+interface:
+  display_name: "AWL Pipeline Plan"
+  short_description: "목표를 실행 가능한 AWL 일감 문서로 구조화"
+  default_prompt: "Use $awl-pipeline-plan to convert this goal into measurable pipeline work items without implementing them."

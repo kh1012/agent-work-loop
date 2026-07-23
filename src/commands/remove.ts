@@ -194,9 +194,9 @@ export function checkLiveLocks(tasksDir: string, nowMs: number = Date.now()): Lo
   return results;
 }
 
-/** .claude/skills/ 아래 awl 소유 스킬만 고른다 — 다른 스킬(프로젝트가 따로 설치한 것)은 절대 건드리지 않는다. */
-function awlSkillDirNames(root: string): string[] {
-  const dir = path.join(root, '.claude', 'skills');
+/** 지정한 스킬 루트 아래 awl 소유 스킬만 고른다 — 다른 스킬은 절대 건드리지 않는다. */
+function awlSkillDirNames(root: string, agentDir: '.claude' | '.agents'): string[] {
+  const dir = path.join(root, agentDir, 'skills');
   try {
     return fs
       .readdirSync(dir, { withFileTypes: true })
@@ -258,9 +258,13 @@ export function scanProjectLocal(root: string): RemoveItem[] {
     present: exists(dotAwl),
   });
 
-  for (const name of awlSkillDirNames(root)) {
+  for (const name of awlSkillDirNames(root, '.claude')) {
     const p = path.join(root, '.claude', 'skills', name);
     push({ category: `.claude/skills/${name}`, kind: 'dir', path: p, present: true });
+  }
+  for (const name of awlSkillDirNames(root, '.agents')) {
+    const p = path.join(root, '.agents', 'skills', name);
+    push({ category: `.agents/skills/${name}`, kind: 'dir', path: p, present: true });
   }
 
   const agentsMd = path.join(root, 'AGENTS.md');

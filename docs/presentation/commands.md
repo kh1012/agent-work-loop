@@ -415,16 +415,16 @@
 
 ---
 
-## 스킬 (Claude Code: `.claude/skills/`, 원본은 `engine/skills/claude/`)
+## 스킬 (Claude Code: `.claude/skills/`, Codex: `.agents/skills/`)
 
-**주의**: 이 저장소 자신의 `.claude/skills/`는 이번 조회 시점(0.6.18) 기준 0.6.13 상태로 뒤처져 있었다(`awl doctor`가 `claude-skill-vs-engine` 불일치로 경고한 그대로). 아래 설명은 뒤처진 설치본이 아니라 **`engine/skills/claude/`(현재 배포 원본)**를 기준으로 썼다. pipeline은 이 세션 동안 여러 차례 바뀌었고(mode 어휘 개명, hold-recheck 추가, 워처 symlink 수정 등), 설치본을 그대로 옮기면 낡은 내용이 된다.
+배포 원본은 `engine/skills/claude/`와 `engine/skills/codex/`다. Claude Code는 `/awl-*` 트리거와 워처 기반 역할 세션을 쓰고, Codex는 `$awl-*` 스킬과 `spawn_agent`·`wait_agent`·`followup_task` 기반 역할 세션을 쓴다. `.tasks`의 plan/exec/review 파일 상태 계약과 gate mode 의미는 같다.
 
 ### `/awl-loop`
 
 - **역할**: 워크아이템 하나의 생애를 처음부터 끝까지 진행한다. 조사부터 게이트 2, evolve까지.
 - **언제 쓰나**: 완료 조건이 여러 개인 작업(3절의 2단). 목표를 서술문으로 주면 스킬이 완료 조건으로 번역한다.
 - **트리거**: `/awl-loop`, "이 기능 구현하자", 완료 조건 없는 목표 서술문.
-- **읽는법**: 게이트에서 `AskUserQuestion` 도구를 실제로 호출한다("텍스트로 '승인을 기다립니다'라고 쓰고 넘어가면 이 스킬은 실패한 것이다", `engine/skills/claude/awl-loop/SKILL.md:145` 근처). 자율 구간은 게이트 1 이후부터다.
+- **읽는법**: Claude Code는 게이트 질문 도구를 호출하고, Codex는 지원 모드에서 `request_user_input`을 쓰거나 질문을 남기고 실제로 턴을 끝낸다. 어느 쪽이든 응답 전에 구현으로 넘어가면 실패다. 자율 구간은 게이트 1 이후부터다.
 
 ### `/awl-pipeline`
 
