@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { collectChecks } from '../../src/commands/doctor.js';
 import {
   collectLanes,
+  laneRegistryRoot,
   parseWorktreeBranches,
   renderLaneList,
   runLaneList,
@@ -64,6 +65,13 @@ describe('renderLaneList (AC-02, 순수 렌더)', () => {
     ]) {
       expect(out).toContain(s);
     }
+  });
+});
+
+describe('laneRegistryRoot (lane lifecycle AC-02)', () => {
+  it('linked lane path 는 부모 registry root 로, main path 는 그대로 해석한다', () => {
+    expect(laneRegistryRoot('/repo/.awl-worktrees/probe')).toBe('/repo');
+    expect(laneRegistryRoot('/repo')).toBe('/repo');
   });
 });
 
