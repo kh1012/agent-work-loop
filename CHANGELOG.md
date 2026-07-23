@@ -5,6 +5,39 @@
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-07-24
+
+### 추가
+
+- 프로젝트가 추적하는 스킬 manifest를 검증하고 lane 생성·초기화 시 결정적으로 동기화하는
+  명령과 설치 상태 진단을 추가했다.
+- linked worktree의 공통 설정 위에 lane별 local config overlay를 병합하고, 실제 적용된
+  설정의 출처를 JSON으로 확인할 수 있게 했다.
+- 서비스 실행에 installation-scoped atomic port lease를 도입했다. 포트 경쟁, unmanaged
+  listener, stale lease, signal cleanup과 실행 provenance를 검증한다.
+- pipeline coordinator가 발급하고 worker가 정확히 한 번 claim하는 versioned dispatch
+  envelope를 추가했다. role·입력 digest·gate evidence·만료·nonce와 발급 원문 무결성을
+  검증한다.
+
+### 고침
+
+- 새 lane을 AWL 프로젝트로 초기화하고 linked worktree에서도 parent install·lane registry를
+  일관되게 찾도록 lifecycle bootstrap을 바로잡았다.
+- gate 기록은 coordinator 한 곳에서만 생성하고, 자동·사람 승인 evidence를 mode별로
+  보존하도록 exec/review 계약을 정리했다.
+- 검증 runner를 대상 package가 소유한 실행 파일로 해석하고 exec handoff와 독립 review에
+  동일한 provenance를 남기도록 했다.
+- port lease의 IPv4·IPv6 listener 감지, 경합 재현, startup timeout과 fixture barrier를
+  보강해 병렬 검증의 비결정성을 제거했다.
+- dispatch envelope 변조, replay, 동시 claim, 누락 경로와 Claude no-subagent 계약을
+  구조화된 실패로 처리하고 marker와 Git 상태를 보존하도록 했다.
+
+### 변경
+
+- Codex·Claude pipeline 역할 문서를 lane bootstrap, package-owned runner, service lease,
+  one-time dispatch와 coordinator-only gate 기록 계약에 맞춰 동기화했다.
+- 관련 CLI·설치본·경쟁 조건 회귀 테스트를 확장했다.
+
 ## [0.7.3] - 2026-07-23
 
 ### 추가
