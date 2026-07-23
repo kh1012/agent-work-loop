@@ -160,6 +160,42 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
     expect(out).toContain('소요시간');
   });
 
+  it('lane new: tracked project skill manifest를 lane root agent surface에 동기화한다', async () => {
+    const proj = realGitProject();
+    const source = path.join(proj, 'nested/workspace/skills/page-create');
+    fs.mkdirSync(source, { recursive: true });
+    fs.writeFileSync(path.join(source, 'SKILL.md'), '# lane page-create\n');
+    fs.writeFileSync(
+      path.join(proj, '.awl', 'skills.json'),
+      `${JSON.stringify(
+        {
+          version: 1,
+          skills: [
+            {
+              name: 'page-create',
+              agent: 'codex',
+              source: 'nested/workspace/skills/page-create',
+              target: '.agents/skills/page-create',
+            },
+          ],
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    execFileSync('git', ['add', '-A'], { cwd: proj });
+    execFileSync('git', ['commit', '-q', '-m', 'tracked project skill'], { cwd: proj });
+
+    await runLaneNew('project-skills');
+
+    expect(
+      fs.readFileSync(
+        path.join(proj, '.awl-worktrees/project-skills/.agents/skills/page-create/SKILL.md'),
+        'utf8',
+      ),
+    ).toBe('# lane page-create\n');
+  });
+
   it('lane new: 초기화되지 않은 git 저장소에서도 lane project config/state 를 만들고 doctor 가 인식한다', async () => {
     const proj = realGitProject();
 

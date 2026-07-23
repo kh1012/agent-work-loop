@@ -22,6 +22,7 @@ import { gitBranch } from './doctor.js';
 import { installClaudeSkill, installCodexSkill } from './init.js';
 import { mergeIsolatedHome, writeParentMarker } from './learning-merge.js';
 import { loadProjectName } from './record.js';
+import { projectSkillsSyncReport } from './skills.js';
 import { loadState, migrateState, writeState } from './state.js';
 import {
   buildVerifyBaseline,
@@ -852,6 +853,32 @@ export async function runWorkNew(
           `\n${feedback(c, 'warn', 'Codex 워크트리 스킬 재설치 실패', `${String(e)} — 이 워크트리에서 awl init 로 수동 설치하세요`)}\n`,
         );
       }
+    }
+
+    // Engine bundle 설치가 끝난 뒤 tracked project-skill manifest를 같은 worktree의
+    // root agent surface로 materialize한다. 이 경로는 best-effort가 아니다: manifest가
+    // 존재하지만 깨졌거나 항목 설치가 실패한 상태에서 pipeline agent를 dispatch하면
+    // 다른 스킬 catalog로 실행되므로, 재현 가능한 JSON 명령과 lane 경로를 내고 중단한다.
+    try {
+      const projectSkills = projectSkillsSyncReport(worktreePath);
+      if (!projectSkills.ok) {
+        const errors = projectSkills.results
+          .filter((entry) => entry.status === 'error')
+          .map((entry) => `${entry.name}: ${entry.error ?? 'unknown error'}`)
+          .join('; ');
+        throw new Error(errors || 'project skill sync failed');
+      }
+      if (projectSkills.results.length > 0) {
+        const summary = projectSkills.results
+          .map((entry) => `${entry.agent}:${entry.name}=${entry.status}`)
+          .join(', ');
+        process.stdout.write(`    ${color.dim(`프로젝트 스킬 동기화  ${summary}`)}\n`);
+      }
+    } catch (error) {
+      process.stderr.write(
+        `\n${feedback(c, 'error', '프로젝트 스킬 동기화 실패', `${String(error)} — lane: ${worktreePath}; 재현: cd ${worktreePath} && awl skills sync --json`)}\n`,
+      );
+      process.exit(1);
     }
   }
 

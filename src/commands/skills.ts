@@ -31,6 +31,7 @@ export interface ProjectSkillsSyncReport {
   ok: boolean;
   manifest: string;
   results: ProjectSkillSyncResult[];
+  error?: string;
 }
 
 export class ProjectSkillsManifestError extends Error {
@@ -313,9 +314,22 @@ export function runSkillsSync(
   opts: { json?: boolean },
   projectRoot: string = findProjectRoot(),
 ): ProjectSkillsSyncReport {
-  const report = projectSkillsSyncReport(projectRoot);
+  const canonicalRoot = fs.realpathSync(projectRoot);
+  let report: ProjectSkillsSyncReport;
+  try {
+    report = projectSkillsSyncReport(canonicalRoot);
+  } catch (error) {
+    report = {
+      ok: false,
+      manifest: path.join(canonicalRoot, PROJECT_SKILLS_MANIFEST),
+      results: [],
+      error: String(error),
+    };
+  }
   if (opts.json) {
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  } else if (report.error) {
+    process.stderr.write(`  프로젝트 스킬 manifest 오류 — ${report.error}\n`);
   } else if (report.results.length === 0) {
     process.stdout.write('  프로젝트 스킬 manifest가 없습니다.\n');
   } else {

@@ -578,6 +578,42 @@ describe('runWorkNew --worktree (WI-F AC-03, 실제 git 저장소로 통합 확�
     return proj;
   }
 
+  function commitTrackedProjectSkills(proj: string): void {
+    const codexSource = path.join(proj, 'workspace/packages/page/skills/page-create');
+    const claudeSource = path.join(proj, 'workspace/packages/page/skills/component-create');
+    fs.mkdirSync(codexSource, { recursive: true });
+    fs.mkdirSync(claudeSource, { recursive: true });
+    fs.writeFileSync(path.join(codexSource, 'SKILL.md'), '# page-create\n');
+    fs.writeFileSync(path.join(claudeSource, 'SKILL.md'), '# component-create\n');
+    fs.writeFileSync(
+      path.join(proj, '.awl', 'skills.json'),
+      `${JSON.stringify(
+        {
+          version: 1,
+          skills: [
+            {
+              name: 'page-create',
+              agent: 'codex',
+              source: 'workspace/packages/page/skills/page-create',
+              target: '.agents/skills/page-create',
+            },
+            {
+              name: 'component-create',
+              agent: 'claude',
+              source: 'workspace/packages/page/skills/component-create',
+              target: '.claude/skills/component-create',
+            },
+          ],
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    fs.writeFileSync(path.join(proj, '.gitignore'), '.agents/\n.claude/\n');
+    execFileSync('git', ['add', '-A'], { cwd: proj });
+    execFileSync('git', ['commit', '-q', '-m', 'tracked project skills'], { cwd: proj });
+  }
+
   it('--worktree 로 실제 git worktree 를 만들고 workitemWorktreePath 를 state.json 에 기록한다', async () => {
     const proj = realGitProject();
 
@@ -854,6 +890,62 @@ describe('runWorkNew --worktree (WI-F AC-03, 실제 git 저장소로 통합 확�
     expect(
       fs.existsSync(path.join(wtRoot, '.claude', 'skills', 'awl-pipeline-plan', 'SKILL.md')),
     ).toBe(true);
+  });
+
+  it('--worktree는 engine bundle 뒤 tracked manifest의 중첩 프로젝트 스킬을 lane root에 동기화한다', async () => {
+    const proj = realGitProject();
+    commitTrackedProjectSkills(proj);
+
+    await runWorkNew('WI-PROJECT-SKILLS', undefined, { worktree: true });
+
+    const wtRoot = path.join(proj, '.awl-worktrees', 'WI-PROJECT-SKILLS');
+    expect(fs.readFileSync(path.join(wtRoot, '.agents/skills/page-create/SKILL.md'), 'utf8')).toBe(
+      '# page-create\n',
+    );
+    expect(
+      fs.readFileSync(path.join(wtRoot, '.claude/skills/component-create/SKILL.md'), 'utf8'),
+    ).toBe('# component-create\n');
+  });
+
+  it('--worktree project skill sync 실패는 재현 명령과 lane 경로를 포함해 dispatch 전에 중단한다', async () => {
+    const proj = realGitProject();
+    fs.writeFileSync(
+      path.join(proj, '.awl', 'skills.json'),
+      `${JSON.stringify({
+        version: 1,
+        skills: [
+          {
+            name: 'broken',
+            agent: 'codex',
+            source: '../outside',
+            target: '.agents/skills/broken',
+          },
+        ],
+      })}\n`,
+    );
+    execFileSync('git', ['add', '-A'], { cwd: proj });
+    execFileSync('git', ['commit', '-q', '-m', 'invalid manifest fixture'], { cwd: proj });
+    const stderr: string[] = [];
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
+      stderr.push(String(chunk));
+      return true;
+    });
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as unknown as typeof process.exit);
+
+    try {
+      await expect(runWorkNew('WI-BROKEN-SKILL', undefined, { worktree: true })).rejects.toThrow(
+        'exit:1',
+      );
+    } finally {
+      exitSpy.mockRestore();
+      stderrSpy.mockRestore();
+    }
+
+    expect(stderr.join('')).toContain(path.join(proj, '.awl-worktrees', 'WI-BROKEN-SKILL'));
+    expect(stderr.join('')).toContain('awl skills sync --json');
+    expect(stderr.join('')).toContain('traversal');
   });
 
   it('부모가 Codex AWL을 쓰면 새 워크트리에 .agents/skills와 AGENTS 라우팅 블록을 재설치한다', async () => {
