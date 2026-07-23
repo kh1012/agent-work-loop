@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-07-23
+
 ### 추가
 
 - Codex용 `awl-loop`와 `awl-pipeline` 역할 스킬 5개를 `.agents/skills/` 배포본으로 추가했다.
