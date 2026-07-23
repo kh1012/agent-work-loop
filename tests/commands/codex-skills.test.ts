@@ -198,10 +198,9 @@ describe('Codex AWL skills', () => {
     expect(program).toContain('followup_task');
   });
 
-  it('공개 README·CLI 도움말·template·프레젠테이션이 --poll 계약을 함께 노출한다', () => {
+  it('공개 README·template·프레젠테이션이 --poll 계약을 함께 노출한다', () => {
     const docs = [
       fs.readFileSync(path.join(process.cwd(), 'README.md'), 'utf8'),
-      fs.readFileSync(path.join(process.cwd(), 'src', 'program.ts'), 'utf8'),
       read('awl-pipeline/templates/README.md'),
       fs.readFileSync(path.join(process.cwd(), 'docs', 'presentation', 'commands.md'), 'utf8'),
     ];

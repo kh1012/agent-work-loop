@@ -38,7 +38,7 @@ const GETTING_STARTED: { label: string; cmd: string; desc: string }[] = [
   },
   {
     label: '2-2',
-    cmd: '/awl-pipeline | $awl-pipeline <lane명> <mode>',
+    cmd: '/awl-pipeline | $awl-pipeline <lane명> <mode> [--poll <interval>]',
     desc: 'Claude/Codex에서 레인 단위로 exec·review 세션을 실행합니다.',
   },
 ];
@@ -58,6 +58,11 @@ function renderGettingStartedCard(c: Caps): string {
       `${`${g.label}.`.padEnd(prefixWidth)} ${t.accent(padVisible(g.cmd, cmdWidth))}  ${g.desc}`,
   );
   lines.push(t.muted('*2-1 혹은 2-2를 실행하면 바로 시작할 수 있습니다.'));
+  lines.push(
+    t.muted(
+      '*Codex --poll 30m는 native Scheduled idle 확인이며 Scheduled capability가 필요합니다.',
+    ),
+  );
   return sectionBox('시작하기', lines, c);
 }
 
@@ -229,8 +234,9 @@ function renderSkillsHelpFooter(c: Caps): string {
     '',
     `  ${t.accent('Claude /awl-loop <목표>  |  Codex $awl-loop <목표>')}`,
     '    단일 세션이 목표 하나를 완료 조건 → 게이트 → 구현까지 직접 관통합니다.',
-    `  ${t.accent('Claude /awl-pipeline <lane명> <mode>  |  Codex $awl-pipeline <lane명> <mode>')}`,
+    `  ${t.accent('Claude /awl-pipeline <lane명> <mode>  |  Codex $awl-pipeline <lane명> <mode> [--poll <interval>]')}`,
     '    레인별로 exec·review 세션을 스폰해 무인 파이프라인을 돌립니다.',
+    '    Codex --poll 30m는 native Scheduled idle 확인이며 Scheduled capability가 없으면 비활성입니다.',
     '',
     color.dim('레인·파이프라인 구조·<mode> 게이트 밀도(--gh/--gm/--gl)는 awl --skills 로 봅니다.'),
   ];

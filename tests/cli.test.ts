@@ -188,6 +188,26 @@ describe('awl 프로그램 구성', () => {
     const program = buildProgram();
     expect(program.helpInformation()).toContain('metrics');
   });
+
+  it('실제 루트 도움말은 Codex native Scheduled polling 계약을 노출한다', () => {
+    const program = buildProgram();
+    let output = '';
+    program.configureOutput({
+      writeOut: (value) => {
+        output += value;
+      },
+    });
+    program.outputHelp();
+
+    for (const contract of [
+      '$awl-pipeline <lane명> <mode> [--poll <interval>]',
+      '--poll 30m',
+      'native Scheduled',
+      'Scheduled capability',
+    ]) {
+      expect(output).toContain(contract);
+    }
+  });
 });
 
 describe('parseExperimentOption — --experiment 파싱/검증 (experiment-harness AC-06, 리뷰)', () => {
