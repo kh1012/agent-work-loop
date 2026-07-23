@@ -210,6 +210,51 @@ describe('Codex AWL skills', () => {
     }
   });
 
+  it('자동 pipeline gate는 plan과 독립 review evidence를 붙여 각각 한 번 기록한다', () => {
+    const coordinators = ['codex', 'claude'].map((surface) =>
+      fs.readFileSync(
+        path.join(process.cwd(), 'engine', 'skills', surface, 'awl-pipeline', 'SKILL.md'),
+        'utf8',
+      ),
+    );
+
+    for (const coordinator of coordinators) {
+      expect(coordinator.match(/automatic-gate-1: auto=true; evidence=plan/g)).toHaveLength(1);
+      expect(
+        coordinator.match(
+          /automatic-gate-2: auto=true; evidence=implementation-handoff\+independent-review/g,
+        ),
+      ).toHaveLength(1);
+      expect(coordinator).toContain('"actor":"coordinator"');
+      expect(coordinator).toContain('"source":"pipeline-mode"');
+      expect(coordinator).toContain('"plan"');
+      expect(coordinator).toContain('"implementationHandoff"');
+      expect(coordinator).toContain('"independentReview"');
+    }
+  });
+
+  it('gate-low/medium은 coordinator 단일 record에 auto와 단계별 evidence를 보존한다', () => {
+    const surfaces = ['codex', 'claude'].map((surface) => {
+      const base = path.join(process.cwd(), 'engine', 'skills', surface);
+      return {
+        coordinator: fs.readFileSync(path.join(base, 'awl-pipeline', 'SKILL.md'), 'utf8'),
+        exec: fs.readFileSync(path.join(base, 'awl-pipeline-exec', 'SKILL.md'), 'utf8'),
+      };
+    });
+
+    for (const { coordinator, exec } of surfaces) {
+      const contract =
+        'pipeline-auto-gate-records: gate1=once(auto:true,plan-evidence); gate2=once(auto:true,exec+review-evidence)';
+      expect(coordinator.match(new RegExp(contract.replace(/[+()]/g, '\\$&'), 'g'))).toHaveLength(
+        1,
+      );
+      expect(coordinator).toMatch(/gate-medium[\s\S]*gate-low/);
+      expect(exec).toContain('## Gate evidence');
+      expect(exec).toContain('gate 1:');
+      expect(exec).toContain('gate 2: pending coordinator');
+    }
+  });
+
   it('AGENTS 블록은 긴 워크플로우 복제 대신 실제 스킬로 라우팅한다', () => {
     const agents = read('AGENTS.awl.md');
     expect(agents).toContain('$awl-loop');

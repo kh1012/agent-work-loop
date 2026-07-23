@@ -71,6 +71,7 @@ Rename it to `plan/<name>.hold.md`, add the reason and routing/unhold condition 
 name: <name>
 round: <integer starting at 1>
 status: ready-for-review|blocked
+gate1_evidence: <coordinator-supplied plan path or human decision record>
 ---
 
 ## Result
@@ -88,6 +89,11 @@ status: ready-for-review|blocked
 
 ## Notes for review
 - <risk, exact route, or file:line evidence>
+
+## Gate evidence
+- gate 1: <coordinator-supplied plan path or human decision record>
+- gate 2: pending coordinator — implementationHandoff: <this handoff path, commits, verification,
+  and unchecked work>
 ```
 
 ## Structured final result

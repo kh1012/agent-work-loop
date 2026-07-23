@@ -113,6 +113,7 @@ name: <name>
 workitem: <awl WI-ID>
 round: <N>
 verify: pass|fail
+gate1_evidence: <오케스트레이터가 전달한 plan 경로 또는 human decision record>
 ---
 ## 한 일 (완료조건별)
 - AC-01 (addresses F-01): <무엇을 했나> — 커밋 <hash>
@@ -121,6 +122,9 @@ verify: pass|fail
 - awl verify: <출력 요지>
 ## 직접 볼 리뷰 포인트 (review가 확인)
 - <파일:라인> — <왜 봐야 하나>
+## Gate evidence
+- gate 1: <오케스트레이터가 전달한 plan 경로 또는 human decision record>
+- gate 2: pending coordinator — implementationHandoff: <이 핸드오프 경로·커밋·검증·미확인 항목>
 ## 범위 밖 (조사에서 발견했으나 안 다룸 + 이유)
 - F-0x: ... (이유)
 ## 라운드 이력
