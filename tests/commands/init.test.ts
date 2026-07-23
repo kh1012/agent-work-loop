@@ -693,6 +693,10 @@ describe('applyInit — 전체 산출물', () => {
     expect(agents).toContain('# project');
     expect(agents).not.toContain('legacy claude-shaped instructions');
     expect(agents).toContain('$awl-pipeline');
+    expect(agents).toContain('AUTO-EXCLUDE-FIRST');
+    expect(agents).toContain('AUTO-INCLUDE-AFTER-EXCLUSIONS');
+    expect(agents).toContain('PRE-SELECTION-AWL=none');
+    expect(agents).toContain('POST-SELECTION-FIRST-AWL=awl version-check --json');
     expect(agents.split('awl-loop:start').length - 1).toBe(1);
     expect(codexSkillNames()).toEqual([
       'awl-loop',

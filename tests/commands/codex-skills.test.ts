@@ -3,6 +3,14 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const root = path.join(process.cwd(), 'engine', 'skills', 'codex');
+const claudeLoopPath = path.join(
+  process.cwd(),
+  'engine',
+  'skills',
+  'claude',
+  'awl-loop',
+  'SKILL.md',
+);
 const skillNames = [
   'awl-loop',
   'awl-pipeline',
@@ -13,6 +21,55 @@ const skillNames = [
 
 function read(rel: string): string {
   return fs.readFileSync(path.join(root, rel), 'utf8');
+}
+
+function frontmatterDescription(skill: string): string {
+  const match = skill.match(/^---\n[\s\S]*?\ndescription: (?:>-|\|)\n([\s\S]*?)\n---/);
+  const description = match?.[1];
+  if (!description) throw new Error('SKILL.md frontmatter description을 찾지 못했습니다.');
+  return description.replace(/\s+/g, ' ').trim();
+}
+
+function triggerExamples(description: string): { excluded: string[]; included: string[] } {
+  const includeMarker = 'AUTO-INCLUDE-AFTER-EXCLUSIONS';
+  const includeAt = description.indexOf(includeMarker);
+  if (includeAt < 0) throw new Error(`${includeMarker}가 없습니다.`);
+  const quoted = (value: string): string[] =>
+    [...value.matchAll(/"([^"]+)"/g)]
+      .map((match) => match[1])
+      .filter((example): example is string => example !== undefined);
+  return {
+    excluded: quoted(description.slice(0, includeAt)),
+    included: quoted(description.slice(includeAt)),
+  };
+}
+
+function triggerDecision(
+  description: string,
+  prompt: string,
+  explicitInvocation: string,
+): 'trigger' | 'skip' {
+  if (prompt.includes(explicitInvocation)) return 'trigger';
+  const examples = triggerExamples(description);
+  if (examples.excluded.includes(prompt)) return 'skip';
+  if (examples.included.includes(prompt)) return 'trigger';
+  throw new Error(`발동 계약에 고정되지 않은 테스트 문장입니다: ${prompt}`);
+}
+
+function commandBoundary(description: string): {
+  preSelection: string;
+  postSelectionFirst: string;
+  otherSkillOnlyVersionCheck: string;
+} {
+  const preSelection = description.match(/PRE-SELECTION-AWL=([^;]+);/)?.[1];
+  const postSelectionFirst = description.match(/POST-SELECTION-FIRST-AWL=([^;]+);/)?.[1];
+  const otherSkillOnlyVersionCheck = description.match(
+    /OTHER-SKILL-ONLY-AWL-VERSION-CHECK=([^.;]+)[.;]/,
+  )?.[1];
+  if (!preSelection || !postSelectionFirst || !otherSkillOnlyVersionCheck) {
+    throw new Error('awl 명령 실행 경계를 찾지 못했습니다.');
+  }
+  return { preSelection, postSelectionFirst, otherSkillOnlyVersionCheck };
 }
 
 describe('Codex AWL skills', () => {
@@ -71,6 +128,12 @@ describe('Codex AWL skills', () => {
     const agents = read('AGENTS.awl.md');
     expect(agents).toContain('$awl-loop');
     expect(agents).toContain('$awl-pipeline');
+    expect(agents.indexOf('AUTO-EXCLUDE-FIRST')).toBeLessThan(
+      agents.indexOf('AUTO-INCLUDE-AFTER-EXCLUSIONS'),
+    );
+    expect(agents).toContain('PRE-SELECTION-AWL=none');
+    expect(agents).toContain('POST-SELECTION-FIRST-AWL=awl version-check --json');
+    expect(agents).toContain('OTHER-SKILL-ONLY-AWL-VERSION-CHECK=forbidden');
     expect(agents.split('\n').length).toBeLessThan(20);
   });
 
@@ -80,5 +143,96 @@ describe('Codex AWL skills', () => {
     expect(program).toContain('$awl-pipeline');
     expect(program).toContain('wait_agent');
     expect(program).toContain('followup_task');
+  });
+});
+
+describe('awl-loop 자동 발동 계약', () => {
+  const codexDescription = frontmatterDescription(read('awl-loop/SKILL.md'));
+  const claudeDescription = frontmatterDescription(fs.readFileSync(claudeLoopPath, 'utf8'));
+  const targets = [
+    { name: 'Codex', description: codexDescription, explicitInvocation: '$awl-loop' },
+    { name: 'Claude', description: claudeDescription, explicitInvocation: '/awl-loop' },
+  ];
+
+  it.each(targets)('$name: 명시적 호출은 항상 발동한다', ({ description, explicitInvocation }) => {
+    expect(
+      triggerDecision(
+        description,
+        `${explicitInvocation} 이 버튼의 radius만 바꿔줘`,
+        explicitInvocation,
+      ),
+    ).toBe('trigger');
+  });
+
+  it.each(targets)(
+    '$name: 좁고 구체적인 radius 변경은 자동 발동하지 않는다',
+    ({ description, explicitInvocation }) => {
+      expect(
+        triggerDecision(
+          description,
+          'Dialog에 pilled radius를 적용하고 내부 영역도 동일하게 바꿔줘',
+          explicitInvocation,
+        ),
+      ).toBe('skip');
+    },
+  );
+
+  it.each(targets)(
+    '$name: 단순 문구 변경은 자동 발동하지 않는다',
+    ({ description, explicitInvocation }) => {
+      expect(triggerDecision(description, "레이블을 '저장'으로 바꿔줘", explicitInvocation)).toBe(
+        'skip',
+      );
+    },
+  );
+
+  it.each(targets)(
+    '$name: 완료 기준 없는 비단순 기능 구현은 자동 발동한다',
+    ({ description, explicitInvocation }) => {
+      expect(
+        triggerDecision(description, '이 편집기에 자동 저장 기능을 구현해줘', explicitInvocation),
+      ).toBe('trigger');
+    },
+  );
+
+  it.each(targets)(
+    '$name: 원인과 범위가 불명확한 복합 버그 수정은 자동 발동한다',
+    ({ description, explicitInvocation }) => {
+      expect(
+        triggerDecision(
+          description,
+          '간헐적으로 저장이 실패하는데 원인과 수정 범위를 찾아 고쳐줘',
+          explicitInvocation,
+        ),
+      ).toBe('trigger');
+    },
+  );
+
+  it.each(targets)(
+    '$name: 제외 조건이 긍정 트리거보다 먼저이고 미발동 시 awl 명령은 0개다',
+    ({ description, explicitInvocation }) => {
+      expect(description.indexOf('AUTO-EXCLUDE-FIRST')).toBeLessThan(
+        description.indexOf('AUTO-INCLUDE-AFTER-EXCLUSIONS'),
+      );
+      const decision = triggerDecision(
+        description,
+        '이 버튼의 rounded-md를 rounded-full로 바꿔줘',
+        explicitInvocation,
+      );
+      const boundary = commandBoundary(description);
+      const commands = decision === 'trigger' ? [boundary.postSelectionFirst] : [];
+
+      expect(decision).toBe('skip');
+      expect(boundary).toEqual({
+        preSelection: 'none',
+        postSelectionFirst: 'awl version-check --json',
+        otherSkillOnlyVersionCheck: 'forbidden',
+      });
+      expect(commands).toEqual([]);
+    },
+  );
+
+  it('Codex와 Claude는 같은 자동 발동 예시 집합을 가진다', () => {
+    expect(triggerExamples(codexDescription)).toEqual(triggerExamples(claudeDescription));
   });
 });

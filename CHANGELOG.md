@@ -5,6 +5,17 @@
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-07-23
+
+### 고침
+
+- Codex와 Claude의 `awl-loop` 자동 발동에서 국소·구체적 변경 제외를 긍정 트리거보다 먼저
+  평가하고, 스킬 선택 전에는 `awl version-check`를 포함한 어떤 awl 명령도 실행하지 않도록
+  발동 계약을 명확히 했다.
+- `awl update --all`도 기존 Codex `awl-loop` symlink를 실제 스킬 디렉터리로 마이그레이션하는
+  경로를 통합 테스트해, 디렉터리를 symlink 위에 복사할 때 발생하는
+  `ERR_FS_CP_DIR_TO_NON_DIR` 회귀를 막는다.
+
 ## [0.7.1] - 2026-07-23
 
 ### 고침

@@ -217,4 +217,37 @@ describe('runUpdate — 스코프 기본값 (awl-update-local AC-02)', () => {
 
     expect((readJson(configPath) as Record<string, unknown>).engineVersion).not.toBe('0.0.1');
   });
+
+  it('--all 은 Codex의 옛 Claude 스킬 symlink를 실제 디렉터리로 마이그레이션한다', () => {
+    const home = tmp('awl-update-symlink-home-');
+    seedEngineDir(home);
+    process.env.AWL_HOME = home;
+    applyUpdate();
+
+    const proj = tmp('awl-update-symlink-proj-');
+    const inputs = nonInteractiveInputs(proj);
+    inputs.skills = { claude: true, codex: true };
+    applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
+
+    const claudeSkill = path.join(proj, '.claude', 'skills', 'awl-loop');
+    const codexSkill = path.join(proj, '.agents', 'skills', 'awl-loop');
+    fs.writeFileSync(path.join(claudeSkill, 'sentinel.txt'), 'keep the Claude target\n');
+    fs.rmSync(codexSkill, { recursive: true });
+    fs.symlinkSync(path.relative(path.dirname(codexSkill), claudeSkill), codexSkill, 'dir');
+
+    const configPath = path.join(proj, '.awl', 'config.json');
+    const cfg = readJson(configPath) as Record<string, unknown>;
+    fs.writeFileSync(configPath, JSON.stringify({ ...cfg, engineVersion: '0.7.1' }));
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    runUpdate({ all: true });
+    stdoutSpy.mockRestore();
+
+    expect(fs.lstatSync(codexSkill).isSymbolicLink()).toBe(false);
+    expect(fs.statSync(codexSkill).isDirectory()).toBe(true);
+    expect(fs.existsSync(path.join(codexSkill, 'SKILL.md'))).toBe(true);
+    expect(fs.readFileSync(path.join(claudeSkill, 'sentinel.txt'), 'utf8')).toBe(
+      'keep the Claude target\n',
+    );
+  });
 });

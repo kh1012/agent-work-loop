@@ -1,16 +1,35 @@
 ---
 name: awl-loop
 description: >-
-  Use `$awl-loop goal [--fb]` to turn an implementation goal without acceptance criteria
-  into an evidence-backed loop: investigate, define measurable criteria, stop at approval
-  gates, implement, verify, commit with awl, review, and record reusable lessons. Trigger for
-  feature goals, non-trivial fixes, or requests such as "이 기능 구현하자". Do not use for
-  simple questions, one-line edits, or requests that only run an awl command.
+  Decision order before awl commands: EXPLICIT: a user-written `$awl-loop` always selects it.
+  AUTO-EXCLUDE-FIRST: otherwise skip bounded one-or-two-file radius, color token, spacing,
+  copy, or class changes, plus simple questions, explanations, investigations, or reviews.
+  Do not auto-trigger examples: "Dialog에 pilled radius를 적용하고
+  내부 영역도 동일하게 바꿔줘"; "이 버튼의 rounded-md를 rounded-full로 바꿔줘"; "레이블을
+  '저장'으로 바꿔줘". AUTO-INCLUDE-AFTER-EXCLUSIONS: only if not excluded, select non-simple
+  features needing investigation or design for scope or done state, intertwined behaviors or
+  states, or complex bugs with unclear cause and scope.
+  Auto-trigger examples: "페이지 생성 플로우를 개선하자"; "이 편집기에 자동 저장 기능을
+  구현해줘"; "권한별 페이지 관리 기능을 만들자"; "간헐적으로 저장이 실패하는데 원인과 수정
+  범위를 찾아 고쳐줘". Missing acceptance criteria alone is not a trigger; judge complexity,
+  scope uncertainty, and design need. Command boundary: PRE-SELECTION-AWL=none;
+  POST-SELECTION-FIRST-AWL=awl version-check --json;
+  OTHER-SKILL-ONLY-AWL-VERSION-CHECK=forbidden.
 ---
 
 # awl-loop for Codex
 
 Translate a goal into completion criteria, stop at the required gates, then implement autonomously while recording evidence. Treat `awl` as the state/recording tool and Codex as the decision-maker.
+
+## Trigger boundary
+
+Decide whether to use this skill before running any `awl` command:
+
+1. An explicit user-written `$awl-loop` always selects this skill.
+2. For automatic selection, evaluate exclusions first. Do not select it for a bounded, concrete local change likely limited to one or two files—such as radius, color-token, spacing, copy, or class edits—or for a simple question, explanation, investigation, or review.
+3. Only when no exclusion matches, select it for a non-simple feature goal whose scope or completion state needs investigation or design, intertwined behaviors or states, or a complex bug whose cause and fix scope are unclear.
+
+Missing acceptance criteria alone is not a trigger. Do not run `awl version-check`, `awl doctor`, or any other `awl` command while making this decision. If another skill alone is selected, do not run an AWL version check.
 
 ## Quick start
 
@@ -19,7 +38,7 @@ $awl-loop <목표> [--fb]
 $awl-loop 결제 실패 재시도 정책을 추가해줘
 ```
 
-- `<목표>`: acceptance criteria가 아직 없는 구현 목표.
+- `<목표>`: 위 자동 제외 조건에 해당하지 않는 비단순 구현 목표, 또는 사용자가 명시적으로 지정한 목표.
 - `--fb` or `--feedback`: 이번 실행에서 AWL 도구·스킬 사용 중 불편도 함께 수집.
 
 ## Invocation contract
@@ -30,7 +49,9 @@ $awl-loop 결제 실패 재시도 정책을 추가해줘
 
 ## Start checks
 
-1. Run `awl version-check --json` before any other awl check.
+These checks begin only after the trigger decision has selected `$awl-loop`.
+
+1. Run `awl version-check --json` as the first `awl` command.
    - Show `updateAvailable` as information only.
    - If `mismatches` is non-empty, show every hint and ask whether to continue. If continuing, record the reason with `awl record audit`.
 2. Run `awl doctor`. Trust its direct working-tree check, not a conversation summary.
