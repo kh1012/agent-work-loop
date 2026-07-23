@@ -140,6 +140,14 @@ awl pipeline-dispatch issue --lane <absolute-lane> --role <exec|review> \
   --gate-evidence '<coordinator gate evidence JSON>' --json
 ```
 
+The evidence object is mode-specific and includes the already-written coordinator gate 1 record:
+
+- `envelope-auto-evidence: kind=auto; source=pipeline-mode; gate1Record+plan`
+- `envelope-human-evidence: kind=human; source=human-decision; gate1Record+plan+humanDecision`
+
+Keep the same gate 1 provenance in each fresh exec/review envelope for the work item. The
+coordinator remains the only gate-record writer.
+
 Require `ok:true` before spawning. The prompt's only routing data is:
 
 ```text

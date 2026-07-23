@@ -23,6 +23,15 @@ import { buildProgram } from '../../src/program.js';
 
 const roots: string[] = [];
 
+function autoEvidence(plan: string): Record<string, unknown> {
+  return {
+    kind: 'auto',
+    gate1Record: 'rec_123',
+    source: 'pipeline-mode',
+    plan,
+  };
+}
+
 function fixture(): {
   lane: string;
   input: string;
@@ -52,10 +61,7 @@ function fixture(): {
         mode: 'gate-low',
         autoApprove: true,
         recordOwner: 'coordinator',
-        evidence: {
-          gate1Record: 'rec_123',
-          plan: input,
-        },
+        evidence: autoEvidence(input),
       },
       noSubagents: true,
       issuedAt: '2026-07-23T00:00:00.000Z',
@@ -192,7 +198,7 @@ describe('pipeline dispatch issue, verify, and one-time claim', () => {
       workitem: 'work',
       input,
       mode: 'gate-low',
-      evidence: { gate1Record: 'rec_123', plan: input },
+      evidence: autoEvidence(input),
       now: new Date('2026-07-23T00:00:00.000Z'),
       ttlMs: 60_000,
     });
@@ -222,7 +228,7 @@ describe('pipeline dispatch issue, verify, and one-time claim', () => {
       workitem: 'work',
       input,
       mode: 'gate-low',
-      evidence: { gate1Record: 'rec_123', plan: input },
+      evidence: autoEvidence(input),
     });
     const before = fs.readFileSync(input, 'utf8');
     const first = claimPipelineDispatch({
@@ -256,7 +262,7 @@ describe('pipeline dispatch issue, verify, and one-time claim', () => {
       workitem: 'work',
       input,
       mode: 'gate-low',
-      evidence: { gate1Record: 'rec_123', plan: input },
+      evidence: autoEvidence(input),
     });
     const start = path.join(lane, 'start');
     const worker = path.resolve('tests/fixtures/pipeline-dispatch-claim-worker.ts');
@@ -323,7 +329,7 @@ describe('invalid dispatch immutability and gate-low progression', () => {
         workitem: 'work',
         input,
         mode: 'gate-low',
-        evidence: { gate1Record: 'rec_123', plan: input },
+        evidence: autoEvidence(input),
         now: issuedAt,
         ttlMs: 60_000,
       });
@@ -418,5 +424,90 @@ describe('invalid dispatch immutability and gate-low progression', () => {
         plan: input,
       },
     });
+  });
+
+  it('preserves mode-specific human and automatic coordinator gate evidence', () => {
+    const { lane, input } = fixture();
+    const human = issuePipelineDispatch({
+      lane,
+      role: 'exec',
+      workitem: 'work',
+      input,
+      mode: 'gate-high',
+      evidence: {
+        kind: 'human',
+        gate1Record: 'rec_human',
+        source: 'human-decision',
+        humanDecision: 'approved by user',
+        plan: input,
+      },
+    });
+    const automatic = issuePipelineDispatch({
+      lane,
+      role: 'review',
+      workitem: 'work',
+      input,
+      mode: 'gate-medium',
+      evidence: autoEvidence(input),
+    });
+
+    expect(human.envelope.gate).toMatchObject({
+      mode: 'gate-high',
+      autoApprove: false,
+      recordOwner: 'coordinator',
+      evidence: {
+        kind: 'human',
+        gate1Record: 'rec_human',
+        source: 'human-decision',
+        humanDecision: 'approved by user',
+        plan: input,
+      },
+    });
+    expect(automatic.envelope.gate).toMatchObject({
+      mode: 'gate-medium',
+      autoApprove: true,
+      recordOwner: 'coordinator',
+      evidence: autoEvidence(input),
+    });
+  });
+
+  it('rejects gate evidence whose human/auto provenance contradicts the gate mode', () => {
+    const { lane, input, envelope } = fixture();
+    const humanModeWithAutoEvidence = {
+      ...envelope,
+      gate: {
+        ...envelope.gate,
+        mode: 'gate-high',
+        autoApprove: false,
+      },
+    };
+    expect(
+      errorCode(() =>
+        validatePipelineDispatchEnvelope(humanModeWithAutoEvidence, {
+          now: new Date('2026-07-23T00:30:00.000Z'),
+        }),
+      ),
+    ).toBe('DISPATCH_INVALID_FIELD');
+
+    const autoModeWithHumanEvidence = {
+      ...envelope,
+      gate: {
+        ...envelope.gate,
+        evidence: {
+          kind: 'human',
+          gate1Record: 'rec_human',
+          source: 'human-decision',
+          humanDecision: 'approved by user',
+          plan: input,
+        },
+      },
+    };
+    expect(
+      errorCode(() =>
+        validatePipelineDispatchEnvelope(autoModeWithHumanEvidence, {
+          now: new Date('2026-07-23T00:30:00.000Z'),
+        }),
+      ),
+    ).toBe('DISPATCH_INVALID_FIELD');
   });
 });

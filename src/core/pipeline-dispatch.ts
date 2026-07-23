@@ -321,6 +321,26 @@ export function validatePipelineDispatchEnvelope(
   if (Object.keys(evidence).length === 0) {
     fail('DISPATCH_INVALID_FIELD', 'gate.evidence must not be empty', 'gate.evidence');
   }
+  const evidenceKind = nonEmptyString(evidence.kind, 'gate.evidence.kind');
+  const evidenceSource = nonEmptyString(evidence.source, 'gate.evidence.source');
+  nonEmptyString(evidence.gate1Record, 'gate.evidence.gate1Record');
+  nonEmptyString(evidence.plan, 'gate.evidence.plan');
+  if (mode === 'gate-high') {
+    if (evidenceKind !== 'human' || evidenceSource !== 'human-decision') {
+      fail(
+        'DISPATCH_INVALID_FIELD',
+        'gate-high requires human evidence from human-decision',
+        'gate.evidence',
+      );
+    }
+    nonEmptyString(evidence.humanDecision, 'gate.evidence.humanDecision');
+  } else if (evidenceKind !== 'auto' || evidenceSource !== 'pipeline-mode') {
+    fail(
+      'DISPATCH_INVALID_FIELD',
+      `${mode} requires automatic evidence from pipeline-mode`,
+      'gate.evidence',
+    );
+  }
   if (envelope.noSubagents !== true) {
     fail('DISPATCH_INVALID_FIELD', 'noSubagents must be true', 'noSubagents');
   }

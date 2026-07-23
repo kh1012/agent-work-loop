@@ -331,6 +331,21 @@ describe('Codex AWL skills', () => {
     }
   });
 
+  it('dispatch envelope는 mode별 coordinator gate provenance를 명시적으로 보존한다', () => {
+    for (const surface of ['codex', 'claude']) {
+      const coordinator = fs.readFileSync(
+        path.join(process.cwd(), 'engine', 'skills', surface, 'awl-pipeline', 'SKILL.md'),
+        'utf8',
+      );
+      expect(coordinator).toContain(
+        'envelope-auto-evidence: kind=auto; source=pipeline-mode; gate1Record+plan',
+      );
+      expect(coordinator).toContain(
+        'envelope-human-evidence: kind=human; source=human-decision; gate1Record+plan+humanDecision',
+      );
+    }
+  });
+
   it('문서화한 gate JSON 8개가 실제 record gate schema를 통과한다', () => {
     const coordinators = ['codex', 'claude'].map((surface) =>
       fs.readFileSync(

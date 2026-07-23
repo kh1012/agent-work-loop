@@ -172,6 +172,10 @@ awl record gate --json '{"gate":2,"decision":"approved","presentedCriteria":["<c
   `awl pipeline-dispatch issue --lane <absolute-lane> --role <exec|review> --workitem <name> --input <absolute-plan-review-or-exec-path> --mode <gate-mode> --gate-evidence '<coordinator gate evidence JSON>' --json`.
   `ok:true`가 아니면 스폰하지 않는다. 프롬프트의 only routing data는 아래 절대경로 한 줄이다:
   `dispatch_envelope: <absolute-envelope-path>`.
+- evidence는 이미 coordinator가 기록한 gate 1 provenance를 mode별로 보존한다:
+  `envelope-auto-evidence: kind=auto; source=pipeline-mode; gate1Record+plan`,
+  `envelope-human-evidence: kind=human; source=human-decision; gate1Record+plan+humanDecision`.
+  feedback/review용 fresh envelope에도 같은 gate 1 provenance를 넣고 gate record는 coordinator만 쓴다.
 - lane/workitem/input/mode/approval boolean/gate evidence를 prompt 권한으로 반복하지 않는다.
   worker 권한은 `awl pipeline-dispatch claim`의 one-time 성공에서만 나온다.
 - **1단계 위임, 재귀 금지.** 오케스트레이터가 exec·review 세션을 스폰하고, 그 세션들은 자기 작업 안에서 read-only 서브에이전트로 다시 팬아웃할 수 있으나(조사·감사·리뷰) **그 서브에이전트는 재위임하지 않는다.** 스폰·서브에이전트 프롬프트에 "재귀 위임 금지"를 못박는다. 좁은 범위라 컨텍스트가 넘치지 않는다 — 넘치면 workitem이 너무 크다는 신호(plan 분해).
