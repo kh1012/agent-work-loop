@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { buildRecord } from '../../src/commands/record.js';
 
 const root = path.join(process.cwd(), 'engine', 'skills', 'codex');
 const claudeLoopPath = path.join(
@@ -275,6 +276,43 @@ describe('Codex AWL skills', () => {
       expect(coordinator.indexOf('fresh independent review')).toBeLessThan(
         coordinator.indexOf('human-gate-2:'),
       );
+    }
+  });
+
+  it('문서화한 gate JSON 8개가 실제 record gate schema를 통과한다', () => {
+    const coordinators = ['codex', 'claude'].map((surface) =>
+      fs.readFileSync(
+        path.join(process.cwd(), 'engine', 'skills', surface, 'awl-pipeline', 'SKILL.md'),
+        'utf8',
+      ),
+    );
+    const defaults = {
+      project: 'skill-contract',
+      id: 'rec_documented_gate',
+      at: '2026-07-23T00:00:00.000Z',
+    };
+
+    for (const coordinator of coordinators) {
+      const payloads = [...coordinator.matchAll(/awl record gate --json '(\{[^\n]+\})'/g)].map(
+        (match) => JSON.parse(match[1] ?? '{}') as Record<string, unknown>,
+      );
+
+      expect(payloads).toHaveLength(4);
+      for (const payload of payloads) {
+        expect(buildRecord('gate', payload, defaults).missing).toEqual([]);
+        expect(payload.presentedCriteria).toEqual(expect.arrayContaining([expect.any(String)]));
+        if (payload.gate === 1) {
+          expect(payload).toHaveProperty('presentedExclusions');
+          expect(payload.presentedExclusions).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                id: expect.any(String),
+                reason: expect.any(String),
+              }),
+            ]),
+          );
+        }
+      }
     }
   });
 

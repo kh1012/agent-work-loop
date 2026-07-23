@@ -104,6 +104,10 @@ gates themselves.
 
 `pipeline-auto-gate-records: gate1=once(auto:true,plan-evidence); gate2=once(auto:true,exec+review-evidence)`
 
+For every command below, replace `presentedCriteria` with every criterion shown at that gate. At
+gate 1, replace `presentedExclusions` with every excluded finding and its plan reason; use `[]` only
+when the plan excludes nothing. These arrays are required record evidence, not optional examples.
+
 For `gate-high`, present the plan files, measurable criteria, dependencies, and exclusions, then ask
 for approval and end the turn. Do not spawn an implementation agent before approval. After the
 reply, record gate 1 exactly once and continue:
@@ -111,7 +115,7 @@ reply, record gate 1 exactly once and continue:
 `human-gate-1: auto=false; evidence=human-decision+plan`
 
 ```bash
-awl record gate --json '{"gate":1,"decision":"approved","auto":false,"actor":"coordinator","source":"human-decision","evidence":{"humanDecision":"user reply","plan":".tasks/plan/<name>.taken.md"}}'
+awl record gate --json '{"gate":1,"decision":"approved","presentedCriteria":["<criterion-id>"],"presentedExclusions":[{"id":"<excluded-finding-id>","reason":"<plan exclusion reason>"}],"auto":false,"actor":"coordinator","source":"human-decision","evidence":{"humanDecision":"user reply","plan":".tasks/plan/<name>.taken.md"}}'
 ```
 
 For `gate-medium` and `gate-low`, record gate 1 exactly once before dispatch:
@@ -119,7 +123,7 @@ For `gate-medium` and `gate-low`, record gate 1 exactly once before dispatch:
 `automatic-gate-1: auto=true; evidence=plan`
 
 ```bash
-awl record gate --json '{"gate":1,"decision":"approved","auto":true,"actor":"coordinator","source":"pipeline-mode","evidence":{"plan":".tasks/plan/<name>.taken.md"}}'
+awl record gate --json '{"gate":1,"decision":"approved","presentedCriteria":["<criterion-id>"],"presentedExclusions":[{"id":"<excluded-finding-id>","reason":"<plan exclusion reason>"}],"auto":true,"actor":"coordinator","source":"pipeline-mode","evidence":{"plan":".tasks/plan/<name>.taken.md"}}'
 ```
 
 ## Codex dispatch contract
@@ -173,7 +177,7 @@ After every work item reaches pass:
    `human-gate-2: auto=false; evidence=human-decision+independent-review`
 
    ```bash
-   awl record gate --json '{"gate":2,"decision":"approved","auto":false,"actor":"coordinator","source":"human-decision","evidence":{"humanDecision":"user reply","implementationHandoff":".tasks/exec/<name>.taken.md","independentReview":"fresh review pass"}}'
+   awl record gate --json '{"gate":2,"decision":"approved","presentedCriteria":["<criterion-id>"],"auto":false,"actor":"coordinator","source":"human-decision","evidence":{"humanDecision":"user reply","implementationHandoff":".tasks/exec/<name>.taken.md","independentReview":"fresh review pass"}}'
    ```
 4. For `gate-medium` and `gate-low`, record gate 2 exactly once after the implementation handoff
    and fresh independent review both pass:
@@ -181,7 +185,7 @@ After every work item reaches pass:
    `automatic-gate-2: auto=true; evidence=implementation-handoff+independent-review`
 
    ```bash
-   awl record gate --json '{"gate":2,"decision":"approved","auto":true,"actor":"coordinator","source":"pipeline-mode","evidence":{"implementationHandoff":".tasks/exec/<name>.taken.md","independentReview":"fresh review pass"}}'
+   awl record gate --json '{"gate":2,"decision":"approved","presentedCriteria":["<criterion-id>"],"auto":true,"actor":"coordinator","source":"pipeline-mode","evidence":{"implementationHandoff":".tasks/exec/<name>.taken.md","independentReview":"fresh review pass"}}'
    ```
 5. Run the evolve step for completed work items.
 6. Report measured wall-clock time separately from per-item duration averages and state how many Codex agents were spawned.
