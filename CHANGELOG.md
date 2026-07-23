@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-07-23
+
 ### 고침
 
 - 기존 Codex `awl-loop`가 Claude 스킬을 가리키는 symlink여도 실제 repo 스킬 디렉터리로 안전하게 마이그레이션한다.
