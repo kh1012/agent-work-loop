@@ -98,6 +98,18 @@ describe('Codex AWL skills', () => {
     expect(pipeline).toContain('$awl-pipeline . --gl');
   });
 
+  it('Codex pipeline은 선택적 --poll interval과 30분 대표 예시를 노출한다', () => {
+    const metadata = read('awl-pipeline/agents/openai.yaml');
+    const pipeline = read('awl-pipeline/SKILL.md');
+
+    expect(metadata).toContain('--poll <interval>');
+    expect(metadata).toContain('--poll 30m');
+    expect(pipeline).toContain('--poll <interval>');
+    expect(pipeline).toContain('$awl-pipeline feedback-loop --gl --poll 30m');
+    expect(pipeline).toContain('Parse `--poll <interval>` before lane and mode');
+    expect(pipeline).toContain('natural-language cadence');
+  });
+
   it('Codex 문서에 Claude 전용 도구·설치 경로·스케줄 폴링이 남아있지 않다', () => {
     const all = skillNames.map((name) => read(`${name}/SKILL.md`)).join('\n');
     for (const stale of [

@@ -1,4 +1,4 @@
 interface:
   display_name: "AWL Pipeline"
-  short_description: "<lane명> <mode(--gh/--gm/--gl)>로 plan·exec·review 파이프라인 실행"
-  default_prompt: "Use $awl-pipeline <lane명> <mode> to run plan, exec, and independent review in an isolated lane; choose --gh, --gm, or --gl."
+  short_description: "<lane명> <mode> [--poll 30m]로 plan·exec·review 실행"
+  default_prompt: "Use $awl-pipeline <lane명> <mode> [--poll <interval>] to run plan, exec, and independent review in an isolated lane; choose --gh, --gm, or --gl, and use --poll 30m for native Scheduled idle checks."

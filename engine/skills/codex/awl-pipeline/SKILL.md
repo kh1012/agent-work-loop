@@ -1,12 +1,13 @@
 ---
 name: awl-pipeline
 description: >-
-  Use `$awl-pipeline lane-name mode [--fb]` to orchestrate one or more AWL work items through
-  an isolated lane, planning, implementation, independent review, feedback rounds, and status
-  reporting with Codex subagents. The lane may be a named worktree lane, `.`, or omitted for
-  an automatic lane. Mode accepts `--gh`, `--gm`, or `--gl` (gate-high/medium/low) and
-  defaults to gate-high. Use for multiple independent work items or isolated execution. Do not
-  use for a single role-only plan, exec, or review session.
+  Use `$awl-pipeline lane-name mode [--poll <interval>] [--fb]` to orchestrate one or more AWL
+  work items through an isolated lane, planning, implementation, independent review, feedback
+  rounds, and status reporting with Codex subagents. The lane may be a named worktree lane, `.`,
+  or omitted for an automatic lane. Mode accepts `--gh`, `--gm`, or `--gl`
+  (gate-high/medium/low) and defaults to gate-high. Optional `--poll` uses a native current-chat
+  Scheduled task for idle checks. Use for multiple independent work items or isolated execution.
+  Do not use for a single role-only plan, exec, or review session.
 ---
 
 # awl-pipeline for Codex
@@ -16,20 +17,28 @@ Act as the coordinator. Use filesystem state as the durable source of truth and 
 ## Quick start
 
 ```text
-$awl-pipeline <lane명> <mode> [--fb]
+$awl-pipeline <lane명> <mode> [--poll <interval>] [--fb]
 $awl-pipeline design-tokens --gh   # named isolated lane, approval at both gates
 $awl-pipeline --gm                 # automatic unknown-lane-N, defer high-severity decisions
 $awl-pipeline . --gl               # current cwd, fully automatic gates
+$awl-pipeline feedback-loop --gl --poll 30m
 ```
 
 - `<lane명>` omitted: create the smallest unused `unknown-lane-<N>` unless already inside a lane.
 - `<mode>` omitted: use `gate-high` (`--gh`), the conservative default.
 - Higher gate density means more human intervention: `--gh` > `--gm` > `--gl`.
+- `--poll 30m`: request native current-chat Scheduled idle checks every 30 minutes.
 - `--fb` or `--feedback`: collect AWL tool/skill friction for this pipeline run.
 
 ## Arguments
 
-Parse `--fb` or `--feedback` first, then parse lane and mode.
+Parse `--poll <interval>` before lane and mode so its value is never mistaken for either one.
+Accept a positive integer followed by `m`, `h`, or `d`; `30m` is the canonical 30-minute form.
+Treat an equivalent natural-language cadence such as "30분마다 확인" as `--poll 30m`. Reject a
+missing, zero, negative, or unknown-unit interval instead of guessing. Omission means no idle
+polling.
+
+After polling is resolved, parse `--fb` or `--feedback`, then parse lane and mode.
 
 Lane:
 
