@@ -135,7 +135,7 @@ describe('Codex AWL skills', () => {
     expect(pipeline).toContain('Scheduled capability is unavailable');
   });
 
-  it('Codex 문서에 Claude 전용 도구·설치 경로·스케줄 폴링이 남아있지 않다', () => {
+  it('Codex 문서에 Claude 전용 도구·설치 경로가 남아있지 않다', () => {
     const all = skillNames.map((name) => read(`${name}/SKILL.md`)).join('\n');
     for (const stale of [
       '.claude/skills',
@@ -150,6 +150,22 @@ describe('Codex AWL skills', () => {
     ]) {
       expect(all).not.toContain(stale);
     }
+  });
+
+  it('native Scheduled만 idle polling으로 허용하고 비관리형 timer 구현은 거부한다', () => {
+    const pipeline = read('awl-pipeline/SKILL.md');
+    const normalized = pipeline.replace(/\s+/g, ' ');
+
+    expect(normalized).toContain(
+      'The native Scheduled task is the only supported idle polling mechanism.',
+    );
+    expect(normalized).toContain(
+      'Never emulate polling with an active goal, `sleep`, a shell watcher, cron, or `codex exec resume`.',
+    );
+    for (const unmanaged of ['setTimeout(', 'setInterval(', 'while true', 'sleep 1800']) {
+      expect(pipeline).not.toContain(unmanaged);
+    }
+    expect(pipeline.match(/`codex exec resume`/g)).toHaveLength(1);
   });
 
   it('오케스트레이터는 Codex 멀티에이전트 생명주기와 single-writer 계약을 명시한다', () => {

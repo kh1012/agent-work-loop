@@ -67,6 +67,7 @@ Gate density does not change Codex sandbox or approval permissions.
 
 Use this lifecycle only when `--poll` or an equivalent natural-language cadence was requested.
 Known plans and active exec/review rounds still use the normal dispatch contract below.
+The native Scheduled task is the only supported idle polling mechanism.
 
 1. Check whether the current product surface exposes its native Scheduled-task capability. Create
    or update one task in the current chat at the exact requested cadence. Do not silently choose a
