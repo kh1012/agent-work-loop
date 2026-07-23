@@ -5,6 +5,25 @@
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-07-23
+
+### 추가
+
+- Codex `$awl-pipeline`에 `--poll <interval>`을 추가했다. `--poll 30m`처럼 지정하면 현재
+  chat의 native Scheduled task로 미래 plan 도착을 주기적으로 확인한다.
+
+### 고침
+
+- `awl --help` 시작 카드와 footer가 `--poll` 호출법, native Scheduled 동작, capability
+  제한을 함께 보여주도록 맞췄다.
+
+### 변경
+
+- Scheduled capability가 없는 환경에서는 polling 활성화를 주장하지 않고, active goal,
+  `sleep`, shell watcher, cron, `codex exec resume`로 예약 실행을 흉내 내지 않는다.
+- Codex 스킬, README, CLI 도움말, pipeline template, 프레젠테이션 문서의 polling 계약을
+  동기화하고 각 사용자 노출 영역을 독립적으로 검증한다.
+
 ## [0.7.2] - 2026-07-23
 
 ### 고침
