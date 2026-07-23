@@ -192,6 +192,24 @@ describe('Codex AWL skills', () => {
     expect(pipeline).toContain('Do not ask role agents to spawn their own agents');
   });
 
+  it('Codex와 Claude pipeline은 coordinator만 gate record를 소유한다', () => {
+    const surfaces = ['codex', 'claude'].map((surface) => {
+      const base = path.join(process.cwd(), 'engine', 'skills', surface);
+      return {
+        coordinator: fs.readFileSync(path.join(base, 'awl-pipeline', 'SKILL.md'), 'utf8'),
+        exec: fs.readFileSync(path.join(base, 'awl-pipeline-exec', 'SKILL.md'), 'utf8'),
+        loop: fs.readFileSync(path.join(base, 'awl-loop', 'SKILL.md'), 'utf8'),
+      };
+    });
+
+    for (const { coordinator, exec, loop } of surfaces) {
+      expect(coordinator).toContain('pipeline-gate-owner: coordinator');
+      expect(exec).toContain('pipeline-gate-recorder: coordinator-only');
+      expect(loop).toContain('pipeline-gate-recorder: coordinator-only');
+      expect(exec).not.toMatch(/awl record gate/);
+    }
+  });
+
   it('AGENTS 블록은 긴 워크플로우 복제 대신 실제 스킬로 라우팅한다', () => {
     const agents = read('AGENTS.awl.md');
     expect(agents).toContain('$awl-loop');

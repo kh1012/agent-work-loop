@@ -44,7 +44,10 @@ $awl-loop 결제 실패 재시도 정책을 추가해줘
 ## Invocation contract
 
 - Standalone invocation: follow both human gates and use a fresh review subagent when review is required.
-- Pipeline worker invocation: the parent prompt may set `auto_approve: true` and `pipeline_worker: true`. Record both gates with `"auto":true`, do not ask the user, and do not spawn a reviewer; `$awl-pipeline-review` supplies the independent review.
+- Pipeline worker invocation: the parent prompt may set `auto_approve: true` and `pipeline_worker: true`.
+  `pipeline-gate-recorder: coordinator-only` means the worker consumes the coordinator's gate
+  evidence, never writes pipeline gate records, does not ask the user, and does not spawn a
+  reviewer; `$awl-pipeline-review` supplies the independent review.
 - Never infer either flag. Use it only when the invoking prompt states it.
 
 ## Start checks
@@ -106,7 +109,8 @@ awl state set --json '{"phase":"awaiting-gate1","criteria":[{"id":"AC-01","statu
 Present criteria, dependencies, and every finding excluded from all `addresses` lists.
 
 - Standalone: ask the user to approve, modify, split, or stop. End the turn without editing files. This is a real blocking gate, not prose followed by implementation.
-- Pipeline worker: use the plan document as approval and record `"auto":true`.
+- Pipeline worker: use the gate 1 evidence supplied by the coordinator. Do not write another gate
+  record.
 - Immediately record the response:
 
 ```bash
@@ -152,8 +156,10 @@ After each group of three completed criteria, or once at the end when fewer rema
 Show all criteria, verification evidence, blocked items, and unchecked items.
 
 - Standalone: ask the user to approve, request more work, or abandon. End the turn and wait.
-- Pipeline worker: record automatic approval; external review can reopen the item.
-- Record the result immediately with `awl record gate`. Include `humanFindings` when the user catches something.
+- Pipeline worker: return implementation evidence for the coordinator's gate 2 decision; external
+  review can reopen the item. Do not write another gate record.
+- Standalone only: record the result immediately with `awl record gate`. Include `humanFindings`
+  when the user catches something.
 - Never push. The user pushes.
 
 ### 6. Evolve

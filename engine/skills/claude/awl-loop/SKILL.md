@@ -56,6 +56,13 @@ description: |
 awl evolve
 ```
 
+### 호출 계약
+
+- 단독 호출은 두 사람 게이트와 독립 리뷰 절차를 그대로 따른다.
+- 파이프라인 worker 호출에서는 `pipeline-gate-recorder: coordinator-only`다. worker는
+  오케스트레이터가 전달한 승인 근거를 소비하고 구현·검증 근거를 반환하며 파이프라인 gate record를
+  직접 쓰지 않는다.
+
 ### 버전 확인 — 발동 결정 뒤 첫 awl 명령 (WI-X)
 
 이 스킬을 사용하기로 결정한 뒤에만 `awl version-check --json` 을 호출한다. 이 명령을 스킬 사용 여부를 판단하는 탐색 명령으로 실행하면 안 된다. 프로젝트 config.engineVersion 과 전역 엔진, 설치된 스킬 버전이 어긋나면(`ok:false`) 옛날 스킬과 새 CLI 가 섞여 예측 못 할 동작이 날 수 있다.

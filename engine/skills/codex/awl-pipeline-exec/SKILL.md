@@ -49,14 +49,18 @@ Rename it to `plan/<name>.hold.md`, add the reason and routing/unhold condition 
 
 ### Claim and implement
 
+`pipeline-gate-recorder: coordinator-only`
+
 1. Rename `plan/<name>.md` to `plan/<name>.taken.md` before editing code.
 2. Execute the `$awl-loop` workflow in this agent context:
    - Register/use the work item.
    - Translate plan criteria into awl criteria/state.
-   - For pipeline invocation, record gate 1 with `"auto":true` and the plan as approval evidence.
+   - For pipeline invocation, consume the coordinator's gate 1 approval evidence. Do not write a
+     gate record from the implementation role.
    - Test first, implement, run `awl verify`, commit with `awl commit`, and record attempts.
    - Do not spawn the standalone loop reviewer; `$awl-pipeline-review` is the fresh reviewer.
-   - Record gate 2 with `"auto":true` only as an implementation handoff, not final review approval.
+   - Return implementation handoff evidence for the coordinator's gate 2 decision. Do not write a
+     gate record from the implementation role.
 3. Write `exec/<name>.md` using the handoff format.
 4. Return the same concise handoff in the final result so the coordinator can react.
 

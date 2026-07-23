@@ -94,6 +94,14 @@ shell watcher, cron, or `codex exec resume`. Do not claim that monitoring is act
 
 Perform the `$awl-pipeline-plan` workflow in the coordinator unless the user explicitly requested a separate plan agent. Write one `.tasks/plan/<name>.md` per independent work item.
 
+## Pipeline gate record ownership
+
+`pipeline-gate-owner: coordinator`
+
+The coordinator is the sole role that writes gate records for pipeline work. Implementation and
+review workers consume gate evidence and return handoff/review evidence; they never record pipeline
+gates themselves.
+
 For `gate-high`, present the plan files, measurable criteria, dependencies, and exclusions, then ask for approval and end the turn. Do not spawn an implementation agent before approval. After the reply, record gate 1 and continue.
 
 For the automatic modes, record gate 1 with `"auto":true` before dispatch.

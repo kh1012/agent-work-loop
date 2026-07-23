@@ -63,9 +63,15 @@ description: |
 처리할 게 남아있는 동안 1→2→3을 계속 반복한다. **한 일감의 `/awl-loop` 구현은 중간에 멈추지 말고 이 턴에서 끝까지 순차 진행한다**(구현 도중 ScheduleWakeup 하지 않는다).
 
 ## 구현 코어: `/awl-loop` (반드시 — **구현 서브에이전트가 수행**)
-무거운 구현은 **`Task`(subagent_type:`general-purpose`)로 띄운 서브에이전트가** `Skill(awl-loop)`로 수행한다 — 오래 도는 이 루프 세션의 컨텍스트를 구현 로그(수십 파일 read·커밋·리뷰)로 채우지 않기 위함이다. 메인은 파일 상태 전이(plan/review .taken·exec .taken떼기·exec 핸드오프 기록)만 한다. 서브에이전트 프롬프트에 (a) cwd·입력 경로(`plan/<name>.md` 또는 `review/<name>.md`)·워크아이템, (b) 아래 규칙 전부, (c) 완료 시 **구조화된 핸드오프 반환**(workitem·round·완료조건별 한 일+커밋·검증결과·직접볼 리뷰포인트·범위밖)을 담는다. awl-loop 파이프라인을 그대로 따르되 **무인이므로 두 게이트를 자율 승인**한다:
-- **게이트1(완료조건 승인)**: plan 문서의 완료조건을 근거로 확정하고 `awl record gate --json '{"gate":1,...,"auto":true}'`. plan에 없던 배제(조사 중 새 발견)가 생기면 `presentedExclusions`에 담고 `exec/<name>.md`의 "범위 밖"에도 명시한다(review가 본다).
-- **게이트2(완료 승인)**: review 세션이 검증하므로 자율 승인하고 `awl record gate --json '{"gate":2,...,"auto":true}'`.
+무거운 구현은 **`Task`(subagent_type:`general-purpose`)로 띄운 서브에이전트가** `Skill(awl-loop)`로 수행한다 — 오래 도는 이 루프 세션의 컨텍스트를 구현 로그(수십 파일 read·커밋·리뷰)로 채우지 않기 위함이다. 메인은 파일 상태 전이(plan/review .taken·exec .taken떼기·exec 핸드오프 기록)만 한다. 서브에이전트 프롬프트에 (a) cwd·입력 경로(`plan/<name>.md` 또는 `review/<name>.md`)·워크아이템, (b) 아래 규칙 전부, (c) 완료 시 **구조화된 핸드오프 반환**(workitem·round·완료조건별 한 일+커밋·검증결과·직접볼 리뷰포인트·범위밖)을 담는다. awl-loop 파이프라인을 그대로 따르되 오케스트레이터가 게이트를 소유한다:
+
+`pipeline-gate-recorder: coordinator-only`
+
+- **게이트1(완료조건 승인)**: 오케스트레이터가 기록해 전달한 승인 근거를 소비한다. exec 역할은
+  gate record를 쓰지 않는다. plan에 없던 배제(조사 중 새 발견)가 생기면
+  `exec/<name>.md`의 "범위 밖"에 명시해 오케스트레이터와 review가 보게 한다.
+- **게이트2(완료 승인)**: 독립 review가 확인할 구현 핸드오프 근거를 반환한다. exec 역할은 gate
+  record를 쓰지 않는다.
 - 나머지 awl-loop 규칙 전부 준수: `awl work new`로 워크아이템 등록, 조사→완료조건, 실패 원인 판별(구현/절차/환경), 3회 막힘 처리, 완료조건 3개마다 리뷰(서브에이전트), evolve. `awl record`로 기록.
 - **`git add` 직접 금지 — `awl commit` 사용**(절대규칙9). **push 안 함**(절대규칙10).
 - 워킹트리 더러우면 `awl work new <WI> --worktree`로 격리 워크트리에서 구현한다(공용 트리 오염 방지).
@@ -97,13 +103,8 @@ description: |
   프리미티브가 없다. 만들려면 신규 CLI 표면(예: `awl home merge`)을 새로 설계해야 하고 잘못 쓰면
   records/gotcha 유실 위험이 있어, 지금은 문서화된 우회로 충분하다고 판단한다
   (pipeline-followup-handoff-cause-and-isolated-home-decision).
-- **게이트 record 예외의 통계 영향(참고)**: 위 F-02류 오염을 피해 게이트1/게이트2를 정식
-  `awl record gate` 대신 단일 attempt record로 남기는 예외 경로를 쓰면, 그 workitem은
-  `awl loop-summary`의 "개입"(dimension①)·"gate1 배제 수"(dimension④) 집계에서 조용히 0 기여로
-  빠진다(다른 workitem 집계를 오염시키진 않는다 — `src/commands/loop-summary.ts`
-  `computeIntervention`/`computeYieldLearning`가 gate record 부재 workitem을 그냥 건너뛴다). 저빈도
-  예외 경로라 코드 방어는 추가하지 않았다 — loop-summary를 볼 때 "gate 0건" workitem이 보이면 이
-  사례일 수 있다는 것만 알면 된다.
+- **게이트 통계**: 오케스트레이터가 유일한 기록자이므로 exec의 AWL_HOME 활성 포인터와 무관하게
+  gate1/gate2 기록이 workitem별 loop-summary 집계에 포함된다.
 
 ## 핸드오프 형식 (`exec/<name>.md`) — review의 입력
 ```
