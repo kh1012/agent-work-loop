@@ -199,13 +199,28 @@ describe('awl 프로그램 구성', () => {
     });
     program.outputHelp();
 
-    for (const contract of [
-      '$awl-pipeline <lane명> <mode> [--poll <interval>]',
-      '--poll 30m',
-      'native Scheduled',
-      'Scheduled capability',
-    ]) {
-      expect(output).toContain(contract);
+    const startupAt = output.indexOf('+  시작하기');
+    const usageAt = output.indexOf('Usage:');
+    const footerAt = output.indexOf('+  skills 부연설명');
+    expect(startupAt).toBeGreaterThanOrEqual(0);
+    expect(usageAt).toBeGreaterThan(startupAt);
+    expect(footerAt).toBeGreaterThan(usageAt);
+
+    const normalizeSection = (value: string): string =>
+      value.replace(/\n\|\s*/g, ' ').replace(/\s+/g, ' ');
+    const sections = [
+      normalizeSection(output.slice(startupAt, usageAt)),
+      normalizeSection(output.slice(footerAt)),
+    ];
+    for (const section of sections) {
+      for (const contract of [
+        '$awl-pipeline <lane명> <mode> [--poll <interval>]',
+        '--poll 30m',
+        'native Scheduled',
+        'Scheduled capability',
+      ]) {
+        expect(section).toContain(contract);
+      }
     }
   });
 });
