@@ -39,7 +39,10 @@ describe('loadProjectName — effective worktree config', () => {
   it('worktree-local overlay의 project를 사용한다', () => {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-record-project-')));
     fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.git', 'objects'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.git', 'refs'), { recursive: true });
     fs.mkdirSync(path.join(root, '.git', 'awl'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.git', 'HEAD'), 'ref: refs/heads/main\n');
     fs.writeFileSync(
       path.join(root, '.awl', 'config.json'),
       JSON.stringify({

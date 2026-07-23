@@ -44,6 +44,14 @@ function projectWithConfig(text: string): string {
   return root;
 }
 
+function makeGitMetadata(root: string): string {
+  const gitDir = path.join(root, '.git');
+  fs.mkdirSync(path.join(gitDir, 'objects'), { recursive: true });
+  fs.mkdirSync(path.join(gitDir, 'refs'), { recursive: true });
+  fs.writeFileSync(path.join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
+  return gitDir;
+}
+
 function writeLocalOverlay(root: string, value: unknown): string {
   const overlayPath = path.join(root, '.git', 'awl', 'config.local.json');
   fs.mkdirSync(path.dirname(overlayPath), { recursive: true });
@@ -114,7 +122,7 @@ describe('loadConfig', () => {
         feedback: { enabled: false, path: '/base/feedback' },
       }),
     );
-    fs.mkdirSync(path.join(root, '.git'));
+    makeGitMetadata(root);
     const overlayPath = writeLocalOverlay(root, {
       project: 'lane-project',
       feedback: { enabled: true },
@@ -137,7 +145,7 @@ describe('loadConfig', () => {
 
   it('overlay JSON/schema 오류는 base 오류와 구분하고 effective config를 반환하지 않는다', () => {
     const root = projectWithConfig(VALID);
-    fs.mkdirSync(path.join(root, '.git'));
+    makeGitMetadata(root);
     const overlayPath = writeLocalOverlay(root, { verify: {} });
 
     const invalidSchema = loadConfig(root);
@@ -175,7 +183,7 @@ describe('config JSON/source output and local writes', () => {
 
   function gitProject(): string {
     const root = fs.realpathSync(projectWithConfig(VALID));
-    fs.mkdirSync(path.join(root, '.git'));
+    makeGitMetadata(root);
     return root;
   }
 
@@ -240,7 +248,7 @@ describe('config JSON/source output and local writes', () => {
   ])('$name은 overlay를 쓰기 전에 거부한다', async ({ key, withGit }) => {
     const root = fs.realpathSync(projectWithConfig(VALID));
     if (withGit) {
-      fs.mkdirSync(path.join(root, '.git'));
+      makeGitMetadata(root);
     }
     process.chdir(root);
     let stderr = '';
@@ -257,6 +265,48 @@ describe('config JSON/source output and local writes', () => {
     );
     expect(stderr).toMatch(withGit ? /local.*지원|지원.*local/i : /git.*worktree/i);
     expect(fs.existsSync(path.join(root, '.git', 'awl', 'config.local.json'))).toBe(false);
+  });
+
+  it.each([
+    {
+      name: 'existing empty gitdir',
+      arrange(root: string) {
+        const gitDir = fs.realpathSync(
+          fs.mkdtempSync(path.join(os.tmpdir(), 'awl-cfg-empty-gitdir-')),
+        );
+        fs.writeFileSync(path.join(root, '.git'), `gitdir: ${gitDir}\n`);
+        return gitDir;
+      },
+    },
+    {
+      name: 'existing non-Git commondir',
+      arrange(root: string) {
+        const gitDir = fs.realpathSync(
+          fs.mkdtempSync(path.join(os.tmpdir(), 'awl-cfg-worktree-gitdir-')),
+        );
+        const commonDir = fs.realpathSync(
+          fs.mkdtempSync(path.join(os.tmpdir(), 'awl-cfg-non-git-common-')),
+        );
+        fs.writeFileSync(path.join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
+        fs.writeFileSync(path.join(gitDir, 'commondir'), `${commonDir}\n`);
+        fs.writeFileSync(path.join(root, '.git'), `gitdir: ${gitDir}\n`);
+        return gitDir;
+      },
+    },
+  ])('$name scope는 local overlay를 만들기 전에 거부한다', async ({ arrange }) => {
+    const root = fs.realpathSync(projectWithConfig(VALID));
+    const gitDir = arrange(root);
+    process.chdir(root);
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as typeof process.exit);
+
+    await expect(
+      runConfigSet('project', 'unexpected-write', { force: false, local: true }),
+    ).rejects.toThrow('exit:1');
+    expect(fs.existsSync(path.join(gitDir, 'awl', 'config.local.json'))).toBe(false);
+    expect(fs.existsSync(path.join(gitDir, 'awl'))).toBe(false);
   });
 });
 

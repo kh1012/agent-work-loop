@@ -37,10 +37,17 @@ function makeInstalledHome(): string {
   return home;
 }
 
-/** .git + .awl/config.json(verify 포함)을 갖춘 "설치됨" 프로젝트 */
+function makeGitMetadata(projectRoot: string): void {
+  const gitDir = path.join(projectRoot, '.git');
+  fs.mkdirSync(path.join(gitDir, 'objects'), { recursive: true });
+  fs.mkdirSync(path.join(gitDir, 'refs'), { recursive: true });
+  fs.writeFileSync(path.join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
+}
+
+/** 유효한 .git + .awl/config.json(verify 포함)을 갖춘 "설치됨" 프로젝트 */
 function makeInstalledProject(): string {
   const proj = tmp('awl-proj-');
-  fs.mkdirSync(path.join(proj, '.git'), { recursive: true });
+  makeGitMetadata(proj);
   fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
   fs.writeFileSync(
     path.join(proj, '.awl', 'config.json'),
@@ -253,8 +260,9 @@ describe('collectChecks — 프로젝트 루트/브랜치 표시 (WI-C)', () => 
   });
 
   it('git 저장소가 아니면(.awl 만 있는 프로젝트) 크래시 없이 안내한다 (AC-02)', async () => {
-    // makeInstalledProject 의 .git 은 findProjectRoot 용 가짜 빈 디렉토리라 실제 git 저장소가 아니다.
     const proj = fs.realpathSync(makeInstalledProject());
+    fs.rmSync(path.join(proj, '.git'), { recursive: true });
+    fs.mkdirSync(path.join(proj, '.git'));
     process.chdir(proj);
 
     const report = await collectChecks();
@@ -265,6 +273,8 @@ describe('collectChecks — 프로젝트 루트/브랜치 표시 (WI-C)', () => 
 
   it('브랜치 조회 실패 안내 문구가 특정 원인(git 아님)으로 단정하지 않는다 (AC-03, 리뷰 지적 — detached HEAD 등 다른 원인도 있다)', async () => {
     const proj = fs.realpathSync(makeInstalledProject());
+    fs.rmSync(path.join(proj, '.git'), { recursive: true });
+    fs.mkdirSync(path.join(proj, '.git'));
     process.chdir(proj);
 
     const report = await collectChecks();
@@ -277,7 +287,7 @@ describe('collectChecks — 프로젝트 루트/브랜치 표시 (WI-C)', () => 
 
   it('projectRoot 는 찾았지만 config.json 은 없을 때(awl init 이전)도 두 체크가 안전하다 (AC-04, 리뷰 지적 — 전용 회귀 테스트 부재)', async () => {
     const proj = fs.realpathSync(tmp('awl-proj-noconfig-'));
-    fs.mkdirSync(path.join(proj, '.git'), { recursive: true });
+    makeGitMetadata(proj);
     fs.mkdirSync(path.join(proj, '.awl'), { recursive: true }); // config.json 은 안 만든다
     process.chdir(proj);
 
@@ -300,7 +310,7 @@ describe('collectChecks — verify.*.cwd 점검 (WI-B, 모노레포)', () => {
 
   it('cwd 디렉토리가 실제로 있으면 ok', async () => {
     const proj = tmp('awl-proj-');
-    fs.mkdirSync(path.join(proj, '.git'), { recursive: true });
+    makeGitMetadata(proj);
     fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
     fs.mkdirSync(path.join(proj, 'packages', 'app'), { recursive: true });
     fs.writeFileSync(
@@ -319,7 +329,7 @@ describe('collectChecks — verify.*.cwd 점검 (WI-B, 모노레포)', () => {
 
   it('cwd 디렉토리가 없으면 missing 으로 표시하고 안내한다', async () => {
     const proj = tmp('awl-proj-');
-    fs.mkdirSync(path.join(proj, '.git'), { recursive: true });
+    makeGitMetadata(proj);
     fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
     fs.writeFileSync(
       path.join(proj, '.awl', 'config.json'),
@@ -340,7 +350,7 @@ describe('collectChecks — verify.*.cwd 점검 (WI-B, 모노레포)', () => {
 
   it('cwd 가 디렉토리가 아니라 파일이면 missing 으로 표시한다 (AC-07, 리뷰 지적 — verify.ts/config.ts 와 판정 기준 일치)', async () => {
     const proj = tmp('awl-proj-');
-    fs.mkdirSync(path.join(proj, '.git'), { recursive: true });
+    makeGitMetadata(proj);
     fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
     fs.writeFileSync(path.join(proj, 'not-a-dir.txt'), 'x'); // 파일(디렉토리 아님)
     fs.writeFileSync(
@@ -423,7 +433,7 @@ describe('collectChecks — 버전 4쌍 (WI-X)', () => {
 
   it('프로젝트 config.engineVersion 이 설치된 엔진과 다르면 엔진 버전 일치가 warn 이고 [!] 힌트에 awl init --yes 를 안내한다', async () => {
     const proj = tmp('awl-proj-');
-    fs.mkdirSync(path.join(proj, '.git'), { recursive: true });
+    makeGitMetadata(proj);
     fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
     fs.writeFileSync(
       path.join(proj, '.awl', 'config.json'),
@@ -439,7 +449,7 @@ describe('collectChecks — 버전 4쌍 (WI-X)', () => {
 
   it('스킬 미설치면 Claude/Codex 스킬 버전 둘 다 warn', async () => {
     const proj = tmp('awl-proj-');
-    fs.mkdirSync(path.join(proj, '.git'), { recursive: true });
+    makeGitMetadata(proj);
     process.chdir(proj);
 
     const report = await collectChecks();
@@ -449,7 +459,7 @@ describe('collectChecks — 버전 4쌍 (WI-X)', () => {
 
   it('설치된 스킬 버전이 엔진과 다르면 warn, 같으면 ok', async () => {
     const proj = tmp('awl-proj-');
-    fs.mkdirSync(path.join(proj, '.git'), { recursive: true });
+    makeGitMetadata(proj);
     fs.mkdirSync(path.join(proj, '.claude', 'skills', 'awl-loop'), { recursive: true });
     fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
     fs.writeFileSync(
@@ -464,7 +474,7 @@ describe('collectChecks — 버전 4쌍 (WI-X)', () => {
 
   it('스킬 버전이 엔진과 같으면 ok', async () => {
     const proj = tmp('awl-proj-');
-    fs.mkdirSync(path.join(proj, '.git'), { recursive: true });
+    makeGitMetadata(proj);
     fs.mkdirSync(path.join(proj, '.claude', 'skills', 'awl-loop'), { recursive: true });
     fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
     fs.writeFileSync(
@@ -479,7 +489,7 @@ describe('collectChecks — 버전 4쌍 (WI-X)', () => {
 
   it('Codex는 AGENTS 라우팅 블록과 engine의 repo 스킬 전부가 있어야 설치 완료다', async () => {
     const proj = tmp('awl-proj-');
-    fs.mkdirSync(path.join(proj, '.git'), { recursive: true });
+    makeGitMetadata(proj);
     fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
     fs.writeFileSync(
       path.join(proj, 'AGENTS.md'),
@@ -555,7 +565,9 @@ describe('collectChecks — 워킹트리 더러움 점검 (WI-F, 환경이 준 g
   });
 
   it('git 저장소가 아니면 크래시 없이 info 로 넘어간다', async () => {
-    const proj = fs.realpathSync(makeInstalledProject()); // .git 이 가짜 빈 디렉토리
+    const proj = fs.realpathSync(makeInstalledProject());
+    fs.rmSync(path.join(proj, '.git'), { recursive: true });
+    fs.mkdirSync(path.join(proj, '.git'));
     process.chdir(proj);
 
     const report = await collectChecks();

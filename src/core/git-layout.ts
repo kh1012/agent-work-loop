@@ -40,6 +40,36 @@ function requireDirectory(candidate: string, label: string): string {
   return resolved;
 }
 
+function requireRegularFile(candidate: string, label: string): void {
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(candidate);
+  } catch {
+    throw new Error(`${label} Git metadata is missing: ${candidate}`);
+  }
+  if (!stat.isFile()) {
+    throw new Error(`${label} Git metadata is not a file: ${candidate}`);
+  }
+}
+
+function requireGitHead(gitDir: string, label: string): void {
+  const headPath = path.join(gitDir, 'HEAD');
+  requireRegularFile(headPath, label);
+  const head = fs.readFileSync(headPath, 'utf8').trim();
+  if (!/^ref:\s+refs\/[^\s]+$/.test(head) && !/^[0-9a-fA-F]{40}(?:[0-9a-fA-F]{24})?$/.test(head)) {
+    throw new Error(`${label} Git metadata has an invalid HEAD: ${headPath}`);
+  }
+}
+
+function validateGitLayoutMetadata(worktreeGitDir: string, commonGitDir: string): void {
+  requireGitHead(worktreeGitDir, 'gitdir');
+  if (commonGitDir !== worktreeGitDir) {
+    requireGitHead(commonGitDir, 'commondir');
+  }
+  requireDirectory(path.join(commonGitDir, 'objects'), 'commondir Git metadata objects');
+  requireDirectory(path.join(commonGitDir, 'refs'), 'commondir Git metadata refs');
+}
+
 /** Resolve worktree-specific and shared Git storage without invoking Git. */
 export function resolveGitLayout(projectRoot: string): GitLayout {
   const dotGitPath = findDotGitPath(projectRoot);
@@ -49,6 +79,7 @@ export function resolveGitLayout(projectRoot: string): GitLayout {
   const dotGitStat = fs.statSync(dotGitPath);
   if (dotGitStat.isDirectory()) {
     const gitDir = requireDirectory(dotGitPath, '.git');
+    validateGitLayoutMetadata(gitDir, gitDir);
     return { dotGitPath, worktreeGitDir: gitDir, commonGitDir: gitDir };
   }
   if (!dotGitStat.isFile()) {
@@ -66,6 +97,7 @@ export function resolveGitLayout(projectRoot: string): GitLayout {
   const worktreeGitDir = requireDirectory(path.resolve(path.dirname(dotGitPath), gitdir), 'gitdir');
   const commonDirFile = path.join(worktreeGitDir, 'commondir');
   if (!fs.existsSync(commonDirFile)) {
+    validateGitLayoutMetadata(worktreeGitDir, worktreeGitDir);
     return { dotGitPath, worktreeGitDir, commonGitDir: worktreeGitDir };
   }
   const commonDir = fs.readFileSync(commonDirFile, 'utf8').trim();
@@ -73,6 +105,7 @@ export function resolveGitLayout(projectRoot: string): GitLayout {
     throw new Error(`${commonDirFile} is empty`);
   }
   const commonGitDir = requireDirectory(path.resolve(worktreeGitDir, commonDir), 'commondir');
+  validateGitLayoutMetadata(worktreeGitDir, commonGitDir);
   return { dotGitPath, worktreeGitDir, commonGitDir };
 }
 

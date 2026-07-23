@@ -51,6 +51,12 @@ function tmp(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 
+function makeGitMetadata(gitDir: string): void {
+  fs.mkdirSync(path.join(gitDir, 'objects'), { recursive: true });
+  fs.mkdirSync(path.join(gitDir, 'refs'), { recursive: true });
+  fs.writeFileSync(path.join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
+}
+
 function readJson(p: string): unknown {
   return JSON.parse(fs.readFileSync(p, 'utf8'));
 }
@@ -531,7 +537,7 @@ describe('applyInit — 전체 산출물', () => {
     fs.rmSync(home, { recursive: true, force: true }); // 없는 상태에서 시작(scaffold 가 생성)
     process.env.AWL_HOME = home;
     proj = tmp('awl-proj-');
-    fs.mkdirSync(path.join(proj, '.git'), { recursive: true });
+    makeGitMetadata(path.join(proj, '.git'));
     fs.writeFileSync(path.join(proj, 'tsconfig.json'), '{}');
     fs.writeFileSync(
       path.join(proj, 'package.json'),
@@ -634,7 +640,9 @@ describe('applyInit — 전체 산출물', () => {
   it('linked worktree의 gitdir/commondir를 따라 공용 hooks에 설치하고 config를 완성한다', () => {
     const commonGitDir = path.join(tmp('awl-common-git-'), '.git');
     const worktreeGitDir = path.join(commonGitDir, 'worktrees', 'lane');
+    makeGitMetadata(commonGitDir);
     fs.mkdirSync(worktreeGitDir, { recursive: true });
+    fs.writeFileSync(path.join(worktreeGitDir, 'HEAD'), 'ref: refs/heads/lane\n');
     fs.writeFileSync(path.join(worktreeGitDir, 'commondir'), '../..\n');
     fs.rmSync(path.join(proj, '.git'), { recursive: true });
     fs.writeFileSync(path.join(proj, '.git'), `gitdir: ${worktreeGitDir}\n`);

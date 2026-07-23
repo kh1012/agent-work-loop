@@ -8,11 +8,17 @@ function tmp(prefix: string): string {
   return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
 }
 
+function makeCommonGitDir(gitDir: string): void {
+  fs.mkdirSync(path.join(gitDir, 'objects'), { recursive: true });
+  fs.mkdirSync(path.join(gitDir, 'refs'), { recursive: true });
+  fs.writeFileSync(path.join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
+}
+
 describe('resolveGitLayout', () => {
   it('main worktree에서는 .git을 worktree/common gitdir로 함께 반환한다', () => {
     const root = tmp('awl-git-layout-main-');
     const gitDir = path.join(root, '.git');
-    fs.mkdirSync(gitDir);
+    makeCommonGitDir(gitDir);
 
     expect(resolveGitLayout(path.join(root, 'nested'))).toEqual({
       dotGitPath: gitDir,
@@ -27,7 +33,9 @@ describe('resolveGitLayout', () => {
     const commonGitDir = path.join(repository, '.git');
     const worktreeGitDir = path.join(commonGitDir, 'worktrees', 'lane');
     const lane = tmp('awl-git-layout-lane-');
+    makeCommonGitDir(commonGitDir);
     fs.mkdirSync(worktreeGitDir, { recursive: true });
+    fs.writeFileSync(path.join(worktreeGitDir, 'HEAD'), 'ref: refs/heads/lane\n');
     fs.writeFileSync(path.join(worktreeGitDir, 'commondir'), '../..\n');
     fs.writeFileSync(path.join(lane, '.git'), `gitdir: ${path.relative(lane, worktreeGitDir)}\n`);
 
@@ -56,6 +64,25 @@ describe('resolveGitLayout', () => {
         fs.writeFileSync(path.join(root, '.git'), 'gitdir: missing\n');
       },
       message: 'gitdir',
+    },
+    {
+      name: '존재하지만 비어 있는 gitdir',
+      arrange(root: string) {
+        const worktreeGitDir = tmp('awl-git-layout-empty-gitdir-');
+        fs.writeFileSync(path.join(root, '.git'), `gitdir: ${worktreeGitDir}\n`);
+      },
+      message: 'gitdir',
+    },
+    {
+      name: '존재하지만 Git metadata가 없는 commondir',
+      arrange(root: string) {
+        const worktreeGitDir = tmp('awl-git-layout-worktree-');
+        const commonGitDir = tmp('awl-git-layout-non-git-common-');
+        fs.writeFileSync(path.join(worktreeGitDir, 'HEAD'), 'ref: refs/heads/main\n');
+        fs.writeFileSync(path.join(worktreeGitDir, 'commondir'), `${commonGitDir}\n`);
+        fs.writeFileSync(path.join(root, '.git'), `gitdir: ${worktreeGitDir}\n`);
+      },
+      message: 'commondir',
     },
     {
       name: '빈 commondir',
