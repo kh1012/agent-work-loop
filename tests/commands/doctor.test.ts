@@ -45,6 +45,7 @@ function makeInstalledProject(): string {
   fs.writeFileSync(
     path.join(proj, '.awl', 'config.json'),
     JSON.stringify({
+      project: 'doctor-test',
       engineVersion: '0.0.0',
       verify: {
         test: { cmd: 'node --version', env: { NODE_ENV: 'test' } },
@@ -126,6 +127,25 @@ describe('collectChecks — 설치됨 흉내', () => {
     expect(
       report.checks.some((check) => check.group === '전역 설치' && check.status === 'missing'),
     ).toBe(false);
+  });
+
+  it('effective config와 base/local source 경로를 함께 보고한다', async () => {
+    const projectRoot = process.cwd();
+    const overlayPath = path.join(projectRoot, '.git', 'awl', 'config.local.json');
+    fs.mkdirSync(path.dirname(overlayPath), { recursive: true });
+    fs.writeFileSync(
+      overlayPath,
+      JSON.stringify({ project: 'doctor-lane', feedback: { enabled: true } }),
+    );
+
+    const report = await collectChecks();
+    const source = find(report.checks, 'config source');
+
+    expect(source).toMatchObject({ status: 'info' });
+    expect(source?.value).toContain(path.join(projectRoot, '.awl', 'config.json'));
+    expect(source?.value).toContain('config.local.json');
+    expect(source?.hint).toContain('project=local');
+    expect(source?.hint).toContain('effective project=doctor-lane');
   });
 
   it('검증 명령 확인은 빠르다(전체 테스트를 돌리지 않는다)', async () => {
@@ -219,6 +239,7 @@ describe('collectChecks — 프로젝트 루트/브랜치 표시 (WI-C)', () => 
     fs.writeFileSync(
       path.join(proj, '.awl', 'config.json'),
       JSON.stringify({
+        project: 'doctor-cwd',
         engineVersion: '0.0.0',
         verify: { typecheck: null, lint: null, test: null, e2e: null },
       }),
@@ -285,6 +306,7 @@ describe('collectChecks — verify.*.cwd 점검 (WI-B, 모노레포)', () => {
     fs.writeFileSync(
       path.join(proj, '.awl', 'config.json'),
       JSON.stringify({
+        project: 'doctor-cwd',
         engineVersion: '0.0.0',
         verify: { test: { cmd: 'node --version', cwd: 'packages/app' }, lint: null, e2e: null },
       }),
@@ -302,6 +324,7 @@ describe('collectChecks — verify.*.cwd 점검 (WI-B, 모노레포)', () => {
     fs.writeFileSync(
       path.join(proj, '.awl', 'config.json'),
       JSON.stringify({
+        project: 'doctor-cwd',
         engineVersion: '0.0.0',
         verify: { test: { cmd: 'node --version', cwd: 'no/such/dir' }, lint: null, e2e: null },
       }),
@@ -323,6 +346,7 @@ describe('collectChecks — verify.*.cwd 점검 (WI-B, 모노레포)', () => {
     fs.writeFileSync(
       path.join(proj, '.awl', 'config.json'),
       JSON.stringify({
+        project: 'doctor-cwd',
         engineVersion: '0.0.0',
         verify: { test: { cmd: 'node --version', cwd: 'not-a-dir.txt' }, lint: null, e2e: null },
       }),
@@ -403,7 +427,7 @@ describe('collectChecks — 버전 4쌍 (WI-X)', () => {
     fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
     fs.writeFileSync(
       path.join(proj, '.awl', 'config.json'),
-      JSON.stringify({ engineVersion: '0.0.1', verify: {} }),
+      JSON.stringify({ project: 'doctor-version', engineVersion: '0.0.1', verify: {} }),
     );
     process.chdir(proj);
 

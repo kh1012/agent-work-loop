@@ -147,10 +147,18 @@ describe('Codex AWL skills', () => {
       expect(skill).toContain('absolute-lane-resume');
       expect(skill).toContain('.awl/config.json');
       expect(skill).toContain('awl init --yes');
+      expect(skill).toContain('awl config --json');
+      expect(skill).toContain('basePath');
+      expect(skill).toContain('overlayPath');
+      expect(skill).toContain('effective');
       expect(skill).toContain('awl skills sync --json');
       expect(skill).toContain('before dispatch');
       expect(skill.indexOf('absolute-lane-resume')).toBeLessThan(skill.indexOf('awl doctor'));
       expect(skill.indexOf('awl init --yes')).toBeLessThan(skill.indexOf('awl skills sync --json'));
+      expect(skill.indexOf('awl init --yes')).toBeLessThan(skill.indexOf('awl config --json'));
+      expect(skill.indexOf('awl config --json')).toBeLessThan(
+        skill.indexOf('awl skills sync --json'),
+      );
       expect(skill.indexOf('awl skills sync --json')).toBeLessThan(skill.indexOf('awl doctor'));
     }
   });

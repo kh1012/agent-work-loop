@@ -26,6 +26,7 @@ import {
   type VersionMismatchKind,
   checkVersions,
 } from '../core/versions.js';
+import { loadConfig } from './config.js';
 import { codexSkillNames, listRegisteredProjects } from './init.js';
 import { loadProjectName, readRecords } from './record.js';
 import { loadState, readStateLock } from './state.js';
@@ -409,37 +410,6 @@ function countFileLines(projectRoot: string): FileLineCount[] {
 }
 
 // ---------------------------------------------------------------------------
-// config 스키마
-// ---------------------------------------------------------------------------
-
-interface VerifySpec {
-  cmd: string;
-  cwd?: string;
-  env?: Record<string, string>;
-}
-
-interface AwlConfig {
-  engineVersion: string;
-  // 설정하지 않은 검증은 null 로 저장된다(예: e2e: null).
-  verify?: Record<string, VerifySpec | null>;
-  namingConvention?: string;
-}
-
-function isAwlConfig(c: unknown): c is AwlConfig {
-  if (typeof c !== 'object' || c === null) {
-    return false;
-  }
-  const o = c as Record<string, unknown>;
-  if (typeof o.engineVersion !== 'string') {
-    return false;
-  }
-  if (o.verify !== undefined && (typeof o.verify !== 'object' || o.verify === null)) {
-    return false;
-  }
-  return true;
-}
-
-// ---------------------------------------------------------------------------
 // 점검 항목 수집
 // ---------------------------------------------------------------------------
 
@@ -645,18 +615,26 @@ async function collectSingleProject(
     return;
   }
 
-  const raw = readJson(configPath);
-  if (!isAwlConfig(raw)) {
+  const loadedConfig = loadConfig(projectRoot);
+  if (!loadedConfig.config) {
     checks.push({
       group: groupLabel,
       name: 'config.json',
       status: 'fail',
       value: '형식 오류',
-      hint: 'config.json 형식을 확인하세요',
+      hint: loadedConfig.errors.join('; '),
     });
     return;
   }
+  const raw = loadedConfig.config;
   checks.push({ group: groupLabel, name: 'config.json', status: 'ok', value: '있음' });
+  checks.push({
+    group: groupLabel,
+    name: 'config source',
+    status: 'info',
+    value: `base: ${loadedConfig.basePath} · overlay: ${loadedConfig.overlayPath ?? '(없음)'}`,
+    hint: `effective project=${raw.project}; project=${loadedConfig.sources.project}, feedback.enabled=${loadedConfig.sources['feedback.enabled']}, feedback.path=${loadedConfig.sources['feedback.path']}`,
+  });
 
   // 네이밍 컨벤션 감지(WI-I AC-01) — 세기만 한다, 강제하지 않는다. doctor 는
   // 아무것도 고치지 않으므로 config.json 기록은 여기서 안 하고 hint 로 명령만

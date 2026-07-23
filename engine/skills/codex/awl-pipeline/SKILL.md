@@ -60,10 +60,11 @@ Gate density does not change Codex sandbox or approval permissions.
 1. Run `awl version-check --json`. Treat `updateAvailable` as information. For mismatches, show every hint and ask whether to continue.
 2. Apply `absolute-lane-resume`: when the invocation supplies an existing absolute lane path, treat that path and its `.tasks` markers as authoritative and reuse it without calling `awl lane ls`, `awl lane new`, or creating a replacement lane. Otherwise resolve the lane with `awl lane ls`/`awl lane new`, then use its absolute path for every agent prompt.
 3. In the resolved lane, run `awl init --yes` only when `.awl/config.json` is missing. Do not reinitialize a configured lane.
-4. Run `awl skills sync --json` in the resolved lane, including for `absolute-lane-resume`. Treat its machine-readable results as the project-skill catalog status. If `ok` is false or any item has `status:"error"`, show the manifest/item error and stop before dispatch.
-5. Create `.tasks/{plan,exec,review,archive}` in the lane. If `.tasks/README.md` is missing, copy it from `.agents/skills/awl-pipeline/templates/README.md` in the lane/repository skill installation.
-6. Ensure `.tasks/` is ignored. Prefer `.git/info/exclude` for a linked worktree when changing the shared branch ignore file would be unrelated.
-7. Run `awl doctor` in the lane after the conditional initialization and project-skill sync.
+4. Run `awl config --json` in the resolved lane. Treat `effective` as the configuration for this lane and retain `basePath`, `overlayPath`, and per-key sources in status evidence. Stop before dispatch when base or local overlay validation fails.
+5. Run `awl skills sync --json` in the resolved lane, including for `absolute-lane-resume`. Treat its machine-readable results as the project-skill catalog status. If `ok` is false or any item has `status:"error"`, show the manifest/item error and stop before dispatch.
+6. Create `.tasks/{plan,exec,review,archive}` in the lane. If `.tasks/README.md` is missing, copy it from `.agents/skills/awl-pipeline/templates/README.md` in the lane/repository skill installation.
+7. Ensure `.tasks/` is ignored. Prefer `.git/info/exclude` for a linked worktree when changing the shared branch ignore file would be unrelated.
+8. Run `awl doctor` in the lane after the conditional initialization, effective config report, and project-skill sync.
 
 ## Native Scheduled task lifecycle (`--poll`)
 
