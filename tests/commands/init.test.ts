@@ -624,8 +624,13 @@ describe('applyInit — 전체 산출물', () => {
       );
       expect(installedExec).toContain('package-owned-runner-resolution:');
       expect(installedExec).toContain('## Test runner provenance');
+      expect(installedExec).toContain('port-lease-run-contract:');
+      expect(installedExec).toContain('## Service port lease provenance');
       expect(installedReview).toContain(
         'package-owned-runner-review: independently-resolve-and-rerun; provenance-missing=fail',
+      );
+      expect(installedReview).toContain(
+        'port-lease-provenance-review: independently-reproduce-and-inspect; provenance-missing=fail',
       );
     }
   });

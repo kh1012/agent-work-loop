@@ -164,6 +164,14 @@ gate1_evidence: <오케스트레이터가 전달한 plan 경로 또는 human dec
 - selected command: <review가 재실행할 정확한 command>
 - result: <exit code와 출력 요지>
 - fallback from generic: <없음, 또는 시도한 command와 mismatch/duplicate-module 실패>
+## Service port lease provenance
+`port-lease-provenance: required-when-service-used; not-used-must-be-explicit`
+- usage: <used|not-used>
+- wrapper command: <정확한 awl port lease run 명령 또는 not-used>
+- resolved port and URL: <port, URL, PORT/AWL_PORT/AWL_SERVICE_URL 입력>
+- lease identity: <absolute lane, branch, HEAD, workitem, owner PID, child PID, token, acquiredAt>
+- inspect evidence: <정확한 명령과 실행/재사용 중 owned 결과>
+- cleanup evidence: <child exit, token 일치 release 결과, final inspect 상태>
 ## 직접 볼 리뷰 포인트 (review가 확인)
 - <파일:라인> — <왜 봐야 하나>
 ## Gate evidence

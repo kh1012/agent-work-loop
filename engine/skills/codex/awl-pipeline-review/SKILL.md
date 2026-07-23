@@ -44,6 +44,15 @@ lane before accepting reuse of a running service. Confirm the absolute lane, bra
 workitem, child/listener PID, and `owned` status. Any other status is non-reusable. Never kill,
 replace, or commandeer a foreign or unmanaged listener during review.
 
+Apply the handoff provenance rule:
+`port-lease-provenance-review: independently-reproduce-and-inspect; provenance-missing=fail`.
+If verification used a listening service, require the handoff's `Service port lease provenance`
+with the exact wrapper command, resolved port/URL inputs, absolute lane, branch, HEAD, workitem,
+owner/child PID, token, acquisition time, owned inspection, and cleanup/final inspection. Resolve
+the current identity and reproduce the wrapper/inspection independently; treat missing,
+inconsistent, or unreproducible provenance as an actionable failure. If the handoff says
+`not-used`, confirm its verification commands did not start or reuse a listener.
+
 Separate checked and unchecked work; every unchecked item needs a reason.
 
 ## Verdict and markers

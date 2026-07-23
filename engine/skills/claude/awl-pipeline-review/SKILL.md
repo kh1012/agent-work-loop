@@ -69,6 +69,12 @@ description: |
   `awl port lease inspect --port <n> --workitem <id> --json`을 독립 실행한다. absolute lane,
   branch, HEAD, workitem, child/listener PID와 `owned` 상태를 확인한다. 다른 모든 상태는 재사용 불가다.
   review 중 foreign/unmanaged listener를 종료·교체·탈취하지 않는다.
+  `port-lease-provenance-review: independently-reproduce-and-inspect; provenance-missing=fail`.
+  검증이 listening service를 썼다면 핸드오프의 `Service port lease provenance`에서 정확한 wrapper command,
+  resolved port/URL 입력, absolute lane, branch, HEAD, workitem, owner/child PID, token, acquiredAt,
+  owned inspect, cleanup/final inspect를 요구한다. 현재 identity를 독립 해석하고 wrapper/inspect를 재현한다.
+  누락·불일치·재현 불가는 actionable failure다. `not-used`라면 검증 명령이 listener를 시작·재사용하지
+  않았는지 확인한다.
 - **CSS/시각 변경의 렌더링 컨텍스트(pipeline-session-loss-recovery-and-nested-stall-timeout)**: computed
   style을 확인할 땐 실제로 렌더링되는 정확한 DOM 컨텍스트(호스트 document / `iframe.contentDocument` /
   Shadow DOM 등)를 특정해서 **그 안에서** 확인한다. 기능적 동작 확인(예: "스크롤이 실제로 발생")을

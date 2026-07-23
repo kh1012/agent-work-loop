@@ -408,6 +408,57 @@ describe('Codex AWL skills', () => {
     }
   });
 
+  it('Codex와 Claude pipeline은 service port lease 실행·재사용·provenance를 같은 계약으로 강제한다', () => {
+    for (const surface of ['codex', 'claude']) {
+      const base = path.join(process.cwd(), 'engine', 'skills', surface);
+      const execSkill = fs.readFileSync(path.join(base, 'awl-pipeline-exec', 'SKILL.md'), 'utf8');
+      const reviewSkill = fs.readFileSync(
+        path.join(base, 'awl-pipeline-review', 'SKILL.md'),
+        'utf8',
+      );
+
+      expect(execSkill).toContain(
+        'port-lease-run-contract: installation-scoped-wrapper; reuse-only-when-inspect=owned',
+      );
+      expect(execSkill).toContain(
+        'port-lease-provenance: required-when-service-used; not-used-must-be-explicit',
+      );
+      for (const evidence of [
+        'awl port lease run --port',
+        'awl port lease inspect --port',
+        'AWL_SERVICE_URL',
+        '## Service port lease provenance',
+        'wrapper command:',
+        'resolved port and URL:',
+        'lease identity:',
+        'inspect evidence:',
+        'cleanup evidence:',
+      ]) {
+        expect(execSkill).toContain(evidence);
+      }
+
+      expect(reviewSkill).toContain(
+        'port-lease-review-contract: independently-inspect; reuse-only-when-status=owned',
+      );
+      expect(reviewSkill).toContain(
+        'port-lease-provenance-review: independently-reproduce-and-inspect; provenance-missing=fail',
+      );
+      for (const evidence of [
+        'Service port lease provenance',
+        'absolute lane',
+        'branch',
+        'HEAD',
+        'workitem',
+        'owner/child PID',
+        'token',
+        'cleanup',
+        'actionable failure',
+      ]) {
+        expect(reviewSkill).toContain(evidence);
+      }
+    }
+  });
+
   it('AGENTS 블록은 긴 워크플로우 복제 대신 실제 스킬로 라우팅한다', () => {
     const agents = read('AGENTS.awl.md');
     expect(agents).toContain('$awl-loop');

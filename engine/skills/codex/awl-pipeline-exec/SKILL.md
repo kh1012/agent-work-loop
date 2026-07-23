@@ -130,6 +130,15 @@ gate1_evidence: <coordinator-supplied plan path or human decision record>
 - result: <exit code and concise output>
 - fallback from generic: <none, or attempted command plus mismatch/duplicate-module failure>
 
+## Service port lease provenance
+`port-lease-provenance: required-when-service-used; not-used-must-be-explicit`
+- usage: <used|not-used>
+- wrapper command: <exact awl port lease run command, or not-used>
+- resolved port and URL: <port, URL, and PORT/AWL_PORT/AWL_SERVICE_URL inputs>
+- lease identity: <absolute lane, branch, HEAD, workitem, owner PID, child PID, token, acquiredAt>
+- inspect evidence: <exact command and owned result while reused/running>
+- cleanup evidence: <child exit, token-matched release result, and final inspect status>
+
 ## Criteria
 - AC-01: pass|blocked — <evidence>
 
