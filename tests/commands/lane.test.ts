@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { collectChecks } from '../../src/commands/doctor.js';
 import {
   collectLanes,
   parseWorktreeBranches,
@@ -151,6 +152,31 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
     expect(out).toContain('소요시간');
   });
 
+  it('lane new: 초기화되지 않은 git 저장소에서도 lane project config/state 를 만들고 doctor 가 인식한다', async () => {
+    const proj = realGitProject();
+
+    await runLaneNew('probe');
+
+    const lanePath = path.join(proj, '.awl-worktrees', 'probe');
+    const configPath = path.join(lanePath, '.awl', 'config.json');
+    const statePath = path.join(lanePath, '.awl', 'state.json');
+    expect(JSON.parse(fs.readFileSync(configPath, 'utf8'))).toMatchObject({
+      project: 'probe',
+      engineVersion: expect.any(String),
+      verify: expect.any(Object),
+    });
+    expect(JSON.parse(fs.readFileSync(statePath, 'utf8'))).toMatchObject({
+      workitem: 'probe',
+      phase: expect.any(String),
+    });
+
+    process.chdir(lanePath);
+    const report = await collectChecks();
+    expect(
+      report.checks.find((check) => check.group === '이 프로젝트' && check.name === 'config.json'),
+    ).toMatchObject({ status: 'ok', value: '있음' });
+  });
+
   it('lane new: 같은 이름 두 번이면 두 번째를 거부하고 기존 레인명을 알린다 (AC-04)', async () => {
     const proj = realGitProject();
     await runLaneNew('probe');
@@ -251,6 +277,37 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
     expect(out).toContain('alpha');
     expect(out).toContain('beta');
     expect(out).toContain('work/beta');
+  });
+
+  it('lane ls: linked lane cwd 에서도 부모 registry 의 동일 경로와 브랜치를 나열한다', async () => {
+    const proj = realGitProject();
+    await runLaneNew('probe');
+    const lanePath = path.join(proj, '.awl-worktrees', 'probe');
+
+    const main = await collectLanes(proj);
+    expect(main).toContainEqual({ name: 'probe', path: lanePath, branch: 'work/probe' });
+
+    process.chdir(lanePath);
+    const jsonCap = captureStdout();
+    try {
+      await runLaneList({ json: true });
+    } finally {
+      jsonCap.restore();
+    }
+    expect(JSON.parse(jsonCap.writes.join(''))).toContainEqual({
+      name: 'probe',
+      path: lanePath,
+      branch: 'work/probe',
+    });
+
+    const humanCap = captureStdout();
+    try {
+      await runLaneList({ json: false });
+    } finally {
+      humanCap.restore();
+    }
+    expect(humanCap.writes.join('')).toContain('work/probe');
+    expect(humanCap.writes.join('')).not.toContain('레인이 없습니다');
   });
 
   it('lane rm: removeGitWorktree 로 워크트리·브랜치를 회수하고 디렉토리를 제거한다 (AC-03)', async () => {

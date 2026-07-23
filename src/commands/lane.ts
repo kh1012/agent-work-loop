@@ -4,6 +4,7 @@ import { WORKTREES_DIR } from '../core/paths.js';
 import { run } from '../core/runner.js';
 import { type Caps, caps, feedback, makeColors, sectionBox, signal } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
+import { applyInit, nonInteractiveInputs } from './init.js';
 import { type MergeHomeResult, mergeIsolatedHome } from './learning-merge.js';
 import { loadProjectName } from './record.js';
 import { loadState, writeState } from './state.js';
@@ -88,6 +89,17 @@ export async function runLaneNew(name: string, description?: string): Promise<vo
   // 원시경로 재사용(AC-01) — worktree + isolated home + 스킬 재설치 + export AWL_HOME
   // 안내 + orphan 롤백을 runWorkNew 가 전부 처리한다. lane 은 이 위에 얇게 얹는다.
   await runWorkNew(name, description, { worktree: true, isolated: true });
+
+  // Fresh git repositories have no project config to inherit into the linked worktree.
+  // Initialize the lane after runWorkNew has created its active state, preserving that state
+  // instead of replacing it with init's idle default.
+  const configPath = path.join(lanePath, '.awl', 'config.json');
+  if (!fs.existsSync(configPath)) {
+    applyInit(lanePath, nonInteractiveInputs(lanePath), new Date().toISOString(), {
+      preserveState: true,
+      skipGitignore: true,
+    });
+  }
 
   // 레인 기동 안내(AC-01 c) — export AWL_HOME 은 runWorkNew 가 이미 찍었다(단일 출처,
   // 표면 중복 금지). 여기선 역할 세션이 실행할 파이프라인 스킬 트리거만 얹는다.
@@ -255,13 +267,21 @@ export function renderLaneList(lanes: LaneInfo[], c: Caps): string {
 }
 
 export async function runLaneList(opts: { json: boolean }): Promise<void> {
-  const root = requireRoot();
+  const root = laneRegistryRoot(requireRoot());
   const lanes = await collectLanes(root);
   if (opts.json) {
     process.stdout.write(`${JSON.stringify(lanes, null, 2)}\n`);
   } else {
     process.stdout.write(`${renderLaneList(lanes, caps())}\n`);
   }
+}
+
+/** A linked lane is listed in the registry owned by the worktree above `.awl-worktrees`. */
+export function laneRegistryRoot(root: string): string {
+  const resolved = path.resolve(root);
+  const marker = `${path.sep}${WORKTREES_DIR}${path.sep}`;
+  const index = resolved.indexOf(marker);
+  return index === -1 ? resolved : resolved.slice(0, index);
 }
 
 /**

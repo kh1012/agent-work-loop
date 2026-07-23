@@ -966,12 +966,21 @@ export interface InitResult {
   safetyHook: { installed: boolean; warning?: string };
 }
 
-export function applyInit(projectRoot: string, inputs: InitInputs, now: string): InitResult {
+export function applyInit(
+  projectRoot: string,
+  inputs: InitInputs,
+  now: string,
+  opts: { preserveState?: boolean; skipGitignore?: boolean } = {},
+): InitResult {
   const g = scaffoldGlobal();
   const config = buildConfig(inputs, g.engineVersion);
   const configPath = writeConfig(projectRoot, config);
-  const statePath = writeState(projectRoot, now);
-  const gitignore = ensureGitignore(projectRoot);
+  const existingStatePath = path.join(projectRoot, '.awl', 'state.json');
+  const statePath =
+    opts.preserveState && exists(existingStatePath)
+      ? existingStatePath
+      : writeState(projectRoot, now);
+  const gitignore = opts.skipGitignore ? 'exists' : ensureGitignore(projectRoot);
   const safetyHook = installSafetyHook(projectRoot);
   const { count: projectCount, skipped: registrationSkipped } = registerProject({
     name: inputs.project,
