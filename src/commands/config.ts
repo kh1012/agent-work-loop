@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
@@ -74,6 +75,7 @@ export const DEFAULT_FEEDBACK_PATH = '/Users/kh1012/MIDAS/Research/agent-work-lo
 
 export interface ConfigResult {
   config: AwlConfig | null;
+  base: AwlConfig | null;
   errors: string[];
   path: string;
   basePath: string;
@@ -291,8 +293,10 @@ export function loadConfig(projectRoot: string): ConfigResult {
     errors: string[],
     overlayPath: string | null = null,
     sources: ConfigSources = BASE_SOURCES,
+    base: AwlConfig | null = config,
   ): ConfigResult => ({
     config,
+    base,
     errors,
     path: basePath,
     basePath,
@@ -411,7 +415,7 @@ export function loadConfig(projectRoot: string): ConfigResult {
     'feedback.enabled': overlay.feedback?.enabled === undefined ? 'base' : 'local',
     'feedback.path': overlay.feedback?.path === undefined ? 'base' : 'local',
   };
-  return baseResult(effective, [], overlayPath, sources);
+  return baseResult(effective, [], overlayPath, sources, config);
 }
 
 /**
@@ -811,6 +815,26 @@ function writeConfigFile(projectRoot: string, config: AwlConfig): void {
   fs.writeFileSync(p, `${JSON.stringify(config, null, 2)}\n`);
 }
 
+export function writeLocalConfigOverlay(projectRoot: string, overlay: LocalConfigOverlay): string {
+  const errors = validateLocalConfigOverlay(overlay);
+  if (errors.length > 0) {
+    throw new Error(errors.join('; '));
+  }
+  const overlayPath = worktreeLocalConfigPath(projectRoot);
+  const parent = path.dirname(overlayPath);
+  fs.mkdirSync(parent, { recursive: true });
+  const tempPath = path.join(parent, `.config.local.${process.pid}-${randomUUID()}.tmp`);
+  try {
+    fs.writeFileSync(tempPath, `${JSON.stringify(overlay, null, 2)}\n`);
+    fs.renameSync(tempPath, overlayPath);
+  } finally {
+    if (fs.existsSync(tempPath)) {
+      fs.unlinkSync(tempPath);
+    }
+  }
+  return overlayPath;
+}
+
 // ---------------------------------------------------------------------------
 // awl config — 조회 + (TTY 면) 인터랙티브 수정
 // ---------------------------------------------------------------------------
@@ -1029,7 +1053,7 @@ export async function interactiveEditMenu(
  * (init 의 buildScreens 를 재사용한다. 화면을 새로 만들지 않는다).
  * TTY 가 아니면(파이프/CI) 조회만 하고 끝낸다.
  */
-export async function runConfig(): Promise<void> {
+export async function runConfig(opts: { json?: boolean } = {}): Promise<void> {
   const scope = resolveProjectScope();
   if (scope.mode === 'multi' && scope.projects) {
     const c = caps();
@@ -1062,6 +1086,21 @@ export async function runConfig(): Promise<void> {
     process.exit(1);
   }
   const config = loaded.config;
+  if (opts.json === true) {
+    process.stdout.write(
+      `${JSON.stringify(
+        {
+          basePath: loaded.basePath,
+          overlayPath: loaded.overlayPath,
+          effective: config,
+          sources: loaded.sources,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    return;
+  }
   const c = caps();
   process.stdout.write(`${renderConfig(config, c)}\n`);
 
@@ -1072,9 +1111,10 @@ export async function runConfig(): Promise<void> {
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   try {
-    const changed = await interactiveEditMenu(rl, config, projectRoot, c);
+    const baseConfig = structuredClone(loaded.base ?? config);
+    const changed = await interactiveEditMenu(rl, baseConfig, projectRoot, c);
     if (changed) {
-      writeConfigFile(projectRoot, config);
+      writeConfigFile(projectRoot, baseConfig);
       process.stdout.write('\n  저장했습니다.\n');
     } else {
       process.stdout.write('\n  바뀐 것이 없습니다.\n');
@@ -1120,7 +1160,7 @@ function renderSettableKeys(config: AwlConfig, c: Caps): string {
 export async function runConfigSet(
   key: string | undefined,
   value: string | undefined,
-  opts: { force: boolean },
+  opts: { force: boolean; local?: boolean },
 ): Promise<void> {
   const scope = resolveProjectScope();
   if (scope.mode === 'multi' && scope.projects) {
@@ -1153,7 +1193,9 @@ export async function runConfigSet(
     }
     process.exit(1);
   }
-  const config = loaded.config;
+  const config = structuredClone(
+    opts.local === true ? loaded.config : (loaded.base ?? loaded.config),
+  );
 
   if (!key) {
     process.stdout.write(`${renderSettableKeys(config, caps())}\n`);
@@ -1177,6 +1219,24 @@ export async function runConfigSet(
     return;
   }
 
+  if (
+    opts.local === true &&
+    parsed.kind !== 'project' &&
+    parsed.kind !== 'feedback.enabled' &&
+    parsed.kind !== 'feedback.path'
+  ) {
+    process.stderr.write(
+      `\n  ${signal(caps(), 'error')} local config에서 지원하지 않는 키입니다: ${key}\n`,
+    );
+    process.exit(1);
+  }
+  if (opts.local === true && !findDotGitPath(projectRoot)) {
+    process.stderr.write(
+      `\n  ${signal(caps(), 'error')} local config는 git worktree 안에서만 쓸 수 있습니다.\n`,
+    );
+    process.exit(1);
+  }
+
   const outcome = await applyConfigValue(config, projectRoot, parsed, value, {
     force: opts.force,
   });
@@ -1184,6 +1244,31 @@ export async function runConfigSet(
     process.stderr.write(`\n  ${signal(caps(), 'error')} ${outcome.message}\n`);
     process.exit(1);
   }
-  writeConfigFile(projectRoot, config);
+  if (opts.local === true) {
+    const overlayPath = worktreeLocalConfigPath(projectRoot);
+    let overlay: LocalConfigOverlay = {};
+    if (fs.existsSync(overlayPath)) {
+      overlay = JSON.parse(fs.readFileSync(overlayPath, 'utf8')) as LocalConfigOverlay;
+    }
+    if (parsed.kind === 'project') {
+      overlay.project = config.project;
+    } else {
+      let feedback = { ...overlay.feedback };
+      if (parsed.kind === 'feedback.enabled') {
+        feedback.enabled = config.feedback?.enabled ?? false;
+      } else if (config.feedback?.path === undefined) {
+        const { path: _path, ...withoutPath } = feedback;
+        feedback = withoutPath;
+      } else {
+        feedback.path = config.feedback.path;
+      }
+      const { feedback: _feedback, ...withoutFeedback } = overlay;
+      overlay =
+        Object.keys(feedback).length === 0 ? withoutFeedback : { ...withoutFeedback, feedback };
+    }
+    writeLocalConfigOverlay(projectRoot, overlay);
+  } else {
+    writeConfigFile(projectRoot, config);
+  }
   process.stdout.write(`  저장했습니다: ${outcome.message}\n`);
 }

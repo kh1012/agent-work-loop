@@ -18,6 +18,7 @@ import {
   validateConfig,
 } from '../../src/commands/config.js';
 import { applyInit, nonInteractiveInputs } from '../../src/commands/init.js';
+import { buildProgram } from '../../src/program.js';
 
 const NODE = process.execPath;
 
@@ -161,6 +162,101 @@ describe('loadConfig', () => {
     expect(loaded.config).toBeNull();
     expect(loaded.errors[0]).toContain('config.json JSON 파싱 오류');
     expect(loaded.errors.join('\n')).not.toContain('local config overlay');
+  });
+});
+
+describe('config JSON/source output and local writes', () => {
+  const startingCwd = process.cwd();
+
+  afterEach(() => {
+    process.chdir(startingCwd);
+    vi.restoreAllMocks();
+  });
+
+  function gitProject(): string {
+    const root = fs.realpathSync(projectWithConfig(VALID));
+    fs.mkdirSync(path.join(root, '.git'));
+    return root;
+  }
+
+  it('program은 config --json과 config set --local을 노출한다', () => {
+    const configCommand = buildProgram().commands.find((command) => command.name() === 'config');
+    const setCommand = configCommand?.commands.find((command) => command.name() === 'set');
+
+    expect(configCommand?.options.some((option) => option.long === '--json')).toBe(true);
+    expect(setCommand?.options.some((option) => option.long === '--local')).toBe(true);
+  });
+
+  it('config --json은 base/overlay 경로, effective 값, override source를 출력한다', async () => {
+    const root = gitProject();
+    writeLocalOverlay(root, { project: 'lane', feedback: { enabled: true } });
+    process.chdir(root);
+    let stdout = '';
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+      stdout += String(chunk);
+      return true;
+    });
+
+    await runConfig({ json: true });
+
+    const report = JSON.parse(stdout) as Record<string, unknown>;
+    expect(report).toMatchObject({
+      basePath: path.join(root, '.awl', 'config.json'),
+      overlayPath: path.join(root, '.git', 'awl', 'config.local.json'),
+      effective: { project: 'lane', feedback: { enabled: true } },
+      sources: {
+        project: 'local',
+        'feedback.enabled': 'local',
+        'feedback.path': 'base',
+      },
+    });
+  });
+
+  it('config set --local은 base를 보존하고 지원 key만 overlay에 원자 갱신한다', async () => {
+    const root = gitProject();
+    process.chdir(root);
+    const basePath = path.join(root, '.awl', 'config.json');
+    const before = fs.readFileSync(basePath, 'utf8');
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    await runConfigSet('project', 'lane', { force: false, local: true });
+    await runConfigSet('feedback.enabled', 'true', { force: false, local: true });
+    await runConfigSet('feedback.path', '/lane/feedback', { force: false, local: true });
+
+    expect(fs.readFileSync(basePath, 'utf8')).toBe(before);
+    const overlayPath = path.join(root, '.git', 'awl', 'config.local.json');
+    expect(JSON.parse(fs.readFileSync(overlayPath, 'utf8'))).toEqual({
+      project: 'lane',
+      feedback: { enabled: true, path: '/lane/feedback' },
+    });
+    expect(
+      fs.readdirSync(path.dirname(overlayPath)).filter((name) => name.includes('.tmp')),
+    ).toEqual([]);
+  });
+
+  it.each([
+    { name: '지원하지 않는 local key', key: 'character', withGit: true },
+    { name: 'git worktree가 아닌 scope', key: 'project', withGit: false },
+  ])('$name은 overlay를 쓰기 전에 거부한다', async ({ key, withGit }) => {
+    const root = fs.realpathSync(projectWithConfig(VALID));
+    if (withGit) {
+      fs.mkdirSync(path.join(root, '.git'));
+    }
+    process.chdir(root);
+    let stderr = '';
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
+      stderr += String(chunk);
+      return true;
+    });
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as typeof process.exit);
+
+    await expect(runConfigSet(key, 'value', { force: false, local: true })).rejects.toThrow(
+      'exit:1',
+    );
+    expect(stderr).toMatch(withGit ? /local.*지원|지원.*local/i : /git.*worktree/i);
+    expect(fs.existsSync(path.join(root, '.git', 'awl', 'config.local.json'))).toBe(false);
   });
 });
 

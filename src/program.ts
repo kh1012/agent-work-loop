@@ -541,19 +541,28 @@ export function buildProgram(): Command {
   // 사람이 치는 명령: config (현재 설정 보기, TTY 면 항목을 골라 수정)
   const config = program
     .command('config')
-    .description('이 프로젝트의 설정을 봅니다 (TTY 면 수정도)');
-  config.action(async () => {
+    .description('이 프로젝트의 설정을 봅니다 (TTY 면 수정도)')
+    .option('--json', 'effective 설정과 base/local source를 JSON으로 출력합니다');
+  config.action(async (opts: { json?: boolean }) => {
     const { runConfig } = await import('./commands/config.js');
-    await runConfig();
+    await runConfig({ json: opts.json === true });
   });
   config
     .command('set [key] [value]')
     .description('설정 값을 바꿉니다 (키 생략 시 목록, cmd 는 실제로 실행해 봅니다)')
     .option('--force', '검증에 실패해도 저장합니다')
+    .option('--local', 'worktree-local overlay에 project/feedback 값을 저장합니다')
     .action(
-      async (key: string | undefined, value: string | undefined, opts: { force?: boolean }) => {
+      async (
+        key: string | undefined,
+        value: string | undefined,
+        opts: { force?: boolean; local?: boolean },
+      ) => {
         const { runConfigSet } = await import('./commands/config.js');
-        await runConfigSet(key, value, { force: opts.force === true });
+        await runConfigSet(key, value, {
+          force: opts.force === true,
+          local: opts.local === true,
+        });
       },
     );
 
