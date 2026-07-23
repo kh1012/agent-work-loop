@@ -88,6 +88,21 @@ function waitForExit(child: ChildProcess): Promise<number | null> {
   });
 }
 
+async function waitForProcessDeath(pid: number): Promise<void> {
+  for (let attempt = 0; attempt < 1_000; attempt += 1) {
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ESRCH') {
+        return;
+      }
+      throw error;
+    }
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  throw new Error(`process ${pid} did not exit`);
+}
+
 function spawnContender(
   root: string,
   port: number,
@@ -209,6 +224,7 @@ describe('installation-scoped service port leases', () => {
     ]);
     expect([firstCode, secondCode].sort()).toEqual([0, 2]);
     expect(fs.readFileSync(marker, 'utf8').trim().split('\n')).toHaveLength(1);
+    expect(readPortLease(root, port)).toBeNull();
 
     const outputs = [first.output(), second.output()];
     const busy = outputs.find((output) => output.includes('"status":"busy"'));
@@ -253,5 +269,101 @@ describe('installation-scoped service port leases', () => {
     await new Promise<void>((resolve, reject) =>
       server.close((error) => (error ? reject(error) : resolve())),
     );
+  });
+
+  it.each([
+    ['SIGINT', 130],
+    ['SIGTERM', 143],
+  ] as const)(
+    'forwards %s and removes only its own lease after the child exits',
+    async (signal, code) => {
+      const root = tmp();
+      const port = await freePort();
+      const start = path.join(root, 'start');
+      const marker = path.join(root, 'child-started');
+      const stop = path.join(root, 'stop');
+      const worker = spawnContender(root, port, start, marker, stop, signal.toLowerCase());
+
+      await waitForOutput(worker.child, worker.output, new RegExp(`READY ${signal.toLowerCase()}`));
+      fs.writeFileSync(start, '');
+      await waitForFile(marker);
+      const held = readPortLease(root, port);
+      expect(held?.childPid).toEqual(expect.any(Number));
+
+      worker.child.kill(signal);
+      expect(await waitForExit(worker.child)).toBe(code);
+      expect(readPortLease(root, port)).toBeNull();
+      if (held?.childPid) {
+        await waitForProcessDeath(held.childPid);
+      }
+    },
+  );
+
+  it('recovers an abnormal stale lease only after both owner and child are dead', async () => {
+    const root = tmp();
+    const port = await freePort();
+    const start = path.join(root, 'start');
+    const marker = path.join(root, 'child-started');
+    const stop = path.join(root, 'stop');
+    const worker = spawnContender(root, port, start, marker, stop, 'stale');
+
+    await waitForOutput(worker.child, worker.output, /READY stale/);
+    fs.writeFileSync(start, '');
+    await waitForFile(marker);
+    const abandoned = readPortLease(root, port);
+    expect(abandoned?.childPid).toEqual(expect.any(Number));
+
+    worker.child.kill('SIGKILL');
+    await waitForExit(worker.child);
+    const whileChildLives = await acquirePortLease(root, port, {
+      lane: path.join(root, 'replacement'),
+      branch: 'work/replacement',
+      head: 'b'.repeat(40),
+      workitem: 'WI-replacement',
+    });
+    expect(whileChildLives.status).toBe('busy');
+
+    if (!abandoned?.childPid) {
+      throw new Error('fixture did not register a child pid');
+    }
+    process.kill(abandoned.childPid, 'SIGKILL');
+    await waitForProcessDeath(abandoned.childPid);
+
+    const recovered = await acquirePortLease(root, port, {
+      lane: path.join(root, 'replacement'),
+      branch: 'work/replacement',
+      head: 'b'.repeat(40),
+      workitem: 'WI-replacement',
+    });
+    expect(recovered.status).toBe('acquired');
+    if (recovered.status === 'acquired') {
+      expect(recovered.lease.token).not.toBe(abandoned.token);
+      expect(await releasePortLease(root, port, recovered.lease.token)).toBe(true);
+    }
+  });
+
+  it('never releases or steals a live lease when the token is foreign', async () => {
+    const root = tmp();
+    const port = await freePort();
+    const identity = {
+      lane: path.join(root, 'lane'),
+      branch: 'work/live',
+      head: 'c'.repeat(40),
+      workitem: 'WI-live',
+    };
+    const held = await acquirePortLease(root, port, identity);
+    expect(held.status).toBe('acquired');
+    if (held.status !== 'acquired') {
+      return;
+    }
+
+    expect(await releasePortLease(root, port, 'foreign-token')).toBe(false);
+    expect(readPortLease(root, port)?.token).toBe(held.lease.token);
+    const contender = await acquirePortLease(root, port, {
+      ...identity,
+      workitem: 'WI-foreign',
+    });
+    expect(contender).toEqual({ status: 'busy', lease: held.lease });
+    expect(await releasePortLease(root, port, held.lease.token)).toBe(true);
   });
 });
