@@ -510,6 +510,33 @@ export function buildProgram(): Command {
       }
     });
 
+  const port = program
+    .command('port')
+    .description('공유 서비스 포트를 installation-scoped lease 로 조정합니다')
+    .enablePositionalOptions();
+  const portLease = port
+    .command('lease')
+    .description('서비스 포트 lease 실행·검사 수명주기를 관리합니다')
+    .enablePositionalOptions();
+  portLease
+    .command('run')
+    .description('lease 를 원자적으로 확보한 뒤 서비스 명령을 실행합니다')
+    .requiredOption('--port <number>', '서비스 포트')
+    .requiredOption('--workitem <id>', 'lease 소유 워크아이템')
+    .option('--url <url>', '서비스 URL ({port} 치환 가능)')
+    .option('--json', '기계가 읽을 수 있는 JSON 줄을 출력합니다')
+    .argument('<command...>', '-- 뒤에 실행할 서비스 명령')
+    .passThroughOptions()
+    .action(
+      async (
+        command: string[],
+        opts: { port: string; workitem: string; url?: string; json?: boolean },
+      ) => {
+        const { runPortLeaseCommand } = await import('./commands/port-lease.js');
+        await runPortLeaseCommand(command, opts);
+      },
+    );
+
   // 사람이 치는 명령: remove (awl 이 손댄 흔적을 지운다 — 기본은 드라이런, 이전 이름 uninstall)
   program
     .command('remove')
