@@ -370,6 +370,32 @@ describe('Codex AWL skills', () => {
     }
   });
 
+  it('Codex와 Claude review는 package-owned runner를 독립 해석해 focused verification을 재실행한다', () => {
+    const reviewSkills = ['codex', 'claude'].map((surface) =>
+      fs.readFileSync(
+        path.join(process.cwd(), 'engine', 'skills', surface, 'awl-pipeline-review', 'SKILL.md'),
+        'utf8',
+      ),
+    );
+
+    for (const reviewSkill of reviewSkills) {
+      expect(reviewSkill).toContain(
+        'package-owned-runner-review: independently-resolve-and-rerun; provenance-missing=fail',
+      );
+      for (const evidence of [
+        'Test runner provenance',
+        'independently resolve',
+        'package-owned CLI real path',
+        'resolved version',
+        'focused verification',
+        'actionable failure',
+      ]) {
+        expect(reviewSkill).toContain(evidence);
+      }
+      expect(reviewSkill).toContain('not unchecked');
+    }
+  });
+
   it('AGENTS 블록은 긴 워크플로우 복제 대신 실제 스킬로 라우팅한다', () => {
     const agents = read('AGENTS.awl.md');
     expect(agents).toContain('$awl-loop');

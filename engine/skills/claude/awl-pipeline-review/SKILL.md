@@ -57,6 +57,12 @@ description: |
 - **완료조건 충족**: 각 AC를 기계 판정한다. 핸드오프에 적힌 커밋을 실제로 확인한다. plan의 "범위 밖"이 슬쩍 확장되진 않았나.
 - **품질·구조**: 형용사가 아니라 **코드 근거**로 지목한다. "가독성 나쁨"이 아니라 "이 함수가 X와 Y를 동시에 해 테스트 불가". 불필요한 추상화·기존 패턴 불일치·중복.
 - **실행 가능성**: diff만으로 판단이 안 서면 워크트리 파일을 직접 열어 확인한다(정적 자료만으론 여러 파일 상호작용 결함이 안 잡힌다).
+- **테스트 러너 provenance**: `package-owned-runner-review: independently-resolve-and-rerun; provenance-missing=fail`.
+  핸드오프의 `Test runner provenance`는 증명이 아니라 주장으로 취급한다. 대상의 package manifest,
+  lockfile, test config와 runner package metadata에서 package-owned CLI real path와 resolved version을
+  independently resolve한 뒤 핸드오프와 대조하고, 그 CLI로 동일한 focused verification 인자를 재실행한다.
+  provenance가 없거나 path/version을 재현할 수 없거나 다른 test instance가 선택되면 구체적인 수정 요구를
+  actionable failure로 반환한다. 이는 not unchecked이며 합격 근거로 세지 않는다.
 - **CSS/시각 변경의 렌더링 컨텍스트(pipeline-session-loss-recovery-and-nested-stall-timeout)**: computed
   style을 확인할 땐 실제로 렌더링되는 정확한 DOM 컨텍스트(호스트 document / `iframe.contentDocument` /
   Shadow DOM 등)를 특정해서 **그 안에서** 확인한다. 기능적 동작 확인(예: "스크롤이 실제로 발생")을

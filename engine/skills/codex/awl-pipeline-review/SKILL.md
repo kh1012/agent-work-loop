@@ -27,6 +27,16 @@ Check:
 4. Executability: run focused verification and preferably `awl verify --json` when safe. Open full files when a diff is insufficient.
 5. UI/visual work: inspect the exact route, state, and rendered DOM context. Functional behavior does not prove computed visual properties.
 
+For test-runner evidence, apply this contract exactly once:
+`package-owned-runner-review: independently-resolve-and-rerun; provenance-missing=fail`.
+Treat the handoff's `Test runner provenance` as a claim, not proof. From the target
+package manifest, lockfile, test config, and runner package metadata, independently resolve
+the package-owned CLI real path and resolved version. Compare both with the
+handoff, then rerun its focused verification arguments through that independently
+resolved CLI. If the provenance is missing, the path/version cannot be reproduced,
+or the rerun selects another test instance, report a concrete required fix as an
+actionable failure, not unchecked work.
+
 Separate checked and unchecked work; every unchecked item needs a reason.
 
 ## Verdict and markers
