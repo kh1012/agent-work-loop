@@ -53,6 +53,10 @@ export function resolveServiceUrl(input: string | undefined, port: number): stri
   if (!['http:', 'https:'].includes(url.protocol)) {
     throw new Error(`--url must use http or https: ${resolved}`);
   }
+  const resolvedPort = Number(url.port || (url.protocol === 'https:' ? 443 : 80));
+  if (resolvedPort !== port) {
+    throw new Error(`--url port ${resolvedPort} does not match --port ${port}`);
+  }
   return url.toString();
 }
 
@@ -89,13 +93,23 @@ export async function runPortLeaseCommand(
     identity,
     command,
     cwd: root,
+    onAcquired: (lease) => {
+      const output = leaseOutput('acquired', port, url, lease, { command });
+      if (options.json) {
+        printJson(output);
+      } else {
+        process.stdout.write(
+          `service lease acquired before start: ${url} (port ${port}, child pending)\n`,
+        );
+      }
+    },
     onStarted: (lease) => {
       const output = leaseOutput('started', port, url, lease, { command });
       if (options.json) {
         printJson(output);
       } else {
         process.stdout.write(
-          `service lease acquired: ${url} (port ${port}, child ${lease.childPid})\n`,
+          `service child started: ${url} (port ${port}, child ${lease.childPid})\n`,
         );
       }
     },

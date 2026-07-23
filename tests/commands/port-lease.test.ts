@@ -189,6 +189,9 @@ describe('installation-scoped service port leases', () => {
     expect(resolveServiceUrl(undefined, 4317)).toBe('http://127.0.0.1:4317/');
     expect(() => parseServicePort('0')).toThrow('between 1 and 65535');
     expect(() => resolveServiceUrl('file:///tmp/socket', 4317)).toThrow('http or https');
+    expect(() => resolveServiceUrl('http://localhost:4318/', 4317)).toThrow(
+      'does not match --port',
+    );
   });
 
   it('wires awl port lease run with required identity and resolved-input options', () => {
@@ -472,5 +475,37 @@ describe('installation-scoped service port leases', () => {
       status: 'stale',
       reusable: false,
     });
+  });
+
+  it('emits resolved lease input before spawning and cleans up short-lived children', async () => {
+    const root = tmp();
+    const beforeStart = path.join(root, 'lease-acquired');
+    const port = await freePort();
+    const events: string[] = [];
+    const result = await runWithPortLease({
+      installationRoot: root,
+      port,
+      url: `http://127.0.0.1:${port}/`,
+      identity: {
+        lane: path.join(root, 'lane'),
+        branch: 'work/short',
+        head: '1'.repeat(40),
+        workitem: 'WI-short',
+      },
+      command: [
+        process.execPath,
+        '-e',
+        `process.exit(require('fs').existsSync(${JSON.stringify(beforeStart)}) ? 0 : 9)`,
+      ],
+      onAcquired: () => {
+        events.push('acquired');
+        fs.writeFileSync(beforeStart, '');
+      },
+      onStarted: () => events.push('started'),
+    });
+
+    expect(result).toMatchObject({ status: 'completed', exitCode: 0, cleanup: true });
+    expect(events).toEqual(['acquired', 'started']);
+    expect(readPortLease(root, port)).toBeNull();
   });
 });

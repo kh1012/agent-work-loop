@@ -423,7 +423,13 @@ describe.runIf(existsSync(distCli))('빌드된 CLI 실행', () => {
     fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
     fs.writeFileSync(
       path.join(proj, '.awl', 'config.json'),
-      JSON.stringify({ project: 'p', mainLanguage: 'other', verify: {} }),
+      JSON.stringify({
+        project: 'p',
+        mainLanguage: ['other'],
+        character: 'test fixture',
+        engineVersion: '0.7.3',
+        verify: { typecheck: null, lint: null, test: null, e2e: null },
+      }),
     );
     fs.writeFileSync(
       path.join(proj, '.awl', 'state.json'),
@@ -450,7 +456,7 @@ describe.runIf(existsSync(distCli))('빌드된 CLI 실행', () => {
       ],
       { cwd: proj, env, encoding: 'utf8' },
     );
-    expect(gateRecord.status).toBe(0);
+    expect(gateRecord.status, gateRecord.stderr).toBe(0);
 
     const allowed = spawnSync('node', [distCli, 'state', 'set', '--json', '{"phase":"loop"}'], {
       cwd: proj,
@@ -467,7 +473,13 @@ describe.runIf(existsSync(distCli))('빌드된 CLI 실행', () => {
     fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
     fs.writeFileSync(
       path.join(proj, '.awl', 'config.json'),
-      JSON.stringify({ project: 'p', mainLanguage: 'other', verify: {} }),
+      JSON.stringify({
+        project: 'p',
+        mainLanguage: ['other'],
+        character: 'test fixture',
+        engineVersion: '0.7.3',
+        verify: { typecheck: null, lint: null, test: null, e2e: null },
+      }),
     );
     // 현재 워크아이템(workitem 필드) 없이 state.json 만 있다.
     fs.writeFileSync(path.join(proj, '.awl', 'state.json'), JSON.stringify({ workitems: {} }));
@@ -485,7 +497,7 @@ describe.runIf(existsSync(distCli))('빌드된 CLI 실행', () => {
       ],
       { cwd: proj, env, encoding: 'utf8' },
     );
-    expect(gateRecord.status).toBe(0);
+    expect(gateRecord.status, gateRecord.stderr).toBe(0);
 
     const denied = spawnSync('node', [distCli, 'state', 'set', '--json', '{"phase":"loop"}'], {
       cwd: proj,

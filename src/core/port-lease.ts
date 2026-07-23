@@ -38,6 +38,7 @@ export interface PortLeaseRunOptions {
   command: string[];
   cwd?: string;
   env?: NodeJS.ProcessEnv;
+  onAcquired?: (lease: PortLeaseRecord) => void;
   onStarted?: (lease: PortLeaseRecord) => void;
 }
 
@@ -397,6 +398,13 @@ export async function runWithPortLease(options: PortLeaseRunOptions): Promise<Po
   }
   let lease = acquired.lease;
 
+  try {
+    options.onAcquired?.(lease);
+  } catch (error) {
+    await releasePortLease(options.installationRoot, lease.port, lease.token);
+    throw error;
+  }
+
   const [executable, ...args] = options.command;
   const child = spawn(executable as string, args, {
     cwd: options.cwd,
@@ -425,10 +433,18 @@ export async function runWithPortLease(options: PortLeaseRunOptions): Promise<Po
   process.on('SIGTERM', onSigterm);
 
   try {
-    const outcome = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
-      (resolve, reject) => {
-        child.once('error', reject);
-        child.once('spawn', async () => {
+    let resolveExit:
+      | ((outcome: { code: number | null; signal: NodeJS.Signals | null }) => void)
+      | undefined;
+    const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+      resolveExit = resolve;
+    });
+    child.once('exit', (code, signal) => resolveExit?.({ code, signal }));
+
+    await new Promise<void>((resolve, reject) => {
+      child.once('error', reject);
+      child.once('spawn', () => {
+        void (async () => {
           if (!child.pid) {
             reject(new Error('service child started without a pid'));
             return;
@@ -442,14 +458,15 @@ export async function runWithPortLease(options: PortLeaseRunOptions): Promise<Po
             }
             lease = updated;
             options.onStarted?.(lease);
+            resolve();
           } catch (error) {
             child.kill('SIGTERM');
             reject(error);
           }
-        });
-        child.once('exit', (code, signal) => resolve({ code, signal }));
-      },
-    );
+        })();
+      });
+    });
+    const outcome = await exit;
     const cleanup = await releasePortLease(options.installationRoot, lease.port, lease.token);
     return {
       status: 'completed',
