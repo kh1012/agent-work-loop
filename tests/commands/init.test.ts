@@ -635,14 +635,23 @@ describe('applyInit — 전체 산출물', () => {
     }
   });
 
-  it('일반 프로젝트의 .git/hooks 에 pre-push 안전 훅을 설치한다', () => {
+  it('기본은 .git/hooks 에 pre-push 안전 훅을 설치하지 않는다', () => {
     const result = applyInit(proj, nonInteractiveInputs(proj), '2026-01-01T00:00:00.000Z');
+
+    expect(result.safetyHook).toEqual({ installed: false });
+    expect(fs.existsSync(path.join(proj, '.git', 'hooks', 'pre-push'))).toBe(false);
+  });
+
+  it('installPushGuard 를 켜면 pre-push 안전 훅을 설치한다', () => {
+    const result = applyInit(proj, nonInteractiveInputs(proj), '2026-01-01T00:00:00.000Z', {
+      installPushGuard: true,
+    });
 
     expect(result.safetyHook).toEqual({ installed: true });
     expect(fs.existsSync(path.join(proj, '.git', 'hooks', 'pre-push'))).toBe(true);
   });
 
-  it('linked worktree의 gitdir/commondir를 따라 공용 hooks에 설치하고 config를 완성한다', () => {
+  it('installPushGuard 로 linked worktree의 gitdir/commondir를 따라 공용 hooks에 설치하고 config를 완성한다', () => {
     const commonGitDir = path.join(tmp('awl-common-git-'), '.git');
     const worktreeGitDir = path.join(commonGitDir, 'worktrees', 'lane');
     makeGitMetadata(commonGitDir);
@@ -652,7 +661,9 @@ describe('applyInit — 전체 산출물', () => {
     fs.rmSync(path.join(proj, '.git'), { recursive: true });
     fs.writeFileSync(path.join(proj, '.git'), `gitdir: ${worktreeGitDir}\n`);
 
-    const result = applyInit(proj, nonInteractiveInputs(proj), '2026-01-01T00:00:00.000Z');
+    const result = applyInit(proj, nonInteractiveInputs(proj), '2026-01-01T00:00:00.000Z', {
+      installPushGuard: true,
+    });
 
     expect(result.safetyHook).toEqual({ installed: true });
     expect(fs.existsSync(path.join(commonGitDir, 'hooks', 'pre-push'))).toBe(true);
@@ -671,11 +682,13 @@ describe('applyInit — 전체 산출물', () => {
     expect(fs.existsSync(path.join(proj, '.git', 'hooks', 'pre-push'))).toBe(true);
   });
 
-  it('훅 경로를 해석하지 못해도 config 생성은 계속한다', () => {
+  it('훅 경로를 해석하지 못해도(installPushGuard) config 생성은 계속한다', () => {
     fs.rmSync(path.join(proj, '.git'), { recursive: true });
     fs.writeFileSync(path.join(proj, '.git'), 'not a gitdir file\n');
 
-    const result = applyInit(proj, nonInteractiveInputs(proj), '2026-01-01T00:00:00.000Z');
+    const result = applyInit(proj, nonInteractiveInputs(proj), '2026-01-01T00:00:00.000Z', {
+      installPushGuard: true,
+    });
 
     expect(result.safetyHook.installed).toBe(false);
     expect(result.safetyHook.warning).toContain('push 차단 훅을 설치하지 못했습니다');

@@ -422,9 +422,13 @@ export function buildProgram(): Command {
     .command('init')
     .description('이 프로젝트에 Agent Work Loop 를 설정합니다')
     .option('--yes', '질문 없이 자동 감지된 값으로 진행합니다 (비대화형)')
-    .action(async (opts: { yes?: boolean }) => {
+    .option(
+      '--push-guard',
+      '비대화형 git push를 막는 pre-push 훅을 설치합니다 (기본은 미설치, 무인 파이프라인 전용)',
+    )
+    .action(async (opts: { yes?: boolean; pushGuard?: boolean }) => {
       const { runInit } = await import('./commands/init.js');
-      await runInit({ yes: opts.yes === true });
+      await runInit({ yes: opts.yes === true, pushGuard: opts.pushGuard === true });
     });
 
   // 사람이 치는 명령: status (지금 어디까지 왔는지 한눈에)

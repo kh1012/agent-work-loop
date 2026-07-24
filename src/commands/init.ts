@@ -920,7 +920,7 @@ export function applyInit(
   projectRoot: string,
   inputs: InitInputs,
   now: string,
-  opts: { preserveState?: boolean; skipGitignore?: boolean } = {},
+  opts: { preserveState?: boolean; skipGitignore?: boolean; installPushGuard?: boolean } = {},
 ): InitResult {
   const g = scaffoldGlobal();
   const config = buildConfig(inputs, g.engineVersion);
@@ -931,7 +931,9 @@ export function applyInit(
       ? existingStatePath
       : writeState(projectRoot, now);
   const gitignore = opts.skipGitignore ? 'exists' : ensureGitignore(projectRoot);
-  const safetyHook = installSafetyHook(projectRoot);
+  // pre-push 훅은 기본 미설치다 — 사람의 GUI/IDE push까지 걸리는 사례가 있어
+  // 무인 파이프라인에서 명시적으로 원할 때만(`--push-guard`) 심는다.
+  const safetyHook = opts.installPushGuard ? installSafetyHook(projectRoot) : { installed: false };
   const { count: projectCount, skipped: registrationSkipped } = registerProject({
     name: inputs.project,
     path: projectRoot,
@@ -1054,7 +1056,7 @@ function resultSetupLines(result: InitResult, c: Caps): string[] {
         ? `${signal(c, 'warn')} ${result.safetyHook.warning}`
         : result.safetyHook.installed
           ? `${signal(c, 'ok')} git push 차단 훅 설치`
-          : 'git push 차단 훅 이미 설치됨',
+          : '기본은 미설치 (무인 파이프라인이면 awl init --push-guard)',
     ),
   );
   setupLines.push(
@@ -1536,6 +1538,7 @@ async function handleExistingConfig(
   projectRoot: string,
   c: Caps,
   now: string,
+  pushGuard: boolean,
 ): Promise<void> {
   const raw = readJson(path.join(projectRoot, '.awl', 'config.json'));
   const config = raw as Partial<AwlConfig> | null;
@@ -1617,7 +1620,7 @@ async function handleExistingConfig(
   // raw-mode 선택기와 readline이 경쟁하지 않게 기존 인터페이스를 닫는다.
   rl.close();
   const { inputs, session } = await interactiveInputs(projectRoot, isGlobalInstalled(), c);
-  const result = applyInit(projectRoot, inputs, now);
+  const result = applyInit(projectRoot, inputs, now, { installPushGuard: pushGuard });
   commitResultFlow(session, result, inputs, c);
   closeFlow(session);
 }
@@ -1813,9 +1816,10 @@ async function pickProjectRoot(cwd: string, c: Caps): Promise<string | null> {
   }
 }
 
-export async function runInit(opts: { yes: boolean }): Promise<void> {
+export async function runInit(opts: { yes: boolean; pushGuard?: boolean }): Promise<void> {
   const projectRoot = process.cwd();
   const interactive = process.stdin.isTTY === true && process.stdout.isTTY === true;
+  const pushGuard = opts.pushGuard === true;
 
   if (!opts.yes && !interactive) {
     process.stderr.write(renderNonTtyNotice());
@@ -1829,7 +1833,7 @@ export async function runInit(opts: { yes: boolean }): Promise<void> {
   if (opts.yes) {
     if (configExists) {
       const engine = scaffoldGlobal();
-      const hook = installSafetyHook(projectRoot);
+      const hook = pushGuard ? installSafetyHook(projectRoot) : { installed: false };
       const synced = syncExistingInstall(projectRoot, engine.engineVersion, now);
       const syncNote =
         synced.configUpdated || synced.skills.length > 0
@@ -1844,7 +1848,7 @@ export async function runInit(opts: { yes: boolean }): Promise<void> {
       return;
     }
     const inputs = nonInteractiveInputs(projectRoot);
-    const result = applyInit(projectRoot, inputs, now);
+    const result = applyInit(projectRoot, inputs, now, { installPushGuard: pushGuard });
     process.stdout.write(`${renderResult(result, inputs, c)}\n`);
     return;
   }
@@ -1852,7 +1856,7 @@ export async function runInit(opts: { yes: boolean }): Promise<void> {
   if (configExists) {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     try {
-      await handleExistingConfig(rl, projectRoot, c, now);
+      await handleExistingConfig(rl, projectRoot, c, now, pushGuard);
     } finally {
       rl.close();
     }
@@ -1870,14 +1874,14 @@ export async function runInit(opts: { yes: boolean }): Promise<void> {
   if (exists(path.join(chosenRoot, '.awl', 'config.json'))) {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     try {
-      await handleExistingConfig(rl, chosenRoot, c, now);
+      await handleExistingConfig(rl, chosenRoot, c, now, pushGuard);
     } finally {
       rl.close();
     }
     return;
   }
   const { inputs, session } = await interactiveInputs(chosenRoot, isGlobalInstalled(), c);
-  const result = applyInit(chosenRoot, inputs, now);
+  const result = applyInit(chosenRoot, inputs, now, { installPushGuard: pushGuard });
   commitResultFlow(session, result, inputs, c);
   closeFlow(session);
 }
