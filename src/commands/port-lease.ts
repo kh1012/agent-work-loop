@@ -7,6 +7,7 @@ import {
   inspectPortLease,
   runWithPortLease,
 } from '../core/port-lease.js';
+import { caps, signal } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
 
 export interface PortLeaseRunCommandOptions {
@@ -64,6 +65,42 @@ function printJson(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value)}\n`);
 }
 
+/**
+ * 서비스가 뜬 직후(one-shot, best-effort) `--url`을 GET해 앱이 실제로 응답하는지 본다
+ * (review-verification-env-traps AC-02). lease/inspect는 프로세스·포트만 보고 "owned·listening"을
+ * 주므로, 상대경로 root 오설정 등으로 서버는 떴지만 요청이 전부 404인 상태를 구분 못 한다.
+ * dev 서버는 "started" 로그 직후에도 바로 요청을 받지 못할 수 있어 짧게 재시도한다.
+ * 실패해도 안내만 하고 exitCode는 건드리지 않는다 — 이 wrapper의 실패 판정은 여전히 child의
+ * exit code 몫이다(API 전용 서버처럼 `/`가 정상적으로 2xx가 아닐 수도 있어 이건 어디까지나 참고).
+ */
+async function healthCheck(url: string, json: boolean): Promise<void> {
+  const delaysMs = [300, 600, 1200];
+  let lastError: string | undefined;
+  for (const delay of delaysMs) {
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2000);
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeout);
+      if (res.ok) {
+        const line = `service healthcheck: GET ${url} -> ${res.status}\n`;
+        process.stdout.write(
+          json ? `${JSON.stringify({ healthcheck: 'ok', url, status: res.status })}\n` : line,
+        );
+        return;
+      }
+      lastError = `HTTP ${res.status}`;
+    } catch (error) {
+      lastError = String(error instanceof Error ? error.message : error);
+    }
+  }
+  const line = `${signal(caps(), 'warn')} service healthcheck: GET ${url} 이 정상 응답하지 않습니다(${lastError}) — lease/inspect는 owned·listening이어도 앱이 실제로 요청에 응답하지 않을 수 있습니다.\n`;
+  process.stdout.write(
+    json ? `${JSON.stringify({ healthcheck: 'failed', url, error: lastError })}\n` : line,
+  );
+}
+
 function leaseOutput(
   status: string,
   port: number,
@@ -85,6 +122,13 @@ export async function runPortLeaseCommand(
   const port = parseServicePort(options.port);
   const url = resolveServiceUrl(options.url, port);
   const identity = currentPortLeaseIdentity(root, options.workitem);
+  // 서비스 명령은 호출자가 실제로 있는 디렉토리(process.cwd())를 cwd로 받는다 — lease
+  // identity(위)는 일관성을 위해 프로젝트 루트 기준으로 고정하지만, 그것과 자식 프로세스의
+  // cwd는 별개 관심사다. 예전엔 둘 다 프로젝트 루트를 썼는데, 그러면 서비스 명령에 준 상대경로
+  // 인자(실행파일 자신이 아니라 그 인자, 예: vite의 project root 인자)가 호출자의 실제 위치가
+  // 아니라 프로젝트 루트 기준으로 조용히 풀려 서버가 뜬 것처럼 보여도(lease owned, listening)
+  // 앱은 전부 404를 내는 사고가 났다(review-verification-env-traps F-01/F-02).
+  const cwd = process.cwd();
 
   const result = await runWithPortLease({
     installationRoot: installationRoot(),
@@ -92,7 +136,7 @@ export async function runPortLeaseCommand(
     url,
     identity,
     command,
-    cwd: root,
+    cwd,
     onAcquired: (lease) => {
       const output = leaseOutput('acquired', port, url, lease, { command });
       if (options.json) {
@@ -112,6 +156,7 @@ export async function runPortLeaseCommand(
           `service child started: ${url} (port ${port}, child ${lease.childPid})\n`,
         );
       }
+      void healthCheck(url, options.json === true);
     },
   });
 

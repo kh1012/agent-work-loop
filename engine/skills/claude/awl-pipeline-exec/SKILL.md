@@ -123,11 +123,16 @@ entrypoint를 찾는 예시다. 저장소별 상대 `node_modules` 경로를 하
 1. `awl port lease run --port <n> --workitem <id> --url <resolved-url> -- <command...>`으로만
    시작한다. listener 명령을 bare로 실행하지 않는다. 서비스는 `PORT`/`AWL_PORT`의 resolved port와
    `AWL_SERVICE_URL`의 resolved URL을 소비한다.
-   **`<command...>`의 실행 파일은 절대경로로 준다.** 이 wrapper는 셸 없이(`spawn`, `shell:false`)
-   프로젝트 루트를 cwd로 실행한다 — `package.json` 스크립트에 있는 그대로의 상대경로(예:
-   `../../node_modules/.bin/vite`)를 옮겨 쓰면 그 상대경로가 실제로 있는 곳(보통 서브패키지
-   디렉토리) 기준이 아니라 프로젝트 루트 기준으로 풀려 `ENOENT`로 죽는다(exec-tooling-friction
-   F-01). `node_modules/.bin/<bin>`의 절대경로를 미리 resolve해서 넘긴다.
+   **호출자가 실제로 있는 디렉토리(`cd`한 그 위치)에서 `awl port lease run`을 실행하고,
+   `<command...>`의 실행 파일·인자는 절대경로로 준다.** 이 wrapper는 셸 없이(`spawn`, `shell:false`)
+   그 호출 위치를 cwd로 서비스 명령을 실행한다(review-verification-env-traps AC-01 — 예전엔
+   프로젝트 루트로 고정돼 있어, 서브패키지에서 `cd`하고 명령만 실행해도 명령에 준 상대경로 인자가
+   프로젝트 루트 기준으로 조용히 풀려 lease/inspect는 owned·listening인데 앱은 전부 404인 사고가
+   났다). 그래도 실행 파일 자체(예: `node_modules/.bin/vite`)는 절대경로로 미리 resolve해서
+   넘긴다 — `cd`와 상대경로 실행 파일을 동시에 맞추는 것보다 항상 안전하다(exec-tooling-friction
+   F-01). `run`은 시작 직후 `--url`을 한 번 GET해 healthcheck 결과를 참고용으로 출력한다
+   (review-verification-env-traps AC-02) — 실패해도 exitCode는 그대로 child 몫이니, 그 결과만 보고
+   서비스가 죽었다고 단정하지 않는다.
 2. 기존 서비스를 재사용하기 전에
    `awl port lease inspect --port <n> --workitem <id> --json`을 실행한다. absolute lane, branch,
    HEAD, workitem, lease, listener PID가 모두 일치한 `owned`만 재사용한다.

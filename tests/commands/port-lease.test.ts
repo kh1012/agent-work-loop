@@ -1,10 +1,14 @@
-import { type ChildProcess, spawn } from 'node:child_process';
+import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { parseServicePort, resolveServiceUrl } from '../../src/commands/port-lease.js';
+import {
+  parseServicePort,
+  resolveServiceUrl,
+  runPortLeaseCommand,
+} from '../../src/commands/port-lease.js';
 import {
   acquirePortLease,
   inspectPortLease,
@@ -616,5 +620,48 @@ describe('installation-scoped service port leases', () => {
     expect(result).toMatchObject({ status: 'completed', exitCode: 0, cleanup: true });
     expect(events).toEqual(['acquired', 'started']);
     expect(readPortLease(root, port)).toBeNull();
+  });
+});
+
+// review-verification-env-traps AC-01: 서비스 명령은 프로젝트 루트가 아니라 호출자의 실제
+// cwd에서 떠야 한다(상대경로 인자가 조용히 엉뚱한 곳을 가리키는 사고 방지).
+describe('runPortLeaseCommand — 호출자 cwd (review-verification-env-traps AC-01)', () => {
+  const origCwd = process.cwd();
+  const origAwlHome = process.env.AWL_HOME;
+
+  afterEach(() => {
+    process.chdir(origCwd);
+    if (origAwlHome === undefined) {
+      delete process.env.AWL_HOME;
+    } else {
+      process.env.AWL_HOME = origAwlHome;
+    }
+  });
+
+  it('프로젝트 루트가 아니라 실제 호출 위치(process.cwd())를 서비스 명령의 cwd로 준다', async () => {
+    const root = tmp();
+    process.env.AWL_HOME = tmp();
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@t.com'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    fs.writeFileSync(path.join(root, 'f.txt'), 'base\n');
+    execFileSync('git', ['add', '-A'], { cwd: root });
+    execFileSync('git', ['commit', '-q', '-m', 'base'], { cwd: root });
+    const pkgDir = path.join(root, 'packages', 'app');
+    fs.mkdirSync(pkgDir, { recursive: true });
+    process.chdir(pkgDir); // .git 은 root 에 있다 — resolveProjectRoot() 는 root 를 찾아야 정상.
+
+    const port = await freePort();
+    const marker = path.join(root, 'observed-cwd');
+    await runPortLeaseCommand(
+      [
+        process.execPath,
+        '-e',
+        `require('fs').writeFileSync(${JSON.stringify(marker)}, process.cwd())`,
+      ],
+      { port: String(port), workitem: 'WI-cwd', json: true },
+    );
+
+    expect(fs.readFileSync(marker, 'utf8')).toBe(fs.realpathSync(pkgDir));
   });
 });

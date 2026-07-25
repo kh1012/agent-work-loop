@@ -121,6 +121,18 @@ description: |
   playwright를 스크래치패드의 `.mjs` 스크립트에서 직접 import해 헤드리스로 실행**하는 것이다(저장소에
   새 스펙을 추가하지 않으므로 `no-new-e2e-unless-requested`와 충돌하지 않는다). 이쪽이 더 빠르고
   결정적이다.
+- **rAF 생존 프로브(review-verification-env-traps AC-03)**: harness가 준 브라우저 탭이
+  `document.hasFocus()`는 true라도 `document.visibilityState === "hidden"`일 수 있다 — 그 탭에서는
+  `requestAnimationFrame` 콜백이 **한 번도 실행되지 않고**(`setTimeout`은 실행되되 ~1000ms로
+  스로틀된다) 정상 구현도 타임아웃까지 폴링하다 불합격 처리될 수 있다. rAF/타이머에 의존하는 계약
+  (포커스 이동, 지연 표시, 애니메이션 완료)을 판정하기 **전에** `visibilityState`와 rAF 1회 발화
+  여부를 먼저 확인한다 — 죽어 있으면 harness 탭 관측만으로 불합격을 내지 않고, lane-local
+  Playwright(위 "MCP 브라우저 탭 소유권과 폴백")로 재측정한다.
+- **oklch 색 대비 측정(review-verification-env-traps AC-04)**: `getComputedStyle`/`ctx.fillStyle`
+  왕복은 oklch 문자열을 그대로 되돌려줘 대비 측정이 안 된다고 결론 내기 쉽지만 틀렸다 —
+  `ctx.fillStyle = color; ctx.fillRect(0,0,1,1); ctx.getImageData(0,0,1,1).data`로 읽으면 실제
+  sRGB 바이트가 나온다(예: `oklch(0.55 0.2 258)` → `[7,107,227]`). 대비 완료조건을 "측정 불가"로
+  넘기지 않고 이 경로로 light/dark 양쪽 수치를 확인한다.
 - **변경 표면 라이브 실측(필수, lease-head-binding-and-review-hmr-contamination AC-06)**: 전체 e2e는
   회귀 오라클로 신뢰하지 않는다(baseline 대조로 그 워크아이템 귀속 신규 실패가 0인데도 수십 분을
   쓰고 신호가 0이었던 실측이 있다) — 그 자리를 **이번에 바뀐 변경 표면에 대한 라이브 브라우저
