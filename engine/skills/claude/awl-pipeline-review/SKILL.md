@@ -70,7 +70,10 @@ description: |
   실행 중 서비스 재사용을 인정하기 전에 정확한 review lane에서
   `awl port lease inspect --port <n> --workitem <id> --json`을 독립 실행한다. absolute lane,
   branch, HEAD, workitem, child/listener PID와 `owned` 상태를 확인한다. 다른 모든 상태는 재사용 불가다.
-  review 중 foreign/unmanaged listener를 종료·교체·탈취하지 않는다.
+  review 중 foreign/unmanaged listener를 종료·교체·탈취하지 않는다. **HEAD만 달라도 `foreign`이다
+  (lease-head-binding-and-review-hmr-contamination AC-01) — 완화 요청하지 않는다.** 공유 레인에서
+  HEAD가 다른 서버는 그 사이 다른 세션의 변경을 HMR로 반영했을 수 있어 재사용하면 오염된 상태를
+  관찰하게 된다. review는 항상 자기 소유(own) lease로 새 포트에 독립 서버를 띄운다.
   `port-lease-provenance-review: independently-reproduce-and-inspect; provenance-missing=fail`.
   검증이 listening service를 썼다면 핸드오프의 `Service port lease provenance`에서 정확한 wrapper command,
   resolved port/URL 입력, absolute lane, branch, HEAD, workitem, owner/child PID, token, acquiredAt,
@@ -101,6 +104,31 @@ description: |
   시각적 속성 검증(예: "커서 모양이 실제로 바뀜")의 대체물로 쓰지 않는다 — 둘은 다른 것이고,
   기능은 되는데 시각 속성만 조용히 무효화되는 사례(예: iframe head 재조정 로직이 주입한 `<style>`을
   덮어씀)가 실전에서 review-pass를 통과한 채 발견됐다.
+- **라이브 검증 클린런 확인(lease-head-binding-and-review-hmr-contamination AC-02/AC-03)**: 공유
+  레인은 review가 라이브 검증하는 동안에도 다른 exec 세션이 같은 워크트리의 소스를 계속 고칠 수
+  있다 — vite 등 dev 서버는 그 변경을 HMR로 즉시 반영하므로, review가 관찰한 이상(리마운트,
+  예상 밖 상태 등)이 대상 코드의 결함인지 이웃 세션의 노이즈인지 구분이 안 될 수 있다. 뮤텍스나
+  전용 워크트리를 새로 만들지 않는다 — 대신 라이브 검증을 시작하기 직전과 끝난 직후 각각
+  `git status --porcelain`을 찍어 비교한다. 그 사이 워크트리가 변경됐다면(다른 파일이
+  modified/추가) 그 구간에서 관찰한 이상은 actionable failure로 확정하지 않는다 — 워크트리가
+  다시 안정된 뒤 한 번 더 관찰하거나, 판정문에 "라이브 검증 중 다른 세션 변경 감지 — 결론 보류"로
+  명시한다. 변경이 없었으면(clean run) 관찰한 이상을 그대로 확정 근거로 쓴다.
+- **MCP 브라우저 탭 소유권과 폴백(lease-head-binding-and-review-hmr-contamination AC-04)**: 여러
+  세션이 같은 브라우저 그룹을 공유할 수 있다 — `navigate`는 항상 명시적 tabId로 호출한다(tabId
+  없이 호출하면 그룹의 첫 탭이 이동해 다른 세션이 쓰던 탭을 가로챌 수 있다). MCP 브라우저의 입력이
+  세션 도중 죽으면(클릭·포커스가 무반응인데 `document.hasFocus()`는 true인 경우 등, 다른 세션이
+  동시에 탭을 만들고 있었을 때 실전 관측됨) 재시도를 반복하지 않는다 — 공식 폴백은 **lane-local
+  playwright를 스크래치패드의 `.mjs` 스크립트에서 직접 import해 헤드리스로 실행**하는 것이다(저장소에
+  새 스펙을 추가하지 않으므로 `no-new-e2e-unless-requested`와 충돌하지 않는다). 이쪽이 더 빠르고
+  결정적이다.
+- **변경 표면 라이브 실측(필수, lease-head-binding-and-review-hmr-contamination AC-06)**: 전체 e2e는
+  회귀 오라클로 신뢰하지 않는다(baseline 대조로 그 워크아이템 귀속 신규 실패가 0인데도 수십 분을
+  쓰고 신호가 0이었던 실측이 있다) — 그 자리를 **이번에 바뀐 변경 표면에 대한 라이브 브라우저
+  실측**이 반드시 메운다. 핸드오프가 "focused e2e 스펙이 통과했다"를 근거로 인용하면, 그 스펙이
+  **실제로 이번 변경과 충돌 가능한 상호작용을 누르는지**까지 확인한다 — 스펙이 우연히 충돌 없는
+  입력만 시험해 회귀를 통과시킨 사례(전역 단축키 회귀를 그 영역 e2e가 다른 키를 눌러 놓쳤다)가
+  실전에서 나왔다. typecheck·lint·unit·focused e2e가 전부 초록이어도 이 라이브 실측 없이는
+  통과시키지 않는다.
 
 ## 판정 문서 형식 (`review/<name>.md`) — exec의 입력, **수정 필요일 때만 생성**
 ```
@@ -128,7 +156,14 @@ round: <검증한 exec round>
 이 세션이 사람이 직접 기동한 최상위 세션(스폰 아님)이면 아래 self-pace 그대로 쓴다.
 
 - **유휴가 되면**(처리할 대상이 없으면): `bash "$(pwd)/.tasks/watch-exec.sh"`를 **포그라운드로 1회** 실행한다(절대경로, `run_in_background` 안 씀). 워처는 **한 번만 검사하고 즉시 종료**한다(내부 폴링 없음) — 원자적 `mkdir` 락(`.tasks/.locks/review`)으로 "이 순간 한 번 검사할 권리"만 쥔다. 다른 인스턴스(예: Orca claude-teams 여러 개)가 같은 순간 이미 그 권리를 쥐고 있으면 워처가 즉시 `ALREADY_OWNED`를 출력하고 끝난다.
-- **분기**: `UNVERIFIED_READY`가 있으면 나열된 파일을 검증한다(한 틱, 위 "한 틱" 절차). `ALREADY_OWNED`면 standby다 — **처리하지 않는다**(다른 인스턴스가 지금 검증 중이니 이중 검증 방지). `EMPTY_COUNT:N`(지금은 검증할 게 없음, N=연속 빈-체크 횟수, 워처가 계산)이면 다음 항목으로.
+- **분기**: `UNVERIFIED_READY`가 있으면 나열된 파일을 검증**하러 시도한다** — 단 **이 워처 출력은
+  참고 신호일 뿐, 실제 착수 권한은 오직 "부트스트랩" 절의 `pipeline-dispatch claim`이 성공(`ok:true`)
+  했을 때만 나온다**(lease-head-binding-and-review-hmr-contamination AC-05). 워처는 그 순간
+  다른 review 세션에 이미 envelope로 배정된 항목도 `UNVERIFIED_READY`에 보여줄 수 있다(워처 락은
+  "그 순간 한 번 검사할 권리"만 직렬화할 뿐, 파일 단위 소유권이 없다) — claim이 거부되면(다른
+  세션이 이미 claim) 그 항목은 건너뛰고 다음으로 넘어간다, 이중 검증이 아니다. `ALREADY_OWNED`면
+  standby다 — **처리하지 않는다**(다른 인스턴스가 지금 검증 중이니 이중 검증 방지). `EMPTY_COUNT:N`
+  (지금은 검증할 게 없음, N=연속 빈-체크 횟수, 워처가 계산)이면 다음 항목으로.
 - **막힘 감지(다음 확인 예약 직전 1회)**: 다음 확인을 예약하기 전에 "할 일 없음(정상 완료)"과 "막힘(장애)"을 가른다. **워처가 이제 포그라운드 1회 체크라 exec 워처도 상시 떠 있지 않은 게 정상이다** — 그래서 이전처럼 `ps aux`로 exec 워처 프로세스 생존을 확인하는 방식은 더 이상 유효하지 않다(pipeline-self-pace-loop AC-02). 대신 **`plan/`에 미처리 일감(.taken·`.hold` 없는 `*.md`)이 남아 있는지만** 본다 — 남아 있으면 exec가 아직 자신의 다음 확인 예약(`/loop`·`ScheduleWakeup`) 전일 수 있으니 "막힘"으로 단정하지 않고, 사용자에게 참고용으로만 알린다: **"파이프라인 확인: plan에 N개 대기 중. exec가 다음 확인에서 처리하는지 지켜보세요(계속 남아 있으면 `/awl-pipeline-exec`를 확인하세요)."** `plan/`이 비었으면 유휴는 정상 완료이니 알리지 않는다.
 - **다음 확인을 예약한다(2단계 백오프, pipeline-self-pace-adaptive-backoff).** 워처가 `EMPTY_COUNT:N`을 찍었으면 그 값을 본다 — N이 0~1이면(막 유휴 진입) **1단계 240초**, N이 2 이상이면(연속으로 비어 확실히 한산) **2단계 1500초** 뒤로 다음 확인을 예약한다. **`ALREADY_OWNED`였다면(워처가 카운터 로직 전에 종료해 N 정보 없음) 안전하게 1단계 240초로 예약한다** — 다른 인스턴스가 방금 활동 중이었으니 "확실히 한산하다"고 볼 근거가 없다. `/loop`(동적 자기페이스)를 우선 쓴다. 여의치 않으면 `ScheduleWakeup`(해당 단계의 초, F-05 범위)으로 다음 확인 시각을 예약한다. 240초/1500초는 ScheduleWakeup 지침의 캐시온(60-270초)·캐시미스(1200-1800초) 대역 안에서 고른 **초기값**이다 — 실측 최적값이 아니며 라이브 관측 후 조정할 수 있다. 예약한 뒤 **백그라운드 프로세스를 남기지 않고, 하네스의 주기적 kill을 기다리지 않고** 턴을 깨끗이 끝낸다.
 

@@ -133,6 +133,13 @@ entrypoint를 찾는 예시다. 저장소별 상대 `node_modules` 경로를 하
    HEAD, workitem, lease, listener PID가 모두 일치한 `owned`만 재사용한다.
 3. `foreign`, `stale`, `unmanaged-listener`, `free`는 재사용하지 않는다. stale/free는 새 wrapper가
    획득할 수 있지만 foreign/unmanaged listener는 종료·교체하지 않는다.
+   **lane·branch·workitem이 전부 같은데 HEAD만 달라도 `foreign`이다 — 완화하지 않는다**
+   (lease-head-binding-and-review-hmr-contamination AC-01). 공유 레인에서 다른 워크아이템의
+   커밋이 HEAD를 움직이면 이 lease는 그 즉시 재사용 불가로 본다. 이건 버그가 아니라 방어다 —
+   HEAD가 움직였다는 건 그 사이 같은 워크트리에 다른 세션의 변경이 들어왔을 수 있다는 뜻이고,
+   그런 서버는 HMR로 그 변경을 이미 반영했을 수 있어(아래 review의 "라이브 검증 클린런" 참고)
+   재사용하면 정확히 오염된 상태를 관찰하게 된다. 이 경우 새 포트로 독립 서버를 새로 띄우는 것이
+   정상 경로다.
 
 ## 핸드오프 형식 (`exec/<name>.md`) — review의 입력
 ```
@@ -148,6 +155,10 @@ dispatch_evidence: <claimed envelope path, dispatchId, coordinator gate evidence
 - AC-02 ...
 ## 검증 결과
 - awl verify: <출력 요지>
+- 변경 표면 라이브 실측(lease-head-binding-and-review-hmr-contamination AC-06): <이번에 바뀐
+  화면/상호작용을 실제 브라우저로 무엇을 눌러 확인했나 — UI 변경이면 필수, 전체 e2e 통과만으로
+  대체하지 않는다. focused e2e를 근거로 인용한다면 그 스펙이 이번 변경과 충돌 가능한 입력을
+  실제로 누르는지까지 적는다.>
 ## Test runner provenance
 - runner package: <package name>
 - target package manifest: <절대 또는 package-relative package.json path>
