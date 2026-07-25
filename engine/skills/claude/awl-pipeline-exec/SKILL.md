@@ -160,7 +160,10 @@ dispatch_evidence: <claimed envelope path, dispatchId, coordinator gate evidence
 - fallback from generic: <없음, 또는 시도한 command와 mismatch/duplicate-module 실패>
 ## Service port lease provenance
 `port-lease-provenance: required-when-service-used; not-used-must-be-explicit`
-- usage: <used|not-used>
+- usage: <used|not-used|foreign-read-only>
+  (`foreign-read-only` = 서비스를 기동하지 않고 lease도 안 잡았지만, 다른 세션이 소유한 listener를
+  읽기 전용으로 관찰만 한 경우 — doc-only-round-and-foreign-listener-provenance AC-03. inspect
+  결과와 "종료·탈취·재설정 안 함"을 아래 항목에 정직하게 채운다.)
 - wrapper command: <정확한 awl port lease run 명령 또는 not-used>
 - resolved port and URL: <port, URL, PORT/AWL_PORT/AWL_SERVICE_URL 입력>
 - lease identity: <absolute lane, branch, HEAD, workitem, owner PID, child PID, token, acquiredAt>
@@ -171,9 +174,16 @@ dispatch_evidence: <claimed envelope path, dispatchId, coordinator gate evidence
   lease를 자동 해제한다 — 이게 유일한 정상 해제 경로다(exec-tooling-friction F-02).
 ## 직접 볼 리뷰 포인트 (review가 확인)
 - <파일:라인> — <왜 봐야 하나>
+- **재현 명령은 실제로 실행한 명령을 그대로 적는다(손으로 재구성하지 않는다)**
+  (doc-only-round-and-foreign-listener-provenance AC-06) — 줄 번호·결론이 맞아도 명령 자체가
+  안 돌아가면(셸에 복사해 재현 불가) review의 검증 신뢰가 깎인다.
 ## Gate evidence
 - gate 1: <claimed envelope gate.evidence>
 - gate 2: pending coordinator — implementationHandoff: <이 핸드오프 경로·커밋·검증·미확인 항목>
+- **다른 워크아이템/세션의 수치를 인용할 때**(doc-only-round-and-foreign-listener-provenance
+  AC-05): 출처 파일의 절대 또는 상대 경로 + 그 출처가 review 검증을 통과했는지(`.taken` 존재
+  여부)를 함께 적는다. 예: "169 passed(출처: `.tasks/exec/<other-name>.md`, review 미검증)".
+  review 자신이 확인한 값과 인용값이 형식상 구분 없이 섞이지 않게 한다.
 ## 범위 밖 (조사에서 발견했으나 안 다룸 + 이유)
 - F-0x: ... (이유)
 ## 라운드 이력

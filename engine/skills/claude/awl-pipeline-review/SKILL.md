@@ -60,6 +60,11 @@ description: |
   independently resolve한 뒤 핸드오프와 대조하고, 그 CLI로 동일한 focused verification 인자를 재실행한다.
   provenance가 없거나 path/version을 재현할 수 없거나 다른 test instance가 선택되면 구체적인 수정 요구를
   actionable failure로 반환한다. 이는 not unchecked이며 합격 근거로 세지 않는다.
+- **재현 명령표 검증(doc-only-round-and-foreign-listener-provenance AC-06)**: 핸드오프의 "재현 힌트"·
+  "직접 볼 리뷰 포인트" 등에 적힌 명령은 **손으로 재구성하지 말고 실제 실행한 명령을 그대로** 최소
+  1개 무작위로 재실행한다(줄 번호·결과가 맞아도 명령 자체가 안 돌아가는 경우가 실전에서 나왔다 —
+  결론은 맞는데 검증 신뢰만 깎이는 사고). 재실행 결과가 핸드오프에 적힌 것과 다르면(0 matches 등)
+  actionable failure로 반환한다.
 - **서비스 포트 lease**:
   `port-lease-review-contract: independently-inspect; reuse-only-when-status=owned`.
   실행 중 서비스 재사용을 인정하기 전에 정확한 review lane에서
@@ -72,6 +77,24 @@ description: |
   owned inspect, cleanup/final inspect를 요구한다. 현재 identity를 독립 해석하고 wrapper/inspect를 재현한다.
   누락·불일치·재현 불가는 actionable failure다. `not-used`라면 검증 명령이 listener를 시작·재사용하지
   않았는지 확인한다.
+  `usage: foreign-read-only`(doc-only-round-and-foreign-listener-provenance AC-03/AC-04 — 서비스를
+  기동하지 않고 lease도 잡지 않았지만, 다른 세션이 소유한 listener를 읽기 전용으로 관찰만 한 경우.
+  `not-used`도 `used`도 아닌 이 상태를 정직하게 신고한 핸드오프를 라벨 불일치로 actionable failure
+  취급하지 않는다)를 인정하려면: (1) inspect 결과(`status`, ownerPid, workitem)로 정말 `foreign`이지
+  `owned`가 아님을 확인, (2) 그 listener를 종료·탈취·재설정하지 않았음을 확인, (3) 그 listener로 본
+  결론(완료조건 판단 근거가 된 관찰)을 review가 **자기 소유 lease(별도 포트, `status:"owned"`)로
+  독립 재현**한다. (3)을 review가 재현하지 못하면(예: 포트가 하나뿐이라 review가 별도로 기동할 수
+  없는 등) `foreign-read-only`는 actionable failure다 — exec가 review 완료까지 기다리거나 별도
+  포트로 자기 lease를 잡아야 한다.
+- **zero-code-delta 라운드(doc-only-round-and-foreign-listener-provenance AC-02)**: 재검증 전에
+  **직전 라운드 이후 커밋 델타부터 확인**한다(대상 파일 교집합까지 — `git log`/`git diff`로 이
+  워크아이템 관련 커밋이 새로 있는지, 있다면 어떤 파일을 건드렸는지). 델타가 0이면(exec가 문서·
+  핸드오프 기록만 고치고 코드는 그대로) 라이브 UI/브라우저 실측을 포함한 전체 검증 루틴을 처음부터
+  다시 돌리지 않는다 — **기록이 바뀐 명령만** 독립 재현해 그 정정이 맞는지 확인한다(예: 러너 재실행
+  결과 수치가 정정된 값과 일치하는지). 코드 델타가 있는 파일이 하나라도 있으면 그 파일이 관련된
+  범위만 정상적으로 재검증한다. 이 델타 확인 자체가 "코드 합격 + 기록만 정정" 상태를 verdict
+  필드로 별도 표현할 필요를 없앤다 — exec의 자기 신고(codeFrozen 등)를 믿는 대신 review가 커밋
+  델타로 직접, 매번 검증 가능하게 확인하기 때문이다(AC-01은 이 절차로 대체돼 닫힌다).
 - **CSS/시각 변경의 렌더링 컨텍스트(pipeline-session-loss-recovery-and-nested-stall-timeout)**: computed
   style을 확인할 땐 실제로 렌더링되는 정확한 DOM 컨텍스트(호스트 document / `iframe.contentDocument` /
   Shadow DOM 등)를 특정해서 **그 안에서** 확인한다. 기능적 동작 확인(예: "스크롤이 실제로 발생")을
