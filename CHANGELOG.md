@@ -5,6 +5,19 @@
 
 ## [Unreleased]
 
+## [0.7.6] - 2026-07-25
+
+### 고침
+
+- 서비스 명령을 호출자 cwd에서 실행, 시작 후 healthcheck 추가
+- port lease 절대경로·release 문서화, commit --at 사후 베이스라인, record 타입 발견성
+
+### 변경
+
+- lease HEAD 결속 방어 명문화, review 클린런·MCP폴백·라이브실측 의무화
+- 코드0줄 라운드 절차·foreign listener 3상태·envelope 경합 명문화
+- 오케스트레이터 토큰소모·워커 세션교체 지침 반영
+
 ## [0.7.5] - 2026-07-24
 
 ### 고침
