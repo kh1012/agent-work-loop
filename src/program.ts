@@ -389,6 +389,31 @@ export function parseWorkitemsOption(input: string | undefined): string[] | unde
 }
 
 /**
+ * `awl record <type> --help`에 보여줄 타입별 필수 필드 표(exec-tooling-friction AC-04).
+ * `src/commands/record.ts`의 `SCHEMAS`를 손으로 옮긴 것이다 — 시행착오로만 타입·필수필드를
+ * 발견하던 문제(타입 4회 거부 재현)의 대응으로, `--help` 한 번으로 전체를 보여준다.
+ * `SCHEMAS`를 바꾸면 이 표도 같이 고친다 — `tests/commands/record.test.ts`가 둘의 일치를
+ * 확인한다(모든 RecordType 이름과 그 required 필드가 이 문자열에 나타나는지).
+ */
+export const RECORD_TYPES_HELP_TABLE = [
+  '  audit           scope, findings',
+  '  spike           question, found',
+  '  criteria        items',
+  '  attempt         what, result',
+  '  blocked         what, why, tried, lesson',
+  '  review          reviewId, criteria, findings, cheatingDetected, verifyPassedBefore',
+  '  decision        question, decision, rationale',
+  '  gotcha-applied  gotchaId, what',
+  '  gotcha-missed   gotchaId, what, why',
+  '  narrative       kind, counterfactual  (kind: gate-caught|reviewer-caught|spike-prevented|blocked-discarded|tool-failed)',
+  '  gate            gate, decision, presentedCriteria',
+  '  clarify         questions',
+  '  awl-feedback    area, what, impact, severity',
+  '  defer           severity, what, why',
+  '  refactor        what, kind',
+].join('\n');
+
+/**
  * awl 명령어 트리를 만든다.
  *
  * `--help`에는 사람이 치는 명령만 보인다. 스킬 전용 명령(verify, record,
@@ -905,6 +930,10 @@ export function buildProgram(): Command {
     .command('commit <criterion>')
     .description('완료 조건 작업을 격리 커밋합니다 (내 변경만)')
     .option('--start', '베이스라인을 잡습니다 (작업 시작 시)')
+    .option(
+      '--at <ref>',
+      '(--start와 함께) 베이스라인을 지금이 아니라 이 ref로 사후 지정합니다 — --start를 잊고 작업부터 한 경우의 복구용, 공유 stash 스택을 안 건드립니다',
+    )
     .option('-m, --message <msg>', '커밋 메시지')
     .option('--base <ref>', '베이스 드리프트를 확인할 기준 브랜치')
     .option('--force', '보호 파일 변경 검사를 사람이 확인하고 우회합니다')
@@ -914,6 +943,7 @@ export function buildProgram(): Command {
         criterion: string,
         opts: {
           start?: boolean;
+          at?: string;
           message?: string;
           base?: string;
           force?: boolean;
@@ -923,6 +953,7 @@ export function buildProgram(): Command {
         const { runCommit } = await import('./commands/commit.js');
         await runCommit(criterion, {
           start: opts.start,
+          at: opts.at,
           message: opts.message,
           base: opts.base,
           force: opts.force,
@@ -943,6 +974,9 @@ export function buildProgram(): Command {
     });
 
   // 스킬이 치는 명령(숨김): record
+  // 타입·필수필드 표(RECORD_TYPES_HELP_TABLE, exec-tooling-friction AC-04)는
+  // src/commands/record.ts 의 SCHEMAS 를 손으로 옮긴 것이다 — SCHEMAS 를 바꾸면 이 표도
+  // 같이 고친다(단위 테스트가 둘의 일치를 확인한다, tests/commands/record.test.ts).
   program
     .command('record <type>', { hidden: true })
     .description('구조화된 기록을 남깁니다')
@@ -950,6 +984,7 @@ export function buildProgram(): Command {
     .option('--file <path>', '데이터 파일 경로 (큰 데이터용)')
     .option('--diff', 'git diff 를 캡처해 첨부합니다 (blocked)')
     .option('--workitem <id>', '이 기록만 다른 워크아이템으로 남깁니다(기본은 현재 워크아이템)')
+    .addHelpText('after', `\n타입별 필수 필드:\n${RECORD_TYPES_HELP_TABLE}\n`)
     .action(
       async (
         type: string,

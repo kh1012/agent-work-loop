@@ -123,6 +123,11 @@ entrypoint를 찾는 예시다. 저장소별 상대 `node_modules` 경로를 하
 1. `awl port lease run --port <n> --workitem <id> --url <resolved-url> -- <command...>`으로만
    시작한다. listener 명령을 bare로 실행하지 않는다. 서비스는 `PORT`/`AWL_PORT`의 resolved port와
    `AWL_SERVICE_URL`의 resolved URL을 소비한다.
+   **`<command...>`의 실행 파일은 절대경로로 준다.** 이 wrapper는 셸 없이(`spawn`, `shell:false`)
+   프로젝트 루트를 cwd로 실행한다 — `package.json` 스크립트에 있는 그대로의 상대경로(예:
+   `../../node_modules/.bin/vite`)를 옮겨 쓰면 그 상대경로가 실제로 있는 곳(보통 서브패키지
+   디렉토리) 기준이 아니라 프로젝트 루트 기준으로 풀려 `ENOENT`로 죽는다(exec-tooling-friction
+   F-01). `node_modules/.bin/<bin>`의 절대경로를 미리 resolve해서 넘긴다.
 2. 기존 서비스를 재사용하기 전에
    `awl port lease inspect --port <n> --workitem <id> --json`을 실행한다. absolute lane, branch,
    HEAD, workitem, lease, listener PID가 모두 일치한 `owned`만 재사용한다.
@@ -160,7 +165,10 @@ dispatch_evidence: <claimed envelope path, dispatchId, coordinator gate evidence
 - resolved port and URL: <port, URL, PORT/AWL_PORT/AWL_SERVICE_URL 입력>
 - lease identity: <absolute lane, branch, HEAD, workitem, owner PID, child PID, token, acquiredAt>
 - inspect evidence: <정확한 명령과 실행/재사용 중 owned 결과>
-- cleanup evidence: <child exit, token 일치 release 결과, final inspect 상태>
+- cleanup evidence: <run 프로세스 종료(정상 종료 또는 SIGINT/SIGTERM) 결과, final inspect 상태>
+  — `awl port lease`에는 별도 `release` 서브커맨드가 없다(`run`·`inspect` 둘뿐). `run`이 시작한
+  child(또는 그 wrapper 자신)를 종료시키면 `run` 프로세스가 그 종료를 감지해 token이 일치하는
+  lease를 자동 해제한다 — 이게 유일한 정상 해제 경로다(exec-tooling-friction F-02).
 ## 직접 볼 리뷰 포인트 (review가 확인)
 - <파일:라인> — <왜 봐야 하나>
 ## Gate evidence
@@ -199,6 +207,9 @@ awl-loop 기록 문체: 결론 먼저, 짧게 끊어서, 확인/미확인 분리
 - 워처가 포그라운드 1회 체크라 배경 task ID 자체가 없다. 동시 인스턴스는 워처 내장 **`mkdir` 락**(`.tasks/.locks/exec`)이 막는다: 같은 순간 체크가 겹치면 나중 쪽이 `ALREADY_OWNED`로 즉시 끝나므로 별도 ps-check가 불필요하다(여러 Orca claude-teams 인스턴스가 같은 cwd에서 동시에 떠도 그 순간의 체크 권리는 하나).
 - 다음 확인 대기는 `/loop` 또는 `ScheduleWakeup`으로 예약한다(포그라운드 `sleep`은 막혀 있다).
 - RTK가 git/ls 출력을 왜곡할 수 있다 → 파일명 표식 같은 정밀 확인은 절대경로 `/bin/ls`·직접 `git`으로.
+  **하네스가 세션 시작 시 주는 초기 git 요약(gitStatus 스냅샷)도 같은 왜곡을 탈 수 있다** —
+  존재하지 않는 수정 파일이 보고된 실측 사례가 있다. 그 스냅샷과 실제 `awl doctor`/직접 `git`
+  결과가 다르면 후자를 믿는다(exec-tooling-friction F-05).
 - 사람에게 보고할 때(에스컬레이션·핸드오프 요약)는 `awl-pipeline`의 "보고·응답 형식" 원칙(표/키워드 먼저, 줄글은 보충)을 따른다.
 
 ## 직접 실행 계약

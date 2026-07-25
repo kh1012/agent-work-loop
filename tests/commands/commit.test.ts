@@ -103,6 +103,24 @@ describe('isolatedCommit — 남의 작업을 잃지 않는다 (핵심)', () => 
     // 세 변경이 모두 격리 커밋에 포함(남의 파일 없음).
     expect([...outcome.stagedFiles].sort()).toEqual(['a.txt', 'b.txt', 'c.txt']);
   });
+
+  it('startBaseline(atRef) 이 공유 stash 없이 같은 응집 변경을 격리 커밋한다 (exec-tooling-friction AC-03)', async () => {
+    const { dir, g } = makeRepo();
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'a0\n');
+    fs.writeFileSync(path.join(dir, 'b.txt'), 'b0\n');
+    g(['add', '.']);
+    g(['commit', '-q', '-m', 'base']);
+    // --start 없이 응집 구현: tracked 2개 수정 + 새 파일 1개(untracked) — stash 를 전혀 안 쓴다.
+    fs.writeFileSync(path.join(dir, 'a.txt'), 'a0\nMINE-A\n');
+    fs.writeFileSync(path.join(dir, 'b.txt'), 'b0\nMINE-B\n');
+    fs.writeFileSync(path.join(dir, 'c.txt'), 'NEW-C\n');
+    const { snapshot, head, untracked } = await startBaseline(dir, 'AC-1', 'HEAD');
+    expect(snapshot).toBe(head); // atRef 경로는 snapshot=head=그 ref.
+    expect(untracked).toEqual([]); // 지금 있는 untracked 파일 전부를 "내 것"으로 본다.
+    const outcome = await isolatedCommit(dir, 'AC-1', 'cohesive', snapshot);
+    expect(outcome.committed).toBe(true);
+    expect([...outcome.stagedFiles].sort()).toEqual(['a.txt', 'b.txt', 'c.txt']);
+  });
 });
 
 describe('isolatedCommit — HEAD 드리프트 감지 (자체검증 순환참조 방지, D-36)', () => {
@@ -492,7 +510,7 @@ describe('firstBaseline (WI-H AC-01) — 재시작/여러 커밋에도 range-sta
     expect(closed?.commit).toBe(head);
   });
 
-  it('baseline 없이 commit 하면 stash 왕복 복구 경로를 안내한다 (commit-start-rescue AC-01)', async () => {
+  it('baseline 없이 commit 하면 --start --at 복구 경로를 안내한다 (exec-tooling-friction AC-03)', async () => {
     realGitProject();
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
       throw new Error(`exit:${code}`);
@@ -511,8 +529,8 @@ describe('firstBaseline (WI-H AC-01) — 재시작/여러 커밋에도 range-sta
     }
     const msg = errs.join('');
     expect(msg).toContain('awl commit AC-9 --start'); // 구현 전 경로
-    expect(msg).toContain('git stash push'); // 이미 구현한 경우 복구
-    expect(msg).toContain('git stash pop');
+    expect(msg).toContain('awl commit AC-9 --start --at HEAD'); // 이미 구현한 경우 사후 복구
+    expect(msg).not.toContain('git stash'); // 공유 stash 스택을 안내하지 않는다
   });
 
   it('runCommit -m 이 실제로 baseline(crit.baseline)을 expectedHead 로 넘겨 HEAD 드리프트를 거부한다 (D-36 배선 확인)', async () => {

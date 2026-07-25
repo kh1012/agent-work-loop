@@ -6,9 +6,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { version as pkgVersion } from '../package.json';
+import { RECORD_TYPES, SCHEMAS } from '../src/commands/record.js';
 import { type Caps, visibleWidth } from '../src/core/tty.js';
 import {
   BANNER,
+  RECORD_TYPES_HELP_TABLE,
   buildProgram,
   parseExperimentOption,
   parseWorkitemsOption,
@@ -47,6 +49,21 @@ describe('awl 프로그램 구성', () => {
   it('버전 정보를 노출한다', () => {
     const program = buildProgram();
     expect(program.version()).toMatch(/^awl v\d+\.\d+\.\d+/);
+  });
+
+  // exec-tooling-friction AC-04: awl record 의 타입·필수필드를 시행착오로만 발견하던 문제의
+  // 대응(RECORD_TYPES_HELP_TABLE). SCHEMAS 가 바뀌었는데 이 표를 안 고치면 실패한다.
+  it('RECORD_TYPES_HELP_TABLE 이 SCHEMAS 의 모든 타입·필수필드를 담고 있다(드리프트 잠금)', () => {
+    const tableLines = RECORD_TYPES_HELP_TABLE.split('\n');
+    for (const type of RECORD_TYPES) {
+      // narrative 행의 "gate-caught" 처럼 다른 타입명을 부분 포함하는 값과 섞이지 않게,
+      // 그 타입 이름으로 "시작하는" 행만 그 타입의 행으로 본다.
+      const typeLine = tableLines.find((l) => l.trim().startsWith(type));
+      expect(typeLine, `${type} 행이 없음`).toBeDefined();
+      for (const field of SCHEMAS[type].required) {
+        expect(typeLine).toContain(field);
+      }
+    }
   });
 
   it('배너에 핵심 문구가 담겨 있다', () => {

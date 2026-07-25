@@ -145,8 +145,23 @@ async function pinBaselineRef(cwd: string, ac: string, sha: string): Promise<voi
   }
 }
 
-/** 완료 조건 작업의 베이스라인을 잡는다. 시작 시점 스냅샷을 refs/awl 로 고정한다. */
-export async function startBaseline(cwd: string, ac: string): Promise<Baseline> {
+/**
+ * 완료 조건 작업의 베이스라인을 잡는다. 시작 시점 스냅샷을 refs/awl 로 고정한다.
+ *
+ * `atRef`(예: `HEAD`)를 주면 이미 만들어둔 미커밋 변경을 그대로 "시작 이후 내 변경"으로
+ * 잡는 사후 베이스라인 경로다(`--start`를 잊고 작업부터 한 경우의 복구용, exec-tooling-friction
+ * F-03) — 공유 stash 스택(다른 워크트리·세션과 공유)을 건드리지 않는다. 이때는
+ * `git stash create`(워킹트리를 안 건드리는 읽기전용 스냅샷) 대신 그 ref를 snapshot/head로
+ * 그대로 쓰고, untrackedAtStart도 비워 지금 있는 untracked 파일 전부를 "내 것"으로 본다 —
+ * 시작 시점 이미 있던 파일과 방금 만든 파일을 사후에는 구분할 수 없기 때문에, 내 새 파일을
+ * 조용히 커밋 대상에서 빼는 쪽보다 안전한 쪽(전부 포함)으로 기운다.
+ */
+export async function startBaseline(cwd: string, ac: string, atRef?: string): Promise<Baseline> {
+  if (atRef) {
+    const resolved = (await git(['rev-parse', atRef], cwd)).stdout.trim();
+    await pinBaselineRef(cwd, ac, resolved);
+    return { snapshot: resolved, head: resolved, untracked: [] };
+  }
   const head = (await git(['rev-parse', 'HEAD'], cwd)).stdout.trim();
   const snapshot = await captureSnapshot(cwd);
   const untracked = await listUntracked(cwd);
@@ -435,7 +450,14 @@ function requireRoot(): string {
 
 export async function runCommit(
   ac: string,
-  opts: { start?: boolean; message?: string; base?: string; force?: boolean; files?: string[] },
+  opts: {
+    start?: boolean;
+    at?: string;
+    message?: string;
+    base?: string;
+    force?: boolean;
+    files?: string[];
+  },
 ): Promise<void> {
   const root = requireRoot();
   const c = caps();
@@ -461,7 +483,7 @@ export async function runCommit(
   const now = new Date().toISOString();
 
   if (opts.start) {
-    const { snapshot, head, untracked } = await startBaseline(root, ac);
+    const { snapshot, head, untracked } = await startBaseline(root, ac, opts.at);
     // firstBaseline 은 이 AC 가 "처음" --start 될 때만 기록하고 이후 절대 안 덮어쓴다
     // (WI-H AC-01, D-26/D-28). baseline/snapshot 은 격리 커밋마다(닫힐 때) 다음
     // diff 기준점으로 갱신되지만, review 의 범위 시작점은 AC 가 처음 시작된 시점
@@ -504,10 +526,9 @@ export async function runCommit(
       '  아직 구현 전이면 — 먼저 베이스라인을 잡으세요:',
       `      awl commit ${ac} --start`,
       '',
-      '  이미 구현했다면 — 변경을 잠깐 치웠다가 되돌려 격리 커밋하세요(격리 모델 유지):',
-      '      git stash push -u',
-      `      awl commit ${ac} --start`,
-      '      git stash pop',
+      '  이미 구현했다면(--start 를 잊고 작업부터 했다면) — 지금 있는 미커밋 변경 전부를',
+      '  "시작 이후 내 변경"으로 사후 지정하세요(공유 stash 스택을 건드리지 않습니다):',
+      `      awl commit ${ac} --start --at HEAD`,
       `      awl commit ${ac} -m "..."`,
       '',
     ];
