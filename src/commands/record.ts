@@ -47,10 +47,23 @@ export const NARRATIVE_KINDS = [
   'tool-failed',
 ] as const;
 
-/** gate:1 의 decision 으로 허용되는 값 (WI-Q AC-01). */
+/** gate:1 의 decision 으로 허용되는 값 (WI-Q AC-01). request 레이어 — 티켓(완료조건) 확정. */
 export const GATE1_DECISIONS = ['approved', 'modified', 'rejected', 'split'] as const;
-/** gate:2 의 decision 으로 허용되는 값 (WI-Q AC-01). */
+/** gate:2 의 decision 으로 허용되는 값 (WI-Q AC-01). 레거시 — workitem 완료. 뜻·값 안 바뀜. */
 export const GATE2_DECISIONS = ['approved', 'more-work', 'abandoned'] as const;
+/**
+ * gate:3 의 decision (ADK stage 2a 신규, layer:'ticket' 전용) — 티켓 완료.
+ * "이 단위가 끝났는가"라는 gate:2 와 같은 질문을 티켓 단위에 적용한 것뿐이라
+ * 새 어휘를 만들지 않고 그대로 재사용한다.
+ */
+export const GATE3_DECISIONS = GATE2_DECISIONS;
+/**
+ * gate:4 의 decision (ADK stage 2a 신규, layer:'request' 전용) — 요청을 닫을 것인가 +
+ * 마무리(병합) 방식. docs/0.8.0/adk-reference.md 9장의 게이트4 화면 문구를 값으로 옮겼다.
+ */
+export const GATE4_DECISIONS = ['merge', 'judge-only', 'hold'] as const;
+/** gate 레코드의 layer 로 허용되는 값 (ADK stage 2a). */
+export const GATE_LAYERS = ['request', 'ticket'] as const;
 
 /**
  * awl-feedback.area 로 허용되는 값 (0.6.x). awl 도구의 어느 기능이 아팠나 —
@@ -346,23 +359,48 @@ export function buildRecord(
     }
   }
 
-  // gate.gate 는 1 또는 2여야 하고, decision 은 그 게이트에서만 허용되는 값이어야
-  // 한다(WI-Q AC-01) — 게이트 1/2 가 서로 다른 의미의 결정을 갖기 때문이다
-  // (예: 게이트 1엔 "split"이 있지만 게이트 2엔 없다). narrative.kind 와 같은
-  // 특수 분기 패턴을 재사용한다(D-35).
+  // gate.gate 는 1~4여야 하고, decision 은 그 게이트에서만 허용되는 값이어야
+  // 한다(WI-Q AC-01, ADK stage 2a 로 3/4 추가) — 게이트마다 서로 다른 의미의
+  // 결정을 갖기 때문이다(예: 게이트 1엔 "split"이 있지만 게이트 2엔 없다).
+  // narrative.kind 와 같은 특수 분기 패턴을 재사용한다(D-35).
+  //
+  // 게이트 1/2 는 레거시다 — layer 없이 불러도(기존 awl-loop 스킬이 그렇게 부른다)
+  // 검증·동작이 예전과 100% 동일하다. layer 를 같이 줘도(정보성 태그) decision
+  // 검증 목록은 안 바뀐다. 게이트 3/4 는 ADK stage 2a 신규라 레거시 호출자가
+  // 없으므로, 처음부터 각각 layer:'ticket'/'request' 를 명시하도록 강제한다.
   if (type === 'gate') {
     const gateMissing = data.gate === undefined || data.gate === null || data.gate === '';
-    if (!gateMissing && data.gate !== 1 && data.gate !== 2) {
-      missing.push('gate (1 또는 2여야 함)');
+    const gate = data.gate;
+    const validGate = gate === 1 || gate === 2 || gate === 3 || gate === 4;
+    if (!gateMissing && !validGate) {
+      missing.push('gate (1, 2, 3, 4 중 하나여야 함)');
     }
+
+    const layer = data.layer;
+    const layerMissing = layer === undefined || layer === null || layer === '';
+    if (!layerMissing && !(GATE_LAYERS as readonly unknown[]).includes(layer)) {
+      missing.push(`layer (${GATE_LAYERS.join(' 또는 ')} 여야 함)`);
+    }
+    if (!gateMissing && gate === 3 && layer !== 'ticket') {
+      missing.push("layer ('ticket' 이어야 함 — gate 3 은 티켓 완료 게이트)");
+    }
+    if (!gateMissing && gate === 4 && layer !== 'request') {
+      missing.push("layer ('request' 이어야 함 — gate 4 는 요청 닫기 게이트)");
+    }
+
     const decisionMissing =
       data.decision === undefined || data.decision === null || data.decision === '';
-    if (!decisionMissing && (data.gate === 1 || data.gate === 2)) {
-      const allowed = data.gate === 1 ? GATE1_DECISIONS : GATE2_DECISIONS;
+    if (!decisionMissing && validGate) {
+      const allowed =
+        gate === 1
+          ? GATE1_DECISIONS
+          : gate === 2
+            ? GATE2_DECISIONS
+            : gate === 3
+              ? GATE3_DECISIONS
+              : GATE4_DECISIONS;
       if (!(allowed as readonly unknown[]).includes(data.decision)) {
-        missing.push(
-          `decision (gate ${data.gate} 에서는 다음 중 하나여야 함: ${allowed.join(', ')})`,
-        );
+        missing.push(`decision (gate ${gate} 에서는 다음 중 하나여야 함: ${allowed.join(', ')})`);
       }
     }
   }

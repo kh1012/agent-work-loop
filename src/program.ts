@@ -825,6 +825,18 @@ export function buildProgram(): Command {
       await runDocLint(targetPath);
     });
 
+  // 사람이 치는 명령: tickets (스펙 조건 → 티켓 도출, ADK stage 2a)
+  const tickets = program.command('tickets').description('스펙에서 티켓을 도출합니다');
+  tickets
+    .command('derive <spec-id>')
+    .description(
+      '스펙의 조건 하나당 티켓 파일 하나를 기계적으로 만듭니다(이미 도출된 조건은 건너뜁니다)',
+    )
+    .action(async (specId: string) => {
+      const { runDeriveTickets } = await import('./commands/tickets.js');
+      await runDeriveTickets(specId);
+    });
+
   // 사람이 치는 명령: records (기록 조회, 사람이 읽는 목록)
   program
     .command('records')

@@ -440,10 +440,10 @@ describe('buildRecord — 구조 강제', () => {
     expect(r.missing.some((m) => m.startsWith('presentedCriteria'))).toBe(true);
   });
 
-  it('gate 값이 1/2 가 아니면 거부한다', () => {
+  it('gate 값이 1~4 가 아니면 거부한다(ADK stage 2a 로 3/4 추가)', () => {
     const r = buildRecord(
       'gate',
-      { gate: 3, decision: 'approved', presentedCriteria: ['AC-01'] },
+      { gate: 5, decision: 'approved', presentedCriteria: ['AC-01'] },
       DEFAULTS,
     );
     expect(r.record).toBeUndefined();
@@ -479,6 +479,92 @@ describe('buildRecord — 구조 강제', () => {
       const r = buildRecord('gate', { gate: 2, decision, presentedCriteria: ['AC-01'] }, DEFAULTS);
       expect(r.missing).toEqual([]);
     }
+  });
+
+  it('gate 1/2 는 layer 없이 불러도 레거시와 동일하게 통과한다(완전 하위호환, ADK stage 2a)', () => {
+    const r1 = buildRecord(
+      'gate',
+      { gate: 1, decision: 'approved', presentedCriteria: ['AC-01'] },
+      DEFAULTS,
+    );
+    expect(r1.missing).toEqual([]);
+    expect(r1.record).not.toHaveProperty('layer');
+
+    const r2 = buildRecord(
+      'gate',
+      { gate: 2, decision: 'approved', presentedCriteria: ['AC-01'] },
+      DEFAULTS,
+    );
+    expect(r2.missing).toEqual([]);
+  });
+
+  it('gate 1/2 에 layer 를 같이 줘도(정보성 태그) decision 검증 목록은 안 바뀐다', () => {
+    const r = buildRecord(
+      'gate',
+      { gate: 1, decision: 'approved', presentedCriteria: ['AC-01'], layer: 'request' },
+      DEFAULTS,
+    );
+    expect(r.missing).toEqual([]);
+    expect(r.record?.layer).toBe('request');
+  });
+
+  it('gate 3 을 layer 없이 기록하면 거부한다(ticket 완료 게이트, ADK stage 2a)', () => {
+    const r = buildRecord(
+      'gate',
+      { gate: 3, decision: 'approved', presentedCriteria: ['AC-01'] },
+      DEFAULTS,
+    );
+    expect(r.record).toBeUndefined();
+    expect(r.missing.some((m) => m.includes("layer ('ticket'"))).toBe(true);
+  });
+
+  it("gate 3 을 layer:'ticket' 로 허용된 decision과 기록하면 통과한다", () => {
+    for (const decision of ['approved', 'more-work', 'abandoned']) {
+      const r = buildRecord(
+        'gate',
+        { gate: 3, decision, presentedCriteria: ['AC-01'], layer: 'ticket' },
+        DEFAULTS,
+      );
+      expect(r.missing).toEqual([]);
+    }
+  });
+
+  it("gate 4 를 layer:'request' 없이(또는 'ticket'으로) 기록하면 거부한다(요청 닫기 게이트)", () => {
+    const withoutLayer = buildRecord(
+      'gate',
+      { gate: 4, decision: 'merge', presentedCriteria: ['AC-01'] },
+      DEFAULTS,
+    );
+    expect(withoutLayer.record).toBeUndefined();
+    expect(withoutLayer.missing.some((m) => m.includes("layer ('request'"))).toBe(true);
+
+    const wrongLayer = buildRecord(
+      'gate',
+      { gate: 4, decision: 'merge', presentedCriteria: ['AC-01'], layer: 'ticket' },
+      DEFAULTS,
+    );
+    expect(wrongLayer.record).toBeUndefined();
+  });
+
+  it("gate 4 를 layer:'request' 로 merge/judge-only/hold 중 하나로 기록하면 통과한다", () => {
+    for (const decision of ['merge', 'judge-only', 'hold']) {
+      const r = buildRecord(
+        'gate',
+        { gate: 4, decision, presentedCriteria: ['AC-01'], layer: 'request' },
+        DEFAULTS,
+      );
+      expect(r.missing).toEqual([]);
+    }
+  });
+
+  it('layer 가 request/ticket 이 아닌 값이면 거부한다', () => {
+    const r = buildRecord(
+      'gate',
+      { gate: 1, decision: 'approved', presentedCriteria: ['AC-01'], layer: '없는레이어' },
+      DEFAULTS,
+    );
+    expect(r.record).toBeUndefined();
+    expect(r.missing.some((m) => m.startsWith('layer'))).toBe(true);
   });
 
   it('gate 의 선택 필드(presentedExclusions/riskSignals/modifications/humanFindings/auto)는 그대로 보존된다', () => {

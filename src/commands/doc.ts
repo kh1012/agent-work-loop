@@ -152,11 +152,15 @@ const SPEC_BODY = `## Request
 ## Out of scope
 `;
 
-function ticketFrontmatter(opts: { id: string; spec: string }): FrontmatterData {
+function ticketFrontmatter(opts: {
+  id: string;
+  spec: string;
+  conditions: string[];
+}): FrontmatterData {
   return {
     id: opts.id,
     spec: opts.spec,
-    conditions: [],
+    conditions: opts.conditions,
     dependencies: [],
     status: 'pending',
   };
@@ -181,6 +185,8 @@ function decisionFrontmatter(opts: { id: string; supersedes: string }): Frontmat
 export interface DocNewOptions {
   spec?: string;
   supersedes?: string;
+  /** (ticket 전용) 이 티켓이 검증하는 조건 식별자들 — 기본은 빈 배열(수동 생성). */
+  conditions?: string[];
 }
 
 export interface DocNewResult {
@@ -217,7 +223,11 @@ export async function createDoc(
     });
     body = SPEC_BODY;
   } else if (type === 'ticket') {
-    frontmatter = ticketFrontmatter({ id, spec: opts.spec ?? '' });
+    frontmatter = ticketFrontmatter({
+      id,
+      spec: opts.spec ?? '',
+      conditions: opts.conditions ?? [],
+    });
     body = TICKET_BODY;
   } else {
     frontmatter = decisionFrontmatter({ id, supersedes: opts.supersedes ?? '' });
