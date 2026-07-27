@@ -103,10 +103,10 @@ describe('sync 커서 — 원자적 읽기/쓰기', () => {
     expect(readSyncCursor()).toEqual({});
   });
 
-  it('쓴 커서를 그대로 읽어온다', () => {
+  it('쓴 커서를 그대로 읽어온다(records 는 프로젝트별로 나뉜다)', () => {
     const home = tmpHome();
-    writeSyncCursor({ records: { lastSentId: 'rec-9' } });
-    expect(readSyncCursor()).toEqual({ records: { lastSentId: 'rec-9' } });
+    writeSyncCursor({ records: { p: { lastSentId: 'rec-9' } } });
+    expect(readSyncCursor()).toEqual({ records: { p: { lastSentId: 'rec-9' } } });
     expect(fs.existsSync(path.join(home, 'sync-cursor.json'))).toBe(true);
   });
 

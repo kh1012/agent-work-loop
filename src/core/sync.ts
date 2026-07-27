@@ -117,7 +117,16 @@ export interface SyncStreamState {
 }
 
 export interface SyncCursor {
-  records?: SyncStreamState;
+  /**
+   * 프로젝트 이름별로 나뉜다(단일 전역 위치가 아니다) — 기록은 project 별로 몰려서
+   * 쓰이는데 커서가 프로젝트를 안 가리면, A 프로젝트가 성공적으로 커서를 전진시킨
+   * 뒤 B 프로젝트의 트리거가 오면 B 의 안 보낸 옛 기록을 건너뛰어 버린다(같은
+   * ~/.awl/records 가 여러 프로젝트를 함께 담기 때문). 이렇게 나누면 "서버를 다시
+   * 켜면 밀린 기록이 함께 전송된다"(prototype.md:438)가 프로젝트 단위로 정확히
+   * 성립한다 — 다음에 이 프로젝트에서 트리거가 오면 그 프로젝트 커서 이후 전부를
+   * 다시 훑어 보낸다(record.ts 의 syncProjectRecords).
+   */
+  records?: Record<string, SyncStreamState>;
   specs?: SyncStreamState;
   feedback?: SyncStreamState;
 }

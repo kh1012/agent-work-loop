@@ -16,7 +16,7 @@ import {
   recordFailure,
   recordSuccess,
   shouldGiveUp,
-  type SyncCursor,
+  type SyncStreamState,
   writeSyncCursor,
 } from '../core/sync.js';
 import { type Caps, caps, makeColors, sectionBox, signal } from '../core/tty.js';
@@ -129,14 +129,18 @@ function findTicketFileById(projectRoot: string, ticketId: string): string | nul
   return null;
 }
 
-/** 티켓 파일의 frontmatter status 만 바꿔 다시 쓴다. 본문은 그대로 보존한다. */
+/** 티켓 파일의 frontmatter status 만 바꿔 다시 쓴다. 본문은 그대로 보존한다.
+ * serializeFrontmatter 는 이미 `\n` 로 끝나고, parseFrontmatter 가 돌려주는
+ * body 는 원본에서 닫는 `---` 뒤에 있던 개행(들)을 그대로 포함한다 — 여기서
+ * 또 `\n` 을 더하면 다시 쓸 때마다 빈 줄이 한 줄씩 누적된다(round-trip 불안정,
+ * ADK stage 3 e2e 검증이 스펙 revision 이 매번 달라지는 것으로 발견). */
 function writeTicketStatus(ticketPath: string, status: string): void {
   const parsed = parseFrontmatter(fs.readFileSync(ticketPath, 'utf8'));
   if (!parsed) {
     return;
   }
   const nextData = { ...parsed.data, status };
-  fs.writeFileSync(ticketPath, `${serializeFrontmatter(nextData)}\n${parsed.body}`);
+  fs.writeFileSync(ticketPath, `${serializeFrontmatter(nextData)}${parsed.body}`);
 }
 
 /**
@@ -166,14 +170,15 @@ function findSpecFileById(projectRoot: string, specId: string): string | null {
   return null;
 }
 
-/** 스펙 파일의 frontmatter status 만 바꿔 다시 쓴다. 본문은 그대로 보존한다. */
+/** 스펙 파일의 frontmatter status 만 바꿔 다시 쓴다. 본문은 그대로 보존한다.
+ * writeTicketStatus 와 같은 이유로 body 앞에 `\n` 을 더 안 붙인다(round-trip 안정성). */
 function writeSpecStatus(specPath: string, status: string): void {
   const parsed = parseFrontmatter(fs.readFileSync(specPath, 'utf8'));
   if (!parsed) {
     return;
   }
   const nextData = { ...parsed.data, status };
-  fs.writeFileSync(specPath, `${serializeFrontmatter(nextData)}\n${parsed.body}`);
+  fs.writeFileSync(specPath, `${serializeFrontmatter(nextData)}${parsed.body}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -210,40 +215,42 @@ async function deriveOrganizationForSync(projectRoot: string): Promise<string> {
   }
 }
 
-/** endpoint 가 없거나 이미 7일 넘게 실패 중이면 즉시 포기·no-op, 아니면 한 번 시도한다. */
+/** endpoint 가 없거나 이미 7일 넘게 실패 중이면 즉시 포기·no-op, 아니면 한 번 시도한다.
+ * 커서를 어디서 읽고 어디에 쓰는지는 호출부가 결정한다(writeBack) — records 스트림은
+ * 프로젝트별로 나뉘어 있어(SyncCursor.records) 최상위 키 하나로는 못 가리킨다. */
 async function attemptSend(
-  streamKey: keyof SyncCursor,
-  endpoint: string | undefined,
+  streamLabel: string,
+  currentStream: SyncStreamState | undefined,
+  writeBack: (next: SyncStreamState) => void,
   envelopeId: string,
   send: () => Promise<{ ok: boolean; reason?: string }>,
   now: () => number = () => Date.now(),
-): Promise<void> {
-  if (!endpoint) {
-    return; // 전송 기능이 꺼진 상태 — 커서를 절대 안 만든다(소급 전송 없음).
-  }
-  const cursor = readSyncCursor();
-  const stream = cursor[streamKey];
-  if (shouldGiveUp(stream, now)) {
+): Promise<boolean> {
+  if (shouldGiveUp(currentStream, now)) {
     process.stderr.write(
-      `  [-] sync(${streamKey}) 7일 넘게 실패해 포기합니다 — 미전송 ${stream?.pendingCount ?? 0}건은 로컬에만 남습니다.\n`,
+      `  [-] sync(${streamLabel}) 7일 넘게 실패해 포기합니다 — 미전송 ${currentStream?.pendingCount ?? 0}건은 로컬에만 남습니다.\n`,
     );
-    writeSyncCursor({ ...cursor, [streamKey]: giveUp(envelopeId, now) });
-    return;
+    writeBack(giveUp(envelopeId, now));
+    return false;
   }
-  if (isBackedOff(stream, now)) {
-    return; // 다음 재시도 시각 전 — 조용히 건너뛴다.
+  if (isBackedOff(currentStream, now)) {
+    return false; // 다음 재시도 시각 전 — 조용히 건너뛴다.
   }
   const result = await send();
   const nextStream = result.ok
     ? recordSuccess(envelopeId, now)
-    : recordFailure(stream, now, result.reason);
-  writeSyncCursor({ ...cursor, [streamKey]: nextStream });
+    : recordFailure(currentStream, now, result.reason);
+  writeBack(nextStream);
+  return result.ok;
 }
 
 /** 스펙이 closed 로 전이된 직후 그 스펙 하나를 전송한다(prototype.md:401 "closed 가 될 때만"). */
 async function syncClosedSpec(specPath: string): Promise<void> {
   const cfg = readGlobalAwlConfig();
   const endpoint = cfg?.sync?.records?.endpoint;
+  if (!endpoint) {
+    return; // 전송 기능이 꺼진 상태 — 커서를 절대 안 만든다(소급 전송 없음).
+  }
   const parsed = parseFrontmatter(fs.readFileSync(specPath, 'utf8'));
   if (!parsed) {
     return;
@@ -256,30 +263,51 @@ async function syncClosedSpec(specPath: string): Promise<void> {
     frontmatter: parsed.data,
     body: parsed.body,
   });
-  await attemptSend('specs', endpoint, envelope.id, () =>
-    postEnvelope(endpoint as string, '/specs', envelope, cfg?.sync?.records?.token),
+  const cursor = readSyncCursor();
+  await attemptSend(
+    'specs',
+    cursor.specs,
+    (next) => writeSyncCursor({ ...cursor, specs: next }),
+    envelope.id,
+    () => postEnvelope(endpoint as string, '/specs', envelope, cfg?.sync?.records?.token),
   );
 }
 
-/** 티켓이 done 으로 전이된 직후 그 티켓에 속한 기록을 순서대로 전송한다(prototype.md:402
- * "기록은 워크아이템이 끝날 때"). 하나라도 실패하면 그 자리에서 멈춘다 — 커서가 정확히
- * "여기까지 보냈다"를 가리키게 하기 위함(순서 없는 재전송·중복 방지). */
-async function syncTicketRecords(projectRoot: string, ticketId: string): Promise<void> {
+/**
+ * 티켓이 done 으로 전이된 직후(prototype.md:402 "기록은 워크아이템이 끝날 때") 이
+ * 프로젝트의 records 커서 이후 전부를 훑어 순서대로 전송한다 — 이 티켓의 기록만이
+ * 아니다. records 커서가 프로젝트별로 나뉘어 있으므로(SyncCursor.records), 이전에
+ * 실패해 밀린 다른 티켓의 기록도 이번에 같이 훑인다 — "서버를 다시 켜면 밀린 기록이
+ * 함께 전송되어야 한다"(prototype.md:438)가 여기서 성립한다. 하나라도 실패하면 그
+ * 자리에서 멈춘다 — 커서가 정확히 "여기까지 보냈다"를 가리키게 하기 위함.
+ */
+async function syncProjectRecords(projectRoot: string, projectName: string): Promise<void> {
   const cfg = readGlobalAwlConfig();
   const endpoint = cfg?.sync?.records?.endpoint;
   if (!endpoint) {
     return;
   }
   const organization = await deriveOrganizationForSync(projectRoot);
-  const records = readRecords({ workitem: ticketId });
-  for (const record of records) {
+  let cursor = readSyncCursor();
+  let stream = cursor.records?.[projectName];
+  const all = readRecords({}).filter((r) => r.project === projectName);
+  const lastSentId = stream?.lastSentId;
+  const startIdx = lastSentId ? all.findIndex((r) => r.id === lastSentId) : -1;
+  const toSend = startIdx === -1 ? all : all.slice(startIdx + 1);
+  for (const record of toSend) {
     const envelope = buildRecordEnvelope(record, organization);
-    let lastResult: { ok: boolean; reason?: string } = { ok: true };
-    await attemptSend('records', endpoint, envelope.id, async () => {
-      lastResult = await postEnvelope(endpoint as string, '/records', envelope, cfg?.sync?.records?.token);
-      return lastResult;
-    });
-    if (!lastResult.ok) {
+    const ok = await attemptSend(
+      `records:${projectName}`,
+      stream,
+      (next) => {
+        stream = next;
+      },
+      envelope.id,
+      () => postEnvelope(endpoint as string, '/records', envelope, cfg?.sync?.records?.token),
+    );
+    cursor = { ...cursor, records: { ...cursor.records, [projectName]: stream as SyncStreamState } };
+    writeSyncCursor(cursor);
+    if (!ok) {
       break;
     }
   }
@@ -296,8 +324,13 @@ async function syncFeedback(projectRoot: string, record: Record<string, unknown>
   }
   const organization = await deriveOrganizationForSync(projectRoot);
   const envelope = buildFeedbackEnvelope(record, organization);
-  await attemptSend('feedback', endpoint, envelope.id, () =>
-    postEnvelope(endpoint as string, '', envelope),
+  const cursor = readSyncCursor();
+  await attemptSend(
+    'feedback',
+    cursor.feedback,
+    (next) => writeSyncCursor({ ...cursor, feedback: next }),
+    envelope.id,
+    () => postEnvelope(endpoint as string, '', envelope),
   );
 }
 
@@ -1325,10 +1358,9 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
     const nextStatus = TICKET_STATUS_TRANSITIONS[data.gate]?.[data.decision];
     if (nextStatus) {
       writeTicketStatus(ticketPathForTransition, nextStatus);
-      // 티켓이 done 이 된 순간 그 기록을 전송한다(ADK stage 3, prototype.md:402).
-      if (nextStatus === 'done' && projectRoot) {
-        const ticketId = typeof data.ticket === 'string' ? data.ticket : '';
-        await syncTicketRecords(projectRoot, ticketId);
+      // 티켓이 done 이 된 순간 이 프로젝트의 밀린 기록을 전송한다(ADK stage 3, prototype.md:402).
+      if (nextStatus === 'done' && projectRoot && projectFromConfig) {
+        await syncProjectRecords(projectRoot, projectFromConfig);
       }
     }
   }

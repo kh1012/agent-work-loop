@@ -279,10 +279,14 @@ describe('collectChecks — sync 섹션 (ADK stage 3, prototype.md:419-430)', ()
     fs.writeFileSync(
       path.join(process.env.AWL_HOME as string, 'sync-cursor.json'),
       JSON.stringify({
+        // records 커서는 프로젝트별로 나뉜다(ADK stage 3) — makeInstalledProject() 가
+        // .awl/config.json 에 적어두는 project 이름과 같은 키라야 doctor 가 찾는다.
         records: {
-          backoffIndex: 1,
-          pendingCount: 12,
-          lastFailureReason: 'ECONNREFUSED',
+          'doctor-test': {
+            backoffIndex: 1,
+            pendingCount: 12,
+            lastFailureReason: 'ECONNREFUSED',
+          },
         },
       }),
     );

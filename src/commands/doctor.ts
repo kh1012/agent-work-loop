@@ -443,7 +443,11 @@ function collectEnv(checks: Check[]): void {
 }
 
 /** 2. 전역 설치 (~/.awl) */
-function collectGlobal(checks: Check[], versionResult: VersionCheckResult): void {
+function collectGlobal(
+  checks: Check[],
+  versionResult: VersionCheckResult,
+  currentProjectName: string | undefined,
+): void {
   const root = installationRoot();
   if (!exists(root)) {
     checks.push({
@@ -539,7 +543,11 @@ function collectGlobal(checks: Check[], versionResult: VersionCheckResult): void
     });
   } else {
     checks.push({ group: 'sync', name: 'endpoint', status: 'ok', value: recordsEndpoint });
-    const stream = readSyncCursor().records;
+    // records 커서는 프로젝트별로 나뉜다(cross-project 간섭 방지, ADK stage 3) —
+    // 이 cwd 의 프로젝트 것만 본다. 프로젝트를 못 찾으면(cwd 밖) 상태 행 자체를 생략한다.
+    const stream = currentProjectName
+      ? readSyncCursor().records?.[currentProjectName]
+      : undefined;
     if (stream?.backoffIndex !== undefined) {
       checks.push({
         group: 'sync',
@@ -1028,8 +1036,10 @@ export async function collectChecks(): Promise<DoctorReport> {
   // version-check 결과가 갈라지지 않게 한다.
   const versionResult = checkVersions(gatherVersionInputs(projectRoot));
 
+  const currentProjectName = projectRoot ? loadProjectName(projectRoot) : undefined;
+
   collectEnv(checks);
-  collectGlobal(checks, versionResult);
+  collectGlobal(checks, versionResult, currentProjectName);
   await collectProject(checks, projectRoot, versionResult);
   collectAgents(checks, projectRoot ?? process.cwd(), versionResult);
 

@@ -1202,6 +1202,25 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
     expect(readTicketStatus(ticketPath)).toBe('implementing');
   });
 
+  it('연속으로 여러 번 전이해도 본문이 안 자라난다(round-trip 안정성, ADK stage 3 e2e 검증이 발견)', async () => {
+    const root = project({ workitem: 'WI-9', workitems: {} });
+    const ticketPath = writeTicketFixture(root, 'ticket-1');
+    const before = fs.readFileSync(ticketPath, 'utf8').split('\n\n').length; // 빈 줄 개수의 대용
+
+    await runRecord('gate', {
+      json: '{"gate":2,"layer":"ticket","ticket":"ticket-1","decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+    await runRecord('gate', {
+      json: '{"gate":3,"layer":"ticket","ticket":"ticket-1","decision":"more-work","presentedCriteria":["AC-01"]}',
+    });
+    await runRecord('gate', {
+      json: '{"gate":2,"layer":"ticket","ticket":"ticket-1","decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+
+    const after = fs.readFileSync(ticketPath, 'utf8').split('\n\n').length;
+    expect(after).toBe(before); // 세 번 다시 써도 빈 줄이 안 늘어난다
+  });
+
   it('gate:3 layer:ticket approved 를 기록하면 그 티켓의 status 가 done 이 된다', async () => {
     const root = project({ workitem: 'WI-9', workitems: {} });
     const ticketPath = writeTicketFixture(root, 'ticket-1', 'implementing');
@@ -1295,6 +1314,22 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
     });
 
     expect(readSpecStatus(specPath)).toBe('active');
+  });
+
+  it('gate:1→gate:4 로 두 번 전이해도 본문(frontmatter 제외)이 바이트 단위로 그대로다 — sync 의 revision(본문 sha256, ADK stage 3)이 안정되려면 필수', async () => {
+    const root = project({ workitem: 'WI-9', workitems: {} });
+    const specPath = writeSpecFixture(root, 'spec-1');
+    const bodyBefore = fs.readFileSync(specPath, 'utf8').split(/^---$/m)[2];
+
+    await runRecord('gate', {
+      json: '{"gate":1,"layer":"request","spec":"spec-1","decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+    await runRecord('gate', {
+      json: '{"gate":4,"layer":"request","spec":"spec-1","decision":"merge","presentedCriteria":["AC-01"]}',
+    });
+
+    const bodyAfter = fs.readFileSync(specPath, 'utf8').split(/^---$/m)[2];
+    expect(bodyAfter).toBe(bodyBefore);
   });
 
   it('gate:4 layer:request merge/judge-only 를 기록하면 그 스펙의 status 가 closed 가 된다', async () => {
@@ -1470,6 +1505,53 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
     expect(urls.every((u) => u === 'http://localhost:9999/records')).toBe(true);
 
     restore();
+  });
+
+  it('서버가 다시 살아나면, 이전 티켓 완료 때 실패해 밀린 기록도 다음 트리거에 함께 나간다(prototype.md:438)', async () => {
+    const root = project({ workitem: 'ticket-a', workitems: {} });
+    writeTicketFixture(root, 'ticket-a', 'implementing');
+    writeTicketFixture(root, 'ticket-b', 'implementing');
+    writeGlobalSyncConfig({ recordsEndpoint: 'http://localhost:9999' });
+
+    // 티켓 A 완료 — 서버가 죽어있어(500) 전송이 실패한다. 로컬 status 전이는 그대로 된다.
+    const restoreFail = stubFetch(failFetch());
+    await runRecord('gate', {
+      json: '{"gate":3,"layer":"ticket","ticket":"ticket-a","decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+    restoreFail();
+    expect(readTicketStatus(path.join(root, 'docs', 'tickets', '20260101-000000-ticket-a.md'))).toBe(
+      'done',
+    );
+    expect(readSyncCursor().records?.p?.backoffIndex).toBe(0); // 실패가 커서에 남았다
+
+    // 백오프 대기 시간(1분)이 실제로 지날 때까지 테스트를 기다릴 수 없으니,
+    // "그 시간이 지났다"만 흉내낸다(nextAttemptAt 제거) — 이 테스트가 검증하려는
+    // 것은 타이머 정확도가 아니라 "재시도 때 이전 실패분까지 함께 나가는가"다.
+    const cursorAfterFailure = readSyncCursor();
+    fs.writeFileSync(
+      path.join(process.env.AWL_HOME as string, 'sync-cursor.json'),
+      JSON.stringify({
+        ...cursorAfterFailure,
+        records: {
+          ...cursorAfterFailure.records,
+          p: { ...cursorAfterFailure.records?.p, nextAttemptAt: undefined },
+        },
+      }),
+    );
+
+    // 서버가 살아난다. 다른 워크아이템(ticket-b)로 옮겨 완료시키면, ticket-b 의
+    // 기록뿐 아니라 ticket-a 전송 실패로 밀렸던 기록도 이번에 함께 나가야 한다.
+    fs.writeFileSync(path.join(root, '.awl', 'state.json'), JSON.stringify({ workitem: 'ticket-b' }));
+    const fetchImpl = okFetch();
+    const restoreOk = stubFetch(fetchImpl);
+    await runRecord('gate', {
+      json: '{"gate":3,"layer":"ticket","ticket":"ticket-b","decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+    restoreOk();
+
+    // ticket-a 의 gate:3(밀렸던 것) + ticket-b 의 gate:3(방금 것) = 최소 2건.
+    expect((fetchImpl as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(readSyncCursor().records?.p?.backoffIndex).toBeUndefined(); // 성공해 백오프가 지워졌다
   });
 
   it('awl-feedback 은 records 가 아니라 feedback endpoint 로, 발생 즉시 전송된다', async () => {
