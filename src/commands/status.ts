@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { parseFrontmatter } from '../core/doc-frontmatter.js';
 import { WORKTREES_DIR } from '../core/paths.js';
 import { run } from '../core/runner.js';
 import {
@@ -16,6 +17,7 @@ import {
   stringWidth,
 } from '../core/tty.js';
 import { multiProjectFooter, resolveProjectScope } from './config.js';
+import { listDocFiles } from './doc.js';
 import { archiveAllLanes } from './pipeline-archive.js';
 import { readRecords } from './record.js';
 import { loadState } from './state.js';
@@ -331,6 +333,12 @@ export interface PipelineLane {
   status: PipelineStatus;
   execState: ExecState;
   reviewState: ReviewState;
+  /**
+   * <name> 이 실제 티켓 id 와 일치하면 그 티켓의 status(pending/implementing/reviewing/
+   * done/blocked, ADK stage 2e). 일치하지 않으면(지금 모든 자유이름 항목) null — 선택
+   * 필드라 pipelineLanes() 의 기존 생성부는 안 건드려도 된다(렌더링 시점 보강, withTicketStatus).
+   */
+  ticketStatus?: string | null;
 }
 
 /**
@@ -423,6 +431,34 @@ export function readDirNames(dir: string): string[] {
 }
 
 /**
+ * <ticketId> 가 그 root(레인 자신) 의 docs/tickets/*.md 프론트매터 id 와 일치하면 그
+ * 티켓의 status 를 돌려준다(ADK stage 2e). .tasks/plan/<name>.md 의 <name> 자리를
+ * 티켓 id 로 쓰면 별도 연결 필드 없이 자연스럽게 이어진다는 설계 — pipelineLanes 의
+ * 판정(파일명만 봄)과는 분리된 렌더링 시점 보강일 뿐이다. 못 찾거나 손상됐으면 null.
+ */
+export function resolveTicketStatus(root: string, ticketId: string): string | null {
+  for (const file of listDocFiles(root)) {
+    if (file.type !== 'ticket') {
+      continue;
+    }
+    try {
+      const parsed = parseFrontmatter(fs.readFileSync(file.path, 'utf8'));
+      if (parsed?.data.id === ticketId) {
+        return typeof parsed.data.status === 'string' ? parsed.data.status : null;
+      }
+    } catch {
+      // 손상된 파일 하나가 조회를 막지 않는다.
+    }
+  }
+  return null;
+}
+
+/** pipelineLanes 결과에 티켓 상태를 얹는다(렌더링 전용 보강, ADK stage 2e — 판정 로직과 분리). */
+function withTicketStatus(root: string, lanes: PipelineLane[]): PipelineLane[] {
+  return lanes.map((lane) => ({ ...lane, ticketStatus: resolveTicketStatus(root, lane.name) }));
+}
+
+/**
  * 한 레인(워크트리)의 workitem 롤업(pipeline-status-view AC-01). name 은 레인
  * (`.awl-worktrees/<name>`) 디렉토리명, workitems 는 그 레인의 .tasks/ 를
  * pipelineLanes 로 판정한 결과다. 기존 PipelineLane({name,status})은 workitem 하나다.
@@ -452,11 +488,15 @@ export function collectPipelineLaneGroups(root: string): PipelineLaneGroup[] {
     if (!e.isDirectory()) {
       continue;
     }
-    const tasks = path.join(base, e.name, '.tasks');
-    const workitems = pipelineLanes(
-      readDirNames(path.join(tasks, 'plan')),
-      readDirNames(path.join(tasks, 'exec')),
-      readDirNames(path.join(tasks, 'review')),
+    const laneRoot = path.join(base, e.name);
+    const tasks = path.join(laneRoot, '.tasks');
+    const workitems = withTicketStatus(
+      laneRoot,
+      pipelineLanes(
+        readDirNames(path.join(tasks, 'plan')),
+        readDirNames(path.join(tasks, 'exec')),
+        readDirNames(path.join(tasks, 'review')),
+      ),
     );
     groups.push({ name: e.name, workitems });
   }
@@ -474,10 +514,13 @@ function mainTreeGroup(root: string): PipelineLaneGroup {
   const tasks = path.join(root, '.tasks');
   return {
     name: 'main',
-    workitems: pipelineLanes(
-      readDirNames(path.join(tasks, 'plan')),
-      readDirNames(path.join(tasks, 'exec')),
-      readDirNames(path.join(tasks, 'review')),
+    workitems: withTicketStatus(
+      root,
+      pipelineLanes(
+        readDirNames(path.join(tasks, 'plan')),
+        readDirNames(path.join(tasks, 'exec')),
+        readDirNames(path.join(tasks, 'review')),
+      ),
     ),
   };
 }
@@ -495,6 +538,10 @@ function tableColWidth(header: string, values: string[]): number {
  * 안전하게 패딩한다. 상태 열은 statusBadge(색 있음)를 쓰므로 패딩하지 않고 행의 마지막에
  * 둔다 — padEndDisplay 는 ANSI 를 인지하지 않아 색 있는 문자열에 쓰면 폭이 깨진다(기존 코드
  * 관행 그대로 유지, 별도 구분선은 그리지 않는다 — 헤더+정렬만으로 표로 읽힌다).
+ *
+ * "티켓" 열(ADK stage 2e)은 <name> 이 실제 티켓 id 와 일치하는 행이 하나라도 있을 때만
+ * 나타난다 — 아무도 티켓 기반 이름을 안 쓰면(지금 모든 기존 사용) 예전 표와 시각적으로
+ * 구분이 안 될 만큼 조용하다.
  */
 export function renderPipelineGroups(groups: PipelineLaneGroup[], c: Caps): string {
   const color = makeColors(c.color);
@@ -514,10 +561,22 @@ export function renderPipelineGroups(groups: PipelineLaneGroup[], c: Caps): stri
     'REVIEW',
     all.map((w) => w.reviewState),
   );
+  const showTicketColumn = all.some((w) => w.ticketStatus != null);
+  const ticketWidth = showTicketColumn
+    ? tableColWidth(
+        '티켓',
+        all.map((w) => w.ticketStatus ?? '-'),
+      )
+    : 0;
 
-  const out: string[] = [
-    `  ${padEndDisplay('워크아이템', nameWidth)}  ${padEndDisplay('EXEC', execWidth)}  ${padEndDisplay('REVIEW', reviewWidth)}  상태`,
-  ];
+  const header = [
+    `  ${padEndDisplay('워크아이템', nameWidth)}`,
+    padEndDisplay('EXEC', execWidth),
+    padEndDisplay('REVIEW', reviewWidth),
+    ...(showTicketColumn ? [padEndDisplay('티켓', ticketWidth)] : []),
+    '상태',
+  ].join('  ');
+  const out: string[] = [header];
   groups.forEach((g, i) => {
     if (i > 0) {
       out.push('');
@@ -528,9 +587,14 @@ export function renderPipelineGroups(groups: PipelineLaneGroup[], c: Caps): stri
       return;
     }
     for (const w of g.workitems) {
-      out.push(
-        `  ${padEndDisplay(w.name, nameWidth)}  ${padEndDisplay(w.execState, execWidth)}  ${padEndDisplay(w.reviewState, reviewWidth)}  ${statusBadge(c, w.status)} ${w.status}`,
-      );
+      const row = [
+        `  ${padEndDisplay(w.name, nameWidth)}`,
+        padEndDisplay(w.execState, execWidth),
+        padEndDisplay(w.reviewState, reviewWidth),
+        ...(showTicketColumn ? [padEndDisplay(w.ticketStatus ?? '-', ticketWidth)] : []),
+        `${statusBadge(c, w.status)} ${w.status}`,
+      ].join('  ');
+      out.push(row);
     }
   });
   return sectionBox(`파이프라인 ${groups.length}개 레인`, out, c);

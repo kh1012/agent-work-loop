@@ -12,6 +12,7 @@ import {
   pipelineLanes,
   renderPipelineGroups,
   renderStatus,
+  resolveTicketStatus,
   runStatus,
 } from '../../src/commands/status.js';
 import { visibleWidth } from '../../src/core/tty.js';
@@ -642,10 +643,22 @@ describe('collectPipelineLaneGroups — 교차 레인 롤업(pipeline-status-vie
     const fe = groups.find((g) => g.name === 'fe');
     // 그룹핑이 레인별로 되지 않고 평탄화되면 workitems 중첩이 깨져 RED.
     expect(be?.workitems).toEqual([
-      { name: 'migrate', status: 'complete', execState: 'verified', reviewState: 'passed' },
+      {
+        name: 'migrate',
+        status: 'complete',
+        execState: 'verified',
+        reviewState: 'passed',
+        ticketStatus: null, // <name> 이 실제 티켓 id 와 일치하지 않으므로(ADK stage 2e)
+      },
     ]);
     expect(fe?.workitems).toEqual([
-      { name: 'login', status: 'executing', execState: 'in_progress', reviewState: 'waiting' },
+      {
+        name: 'login',
+        status: 'executing',
+        execState: 'in_progress',
+        reviewState: 'waiting',
+        ticketStatus: null,
+      },
     ]);
   });
 
@@ -797,10 +810,22 @@ describe('runStatus --pipeline 교차 레인(pipeline-status-view AC-02/03)', ()
     // 교차 레인 구조: lanes[].workitems[]. 평탄 {name,status} 로 새면 workitems 가 없어 RED.
     const by = Object.fromEntries(j.lanes.map((g: { name: string }) => [g.name, g]));
     expect(by.fe.workitems).toEqual([
-      { name: 'login', status: 'executing', execState: 'in_progress', reviewState: 'waiting' },
+      {
+        name: 'login',
+        status: 'executing',
+        execState: 'in_progress',
+        reviewState: 'waiting',
+        ticketStatus: null,
+      },
     ]);
     expect(by.be.workitems).toEqual([
-      { name: 'migrate', status: 'complete', execState: 'verified', reviewState: 'passed' },
+      {
+        name: 'migrate',
+        status: 'complete',
+        execState: 'verified',
+        reviewState: 'passed',
+        ticketStatus: null,
+      },
     ]);
   });
 
@@ -821,7 +846,13 @@ describe('runStatus --pipeline 교차 레인(pipeline-status-view AC-02/03)', ()
     );
     // 레인(fe)이 생겨도 메인이 통째 숨으면 안 된다 — main 그룹이 존재하고 실작업을 담는다.
     expect(byName.main.workitems).toEqual([
-      { name: 'alpha', status: 'pending', execState: 'pending', reviewState: 'waiting' },
+      {
+        name: 'alpha',
+        status: 'pending',
+        execState: 'pending',
+        reviewState: 'waiting',
+        ticketStatus: null,
+      },
     ]);
     // 빈 레인도 명확히 표기(workitems 빈 배열).
     expect(byName.fe.workitems).toEqual([]);
@@ -866,7 +897,13 @@ describe('runStatus --pipeline 교차 레인(pipeline-status-view AC-02/03)', ()
       {
         name: 'main',
         workitems: [
-          { name: 'freshwi', status: 'pending', execState: 'pending', reviewState: 'waiting' },
+          {
+            name: 'freshwi',
+            status: 'pending',
+            execState: 'pending',
+            reviewState: 'waiting',
+            ticketStatus: null,
+          },
         ],
       },
     ]);
@@ -915,7 +952,13 @@ describe('runStatus --pipeline --archive (pipeline-archive-cleanup AC-05/06)', (
     const j = JSON.parse(capture(() => void runStatus({ json: true, pipeline: true })));
     const main = j.lanes.find((l: { name: string }) => l.name === 'main');
     expect(main.workitems).toEqual([
-      { name: 'old', status: 'complete', execState: 'verified', reviewState: 'passed' },
+      {
+        name: 'old',
+        status: 'complete',
+        execState: 'verified',
+        reviewState: 'passed',
+        ticketStatus: null,
+      },
     ]);
     expect(j.archived).toBeUndefined();
     expect(fs.existsSync(execFile)).toBe(true); // 파일도 그대로.
@@ -1084,5 +1127,154 @@ describe('runStatus — cwd 밖(config-anywhere-fallback)', () => {
     expect(buf).toContain('gamma');
     expect(buf).toContain(a);
     expect(buf).toContain('cd ');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// .tasks/plan/<name>.md 의 <name> 이 티켓 id 일 때 티켓을 원천으로 삼는다 (ADK stage 2e)
+// ---------------------------------------------------------------------------
+
+function seedTicket(root: string, ticketId: string, status = 'pending'): string {
+  const dir = path.join(root, 'docs', 'tickets');
+  fs.mkdirSync(dir, { recursive: true });
+  const ticketPath = path.join(dir, `20260101-000000-${ticketId.slice(0, 8)}.md`);
+  fs.writeFileSync(
+    ticketPath,
+    `---\nid: ${ticketId}\nspec: spec-1\nconditions: [condition-1]\ndependencies: []\nstatus: ${status}\n---\n## Verification\n`,
+  );
+  return ticketPath;
+}
+
+describe('resolveTicketStatus (ADK stage 2e)', () => {
+  it('docs/tickets/*.md 의 frontmatter id 와 일치하면 그 status 를 돌려준다', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-ticket-status-')));
+    seedTicket(root, 'ticket-uuid-1', 'implementing');
+    expect(resolveTicketStatus(root, 'ticket-uuid-1')).toBe('implementing');
+  });
+
+  it('일치하는 티켓이 없으면 null', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-ticket-status-')));
+    expect(resolveTicketStatus(root, 'no-such-ticket')).toBeNull();
+  });
+
+  it('docs/tickets/ 디렉터리 자체가 없어도 크래시하지 않고 null', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-ticket-status-')));
+    expect(resolveTicketStatus(root, 'anything')).toBeNull();
+  });
+
+  it('손상된 md 파일이 섞여 있어도 나머지 조회를 막지 않는다', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-ticket-status-')));
+    fs.mkdirSync(path.join(root, 'docs', 'tickets'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'docs', 'tickets', 'broken.md'), '깨진 파일');
+    seedTicket(root, 'ticket-uuid-2', 'done');
+    expect(resolveTicketStatus(root, 'ticket-uuid-2')).toBe('done');
+  });
+});
+
+describe('collectPipelineLaneGroups/mainTreeGroup 이 <name> 을 티켓으로도 인식한다 (ADK stage 2e)', () => {
+  const origCwd = process.cwd();
+  afterEach(() => process.chdir(origCwd));
+
+  it('<name> 이 실제 티켓 id 와 일치하면 workitem 에 ticketStatus 가 붙는다(메인 트리, mainTreeGroup 경유)', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-plv-ticket-')));
+    seedTicket(root, 'ticket-uuid-3', 'reviewing');
+    fs.mkdirSync(path.join(root, '.tasks', 'plan'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.tasks', 'exec'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.tasks', 'review'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.tasks', 'plan', 'ticket-uuid-3.taken.md'), '');
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    process.chdir(root);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-plv-ticket-home-'));
+
+    let buf = '';
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((c: unknown) => {
+      buf += String(c);
+      return true;
+    });
+    try {
+      void runStatus({ json: true, pipeline: true });
+    } finally {
+      spy.mockRestore();
+    }
+    const j = JSON.parse(buf);
+    const main = j.lanes.find((l: { name: string }) => l.name === 'main');
+    expect(main.workitems[0].ticketStatus).toBe('reviewing');
+  });
+
+  it('레인(워크트리)마다 자기 root 기준으로 티켓을 찾는다 — 다른 레인의 티켓은 안 섞인다', async () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-plv-ticket2-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    // 메인 트리에만 티켓이 있다.
+    seedTicket(root, 'ticket-uuid-4', 'implementing');
+    seedLane(root, 'fe', { plan: ['ticket-uuid-4.taken.md'], exec: [], review: [] });
+    process.chdir(root);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-plv-ticket2-home-'));
+
+    const j = JSON.parse(
+      (() => {
+        let buf = '';
+        const spy = vi.spyOn(process.stdout, 'write').mockImplementation((c: unknown) => {
+          buf += String(c);
+          return true;
+        });
+        try {
+          void runStatus({ json: true, pipeline: true });
+        } finally {
+          spy.mockRestore();
+        }
+        return buf;
+      })(),
+    );
+    const fe = j.lanes.find((l: { name: string }) => l.name === 'fe');
+    // fe 레인 자신의 docs/tickets/ 에는 이 티켓이 없다(메인 트리에만 있다) — null 이어야 한다.
+    expect(fe.workitems[0].ticketStatus).toBeNull();
+  });
+
+  it('awl status --pipeline 텍스트 렌더는 <name> 이 티켓과 일치할 때만 "티켓" 열을 보여준다', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-plv-ticket3-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    seedTicket(root, 'ticket-uuid-5', 'implementing');
+    fs.mkdirSync(path.join(root, '.tasks', 'plan'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.tasks', 'exec'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.tasks', 'review'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.tasks', 'plan', 'ticket-uuid-5.taken.md'), '');
+    process.chdir(root);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-plv-ticket3-home-'));
+
+    let buf = '';
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((c: unknown) => {
+      buf += String(c);
+      return true;
+    });
+    try {
+      void runStatus({ json: false, pipeline: true });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(buf).toContain('티켓');
+    expect(buf).toContain('implementing');
+  });
+
+  it('아무 workitem 도 티켓과 안 일치하면(지금 모든 기존 사용) "티켓" 열 자체가 안 보인다', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-plv-ticket4-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.tasks', 'plan'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.tasks', 'exec'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.tasks', 'review'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.tasks', 'plan', 'freeform-name.taken.md'), '');
+    process.chdir(root);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-plv-ticket4-home-'));
+
+    let buf = '';
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((c: unknown) => {
+      buf += String(c);
+      return true;
+    });
+    try {
+      void runStatus({ json: false, pipeline: true });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(buf).not.toContain('  티켓  ');
   });
 });
