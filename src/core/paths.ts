@@ -101,6 +101,15 @@ export function npmVersionCachePath(): string {
 }
 
 /**
+ * ~/.awl/sync-cursor.json — 중앙 저장소 전송 커서(ADK stage 3). 기록(~/.awl/records)과
+ * sync.records/sync.feedback endpoint 설정이 전역(사람마다 한 번)이므로 커서도 전역이다 —
+ * 프로젝트별 .awl/state.json(baseline/attempts 런타임)과는 다른 층위.
+ */
+export function syncCursorPath(): string {
+  return path.join(installationRoot(), 'sync-cursor.json');
+}
+
+/**
  * ~/.awl/config.json — 전역 사용자 설정(author · sync). installationRoot() 기준이라
  * 격리 홈(--isolated 레인) 안에서도 부모 설치의 값을 그대로 본다 — 레인마다
  * author 를 다시 묻지 않는다(ADK stage 1).
