@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { parseFrontmatter, serializeFrontmatter } from '../core/doc-frontmatter.js';
 import { readGlobalAwlConfig } from '../core/global-config.js';
 import { recordsDir } from '../core/paths.js';
 import { run } from '../core/runner.js';
@@ -64,6 +65,54 @@ export const GATE3_DECISIONS = GATE2_DECISIONS;
 export const GATE4_DECISIONS = ['merge', 'judge-only', 'hold'] as const;
 /** gate 레코드의 layer 로 허용되는 값 (ADK stage 2a). */
 export const GATE_LAYERS = ['request', 'ticket'] as const;
+
+/**
+ * gate 2/3(layer:'ticket') 승인 시 그 티켓의 다음 status(ADK stage 2b).
+ * gate 4/1(request 레이어)이나 레거시 gate 1/2(layer 없음)는 이 표를 안 쓴다 —
+ * 조건이 (gate===2||gate===3) && layer==='ticket' 일 때만 쓰인다.
+ */
+const TICKET_STATUS_TRANSITIONS: Record<number, Record<string, string>> = {
+  2: { approved: 'implementing', 'more-work': 'pending', abandoned: 'blocked' },
+  3: { approved: 'done', 'more-work': 'implementing', abandoned: 'blocked' },
+};
+
+/**
+ * ticketId 로 `docs/tickets/*.md` 를 훑어 파일 경로를 찾는다. doc.ts/tickets.ts 도
+ * 비슷한 조회를 하지만, record.ts 가 그쪽을 import 하면 doc.ts→record.ts(이미 있음:
+ * BANNED_QUALITATIVE_WORDS)와 겹쳐 순환 참조가 생긴다 — 그래서 여기서 작게 다시 쓴다.
+ */
+function findTicketFileById(projectRoot: string, ticketId: string): string | null {
+  const dir = path.join(projectRoot, 'docs', 'tickets');
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(dir).filter((f) => f.endsWith('.md'));
+  } catch {
+    return null;
+  }
+  for (const name of entries) {
+    const filePath = path.join(dir, name);
+    let parsed: ReturnType<typeof parseFrontmatter>;
+    try {
+      parsed = parseFrontmatter(fs.readFileSync(filePath, 'utf8'));
+    } catch {
+      continue;
+    }
+    if (parsed?.data.id === ticketId) {
+      return filePath;
+    }
+  }
+  return null;
+}
+
+/** 티켓 파일의 frontmatter status 만 바꿔 다시 쓴다. 본문은 그대로 보존한다. */
+function writeTicketStatus(ticketPath: string, status: string): void {
+  const parsed = parseFrontmatter(fs.readFileSync(ticketPath, 'utf8'));
+  if (!parsed) {
+    return;
+  }
+  const nextData = { ...parsed.data, status };
+  fs.writeFileSync(ticketPath, `${serializeFrontmatter(nextData)}\n${parsed.body}`);
+}
 
 /**
  * awl-feedback.area 로 허용되는 값 (0.6.x). awl 도구의 어느 기능이 아팠나 —
@@ -386,6 +435,15 @@ export function buildRecord(
     }
     if (!gateMissing && gate === 4 && layer !== 'request') {
       missing.push("layer ('request' 이어야 함 — gate 4 는 요청 닫기 게이트)");
+    }
+
+    // gate 2/3 을 layer:'ticket' 으로 기록하면(ADK stage 2b) 어느 티켓의 status 를
+    // 전이시킬지 알아야 한다 — ticket(그 티켓의 id)이 필수다.
+    if (!gateMissing && (gate === 2 || gate === 3) && layer === 'ticket') {
+      const ticketMissing = data.ticket === undefined || data.ticket === null || data.ticket === '';
+      if (ticketMissing) {
+        missing.push("ticket (gate 2/3 을 layer:'ticket' 으로 기록하려면 필수)");
+      }
     }
 
     const decisionMissing =
@@ -1013,12 +1071,44 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
     }
   }
 
+  // gate 2/3 을 layer:'ticket' 으로 기록하면(ADK stage 2b) 가리키는 티켓이 실제로
+  // 있어야 한다 — 없는 티켓을 가리키는 게이트 기록이 남는 걸 기록 전에 막는다.
+  let ticketPathForTransition: string | null = null;
+  if (
+    projectRoot &&
+    type === 'gate' &&
+    (data.gate === 2 || data.gate === 3) &&
+    data.layer === 'ticket'
+  ) {
+    const ticketId = typeof data.ticket === 'string' ? data.ticket : '';
+    ticketPathForTransition = ticketId ? findTicketFileById(projectRoot, ticketId) : null;
+    if (!ticketPathForTransition) {
+      process.stderr.write(
+        `\n  ${signal(caps(), 'error')} 티켓을 찾을 수 없습니다: ${ticketId || '(비어있음)'}\n`,
+      );
+      process.exit(1);
+    }
+  }
+
   const file = appendRecord(record);
 
   // 승인 기록 자체가 Gate 1 대기 상태를 해제한다. state set을 별도로 허용하면
   // 계획 승인 없이 phase만 바꾸는 우회 경로가 생기므로 여기서만 전이한다.
   if (projectRoot && type === 'gate' && data.gate === 1 && data.decision === 'approved') {
     writeState(projectRoot, { ...state, phase: 'loop', loop: 'loop' });
+  }
+
+  // gate 2/3(layer:'ticket') 이 그 티켓의 status 를 전이시킨다(ADK stage 2b).
+  // gate 1/4(request 레이어)·레거시 gate 1/2(layer 없음)는 이 표 자체를 안 탄다.
+  if (
+    ticketPathForTransition &&
+    typeof data.gate === 'number' &&
+    typeof data.decision === 'string'
+  ) {
+    const nextStatus = TICKET_STATUS_TRANSITIONS[data.gate]?.[data.decision];
+    if (nextStatus) {
+      writeTicketStatus(ticketPathForTransition, nextStatus);
+    }
   }
 
   // gate:2 리뷰 누락 경고 (WI-S AC-03) — 거부하지 않는다, 안내만 한다.

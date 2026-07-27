@@ -518,15 +518,33 @@ describe('buildRecord — 구조 강제', () => {
     expect(r.missing.some((m) => m.includes("layer ('ticket'"))).toBe(true);
   });
 
-  it("gate 3 을 layer:'ticket' 로 허용된 decision과 기록하면 통과한다", () => {
+  it("gate 3 을 layer:'ticket' 로 허용된 decision과 ticket id 를 함께 기록하면 통과한다", () => {
     for (const decision of ['approved', 'more-work', 'abandoned']) {
       const r = buildRecord(
         'gate',
-        { gate: 3, decision, presentedCriteria: ['AC-01'], layer: 'ticket' },
+        { gate: 3, decision, presentedCriteria: ['AC-01'], layer: 'ticket', ticket: 'ticket-id-1' },
         DEFAULTS,
       );
       expect(r.missing).toEqual([]);
     }
+  });
+
+  it("gate 2/3 을 layer:'ticket' 으로 기록하는데 ticket 필드가 없으면 거부한다(ADK stage 2b)", () => {
+    const r2 = buildRecord(
+      'gate',
+      { gate: 2, decision: 'approved', presentedCriteria: ['AC-01'], layer: 'ticket' },
+      DEFAULTS,
+    );
+    expect(r2.record).toBeUndefined();
+    expect(r2.missing.some((m) => m.startsWith('ticket'))).toBe(true);
+
+    const r3 = buildRecord(
+      'gate',
+      { gate: 3, decision: 'approved', presentedCriteria: ['AC-01'], layer: 'ticket' },
+      DEFAULTS,
+    );
+    expect(r3.record).toBeUndefined();
+    expect(r3.missing.some((m) => m.startsWith('ticket'))).toBe(true);
   });
 
   it("gate 4 를 layer:'request' 없이(또는 'ticket'으로) 기록하면 거부한다(요청 닫기 게이트)", () => {
@@ -1129,6 +1147,100 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
     await runRecord('spike', { json: '{"question":"q","found":"f"}' });
     const records = readRecords({ workitem: 'WI-9' });
     expect(records[0]?.author).toBe('hong@midasit.com');
+  });
+
+  // --- ADK stage 2b: gate 2/3(layer:'ticket') 가 티켓 파일의 status 를 전이시킨다 ---
+
+  function writeTicketFixture(root: string, id: string, status = 'pending'): string {
+    const dir = path.join(root, 'docs', 'tickets');
+    fs.mkdirSync(dir, { recursive: true });
+    const filePath = path.join(dir, `20260101-000000-${id}.md`);
+    fs.writeFileSync(
+      filePath,
+      `---\nid: ${id}\nspec: spec-1\nconditions: [condition-1]\ndependencies: []\nstatus: ${status}\n---\n## Verification\n`,
+    );
+    return filePath;
+  }
+
+  function readTicketStatus(filePath: string): string | undefined {
+    return fs.readFileSync(filePath, 'utf8').match(/^status: (.+)$/m)?.[1];
+  }
+
+  it('gate:2 layer:ticket approved 를 기록하면 그 티켓의 status 가 implementing 이 된다', async () => {
+    const root = project({ workitem: 'WI-9', workitems: {} });
+    const ticketPath = writeTicketFixture(root, 'ticket-1');
+
+    await runRecord('gate', {
+      json: '{"gate":2,"layer":"ticket","ticket":"ticket-1","decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+
+    expect(readTicketStatus(ticketPath)).toBe('implementing');
+  });
+
+  it('gate:3 layer:ticket approved 를 기록하면 그 티켓의 status 가 done 이 된다', async () => {
+    const root = project({ workitem: 'WI-9', workitems: {} });
+    const ticketPath = writeTicketFixture(root, 'ticket-1', 'implementing');
+
+    await runRecord('gate', {
+      json: '{"gate":3,"layer":"ticket","ticket":"ticket-1","decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+
+    expect(readTicketStatus(ticketPath)).toBe('done');
+  });
+
+  it('gate:2/3 layer:ticket abandoned 를 기록하면 그 티켓의 status 가 blocked 가 된다', async () => {
+    const root = project({ workitem: 'WI-9', workitems: {} });
+    const ticketPath = writeTicketFixture(root, 'ticket-1');
+
+    await runRecord('gate', {
+      json: '{"gate":2,"layer":"ticket","ticket":"ticket-1","decision":"abandoned","presentedCriteria":["AC-01"]}',
+    });
+
+    expect(readTicketStatus(ticketPath)).toBe('blocked');
+  });
+
+  it('존재하지 않는 ticket id 를 가리키면 기록 자체가 거부되고 파일도 안 바뀐다', async () => {
+    const root = project({ workitem: 'WI-9', workitems: {} });
+    const ticketPath = writeTicketFixture(root, 'ticket-1');
+    const { exitSpy, stderrSpy } = mockExit();
+
+    await expect(
+      runRecord('gate', {
+        json: '{"gate":2,"layer":"ticket","ticket":"no-such-ticket","decision":"approved","presentedCriteria":["AC-01"]}',
+      }),
+    ).rejects.toThrow('exit:1');
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('티켓을 찾을 수 없습니다'))).toBe(
+      true,
+    );
+    expect(readTicketStatus(ticketPath)).toBe('pending'); // 손대지 않음
+
+    exitSpy.mockRestore();
+    stderrSpy.mockRestore();
+  });
+
+  it('레거시 gate 1/2(layer 없음)는 티켓 파일을 전혀 안 건드린다(회귀 없음)', async () => {
+    const root = project({ workitem: 'WI-9', workitems: {} });
+    const ticketPath = writeTicketFixture(root, 'ticket-1');
+
+    await runRecord('gate', {
+      json: '{"gate":1,"decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+    await runRecord('gate', {
+      json: '{"gate":2,"decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+
+    expect(readTicketStatus(ticketPath)).toBe('pending');
+  });
+
+  it('gate 4(request 레이어)는 티켓 파일을 안 건드린다', async () => {
+    const root = project({ workitem: 'WI-9', workitems: {} });
+    const ticketPath = writeTicketFixture(root, 'ticket-1');
+
+    await runRecord('gate', {
+      json: '{"gate":4,"layer":"request","decision":"merge","presentedCriteria":["AC-01"]}',
+    });
+
+    expect(readTicketStatus(ticketPath)).toBe('pending');
   });
 });
 
