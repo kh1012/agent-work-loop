@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   type AwlProfile,
   SKILL_SLOTS,
@@ -11,6 +11,7 @@ import {
   loadProfile,
   profileLocalPath,
   profilePath,
+  runProfile,
   validateLocalProfileOverlay,
   validateProfile,
   writeProfile,
@@ -234,5 +235,38 @@ describe('loadProfile — profile.local.json 병합(mergeSlots, ADK stage 4)', (
 
     expect(loaded.profile).toBeNull();
     expect(loaded.errors.some((e) => e.includes('profile.local.json'))).toBe(true);
+  });
+});
+
+describe('runProfile — 로컬 오버라이드는 정보 표시다(경고 아님, ADK stage 4)', () => {
+  it('profile.local.json 이 바꾼 슬롯에 로컬 설정 표시를 붙인다', async () => {
+    const root = tmpProjectRoot();
+    writeProfile(root, {
+      name: 'maxflow',
+      skills: {
+        ...emptyProfileSkills(),
+        review: { type: 'external', url: 'https://example.com/adversarial-review' },
+      },
+    });
+    fs.writeFileSync(
+      profileLocalPath(root),
+      JSON.stringify({ skills: { implement: { type: 'custom', path: '.claude/skills/my-tdd' } } }),
+    );
+    process.chdir(root);
+    let stdout = '';
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+      stdout += String(chunk);
+      return true;
+    });
+
+    await runProfile();
+
+    expect(stdout).toContain('implement');
+    expect(stdout).toContain('로컬 설정');
+    // review 는 base 그대로라 로컬 설정 마크가 안 붙어야 한다.
+    const reviewLine = stdout.split('\n').find((l) => l.trim().startsWith('review') || l.includes('review '));
+    expect(reviewLine).not.toContain('로컬 설정');
+
+    vi.restoreAllMocks();
   });
 });

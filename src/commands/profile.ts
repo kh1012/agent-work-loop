@@ -312,7 +312,9 @@ function skillRefLabel(ref: SkillRef): string {
   return `custom: ${ref.path}${ref.basedOn ? ` (원본: ${ref.basedOn})` : ''}`;
 }
 
-function renderProfile(profile: AwlProfile, c: Caps): string {
+/** 스킬을 바꾸는 건 정보 표시다(경고 아님) — 문제가 아니라 사실이기 때문이다
+ * (prototype.md:519-524, reference.md:1225 "스킬 쪽은 경고가 아니라 정보 표시다"). */
+function renderProfile(profile: AwlProfile, sources: ProfileSources, c: Caps): string {
   const color = makeColors(c.color);
   const s = makeSymbols(c);
   const out: string[] = [];
@@ -321,10 +323,11 @@ function renderProfile(profile: AwlProfile, c: Caps): string {
     out.push('');
   }
   for (const slot of SKILL_SLOTS) {
-    out.push(`${s.branch} ${slot.padEnd(14, ' ')}${skillRefLabel(profile.skills[slot])}`);
+    const localMark = sources[slot] === 'local' ? `  ${signal(c, 'info')} 로컬 설정` : '';
+    out.push(`${s.branch} ${slot.padEnd(14, ' ')}${skillRefLabel(profile.skills[slot])}${localMark}`);
   }
   out.push('');
-  out.push(`${s.lastBranch} ${color.dim('직접 편집: .awl/profile.json')}`);
+  out.push(`${s.lastBranch} ${color.dim('직접 편집: .awl/profile.json (개인 취향은 .awl/profile.local.json)')}`);
   return sectionBox(`${profile.name} 프로파일`, out, c);
 }
 
@@ -341,7 +344,7 @@ export async function runProfile(): Promise<void> {
       if (!loaded.profile) {
         return `${header}\n  ${signal(c, 'error')} profile.json 에 문제가 있습니다: ${loaded.errors.join(', ')}`;
       }
-      return `${header}\n${renderProfile(loaded.profile, c)}`;
+      return `${header}\n${renderProfile(loaded.profile, loaded.sources, c)}`;
     });
     process.stdout.write(`${blocks.join('\n\n')}\n`);
     process.stdout.write(`${multiProjectFooter(scope.projects, 'awl profile', c)}\n`);
@@ -362,5 +365,5 @@ export async function runProfile(): Promise<void> {
     }
     process.exit(1);
   }
-  process.stdout.write(`${renderProfile(loaded.profile, caps())}\n`);
+  process.stdout.write(`${renderProfile(loaded.profile, loaded.sources, caps())}\n`);
 }

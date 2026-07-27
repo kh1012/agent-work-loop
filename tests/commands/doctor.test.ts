@@ -302,6 +302,64 @@ describe('collectChecks — sync 섹션 (ADK stage 3, prototype.md:419-430)', ()
   });
 });
 
+describe('collectChecks — 게이트 가시성: 로컬 skip 경고 · 로컬 스킬 정보 (ADK stage 4, prototype.md:519-524)', () => {
+  beforeEach(() => {
+    process.env.AWL_HOME = makeInstalledHome();
+    process.chdir(makeInstalledProject());
+  });
+
+  it('config.local.json 이 skip:true 로 끈 검증이 있으면 warn 으로 이름을 보여준다', async () => {
+    fs.writeFileSync(
+      path.join(process.cwd(), '.awl', 'config.local.json'),
+      JSON.stringify({ verifications: [{ name: 'test', skip: true }] }),
+    );
+
+    const report = await collectChecks();
+    const check = find(report.checks, '로컬에서 건너뛴 검증');
+
+    expect(check?.status).toBe('warn');
+    expect(check?.value).toContain('test');
+  });
+
+  it('config.local.json 이 없으면(또는 skip 없으면) 그 체크 자체가 없다', async () => {
+    const report = await collectChecks();
+    expect(find(report.checks, '로컬에서 건너뛴 검증')).toBeUndefined();
+  });
+
+  it('profile.local.json 이 스킬을 바꾸면 info 로 슬롯 이름을 보여준다(경고 아님 — 문제가 아니라 사실)', async () => {
+    const root = process.cwd();
+    fs.writeFileSync(
+      path.join(root, '.awl', 'profile.json'),
+      JSON.stringify({
+        name: 'doctor-test',
+        skills: {
+          spec: null,
+          investigation: null,
+          clarification: null,
+          spike: null,
+          implement: null,
+          review: null,
+        },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(root, '.awl', 'profile.local.json'),
+      JSON.stringify({ skills: { implement: { type: 'custom', path: '.claude/skills/my-tdd' } } }),
+    );
+
+    const report = await collectChecks();
+    const check = find(report.checks, '로컬 스킬 설정');
+
+    expect(check?.status).toBe('info');
+    expect(check?.value).toContain('implement');
+  });
+
+  it('profile.json 자체가 없으면(단계 4 이전 저장소) 로컬 스킬 체크는 조용히 생략된다(doctor 는 아무것도 안 고친다)', async () => {
+    const report = await collectChecks();
+    expect(find(report.checks, '로컬 스킬 설정')).toBeUndefined();
+  });
+});
+
 describe('collectChecks — 프로젝트 루트/브랜치 표시 (WI-C)', () => {
   beforeEach(() => {
     process.env.AWL_HOME = makeInstalledHome();

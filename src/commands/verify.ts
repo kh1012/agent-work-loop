@@ -24,6 +24,10 @@ export interface VerifyResult {
   output: string;
   error?: 'command_not_found' | 'cwd_not_found';
   timedOut?: boolean;
+  /** config.local.json 이 이 검증을 skip:true 로 껐다(ADK stage 4) — 실행 자체를
+   * 안 한다. 실패가 아니라 경고다(report.passed 에 영향 없음, prototype.md:519-524
+   * "검증을 끄는 건 경고, 스킬을 바꾸는 건 정보다"). */
+  skipped?: boolean;
 }
 
 export interface VerifyReport {
@@ -41,6 +45,11 @@ export async function runVerifyChecks(
 
   for (const entry of verifications) {
     const name = entry.name;
+
+    if (entry.skip) {
+      results.push({ name, exitCode: null, durationMs: 0, output: '', skipped: true });
+      continue; // 경고이지 실패가 아니다 — passed 를 안 건드린다.
+    }
 
     const cwd = entry.cwd
       ? path.isAbsolute(entry.cwd)
@@ -111,15 +120,16 @@ function renderVerify(report: VerifyReport, c: Caps): string {
   const color = makeColors(c.color);
   const out: string[] = [];
   for (const r of report.results) {
-    const mark =
-      r.error === 'command_not_found'
+    const mark = r.skipped
+      ? `${signal(c, 'warn')} 로컬에서 건너뜀`
+      : r.error === 'command_not_found'
         ? `${signal(c, 'error')} 명령 없음`
         : r.error === 'cwd_not_found'
           ? `${signal(c, 'error')} cwd 없음`
           : isCheckPassed(r)
             ? `${signal(c, 'ok')} 통과`
             : `${signal(c, 'error')} 실패`;
-    const dur = r.error ? '' : color.dim(`${r.durationMs}ms`);
+    const dur = r.error || r.skipped ? '' : color.dim(`${r.durationMs}ms`);
     out.push(`${r.name.padEnd(10, ' ')}${mark}  ${dur}`);
   }
   out.push('');

@@ -70,6 +70,40 @@ describe('runVerifyChecks', () => {
     expect(report.passed).toBe(false);
   });
 
+  it('skip:true 인 검증은 실행하지 않고 skipped:true 로 남긴다 — 실패가 아니라 경고다(ADK stage 4)', async () => {
+    const report = await runVerifyChecks(
+      [
+        { name: 'typecheck', cmd: `${NODE} --version` },
+        { name: 'e2e', cmd: `${NODE} -e "process.exit(1)"`, skip: true },
+      ],
+      process.cwd(),
+      { bail: false },
+    );
+    expect(report.results).toEqual([
+      {
+        name: 'typecheck',
+        exitCode: 0,
+        durationMs: expect.any(Number),
+        output: expect.any(String),
+        timedOut: false,
+      },
+      { name: 'e2e', exitCode: null, durationMs: 0, output: '', skipped: true },
+    ]);
+    // skip 만 있고 진짜 실패는 없으니 passed 는 true 여야 한다 — 끄는 건 실패가 아니다.
+    expect(report.passed).toBe(true);
+  });
+
+  it('skip:true 인 검증은 cmd 가 실행 불가능한 값이어도(빈 cwd 등) 절대 안 건드린다', async () => {
+    const report = await runVerifyChecks(
+      [{ name: 'e2e', cmd: 'awl_no_such_tool_zzz .', cwd: '/no/such/dir', skip: true }],
+      process.cwd(),
+      { bail: false },
+    );
+    expect(report.results).toEqual([
+      { name: 'e2e', exitCode: null, durationMs: 0, output: '', skipped: true },
+    ]);
+  });
+
   it('결과는 유효한 JSON 으로 직렬화/파싱된다(스킬이 파싱함)', async () => {
     const report = await runVerifyChecks(
       vmap({ typecheck: { cmd: `${NODE} --version` } }),

@@ -29,6 +29,7 @@ import {
   checkVersions,
 } from '../core/versions.js';
 import { loadConfig } from './config.js';
+import { type SkillSlot, loadProfile } from './profile.js';
 import { codexSkillNames, listRegisteredProjects, stagesMdContent } from './init.js';
 import { loadProjectName, readRecords } from './record.js';
 import { loadState, readStateLock } from './state.js';
@@ -695,6 +696,36 @@ async function collectSingleProject(
     value: `base: ${loadedConfig.basePath} · overlay: ${loadedConfig.overlayPath ?? '(없음)'}`,
     hint: `effective project=${raw.project}; project=${loadedConfig.sources.project}, feedback.enabled=${loadedConfig.sources['feedback.enabled']}, feedback.path=${loadedConfig.sources['feedback.path']}`,
   });
+
+  // 로컬에서 건너뛴 검증(config.local.json 의 skip:true, ADK stage 4) — 경고다.
+  // "통과했다"와 "안 돌렸다"는 다르다(reference.md:1222).
+  const skippedVerifications = raw.verifications.filter((v) => v.skip).map((v) => v.name);
+  if (skippedVerifications.length > 0) {
+    checks.push({
+      group: groupLabel,
+      name: '로컬에서 건너뛴 검증',
+      status: 'warn',
+      value: `${skippedVerifications.length}개: ${skippedVerifications.join(', ')}`,
+      hint: 'config.local.json 이 skip:true 로 껐습니다. 게이트 판단 전에 확인하세요.',
+    });
+  }
+
+  // 로컬 스킬 설정(profile.local.json, ADK stage 4) — 정보다. 스킬을 바꾸는 건
+  // 문제가 아니라 사실이다(prototype.md:519-524).
+  const loadedProfile = loadProfile(projectRoot);
+  if (loadedProfile.profile) {
+    const localSlots = (Object.keys(loadedProfile.sources) as SkillSlot[]).filter(
+      (slot) => loadedProfile.sources[slot] === 'local',
+    );
+    if (localSlots.length > 0) {
+      checks.push({
+        group: groupLabel,
+        name: '로컬 스킬 설정',
+        status: 'info',
+        value: `${localSlots.length}개: ${localSlots.join(', ')}`,
+      });
+    }
+  }
 
   // 네이밍 컨벤션 감지(WI-I AC-01) — 세기만 한다, 강제하지 않는다. doctor 는
   // 아무것도 고치지 않으므로 config.json 기록은 여기서 안 하고 hint 로 명령만

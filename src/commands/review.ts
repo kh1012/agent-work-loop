@@ -128,6 +128,13 @@ function renderReview(bundle: ReviewBundle, range: string, c: Caps): string {
   out.push(`완료 조건    ${bundle.criteria.length}개`);
   out.push(`diff         ${bundle.diff.split('\n').length}줄`);
   out.push(`검증         ${bundle.verify.passed ? color.green('통과') : color.red('실패')}`);
+  const skipped = bundle.verify.results.filter((r) => r.skipped).map((r) => r.name);
+  if (skipped.length > 0) {
+    // 끄는 건 실패가 아니라 경고다(prototype.md:519-524) — 게이트 판단 시점에 조용히
+    // 안 돌았다는 사실이 눈에 띄어야 한다("통과했다"와 "안 돌렸다"는 다르다,
+    // reference.md:1222).
+    out.push(`             ${color.yellow(`[!] 로컬에서 건너뜀: ${skipped.join(', ')}`)}`);
+  }
   out.push(`규칙(review) ${bundle.rules.length}개`);
   out.push('');
   out.push('provenance (리뷰어가 교차검증할 위치)');

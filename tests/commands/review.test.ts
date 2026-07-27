@@ -54,6 +54,23 @@ describe('assembleReview — provenance 가 핵심', () => {
     // 리뷰어(서브에이전트)가 파싱할 수 있어야 한다.
     expect(() => JSON.parse(JSON.stringify(bundle))).not.toThrow();
   });
+
+  it('config.local.json 이 skip:true 로 끈 검증은 bundle.verify 에 skipped:true 로 그대로 실린다(ADK stage 4, 게이트가 경고로 볼 자료)', async () => {
+    const dir = makeRepo();
+    const state = { criteria: [{ id: 'AC-01', status: 'passed' }] };
+    const configWithSkip: AwlConfig = {
+      ...CONFIG,
+      verifications: [
+        { name: 'test', cmd: `${process.execPath} --version` },
+        { name: 'e2e', cmd: `${process.execPath} -e "process.exit(1)"`, skip: true },
+      ],
+    };
+
+    const bundle = await assembleReview(dir, configWithSkip, state, 'AC-01', undefined);
+
+    expect(bundle.verify.results.find((r) => r.name === 'e2e')?.skipped).toBe(true);
+    expect(bundle.verify.passed).toBe(true); // skip 은 실패가 아니다
+  });
 });
 
 describe('assembleReview — reviewId 발급 (WI-S AC-02)', () => {
