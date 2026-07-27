@@ -28,12 +28,7 @@ function freshConfig(): AwlConfig {
     mainLanguage: ['javascript'], // WI-A 가 고칠 오판 시나리오를 흉내낸다
     character: '',
     engineVersion: '0.1.0',
-    verify: {
-      typecheck: { cmd: 'tsc --noEmit' },
-      lint: null,
-      test: null,
-      e2e: null,
-    },
+    verifications: [{ name: 'typecheck', cmd: 'tsc --noEmit' }],
   };
 }
 
@@ -68,8 +63,17 @@ const VALID = JSON.stringify({
 });
 
 describe('validateConfig', () => {
-  it('정상 config 는 통과(빈 오류)', () => {
+  it('정상 config 는 통과(빈 오류, 옛 verify shape)', () => {
     expect(validateConfig(JSON.parse(VALID))).toEqual([]);
+  });
+
+  it('verifications(새 shape) 도 통과한다', () => {
+    const errors = validateConfig({
+      project: 'x',
+      engineVersion: '0.0.0',
+      verifications: [{ name: 'lint', cmd: 'eslint .', scope: 'changed', skip: true }],
+    });
+    expect(errors).toEqual([]);
   });
 
   it('project 가 없으면 거부', () => {
@@ -77,7 +81,7 @@ describe('validateConfig', () => {
     expect(errors.some((e) => e.includes('project'))).toBe(true);
   });
 
-  it('verify 항목 형식이 틀리면 잡는다', () => {
+  it('verify(옛 shape) 항목 형식이 틀리면 잡는다', () => {
     const errors = validateConfig({
       project: 'x',
       engineVersion: '0.0.0',
@@ -85,16 +89,41 @@ describe('validateConfig', () => {
     });
     expect(errors.some((e) => e.includes('verify.lint'))).toBe(true);
   });
+
+  it('verifications(새 shape) 항목 형식이 틀리면 잡는다', () => {
+    const errors = validateConfig({
+      project: 'x',
+      engineVersion: '0.0.0',
+      verifications: [{ name: 'lint' }], // cmd 없음
+    });
+    expect(errors.some((e) => e.includes('verifications'))).toBe(true);
+  });
+
+  it('verifications 이름이 중복되면 잡는다', () => {
+    const errors = validateConfig({
+      project: 'x',
+      engineVersion: '0.0.0',
+      verifications: [
+        { name: 'lint', cmd: 'a' },
+        { name: 'lint', cmd: 'b' },
+      ],
+    });
+    expect(errors.some((e) => e.includes('중복'))).toBe(true);
+  });
+
+  it('verify 도 verifications 도 없으면 거부', () => {
+    const errors = validateConfig({ project: 'x', engineVersion: '0.0.0' });
+    expect(errors.some((e) => e.includes('verifications'))).toBe(true);
+  });
 });
 
 describe('loadConfig', () => {
-  it('정상 파일을 로드하고 verify 를 정규화한다', () => {
+  it('정상 파일을 로드하고 verify(옛 shape)를 verifications 배열로 변환한다', () => {
     const root = projectWithConfig(VALID);
     const { config, errors } = loadConfig(root);
     expect(errors).toEqual([]);
     expect(config?.project).toBe('maxflow');
-    expect(config?.verify.typecheck).toEqual({ cmd: 'tsc --noEmit' });
-    expect(config?.verify.e2e).toBeNull();
+    expect(config?.verifications).toEqual([{ name: 'typecheck', cmd: 'tsc --noEmit' }]);
   });
 
   it('JSON 이 깨지면 대략적인 줄 번호를 알려준다', () => {
@@ -333,30 +362,52 @@ describe('parseConfigKey — 지원하는 모든 키 (Part 0-4)', () => {
     expect(parseConfigKey('character')).toEqual({ kind: 'character' });
   });
 
-  it('verify.<name>.cmd/.cwd/.env', () => {
-    expect(parseConfigKey('verify.lint.cmd')).toEqual({ kind: 'verify.cmd', verifyName: 'lint' });
-    expect(parseConfigKey('verify.lint.cwd')).toEqual({ kind: 'verify.cwd', verifyName: 'lint' });
-    expect(parseConfigKey('verify.lint.env')).toEqual({ kind: 'verify.env', verifyName: 'lint' });
+  it('verifications.<name>.cmd/.cwd/.env/.scope/.level/.skip (ADK stage 4, 이름은 자유)', () => {
+    expect(parseConfigKey('verifications.lint.cmd')).toEqual({
+      kind: 'verifications.cmd',
+      verifyName: 'lint',
+    });
+    expect(parseConfigKey('verifications.lint.cwd')).toEqual({
+      kind: 'verifications.cwd',
+      verifyName: 'lint',
+    });
+    expect(parseConfigKey('verifications.lint.env')).toEqual({
+      kind: 'verifications.env',
+      verifyName: 'lint',
+    });
+    expect(parseConfigKey('verifications.a11y.scope')).toEqual({
+      kind: 'verifications.scope',
+      verifyName: 'a11y',
+    });
+    expect(parseConfigKey('verifications.e2e.level')).toEqual({
+      kind: 'verifications.level',
+      verifyName: 'e2e',
+    });
+    expect(parseConfigKey('verifications.lint.skip')).toEqual({
+      kind: 'verifications.skip',
+      verifyName: 'lint',
+    });
   });
 
-  it('verify.<name> (접미사 없음)은 하위 호환으로 .cmd 취급', () => {
-    expect(parseConfigKey('verify.test')).toEqual({ kind: 'verify.cmd', verifyName: 'test' });
+  it('verifications.<name> (접미사 없음)은 하위 호환으로 .cmd 취급', () => {
+    expect(parseConfigKey('verifications.test')).toEqual({
+      kind: 'verifications.cmd',
+      verifyName: 'test',
+    });
   });
 
   it('알 수 없는 키는 null', () => {
     expect(parseConfigKey('nope')).toBeNull();
-    expect(parseConfigKey('verify.nope.cmd')).toBeNull();
   });
 
-  it('SETTABLE_KEYS 는 protectedFiles 를 포함한 모든 설정 키를 노출한다', () => {
-    expect(SETTABLE_KEYS).toContain('verify.lint.cwd');
-    expect(SETTABLE_KEYS).toContain('verify.e2e.env');
+  it('SETTABLE_KEYS 는 정적 키만 노출한다(verifications.* 는 이름이 자유라 동적으로 붙는다)', () => {
     expect(SETTABLE_KEYS).toContain('namingConvention');
     expect(SETTABLE_KEYS).toContain('relatedCmd');
     expect(SETTABLE_KEYS).toContain('protectedFiles');
     expect(SETTABLE_KEYS).toContain('feedback.enabled');
     expect(SETTABLE_KEYS).toContain('feedback.path');
-    expect(SETTABLE_KEYS.length).toBe(8 + 4 * 3);
+    expect(SETTABLE_KEYS).not.toContain('verify.lint.cwd');
+    expect(SETTABLE_KEYS.length).toBe(8);
   });
 });
 
@@ -589,81 +640,97 @@ describe('applyConfigValue — 키마다 검증 규칙이 다르다', () => {
     expect(result.config?.feedback).toBeUndefined();
   });
 
-  it('verify.cmd: 실제 존재하는 명령이면 통과하고 저장한다', async () => {
+  function findVerification(config: AwlConfig, name: string) {
+    return config.verifications.find((v) => v.name === name);
+  }
+
+  it('verifications.cmd: 실제 존재하는 명령이면 통과하고 저장한다(존재하지 않는 이름은 새로 만든다)', async () => {
     const config = freshConfig();
     const outcome = await applyConfigValue(
       config,
       '/tmp',
-      { kind: 'verify.cmd', verifyName: 'lint' },
+      { kind: 'verifications.cmd', verifyName: 'lint' },
       NODE,
       { force: false },
     );
     expect(outcome.ok).toBe(true);
-    expect(config.verify.lint?.cmd).toBe(NODE);
+    expect(findVerification(config, 'lint')?.cmd).toBe(NODE);
   });
 
-  it('verify.cmd: 없는 명령은 거부(--force 없이)', async () => {
+  it('verifications.cmd: 없는 명령은 거부(--force 없이)', async () => {
     const config = freshConfig();
     const outcome = await applyConfigValue(
       config,
       '/tmp',
-      { kind: 'verify.cmd', verifyName: 'lint' },
+      { kind: 'verifications.cmd', verifyName: 'lint' },
       'awl_no_such_tool_zzz .',
       { force: false },
     );
     expect(outcome.ok).toBe(false);
-    expect(config.verify.lint).toBeNull(); // 저장 안 됨
+    expect(findVerification(config, 'lint')).toBeUndefined(); // 저장 안 됨
   });
 
-  it('verify.cmd: --force 면 없는 명령도 저장한다', async () => {
+  it('verifications.cmd: --force 면 없는 명령도 저장한다', async () => {
     const config = freshConfig();
     const outcome = await applyConfigValue(
       config,
       '/tmp',
-      { kind: 'verify.cmd', verifyName: 'lint' },
+      { kind: 'verifications.cmd', verifyName: 'lint' },
       'awl_no_such_tool_zzz .',
       { force: true },
     );
     expect(outcome.ok).toBe(true);
-    expect(config.verify.lint?.cmd).toBe('awl_no_such_tool_zzz .');
+    expect(findVerification(config, 'lint')?.cmd).toBe('awl_no_such_tool_zzz .');
   });
 
-  it('verify.cwd: 존재하는 디렉토리(프로젝트 루트 기준 상대경로)를 저장한다', async () => {
+  it('verifications.cmd: 빈 값이면 그 이름의 항목을 배열에서 제거한다', async () => {
+    const config = freshConfig();
+    const outcome = await applyConfigValue(
+      config,
+      '/tmp',
+      { kind: 'verifications.cmd', verifyName: 'typecheck' },
+      '',
+      { force: false },
+    );
+    expect(outcome.ok).toBe(true);
+    expect(findVerification(config, 'typecheck')).toBeUndefined();
+  });
+
+  it('verifications.cwd: 존재하는 디렉토리(프로젝트 루트 기준 상대경로)를 저장한다', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-cwd-'));
     fs.mkdirSync(path.join(root, 'packages', 'app'), { recursive: true });
     const config = freshConfig();
-    config.verify.typecheck = { cmd: 'tsc --noEmit' };
     const outcome = await applyConfigValue(
       config,
       root,
-      { kind: 'verify.cwd', verifyName: 'typecheck' },
+      { kind: 'verifications.cwd', verifyName: 'typecheck' },
       'packages/app',
       { force: false },
     );
     expect(outcome.ok).toBe(true);
-    expect(config.verify.typecheck?.cwd).toBe('packages/app');
+    expect(findVerification(config, 'typecheck')?.cwd).toBe('packages/app');
   });
 
-  it('verify.cwd: 없는 디렉토리는 거부(--force 없이)', async () => {
+  it('verifications.cwd: 없는 디렉토리는 거부(--force 없이)', async () => {
     const config = freshConfig();
     const outcome = await applyConfigValue(
       config,
       '/tmp',
-      { kind: 'verify.cwd', verifyName: 'typecheck' },
+      { kind: 'verifications.cwd', verifyName: 'typecheck' },
       'no/such/dir',
       { force: false },
     );
     expect(outcome.ok).toBe(false);
-    expect(config.verify.typecheck?.cwd).toBeUndefined();
+    expect(findVerification(config, 'typecheck')?.cwd).toBeUndefined();
   });
 
-  it('verify.cwd: 절대경로는 허용하되 경고한다', async () => {
+  it('verifications.cwd: 절대경로는 허용하되 경고한다', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-cwd-'));
     const config = freshConfig();
     const outcome = await applyConfigValue(
       config,
       '/tmp',
-      { kind: 'verify.cwd', verifyName: 'typecheck' },
+      { kind: 'verifications.cwd', verifyName: 'typecheck' },
       root,
       { force: false },
     );
@@ -672,61 +739,107 @@ describe('applyConfigValue — 키마다 검증 규칙이 다르다', () => {
     expect(outcome.message).toContain('절대 경로');
   });
 
-  it('verify.cwd: cmd 가 설정 안 된 항목이면 거부', async () => {
+  it('verifications.cwd: cmd 가 설정 안 된 이름(존재하지 않는 항목)이면 거부', async () => {
     const config = freshConfig();
     const outcome = await applyConfigValue(
       config,
       '/tmp',
-      { kind: 'verify.cwd', verifyName: 'lint' }, // lint 는 freshConfig 에서 null
+      { kind: 'verifications.cwd', verifyName: 'lint' }, // lint 는 freshConfig 에 없음
       '.',
       { force: false },
     );
     expect(outcome.ok).toBe(false);
   });
 
-  it('verify.env: JSON 객체를 저장한다', async () => {
+  it('verifications.env: JSON 객체를 저장한다', async () => {
     const config = freshConfig();
     const outcome = await applyConfigValue(
       config,
       '/tmp',
-      { kind: 'verify.env', verifyName: 'typecheck' },
+      { kind: 'verifications.env', verifyName: 'typecheck' },
       '{"NODE_ENV":"test"}',
       { force: false },
     );
     expect(outcome.ok).toBe(true);
-    expect(config.verify.typecheck?.env).toEqual({ NODE_ENV: 'test' });
+    expect(findVerification(config, 'typecheck')?.env).toEqual({ NODE_ENV: 'test' });
   });
 
-  it('verify.env: JSON 이 아니면 거부', async () => {
+  it('verifications.env: JSON 이 아니면 거부', async () => {
     const config = freshConfig();
     const outcome = await applyConfigValue(
       config,
       '/tmp',
-      { kind: 'verify.env', verifyName: 'typecheck' },
+      { kind: 'verifications.env', verifyName: 'typecheck' },
       'not json',
       { force: false },
     );
     expect(outcome.ok).toBe(false);
   });
 
-  it('verify.cmd 만 바꿀 때 기존 cwd 를 보존한다', async () => {
+  it('verifications.scope/level/skip 을 설정한다', async () => {
+    const config = freshConfig();
+    const scope = await applyConfigValue(
+      config,
+      '/tmp',
+      { kind: 'verifications.scope', verifyName: 'typecheck' },
+      'changed',
+      { force: false },
+    );
+    expect(scope.ok).toBe(true);
+    expect(findVerification(config, 'typecheck')?.scope).toBe('changed');
+
+    const level = await applyConfigValue(
+      config,
+      '/tmp',
+      { kind: 'verifications.level', verifyName: 'typecheck' },
+      'request',
+      { force: false },
+    );
+    expect(level.ok).toBe(true);
+    expect(findVerification(config, 'typecheck')?.level).toBe('request');
+
+    const skip = await applyConfigValue(
+      config,
+      '/tmp',
+      { kind: 'verifications.skip', verifyName: 'typecheck' },
+      'true',
+      { force: false },
+    );
+    expect(skip.ok).toBe(true);
+    expect(findVerification(config, 'typecheck')?.skip).toBe(true);
+  });
+
+  it('verifications.scope: 잘못된 값이면 거부', async () => {
+    const config = freshConfig();
+    const outcome = await applyConfigValue(
+      config,
+      '/tmp',
+      { kind: 'verifications.scope', verifyName: 'typecheck' },
+      'nonsense',
+      { force: false },
+    );
+    expect(outcome.ok).toBe(false);
+  });
+
+  it('verifications.cmd 만 바꿀 때 기존 cwd 를 보존한다', async () => {
     // AC-08: 존재 확인도 그 cwd 로 하므로, 실제로 존재하는 디렉토리여야 한다.
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-cfg-preserve-')));
     fs.mkdirSync(path.join(root, 'packages', 'app'), { recursive: true });
     const config = freshConfig();
-    config.verify.typecheck = { cmd: 'tsc --noEmit', cwd: 'packages/app' };
+    const existing = findVerification(config, 'typecheck');
+    if (existing) existing.cwd = 'packages/app';
     const outcome = await applyConfigValue(
       config,
       root,
-      { kind: 'verify.cmd', verifyName: 'typecheck' },
+      { kind: 'verifications.cmd', verifyName: 'typecheck' },
       NODE,
       { force: false },
     );
     expect(outcome.ok).toBe(true);
-    expect(config.verify.typecheck).toEqual({ cmd: NODE, cwd: 'packages/app' });
+    expect(findVerification(config, 'typecheck')).toMatchObject({ cmd: NODE, cwd: 'packages/app' });
   });
 
-  it('verify.cmd: 존재 확인도 기존 cwd 기준으로 한다 (AC-08, maxflow 재현 — cwd 없이 확인하면 실패했을 명령)', async () => {
+  it('verifications.cmd: 존재 확인도 기존 cwd 기준으로 한다 (AC-08, maxflow 재현 — cwd 없이 확인하면 실패했을 명령)', async () => {
     // packages/app 안에서만 풀리는 상대경로 실행파일 — cwd 를 안 쓰고 확인하면 실패한다.
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-cfg-cwd-')));
     fs.mkdirSync(path.join(root, 'packages', 'app'), { recursive: true });
@@ -736,16 +849,20 @@ describe('applyConfigValue — 키마다 검증 규칙이 다르다', () => {
     fs.chmodSync(toolPath, 0o755);
 
     const config = freshConfig();
-    config.verify.typecheck = { cmd: 'old-placeholder', cwd: 'packages/app' };
+    const existing = findVerification(config, 'typecheck');
+    if (existing) {
+      existing.cmd = 'old-placeholder';
+      existing.cwd = 'packages/app';
+    }
     const outcome = await applyConfigValue(
       config,
       root,
-      { kind: 'verify.cmd', verifyName: 'typecheck' },
+      { kind: 'verifications.cmd', verifyName: 'typecheck' },
       '../../node_modules/.bin/fake-tool',
       { force: false },
     );
     expect(outcome.ok).toBe(true);
-    expect(config.verify.typecheck).toEqual({
+    expect(findVerification(config, 'typecheck')).toMatchObject({
       cmd: '../../node_modules/.bin/fake-tool',
       cwd: 'packages/app',
     });
@@ -828,15 +945,16 @@ describe('interactiveEditMenu — init 의 buildScreens 를 재사용한 인터�
   it('검증 명령어 메뉴에서 존재하는 명령으로 고친다', async () => {
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     const config = freshConfig();
-    // typecheck/lint/test/e2e 순서로 물어본다. typecheck 만 바꾸고 나머지는 빈 줄(유지).
-    const rl = makeRL(['3', NODE, '', '', '']);
+    // ADK stage 4: 이미 설정된 이름(typecheck 하나)만 물어본다 — 자유 이름이라
+    // 4개 고정이 아니다. '/tmp' 는 감지될 것이 없다고 가정한다.
+    const rl = makeRL(['3', NODE]);
     const changed = await interactiveEditMenu(rl, config, '/tmp', CAPS);
     rl.close();
     stdoutSpy.mockRestore();
 
     expect(changed).toBe(true);
-    expect(config.verify.typecheck?.cmd).toBe(NODE);
-    expect(config.verify.lint).toBeNull(); // 안 바뀜
+    expect(config.verifications.find((v) => v.name === 'typecheck')?.cmd).toBe(NODE);
+    expect(config.verifications.find((v) => v.name === 'lint')).toBeUndefined(); // 없음, 안 생김
   });
 
   it('피드백 모드를 켜고 경로는 비워서 그대로 둔다', async () => {

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { protectedFilesMessage } from '../core/protected-files.js';
 import { CommandNotFoundError, run } from '../core/runner.js';
 import { type Caps, caps, makeColors, sectionBox, signal } from '../core/tty.js';
-import { type AwlConfig, VERIFY_ORDER, type VerifyMap, requireConfig } from './config.js';
+import { type AwlConfig, type VerificationEntry, requireConfig } from './config.js';
 import { gitDirtyFiles } from './doctor.js';
 import { applyVerificationAttempts, loadState, writeState } from './state.js';
 
@@ -32,18 +32,15 @@ export interface VerifyReport {
 }
 
 export async function runVerifyChecks(
-  verify: VerifyMap,
+  verifications: VerificationEntry[],
   projectRoot: string,
   opts: { bail: boolean },
 ): Promise<VerifyReport> {
   const results: VerifyResult[] = [];
   let passed = true;
 
-  for (const name of VERIFY_ORDER) {
-    const entry = verify[name];
-    if (!entry) {
-      continue; // null 은 건너뛴다.
-    }
+  for (const entry of verifications) {
+    const name = entry.name;
 
     const cwd = entry.cwd
       ? path.isAbsolute(entry.cwd)
@@ -379,7 +376,7 @@ export async function runRelatedTests(
     };
   }
 
-  const testEntry = config.verify.test;
+  const testEntry = config.verifications.find((v) => v.name === 'test');
   if (!testEntry) {
     return {
       usedRelatedCmd: false,
@@ -437,7 +434,7 @@ export async function runVerify(opts: {
     process.exit(isCheckPassed(outcome.result) ? 0 : 1);
   }
 
-  const report = await runVerifyChecks(config.verify, projectRoot, { bail: opts.bail });
+  const report = await runVerifyChecks(config.verifications, projectRoot, { bail: opts.bail });
   persistVerificationAttempts(projectRoot, report.passed);
 
   if (opts.sinceBaseline) {

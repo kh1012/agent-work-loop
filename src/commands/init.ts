@@ -25,6 +25,8 @@ import {
   projectsFile,
 } from '../core/paths.js';
 import { runInteractiveSelect } from '../core/select.js';
+import type { AwlConfig, VerificationEntry } from './config.js';
+import { migrateLegacyVerify } from './config.js';
 import {
   type Caps,
   type Colors,
@@ -53,30 +55,15 @@ import {
 // 타입
 // ---------------------------------------------------------------------------
 
-export type VerifyEntry = { cmd: string; cwd?: string; env?: Record<string, string> } | null;
-
-export interface VerifyMap {
-  typecheck: VerifyEntry;
-  lint: VerifyEntry;
-  test: VerifyEntry;
-  e2e: VerifyEntry;
-}
-
+/** ADK stage 4: config.ts 의 AwlConfig/VerificationEntry 를 그대로 쓴다 — 예전엔
+ * 여기서 독립적으로 중복 선언해 두 파일이 어긋날 수 있었다(verify→verifications
+ * 마이그레이션 계기로 정리). */
 export interface InitInputs {
   project: string;
   mainLanguage: string[];
   character: string;
-  verify: VerifyMap;
+  verifications: VerificationEntry[];
   skills: { claude: boolean; codex: boolean };
-}
-
-export interface AwlConfig {
-  project: string;
-  mainLanguage: string[];
-  character: string;
-  engineVersion: string;
-  verify: VerifyMap;
-  protectedFiles?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -393,15 +380,16 @@ export function splitEnv(script: string): { cmd: string; env?: Record<string, st
   return Object.keys(env).length > 0 ? { cmd: rest, env } : { cmd: rest };
 }
 
-/** package.json scripts 와 설정 파일에서 검증 명령을 감지한다. */
-export function detectVerify(cwd: string): VerifyMap {
+/** package.json scripts 와 설정 파일에서 검증 명령을 감지한다(ADK stage 4: 감지된
+ * 것만 배열 항목으로 — 4개 고정 슬롯이 아니다). */
+export function detectVerify(cwd: string): VerificationEntry[] {
   const pkg = readJson(path.join(cwd, 'package.json'));
   const scripts: Record<string, unknown> =
     pkg && typeof pkg === 'object' && typeof (pkg as Record<string, unknown>).scripts === 'object'
       ? ((pkg as Record<string, Record<string, unknown>>).scripts ?? {})
       : {};
 
-  const pick = (names: string[]): VerifyEntry => {
+  const pick = (names: string[]): { cmd: string; env?: Record<string, string> } | null => {
     for (const n of names) {
       const v = scripts[n];
       if (typeof v === 'string' && v.trim() !== '') {
@@ -413,13 +401,17 @@ export function detectVerify(cwd: string): VerifyMap {
 
   const hasTsconfig = exists(path.join(cwd, 'tsconfig.json'));
 
-  return {
-    typecheck:
-      pick(['typecheck', 'type-check', 'tsc']) ?? (hasTsconfig ? { cmd: 'tsc --noEmit' } : null),
-    lint: pick(['lint']),
-    test: pick(['test']),
-    e2e: pick(['e2e', 'test:e2e']),
-  };
+  const out: VerificationEntry[] = [];
+  const typecheck =
+    pick(['typecheck', 'type-check', 'tsc']) ?? (hasTsconfig ? { cmd: 'tsc --noEmit' } : null);
+  if (typecheck) out.push({ name: 'typecheck', ...typecheck });
+  const lint = pick(['lint']);
+  if (lint) out.push({ name: 'lint', ...lint });
+  const test = pick(['test']);
+  if (test) out.push({ name: 'test', ...test });
+  const e2e = pick(['e2e', 'test:e2e']);
+  if (e2e) out.push({ name: 'e2e', ...e2e });
+  return out;
 }
 
 /**
@@ -444,9 +436,9 @@ export function detectWorkspacePackages(cwd: string): string[] {
   return [...dirs].sort();
 }
 
-/** 4개 검증 항목이 전부 비어있는가(루트에서 아무 신호도 못 찾음 — 판단이 애매한 경우). */
-function isVerifyEmpty(v: VerifyMap): boolean {
-  return !v.typecheck && !v.lint && !v.test && !v.e2e;
+/** 검증 항목이 전부 비어있는가(루트에서 아무 신호도 못 찾음 — 판단이 애매한 경우). */
+function isVerifyEmpty(v: VerificationEntry[]): boolean {
+  return v.length === 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -460,12 +452,7 @@ export function buildConfig(inputs: InitInputs, engineVersion: string): AwlConfi
     mainLanguage: inputs.mainLanguage,
     character: inputs.character,
     engineVersion,
-    verify: {
-      typecheck: inputs.verify.typecheck,
-      lint: inputs.verify.lint,
-      test: inputs.verify.test,
-      e2e: inputs.verify.e2e,
-    },
+    verifications: inputs.verifications,
   };
 }
 
@@ -1098,7 +1085,7 @@ export function nonInteractiveInputs(projectRoot: string): InitInputs {
     project: path.basename(projectRoot),
     mainLanguage: detectLanguages(projectRoot),
     character: '',
-    verify: detectVerify(projectRoot),
+    verifications: detectVerify(projectRoot),
     skills,
   };
 }
@@ -1203,21 +1190,25 @@ function stepBox(step: string, title: string, lines: string[], c: Caps): string 
   return sectionBox(`${step}${c.unicode ? ' · ' : ' - '}${title}`, lines, c, WIDTH - 4);
 }
 
-const VERIFY_LABELS: Record<keyof VerifyMap, string> = {
+/** 알려진 이름의 한글 라벨(ADK stage 4 이전부터 있던 4개) — 나머지는 이름 그대로 보여준다. */
+const KNOWN_VERIFY_LABELS: Record<string, string> = {
   typecheck: '타입체크',
   lint: '린트',
   test: '테스트',
   e2e: 'E2E',
 };
 
+function verifyLabel(name: string): string {
+  return KNOWN_VERIFY_LABELS[name] ?? name;
+}
+
 /** 표시 폭(한글=2) 기준으로 오른쪽을 공백으로 채운다. */
-function verifyLines(v: VerifyMap): string[] {
-  const keys = Object.keys(VERIFY_LABELS) as (keyof VerifyMap)[];
-  const labelWidth = Math.max(...keys.map((k) => stringWidth(VERIFY_LABELS[k]))) + 2;
-  return keys.map((k) => {
-    const entry = v[k];
-    return `  ${padEndDisplay(VERIFY_LABELS[k], labelWidth)}${entry ? entry.cmd : '(없음)'}`;
-  });
+function verifyLines(v: VerificationEntry[]): string[] {
+  if (v.length === 0) {
+    return ['  (감지된 검증 명령이 없습니다)'];
+  }
+  const labelWidth = Math.max(...v.map((e) => stringWidth(verifyLabel(e.name)))) + 2;
+  return v.map((e) => `  ${padEndDisplay(verifyLabel(e.name), labelWidth)}${e.cmd}`);
 }
 
 /**
@@ -1225,7 +1216,7 @@ function verifyLines(v: VerifyMap): string[] {
  * 가 모노레포에서 패키지를 다시 골랐을 때(화면 재구성) 둘 다 이 함수로 만든다
  * (리뷰 지적 AC-09: 예전엔 리터럴 배열이 두 곳에 복사돼 있어 고치면 한쪽만 바뀌었다).
  */
-export function verifyStepLines(v: VerifyMap): string[] {
+export function verifyStepLines(v: VerificationEntry[]): string[] {
   return [
     'package.json 등에서 찾았습니다. 맞으면 Enter, 고치려면 새로 입력.',
     '',
@@ -1542,7 +1533,7 @@ export async function selectMulti(
 }
 
 export interface VerifyLocationResult {
-  verify: VerifyMap;
+  verify: VerificationEntry[];
   /** 패키지를 골랐으면 그 상대경로. verify 각 항목의 cwd 로 쓴다. */
   cwd?: string;
 }
@@ -1555,7 +1546,7 @@ export interface VerifyLocationResult {
 export async function promptVerifyLocation(
   rl: readline.Interface,
   projectRoot: string,
-  rootVerify: VerifyMap,
+  rootVerify: VerificationEntry[],
   color: Colors,
 ): Promise<VerifyLocationResult> {
   const packages = detectWorkspacePackages(projectRoot);
@@ -1564,7 +1555,7 @@ export async function promptVerifyLocation(
   }
   if (!isVerifyEmpty(rootVerify)) {
     process.stdout.write(
-      `\n  ${color.dim(`모노레포입니다(${packages.length}개 패키지). 특정 패키지만 검증하려면 나중에 awl config set verify.*.cwd 로 지정하세요.`)}\n`,
+      `\n  ${color.dim(`모노레포입니다(${packages.length}개 패키지). 특정 패키지만 검증하려면 나중에 awl config set verifications.*.cwd 로 지정하세요.`)}\n`,
     );
     return { verify: rootVerify };
   }
@@ -1584,22 +1575,22 @@ export async function promptVerifyLocation(
 }
 
 /**
- * cwd 가 있으면 verify 의 null 아닌 모든 항목에 적용한다(그 자리에서 수정하고
- * 그대로 돌려준다). 사용자가 각 항목의 명령을 새로 입력해 바꾼 뒤에 호출해도
- * 안전하다 — 순서와 무관하게 그 시점의 verify 스냅샷 전체에 적용되기 때문이다.
+ * cwd 가 있으면 verify 배열의 모든 항목에 적용한다(그 자리에서 수정하고 그대로
+ * 돌려준다). 사용자가 각 항목의 명령을 새로 입력해 바꾼 뒤에 호출해도 안전하다 —
+ * 순서와 무관하게 그 시점의 verify 스냅샷 전체에 적용되기 때문이다.
  * (리뷰 지적: 예전엔 interactiveInputs 안에 인라인으로만 있어 테스트가 전혀
  * 없었다. 별도 함수로 뽑아 직접 테스트한다 — 인자를 mutate 하므로 순수 함수는
  * 아니다. 반환값은 편의상 같은 참조다.)
  */
-export function applyVerifyCwd(verify: VerifyMap, cwd: string | undefined): VerifyMap {
+export function applyVerifyCwd(
+  verify: VerificationEntry[],
+  cwd: string | undefined,
+): VerificationEntry[] {
   if (!cwd) {
     return verify;
   }
-  for (const k of Object.keys(verify) as (keyof VerifyMap)[]) {
-    const entry = verify[k];
-    if (entry) {
-      entry.cwd = cwd;
-    }
+  for (const entry of verify) {
+    entry.cwd = cwd;
   }
   return verify;
 }
@@ -1679,14 +1670,30 @@ async function interactiveInputs(
     process.stdout.write(
       `${flowConnector(c)}\n${flowActiveNode('검증 명령어', verifyStepLines(verify), c)}\n`,
     );
-    for (const k of Object.keys(VERIFY_LABELS) as (keyof VerifyMap)[]) {
-      const cur = verify[k];
+    // 자동 감지 여부와 무관하게 4개 잘 알려진 이름은 항상 물어본다(감지 못 했어도
+    // 손으로 채울 수 있어야 한다 — ADK stage 4 이전과 같은 UX). 그 외 이름을
+    // 새로 추가하려면 init 이후 awl config set verifications.<name>.cmd 를 쓴다.
+    for (const name of Object.keys(KNOWN_VERIFY_LABELS)) {
+      const idx = verify.findIndex((v) => v.name === name);
+      const cur = idx >= 0 ? verify[idx] : undefined;
       const shown = cur ? cur.cmd : '(없음)';
       const answer = (
-        await ask(prompt(), `${flowConnector(c)}  ${VERIFY_LABELS[k]} [${shown}]: `)
+        await ask(prompt(), `${flowConnector(c)}  ${verifyLabel(name)} [${shown}]: `)
       ).trim();
-      if (answer !== '') {
-        verify[k] = answer.toLowerCase() === '없음' || answer === '-' ? null : splitEnv(answer);
+      if (answer === '') {
+        continue;
+      }
+      if (answer.toLowerCase() === '없음' || answer === '-') {
+        if (idx >= 0) {
+          verify.splice(idx, 1);
+        }
+        continue;
+      }
+      const next = { name, ...splitEnv(answer) };
+      if (idx >= 0) {
+        verify[idx] = { ...verify[idx], ...next };
+      } else {
+        verify.push(next);
       }
     }
     applyVerifyCwd(verify, located.cwd);
@@ -1745,7 +1752,10 @@ async function interactiveInputs(
 
     // 세션은 여기서 닫지 않는다 — 결과 렌더링(commitResultFlow)까지 같은 스파인에
     // 커밋한 뒤 호출부가 closeFlow 한다.
-    return { inputs: { project, mainLanguage, character, verify, skills }, session: flow };
+    return {
+      inputs: { project, mainLanguage, character, verifications: verify, skills },
+      session: flow,
+    };
   } finally {
     session.rl?.close();
   }
@@ -1761,6 +1771,14 @@ async function handleExistingConfig(
 ): Promise<void> {
   const raw = readJson(path.join(projectRoot, '.awl', 'config.json'));
   const config = raw as Partial<AwlConfig> | null;
+  // ADK stage 4: 파일을 직접(loadConfig 안 거치고) 읽으므로 옛 verify(4키 고정
+  // 객체) shape 일 수 있다 — migrateLegacyVerify 로 여기서도 흡수한다.
+  const rawObj = raw as Record<string, unknown> | null;
+  const existingVerifications: VerificationEntry[] = Array.isArray(rawObj?.verifications)
+    ? (rawObj?.verifications as VerificationEntry[])
+    : typeof rawObj?.verify === 'object' && rawObj.verify !== null
+      ? migrateLegacyVerify(rawObj.verify as Record<string, unknown>)
+      : [];
   scaffoldGlobal();
   const installedVer = installedEngineVersion();
 
@@ -1777,8 +1795,8 @@ async function handleExistingConfig(
     `주 언어    ${config?.mainLanguage?.join(', ') || '(없음)'}`,
     `성격       ${config?.character || '(없음)'}`,
     `엔진       ${config?.engineVersion ?? '(없음)'}   ${engineNote}`,
-    ...(config?.verify
-      ? ['', ...verifyLines(config.verify as VerifyMap).map((l) => `검증  ${l.trim()}`)]
+    ...(existingVerifications.length > 0
+      ? ['', ...verifyLines(existingVerifications).map((l) => `검증  ${l.trim()}`)]
       : []),
     '',
     '이 설정을 그대로 쓰시겠습니까?',
@@ -1815,20 +1833,34 @@ async function handleExistingConfig(
     return;
   }
   if (choice === 1) {
-    const verify = (config?.verify as VerifyMap) ?? detectVerify(projectRoot);
-    for (const k of Object.keys(VERIFY_LABELS) as (keyof VerifyMap)[]) {
-      const cur = verify[k];
+    const verify =
+      existingVerifications.length > 0 ? existingVerifications : detectVerify(projectRoot);
+    for (const name of Object.keys(KNOWN_VERIFY_LABELS)) {
+      const idx = verify.findIndex((v) => v.name === name);
+      const cur = idx >= 0 ? verify[idx] : undefined;
       const shown = cur ? cur.cmd : '(없음)';
-      const answer = (await ask(rl, `  ${VERIFY_LABELS[k]} [${shown}]: `)).trim();
-      if (answer !== '') {
-        verify[k] = answer.toLowerCase() === '없음' || answer === '-' ? null : splitEnv(answer);
+      const answer = (await ask(rl, `  ${verifyLabel(name)} [${shown}]: `)).trim();
+      if (answer === '') {
+        continue;
+      }
+      if (answer.toLowerCase() === '없음' || answer === '-') {
+        if (idx >= 0) {
+          verify.splice(idx, 1);
+        }
+        continue;
+      }
+      const next = { name, ...splitEnv(answer) };
+      if (idx >= 0) {
+        verify[idx] = { ...verify[idx], ...next };
+      } else {
+        verify.push(next);
       }
     }
     const merged: InitInputs = {
       project: config?.project ?? path.basename(projectRoot),
       mainLanguage: config?.mainLanguage ?? [],
       character: config?.character ?? '',
-      verify,
+      verifications: verify,
       skills: { claude: false, codex: false },
     };
     writeConfig(projectRoot, buildConfig(merged, installedVer ?? 'unknown'));

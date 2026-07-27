@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { AwlConfig, VerifyMap } from '../../src/commands/config.js';
+import type { AwlConfig, VerificationEntry } from '../../src/commands/config.js';
 import {
   type VerifyReport,
   buildVerifyBaseline,
@@ -30,8 +30,26 @@ function tmpProjectWithSubdir(): { root: string; sub: string } {
   return { root, sub };
 }
 
-function vmap(partial: Partial<VerifyMap>): VerifyMap {
-  return { typecheck: null, lint: null, test: null, e2e: null, ...partial };
+type LegacyVerifyMap = {
+  typecheck?: { cmd: string; cwd?: string; env?: Record<string, string> } | null;
+  lint?: { cmd: string; cwd?: string; env?: Record<string, string> } | null;
+  test?: { cmd: string; cwd?: string; env?: Record<string, string> } | null;
+  e2e?: { cmd: string; cwd?: string; env?: Record<string, string> } | null;
+};
+
+/** ADK stage 4: 예전 4키 고정 객체 리터럴을 그대로 쓸 수 있게, null 항목은 배열에서
+ * 빼고 나머지만 순서대로(typecheck/lint/test/e2e) VerificationEntry[] 로 만든다 —
+ * 대부분의 기존 테스트가 이 헬퍼 호출 모양을 그대로 재사용한다. */
+function vmap(partial: LegacyVerifyMap): VerificationEntry[] {
+  const merged = { typecheck: null, lint: null, test: null, e2e: null, ...partial };
+  const out: VerificationEntry[] = [];
+  for (const name of ['typecheck', 'lint', 'test', 'e2e'] as const) {
+    const entry = merged[name];
+    if (entry) {
+      out.push({ name, ...entry });
+    }
+  }
+  return out;
 }
 
 describe('runVerifyChecks', () => {
@@ -496,7 +514,7 @@ describe('runRelatedTests (WI-I AC-04) — relatedCmd 있으면 그것만, 없�
       mainLanguage: ['typescript'],
       character: '',
       engineVersion: '0.0.0',
-      verify: { typecheck: null, lint: null, test: null, e2e: null },
+      verifications: [],
       ...overrides,
     };
   }
@@ -512,7 +530,7 @@ describe('runRelatedTests (WI-I AC-04) — relatedCmd 있으면 그것만, 없�
   });
 
   it('relatedCmd 가 없으면 전체 test 체크로 폴백한다(무음 스킵 금지)', async () => {
-    const config = baseConfig({ verify: vmap({ test: { cmd: `${NODE} --version` } }) });
+    const config = baseConfig({ verifications: vmap({ test: { cmd: `${NODE} --version` } }) });
     const outcome = await runRelatedTests(config, process.cwd(), ['a.ts']);
     expect(outcome.usedRelatedCmd).toBe(false);
     expect(outcome.result.name).toBe('test');

@@ -774,9 +774,11 @@ async function collectSingleProject(
   }
 
   // 검증 명령 존재 확인: --version 으로 존재만 확인한다. 전체 실행은 하지 않는다(빨라야 함).
-  for (const [vname, spec] of Object.entries(raw.verify ?? {})) {
-    // 설정하지 않은 검증(e2e: null 등)은 건너뛴다.
-    if (!spec || typeof spec.cmd !== 'string') {
+  // ADK stage 4: verify(4키 고정 객체) → verifications(배열). raw 는 loadConfig 를 거쳐
+  // 이미 배열로 정규화돼 있다(옛 shape 이어도 loadConfig 가 메모리상에서 변환한다).
+  for (const spec of raw.verifications ?? []) {
+    const vname = spec.name;
+    if (typeof spec.cmd !== 'string') {
       continue;
     }
     const first = tokenize(spec.cmd)[0] ?? '';

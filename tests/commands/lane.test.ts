@@ -209,7 +209,7 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
     expect(JSON.parse(fs.readFileSync(configPath, 'utf8'))).toMatchObject({
       project: 'probe',
       engineVersion: expect.any(String),
-      verify: expect.any(Object),
+      verifications: expect.any(Array),
     });
     expect(JSON.parse(fs.readFileSync(statePath, 'utf8'))).toMatchObject({
       workitem: 'probe',

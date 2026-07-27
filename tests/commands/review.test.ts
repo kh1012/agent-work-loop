@@ -24,12 +24,7 @@ const CONFIG: AwlConfig = {
   mainLanguage: ['typescript'],
   character: '',
   engineVersion: '0.0.0',
-  verify: {
-    typecheck: null,
-    lint: null,
-    test: { cmd: `${process.execPath} --version` },
-    e2e: null,
-  },
+  verifications: [{ name: 'test', cmd: `${process.execPath} --version` }],
 };
 
 describe('selectCriteria', () => {

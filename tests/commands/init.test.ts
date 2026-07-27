@@ -5,9 +5,9 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { PassThrough } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { VerificationEntry } from '../../src/commands/config.js';
 import {
   type InitInputs,
-  type VerifyMap,
   applyInit,
   applyVerifyCwd,
   buildConfig,
@@ -241,10 +241,17 @@ describe('detectVerify', () => {
       }),
     );
     const v = detectVerify(p);
-    expect(v.typecheck).toEqual({ cmd: 'tsc --noEmit' }); // tsconfig 로 유추
-    expect(v.lint).toEqual({ cmd: 'eslint .' });
-    expect(v.test).toEqual({ cmd: 'vitest run', env: { NODE_ENV: 'test' } });
-    expect(v.e2e).toBeNull();
+    expect(v.find((e) => e.name === 'typecheck')).toEqual({
+      name: 'typecheck',
+      cmd: 'tsc --noEmit',
+    }); // tsconfig 로 유추
+    expect(v.find((e) => e.name === 'lint')).toEqual({ name: 'lint', cmd: 'eslint .' });
+    expect(v.find((e) => e.name === 'test')).toEqual({
+      name: 'test',
+      cmd: 'vitest run',
+      env: { NODE_ENV: 'test' },
+    });
+    expect(v.find((e) => e.name === 'e2e')).toBeUndefined();
   });
 });
 
@@ -310,7 +317,7 @@ describe('promptVerifyLocation (WI-B, readline 직접 구동 — D-23 패턴)', 
     rl.close();
     stdoutSpy.mockRestore();
     expect(result.cwd).toBeUndefined();
-    expect(result.verify.test).toEqual({ cmd: 'vitest run' });
+    expect(result.verify.find((v) => v.name === 'test')).toEqual({ name: 'test', cmd: 'vitest run' });
   });
 
   it('모노레포이고 루트에 검증 명령이 없으면 패키지를 물어본다 — "1"(루트) 을 고르면 루트를 유지한다', async () => {
@@ -346,7 +353,7 @@ describe('promptVerifyLocation (WI-B, readline 직접 구동 — D-23 패턴)', 
     rl.close();
     stdoutSpy.mockRestore();
     expect(result.cwd).toBe(path.join('packages', 'app'));
-    expect(result.verify.test).toEqual({ cmd: 'vitest run' });
+    expect(result.verify.find((v) => v.name === 'test')).toEqual({ name: 'test', cmd: 'vitest run' });
   });
 });
 
@@ -382,50 +389,43 @@ describe('promptAuthorInteractive — 전역 author 프롬프트 (ADK stage 1)',
 });
 
 describe('applyVerifyCwd (WI-B, 리뷰 지적 AC-06 — 예전엔 어떤 테스트도 안 걸림)', () => {
-  it('cwd 가 있으면 null 아닌 모든 항목에 적용한다', () => {
-    const verify: VerifyMap = {
-      typecheck: { cmd: 'tsc --noEmit' },
-      lint: { cmd: 'eslint .' },
-      test: null,
-      e2e: null,
-    };
+  it('cwd 가 있으면 배열의 모든 항목에 적용한다', () => {
+    const verify: VerificationEntry[] = [
+      { name: 'typecheck', cmd: 'tsc --noEmit' },
+      { name: 'lint', cmd: 'eslint .' },
+    ];
     applyVerifyCwd(verify, 'packages/app');
-    expect(verify.typecheck?.cwd).toBe('packages/app');
-    expect(verify.lint?.cwd).toBe('packages/app');
-    expect(verify.test).toBeNull(); // null 은 그대로
+    expect(verify.find((v) => v.name === 'typecheck')?.cwd).toBe('packages/app');
+    expect(verify.find((v) => v.name === 'lint')?.cwd).toBe('packages/app');
   });
 
   it('사용자가 프롬프트에서 값을 새로 입력해 바꾼 뒤에도(순서 무관) cwd 가 정확히 적용된다', () => {
     // interactiveInputs 의 실제 순서를 흉내낸다: 사용자가 typecheck 를 새로 입력해
     // 바꾼 다음에 applyVerifyCwd 를 호출한다.
-    const verify: VerifyMap = { typecheck: null, lint: null, test: null, e2e: null };
-    verify.typecheck = { cmd: '../../node_modules/.bin/tsc --noEmit' }; // 사용자가 새로 입력
+    const verify: VerificationEntry[] = [
+      { name: 'typecheck', cmd: '../../node_modules/.bin/tsc --noEmit' }, // 사용자가 새로 입력
+    ];
     applyVerifyCwd(verify, 'packages/app');
-    expect(verify.typecheck?.cwd).toBe('packages/app');
+    expect(verify.find((v) => v.name === 'typecheck')?.cwd).toBe('packages/app');
   });
 
   it('cwd 가 없으면 아무것도 바꾸지 않는다', () => {
-    const verify: VerifyMap = { typecheck: { cmd: 'tsc' }, lint: null, test: null, e2e: null };
+    const verify: VerificationEntry[] = [{ name: 'typecheck', cmd: 'tsc' }];
     applyVerifyCwd(verify, undefined);
-    expect(verify.typecheck?.cwd).toBeUndefined();
+    expect(verify[0]?.cwd).toBeUndefined();
   });
 
   it('순수 함수가 아니다 — 인자를 그 자리에서 바꾸고 같은 참조를 돌려준다 (리뷰 지적 AC-11, 서술 정확성)', () => {
-    const verify: VerifyMap = { typecheck: { cmd: 'tsc' }, lint: null, test: null, e2e: null };
+    const verify: VerificationEntry[] = [{ name: 'typecheck', cmd: 'tsc' }];
     const returned = applyVerifyCwd(verify, 'packages/app');
-    expect(returned).toBe(verify); // 새 객체가 아니라 같은 참조
-    expect(verify.typecheck?.cwd).toBe('packages/app'); // 원본 인자가 실제로 바뀜
+    expect(returned).toBe(verify); // 새 배열이 아니라 같은 참조
+    expect(verify[0]?.cwd).toBe('packages/app'); // 원본 인자가 실제로 바뀜
   });
 });
 
 describe('verifyStepLines (리뷰 지적 AC-09 — buildScreens/interactiveInputs 가 리터럴 배열을 중복하던 것을 분리)', () => {
   it('검증 명령어 화면 본문을 만든다(안내문 + 각 항목 + 마무리 문구)', () => {
-    const lines = verifyStepLines({
-      typecheck: { cmd: 'tsc --noEmit' },
-      lint: null,
-      test: null,
-      e2e: null,
-    });
+    const lines = verifyStepLines([{ name: 'typecheck', cmd: 'tsc --noEmit' }]);
     expect(lines[0]).toBe('package.json 등에서 찾았습니다. 맞으면 Enter, 고치려면 새로 입력.');
     expect(lines.some((l) => l.includes('tsc --noEmit'))).toBe(true);
     expect(lines.at(-2)).toBe('이 명령어들이 유일한 심판입니다.');
@@ -433,7 +433,7 @@ describe('verifyStepLines (리뷰 지적 AC-09 — buildScreens/interactiveInput
   });
 
   it('buildScreens.verify 가 이 함수로 만든 내용을 그대로 담는다(단일 출처 확인)', () => {
-    const verify: VerifyMap = { typecheck: { cmd: 'tsc' }, lint: null, test: null, e2e: null };
+    const verify: VerificationEntry[] = [{ name: 'typecheck', cmd: 'tsc' }];
     const screens = buildScreens(tmp('awl-init-screens-'), false, {
       unicode: false,
       color: false,
@@ -455,14 +455,13 @@ describe('buildConfig', () => {
       project: 'proj',
       mainLanguage: ['typescript'],
       character: '디자인 토큰 강제',
-      verify: { typecheck: { cmd: 'tsc --noEmit' }, lint: null, test: null, e2e: null },
+      verifications: [{ name: 'typecheck', cmd: 'tsc --noEmit' }],
       skills: { claude: true, codex: false },
     };
     const config = buildConfig(inputs, '0.0.0');
     expect(config.project).toBe('proj');
     expect(config.engineVersion).toBe('0.0.0');
-    expect(config.verify.typecheck).toEqual({ cmd: 'tsc --noEmit' });
-    expect(config.verify.e2e).toBeNull();
+    expect(config.verifications).toEqual([{ name: 'typecheck', cmd: 'tsc --noEmit' }]);
   });
 });
 
@@ -630,7 +629,10 @@ describe('applyInit — 전체 산출물', () => {
     const config = readJson(result.configPath) as Record<string, unknown>;
     expect(config.project).toBe(path.basename(proj));
     expect(config.mainLanguage).toEqual(['typescript']);
-    expect((config.verify as Record<string, unknown>).lint).toEqual({ cmd: 'eslint .' });
+    expect((config.verifications as Array<{ name: string; cmd: string }>).find((v) => v.name === 'lint')).toEqual({
+      name: 'lint',
+      cmd: 'eslint .',
+    });
 
     // state + gitignore
     expect(fs.existsSync(result.statePath)).toBe(true);
@@ -1492,7 +1494,7 @@ describe('renderResult — 결과 값 emphasis 강조 (cli-visual-consistency AC
     project: 'proj',
     mainLanguage: ['typescript'],
     character: 'x',
-    verify: { typecheck: null, lint: null, test: null, e2e: null },
+    verifications: [],
     skills: { claude: true, codex: false },
   };
   const result = {

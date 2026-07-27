@@ -896,7 +896,7 @@ export async function runWorkNew(
   } else {
     const loaded = loadConfig(verifyRoot);
     if (loaded.config) {
-      const report = await runVerifyChecks(loaded.config.verify, verifyRoot, { bail: false });
+      const report = await runVerifyChecks(loaded.config.verifications, verifyRoot, { bail: false });
       try {
         // id.trim() — createWorkitem 이 state.workitem 에 저장하는 값(trimmed)과
         // 정확히 일치해야 나중에 resolveSinceBaseline 의 workitem 비교가 맞는다.

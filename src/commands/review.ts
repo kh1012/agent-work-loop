@@ -94,7 +94,7 @@ export async function assembleReview(
       : ['diff', 'HEAD'];
   const diff = await git(diffArgs, cwd);
 
-  const verify = await runVerifyChecks(config.verify, cwd, { bail: false });
+  const verify = await runVerifyChecks(config.verifications, cwd, { bail: false });
 
   const branch = (await git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd)).trim();
   const commit = (await git(['rev-parse', 'HEAD'], cwd)).trim();
