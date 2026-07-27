@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { mergeSlots } from '../core/config-merge.js';
 import { type Caps, caps, makeColors, makeSymbols, sectionBox, signal } from '../core/tty.js';
 import { multiProjectFooter, resolveProjectScope } from './config.js';
 
@@ -38,6 +39,29 @@ export interface AwlProfile {
 
 export function profilePath(projectRoot: string): string {
   return path.join(projectRoot, '.awl', 'profile.json');
+}
+
+/** `.awl/profile.local.json` — untracked, 개인 스킬 선택(ADK stage 4). "만드는 방식은
+ * 개인이 골라도 된다"(reference.md:1173) — 검증과 달리 경고가 아니라 정보 표시다. */
+export function profileLocalPath(projectRoot: string): string {
+  return path.join(projectRoot, '.awl', 'profile.local.json');
+}
+
+export interface LocalProfileOverlay {
+  skills?: Partial<Record<SkillSlot, SkillRef>>;
+}
+
+export type ProfileSource = 'base' | 'local';
+
+/** 슬롯별 출처 — local overlay 가 그 슬롯을 하나라도 건드렸으면 'local'. */
+export type ProfileSources = Record<SkillSlot, ProfileSource>;
+
+function baseProfileSources(): ProfileSources {
+  const sources = {} as ProfileSources;
+  for (const slot of SKILL_SLOTS) {
+    sources[slot] = 'base';
+  }
+  return sources;
 }
 
 export function emptyProfileSkills(): Record<SkillSlot, SkillRef> {
@@ -130,33 +154,79 @@ function jsonErrorLocation(text: string, err: unknown): string {
   return msg;
 }
 
-export interface ProfileResult {
-  profile: AwlProfile | null;
-  errors: string[];
-  path: string;
+/** profile.local.json 의 스키마를 검증한다(config.ts 의 validateLocalConfigOverlay 와 같은 스타일). */
+export function validateLocalProfileOverlay(obj: unknown): string[] {
+  const errors: string[] = [];
+  if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) {
+    return ['profile.local.json 이 객체가 아닙니다'];
+  }
+  const overlay = obj as Record<string, unknown>;
+  for (const key of Object.keys(overlay)) {
+    if (key !== 'skills') {
+      errors.push(`profile.local.json 의 지원하지 않는 키: ${key}`);
+    }
+  }
+  if ('skills' in overlay) {
+    if (typeof overlay.skills !== 'object' || overlay.skills === null) {
+      errors.push('profile.local.json skills 형식 오류 (객체 필수)');
+    } else {
+      const skills = overlay.skills as Record<string, unknown>;
+      for (const key of Object.keys(skills)) {
+        if (!(SKILL_SLOTS as readonly string[]).includes(key)) {
+          errors.push(`profile.local.json skills 의 알 수 없는 자리: ${key}`);
+          continue;
+        }
+        if (!isSkillRef(skills[key])) {
+          errors.push(`profile.local.json skills.${key} 형식 오류`);
+        }
+      }
+    }
+  }
+  return errors;
 }
 
-/** .awl/profile.json 을 읽는다. 없으면 errors 에 안내만 남긴다(크래시하지 않는다). */
+export interface ProfileResult {
+  /** base+local 병합 결과(있으면). */
+  profile: AwlProfile | null;
+  /** local overlay 를 반영하기 전의 base(.awl/profile.json) — ensureProfile 이
+   * "이미 있다"를 판단할 때 overlay 오류에 흔들리지 않도록 이걸 따로 둔다. */
+  base: AwlProfile | null;
+  errors: string[];
+  path: string;
+  overlayPath: string | null;
+  sources: ProfileSources;
+}
+
+/** .awl/profile.json + .awl/profile.local.json 을 읽어 병합한다(ADK stage 4). 없으면
+ * errors 에 안내만 남긴다(크래시하지 않는다). */
 export function loadProfile(projectRoot: string): ProfileResult {
   const p = profilePath(projectRoot);
+  const baseResult = (
+    profile: AwlProfile | null,
+    errors: string[],
+    overlayPath: string | null = null,
+    sources: ProfileSources = baseProfileSources(),
+    base: AwlProfile | null = profile,
+  ): ProfileResult => ({ profile, base, errors, path: p, overlayPath, sources });
+
   if (!fs.existsSync(p)) {
-    return { profile: null, errors: ['profile.json 이 없습니다. awl init 을 실행하세요.'], path: p };
+    return baseResult(null, ['profile.json 이 없습니다. awl init 을 실행하세요.']);
   }
   let text: string;
   try {
     text = fs.readFileSync(p, 'utf8');
   } catch (e) {
-    return { profile: null, errors: [`profile.json 을 읽지 못했습니다: ${String(e)}`], path: p };
+    return baseResult(null, [`profile.json 을 읽지 못했습니다: ${String(e)}`]);
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch (e) {
-    return { profile: null, errors: [`profile.json JSON 파싱 오류: ${jsonErrorLocation(text, e)}`], path: p };
+    return baseResult(null, [`profile.json JSON 파싱 오류: ${jsonErrorLocation(text, e)}`]);
   }
   const errors = validateProfile(parsed);
   if (errors.length > 0) {
-    return { profile: null, errors, path: p };
+    return baseResult(null, errors);
   }
   const raw = parsed as Record<string, unknown>;
   const rawSkills = raw.skills as Record<string, unknown>;
@@ -171,7 +241,40 @@ export function loadProfile(projectRoot: string): ProfileResult {
     ...(typeof raw.description === 'string' ? { description: raw.description } : {}),
     skills,
   };
-  return { profile, errors: [], path: p };
+
+  const overlayPath = profileLocalPath(projectRoot);
+  if (!fs.existsSync(overlayPath)) {
+    return baseResult(profile, [], overlayPath);
+  }
+  let overlayText: string;
+  try {
+    overlayText = fs.readFileSync(overlayPath, 'utf8');
+  } catch (e) {
+    return baseResult(null, [`profile.local.json 을 읽지 못했습니다: ${String(e)}`], overlayPath);
+  }
+  let overlayRaw: unknown;
+  try {
+    overlayRaw = JSON.parse(overlayText);
+  } catch (e) {
+    return baseResult(
+      null,
+      [`profile.local.json JSON 파싱 오류: ${jsonErrorLocation(overlayText, e)}`],
+      overlayPath,
+    );
+  }
+  const overlayErrors = validateLocalProfileOverlay(overlayRaw);
+  if (overlayErrors.length > 0) {
+    return baseResult(null, overlayErrors, overlayPath);
+  }
+  const overlay = overlayRaw as LocalProfileOverlay;
+  const effective: AwlProfile = { ...profile, skills: mergeSlots(profile.skills, overlay.skills) };
+  const sources = baseProfileSources();
+  for (const slot of SKILL_SLOTS) {
+    if (overlay.skills && slot in overlay.skills) {
+      sources[slot] = 'local';
+    }
+  }
+  return baseResult(effective, [], overlayPath, sources, profile);
 }
 
 export function writeProfile(projectRoot: string, profile: AwlProfile): string {
@@ -188,9 +291,11 @@ export function writeProfile(projectRoot: string, profile: AwlProfile): string {
  * 백필 양쪽에서 같은 함수를 쓴다 — CONTEXT.md/stages.md 의 백필 패턴과 동일.
  */
 export function ensureProfile(projectRoot: string, projectName: string): AwlProfile {
-  const existing = loadProfile(projectRoot);
-  if (existing.profile) {
-    return existing.profile;
+  // fs.existsSync 로 base 파일 자체를 본다 — loadProfile()의 병합 결과(.profile)로
+  // 판단하면, base 는 멀쩡한데 profile.local.json 이 깨졌을 때 "없다"로 오판해
+  // base 를 기본값으로 덮어써 버린다(local 오류가 base 를 훼손하면 안 된다).
+  if (fs.existsSync(profilePath(projectRoot))) {
+    return loadProfile(projectRoot).base ?? defaultProfile(projectName);
   }
   const profile = defaultProfile(projectName);
   writeProfile(projectRoot, profile);

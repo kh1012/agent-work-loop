@@ -139,7 +139,7 @@ describe('collectChecks — 설치됨 흉내', () => {
 
   it('effective config와 base/local source 경로를 함께 보고한다', async () => {
     const projectRoot = process.cwd();
-    const overlayPath = path.join(projectRoot, '.git', 'awl', 'config.local.json');
+    const overlayPath = path.join(projectRoot, '.awl', 'config.local.json');
     fs.mkdirSync(path.dirname(overlayPath), { recursive: true });
     fs.writeFileSync(
       overlayPath,

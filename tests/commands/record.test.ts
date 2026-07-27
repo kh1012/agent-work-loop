@@ -42,7 +42,6 @@ describe('loadProjectName — effective worktree config', () => {
     fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
     fs.mkdirSync(path.join(root, '.git', 'objects'), { recursive: true });
     fs.mkdirSync(path.join(root, '.git', 'refs'), { recursive: true });
-    fs.mkdirSync(path.join(root, '.git', 'awl'), { recursive: true });
     fs.writeFileSync(path.join(root, '.git', 'HEAD'), 'ref: refs/heads/main\n');
     fs.writeFileSync(
       path.join(root, '.awl', 'config.json'),
@@ -53,7 +52,7 @@ describe('loadProjectName — effective worktree config', () => {
       }),
     );
     fs.writeFileSync(
-      path.join(root, '.git', 'awl', 'config.local.json'),
+      path.join(root, '.awl', 'config.local.json'),
       JSON.stringify({ project: 'lane-project' }),
     );
 

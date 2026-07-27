@@ -15,7 +15,6 @@ import {
   runLaneRemove,
 } from '../../src/commands/lane.js';
 import { removeWorkitemFromState, summarizeWorkitems } from '../../src/commands/work.js';
-import { worktreeLocalConfigPath } from '../../src/core/git-layout.js';
 
 describe('parseWorktreeBranches (AC-02, 순수 파서)', () => {
   it('git worktree list --porcelain 을 경로→브랜치 맵으로 파싱하고 refs/heads/ 를 벗긴다', () => {
@@ -241,7 +240,7 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
     await runLaneNew('overlay-probe');
 
     const lanePath = path.join(proj, '.awl-worktrees', 'overlay-probe');
-    const overlayPath = worktreeLocalConfigPath(lanePath);
+    const overlayPath = path.join(lanePath, '.awl', 'config.local.json');
     expect(JSON.parse(fs.readFileSync(overlayPath, 'utf8'))).toEqual({
       project: 'overlay-probe',
       feedback: { enabled: true, path: '/feedback/v1' },

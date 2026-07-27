@@ -666,10 +666,11 @@ export function buildProgram(): Command {
   const config = program
     .command('config')
     .description('이 프로젝트의 설정을 봅니다 (TTY 면 수정도)')
-    .option('--json', 'effective 설정과 base/local source를 JSON으로 출력합니다');
-  config.action(async (opts: { json?: boolean }) => {
+    .option('--json', 'effective 설정과 base/local source를 JSON으로 출력합니다')
+    .option('--show-origin', '값별로 전역/저장소/개인 중 어디서 왔는지 보여줍니다');
+  config.action(async (opts: { json?: boolean; showOrigin?: boolean }) => {
     const { runConfig } = await import('./commands/config.js');
-    await runConfig({ json: opts.json === true });
+    await runConfig({ json: opts.json === true, showOrigin: opts.showOrigin === true });
   });
   config
     .command('set [key] [value]')

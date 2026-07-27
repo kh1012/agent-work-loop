@@ -3,8 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { type FlowSession, closeFlow, openFlow, step } from '../core/flow.js';
-import { findDotGitPath, worktreeLocalConfigPath } from '../core/git-layout.js';
-import { findProjectRoot } from '../core/paths.js';
+import { mergeByName } from '../core/config-merge.js';
+import { findDotGitPath } from '../core/git-layout.js';
+import { readGlobalAwlConfig } from '../core/global-config.js';
+import { findProjectRoot, globalConfigPath } from '../core/paths.js';
 import { CommandNotFoundError, run } from '../core/runner.js';
 import {
   type Caps,
@@ -139,6 +141,8 @@ export interface ConfigSources {
   project: ConfigSource;
   'feedback.enabled': ConfigSource;
   'feedback.path': ConfigSource;
+  /** 검증 이름별 출처 — local overlay 가 그 이름을 하나라도 건드렸으면 'local'. */
+  verifications: Record<string, ConfigSource>;
 }
 
 export interface LocalConfigOverlay {
@@ -147,13 +151,31 @@ export interface LocalConfigOverlay {
     enabled?: boolean;
     path?: string;
   };
+  /**
+   * base(config.json) 의 verifications 를 name 으로 지목해 부분적으로 덮는다(mergeByName,
+   * ADK stage 4) — skip 을 켜거나 cmd/cwd/env 를 개인 사정으로 바꾸는 통로다. base 에
+   * 없는 이름을 지목하면 무시된다(새 검증을 몰래 추가하는 통로가 아니다).
+   */
+  verifications?: Partial<VerificationEntry>[];
 }
 
 const BASE_SOURCES: ConfigSources = {
   project: 'base',
   'feedback.enabled': 'base',
   'feedback.path': 'base',
+  verifications: {},
 };
+
+/**
+ * `.awl/config.local.json` — untracked, 개인 오버라이드(ADK stage 4). `.awl/*` 가
+ * 이미 gitignore 블랭킷으로 무시되므로(단계 1 허용목록 패턴) 별도 처리 없이 안전하다.
+ * 예전엔 `.git/worktrees/<name>/awl/config.local.json`(git 메타데이터 안)에 있었는데,
+ * `.awl/*` 가 안전하게 gitignore되기 전의 방어적 선택으로 보인다 — 이제 그 전제가
+ * 사라졌고 문서(reference.md:673)가 명시한 위치와도 다르므로 여기로 통합한다.
+ */
+export function localConfigOverlayPath(projectRoot: string): string {
+  return path.join(projectRoot, '.awl', 'config.local.json');
+}
 
 /** 프로젝트 루트를 해석한다(.git/.awl 을 위로 탐색). 못 찾으면 null. */
 export function resolveProjectRoot(cwd: string = process.cwd()): string | null {
@@ -347,7 +369,7 @@ export function validateLocalConfigOverlay(obj: unknown): string[] {
   }
   const overlay = obj as Record<string, unknown>;
   for (const key of Object.keys(overlay)) {
-    if (key !== 'project' && key !== 'feedback') {
+    if (key !== 'project' && key !== 'feedback' && key !== 'verifications') {
       errors.push(`local config overlay의 지원하지 않는 키: ${key}`);
     }
   }
@@ -376,6 +398,52 @@ export function validateLocalConfigOverlay(obj: unknown): string[] {
       }
       if ('path' in feedback && typeof feedback.path !== 'string') {
         errors.push('local config overlay feedback.path 형식 오류 (문자열 필수)');
+      }
+    }
+  }
+  if ('verifications' in overlay) {
+    if (!Array.isArray(overlay.verifications)) {
+      errors.push('local config overlay verifications 형식 오류 (배열 필수)');
+    } else {
+      for (const [i, v] of overlay.verifications.entries()) {
+        if (typeof v !== 'object' || v === null) {
+          errors.push(`local config overlay verifications[${i}] 형식 오류 (객체 필수)`);
+          continue;
+        }
+        const vo = v as Record<string, unknown>;
+        if (typeof vo.name !== 'string' || vo.name.trim() === '') {
+          errors.push(`local config overlay verifications[${i}].name 형식 오류 (문자열 필수)`);
+        }
+        if ('cmd' in vo && vo.cmd !== undefined && typeof vo.cmd !== 'string') {
+          errors.push(`local config overlay verifications[${i}].cmd 형식 오류 (문자열)`);
+        }
+        if ('cwd' in vo && vo.cwd !== undefined && typeof vo.cwd !== 'string') {
+          errors.push(`local config overlay verifications[${i}].cwd 형식 오류 (문자열)`);
+        }
+        if (
+          'env' in vo &&
+          vo.env !== undefined &&
+          (typeof vo.env !== 'object' || vo.env === null)
+        ) {
+          errors.push(`local config overlay verifications[${i}].env 형식 오류 (객체)`);
+        }
+        if ('scope' in vo && vo.scope !== undefined && vo.scope !== 'all' && vo.scope !== 'changed') {
+          errors.push(`local config overlay verifications[${i}].scope 형식 오류 ('all'|'changed')`);
+        }
+        if (
+          'level' in vo &&
+          vo.level !== undefined &&
+          vo.level !== 'ticket' &&
+          vo.level !== 'request'
+        ) {
+          errors.push(`local config overlay verifications[${i}].level 형식 오류 ('ticket'|'request')`);
+        }
+        if ('note' in vo && vo.note !== undefined && typeof vo.note !== 'string') {
+          errors.push(`local config overlay verifications[${i}].note 형식 오류 (문자열)`);
+        }
+        if ('skip' in vo && vo.skip !== undefined && typeof vo.skip !== 'boolean') {
+          errors.push(`local config overlay verifications[${i}].skip 형식 오류 (boolean)`);
+        }
       }
     }
   }
@@ -459,12 +527,7 @@ export function loadConfig(projectRoot: string): ConfigResult {
   if (!findDotGitPath(projectRoot)) {
     return baseResult(config, []);
   }
-  let overlayPath: string;
-  try {
-    overlayPath = worktreeLocalConfigPath(projectRoot);
-  } catch (error) {
-    return baseResult(null, [`local config overlay 경로 오류: ${String(error)}`]);
-  }
+  const overlayPath = localConfigOverlayPath(projectRoot);
   if (!fs.existsSync(overlayPath)) {
     return baseResult(config, [], overlayPath);
   }
@@ -508,11 +571,19 @@ export function loadConfig(projectRoot: string): ConfigResult {
           },
         }
       : {}),
+    verifications: mergeByName(config.verifications, overlay.verifications),
   };
+  const verificationSources: Record<string, ConfigSource> = {};
+  for (const v of overlay.verifications ?? []) {
+    if (typeof v.name === 'string' && config.verifications.some((b) => b.name === v.name)) {
+      verificationSources[v.name] = 'local';
+    }
+  }
   const sources: ConfigSources = {
     project: overlay.project === undefined ? 'base' : 'local',
     'feedback.enabled': overlay.feedback?.enabled === undefined ? 'base' : 'local',
     'feedback.path': overlay.feedback?.path === undefined ? 'base' : 'local',
+    verifications: verificationSources,
   };
   return baseResult(effective, [], overlayPath, sources, config);
 }
@@ -991,7 +1062,7 @@ export function writeLocalConfigOverlay(projectRoot: string, overlay: LocalConfi
   if (errors.length > 0) {
     throw new Error(errors.join('; '));
   }
-  const overlayPath = worktreeLocalConfigPath(projectRoot);
+  const overlayPath = localConfigOverlayPath(projectRoot);
   const parent = path.dirname(overlayPath);
   fs.mkdirSync(parent, { recursive: true });
   const tempPath = path.join(parent, `.config.local.${process.pid}-${randomUUID()}.tmp`);
@@ -1231,7 +1302,72 @@ export async function interactiveEditMenu(
  * (init 의 buildScreens 를 재사용한다. 화면을 새로 만들지 않는다).
  * TTY 가 아니면(파이프/CI) 조회만 하고 끝낸다.
  */
-export async function runConfig(opts: { json?: boolean } = {}): Promise<void> {
+/**
+ * `awl config --show-origin` — 값별로 어디서 왔는지 보여준다(reference.md:1300-1311).
+ * 전역(~/.awl/config.json, author·sync) → 저장소(.awl/config.json) → 개인
+ * (.awl/config.local.json) 순 — git 이 같은 문제를 이미 풀었다.
+ */
+function renderShowOrigin(loaded: ConfigResult, config: AwlConfig, c: Caps): string {
+  const color = makeColors(c.color);
+  const rows: { key: string; value: string; source: string }[] = [];
+
+  const global = readGlobalAwlConfig();
+  if (global?.author) {
+    rows.push({ key: 'author', value: global.author, source: globalConfigPath() });
+  }
+  if (global?.sync?.records?.endpoint) {
+    rows.push({
+      key: 'sync.records.endpoint',
+      value: global.sync.records.endpoint,
+      source: globalConfigPath(),
+    });
+  }
+  if (global?.sync?.feedback?.endpoint) {
+    rows.push({
+      key: 'sync.feedback.endpoint',
+      value: global.sync.feedback.endpoint,
+      source: globalConfigPath(),
+    });
+  }
+
+  const overlaySource = loaded.overlayPath ?? loaded.basePath;
+  rows.push({
+    key: 'project',
+    value: config.project,
+    source: loaded.sources.project === 'local' ? overlaySource : loaded.basePath,
+  });
+  rows.push({
+    key: 'feedback.enabled',
+    value: String(config.feedback?.enabled ?? false),
+    source: loaded.sources['feedback.enabled'] === 'local' ? overlaySource : loaded.basePath,
+  });
+  if (config.feedback?.path !== undefined) {
+    rows.push({
+      key: 'feedback.path',
+      value: config.feedback.path,
+      source: loaded.sources['feedback.path'] === 'local' ? overlaySource : loaded.basePath,
+    });
+  }
+  for (const v of config.verifications) {
+    rows.push({
+      key: `verifications.${v.name}.cmd`,
+      value: v.cmd,
+      source: loaded.sources.verifications[v.name] === 'local' ? overlaySource : loaded.basePath,
+    });
+  }
+
+  const keyWidth = Math.max(...rows.map((r) => r.key.length)) + 2;
+  const valueWidth = Math.max(...rows.map((r) => r.value.length)) + 2;
+  const out = rows.map(
+    (r) =>
+      `  ${r.key.padEnd(keyWidth, ' ')}${r.value.padEnd(valueWidth, ' ')}${color.dim(r.source)}`,
+  );
+  return out.join('\n');
+}
+
+export async function runConfig(
+  opts: { json?: boolean; showOrigin?: boolean } = {},
+): Promise<void> {
   const scope = resolveProjectScope();
   if (scope.mode === 'multi' && scope.projects) {
     const c = caps();
@@ -1277,6 +1413,10 @@ export async function runConfig(opts: { json?: boolean } = {}): Promise<void> {
         2,
       )}\n`,
     );
+    return;
+  }
+  if (opts.showOrigin === true) {
+    process.stdout.write(`${renderShowOrigin(loaded, config, caps())}\n`);
     return;
   }
   const c = caps();
@@ -1403,11 +1543,21 @@ export async function runConfigSet(
     return;
   }
 
+  const LOCAL_VERIFICATION_KINDS: ConfigKeyKind[] = [
+    'verifications.cmd',
+    'verifications.cwd',
+    'verifications.env',
+    'verifications.scope',
+    'verifications.level',
+    'verifications.note',
+    'verifications.skip',
+  ];
   if (
     opts.local === true &&
     parsed.kind !== 'project' &&
     parsed.kind !== 'feedback.enabled' &&
-    parsed.kind !== 'feedback.path'
+    parsed.kind !== 'feedback.path' &&
+    !LOCAL_VERIFICATION_KINDS.includes(parsed.kind)
   ) {
     process.stderr.write(
       `\n  ${signal(caps(), 'error')} local config에서 지원하지 않는 키입니다: ${key}\n`,
@@ -1420,6 +1570,28 @@ export async function runConfigSet(
     );
     process.exit(1);
   }
+  // local 오버라이드는 base 에 이미 있는 검증만 조정한다 — 새 검증을 로컬에서 몰래
+  // 만들면 mergeByName 이 다음 로드 때 조용히 버려서 사용자가 혼란스럽다(config-merge.ts).
+  if (
+    opts.local === true &&
+    LOCAL_VERIFICATION_KINDS.includes(parsed.kind) &&
+    !(loaded.base ?? loaded.config).verifications.some((v) => v.name === parsed.verifyName)
+  ) {
+    process.stderr.write(
+      `\n  ${signal(caps(), 'error')} local config는 이미 있는 검증만 조정합니다 — '${parsed.verifyName}'은 base(config.json)에 없습니다.\n` +
+        `  새 검증을 추가하려면: awl config set verifications.${parsed.verifyName}.cmd "..."\n`,
+    );
+    process.exit(1);
+  }
+
+  // local 에서 cmd 를 비워 검증을 지우는 건 막는다 — "끈다"는 항상 skip:true 로
+  // 남겨야 게이트에 경고로 보인다(reference.md:1177). cmd=null 삭제는 base 에만 있다.
+  if (opts.local === true && parsed.kind === 'verifications.cmd' && parseVerifyValue(value) === null) {
+    process.stderr.write(
+      `\n  ${signal(caps(), 'error')} local config에서 검증을 끄려면 skip 을 쓰세요: awl config set --local verifications.${parsed.verifyName}.skip true\n`,
+    );
+    process.exit(1);
+  }
 
   const outcome = await applyConfigValue(config, projectRoot, parsed, value, {
     force: opts.force,
@@ -1429,13 +1601,33 @@ export async function runConfigSet(
     process.exit(1);
   }
   if (opts.local === true) {
-    const overlayPath = worktreeLocalConfigPath(projectRoot);
+    const overlayPath = localConfigOverlayPath(projectRoot);
     let overlay: LocalConfigOverlay = {};
     if (fs.existsSync(overlayPath)) {
       overlay = JSON.parse(fs.readFileSync(overlayPath, 'utf8')) as LocalConfigOverlay;
     }
     if (parsed.kind === 'project') {
       overlay.project = config.project;
+    } else if (LOCAL_VERIFICATION_KINDS.includes(parsed.kind)) {
+      const name = parsed.verifyName as string;
+      const field: keyof VerificationEntry =
+        parsed.kind === 'verifications.cmd'
+          ? 'cmd'
+          : parsed.kind === 'verifications.cwd'
+            ? 'cwd'
+            : parsed.kind === 'verifications.env'
+              ? 'env'
+              : parsed.kind === 'verifications.scope'
+                ? 'scope'
+                : parsed.kind === 'verifications.level'
+                  ? 'level'
+                  : parsed.kind === 'verifications.note'
+                    ? 'note'
+                    : 'skip';
+      const updated = config.verifications.find((v) => v.name === name);
+      const verifications = (overlay.verifications ?? []).filter((v) => v.name !== name);
+      verifications.push({ name, [field]: updated?.[field] } as Partial<VerificationEntry>);
+      overlay.verifications = verifications;
     } else {
       let feedback = { ...overlay.feedback };
       if (parsed.kind === 'feedback.enabled') {

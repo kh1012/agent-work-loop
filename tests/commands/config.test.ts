@@ -48,7 +48,7 @@ function makeGitMetadata(root: string): string {
 }
 
 function writeLocalOverlay(root: string, value: unknown): string {
-  const overlayPath = path.join(root, '.git', 'awl', 'config.local.json');
+  const overlayPath = path.join(root, '.awl', 'config.local.json');
   fs.mkdirSync(path.dirname(overlayPath), { recursive: true });
   fs.writeFileSync(overlayPath, `${JSON.stringify(value, null, 2)}\n`);
   return overlayPath;
@@ -161,10 +161,8 @@ describe('loadConfig', () => {
 
     expect(loaded.errors).toEqual([]);
     expect(loaded.basePath).toBe(path.join(root, '.awl', 'config.json'));
-    expect(loaded.overlayPath).toBe(
-      path.join(fs.realpathSync(path.join(root, '.git')), 'awl', 'config.local.json'),
-    );
-    expect(fs.realpathSync(overlayPath)).toBe(loaded.overlayPath);
+    expect(loaded.overlayPath).toBe(path.join(root, '.awl', 'config.local.json'));
+    expect(fs.realpathSync(overlayPath)).toBe(fs.realpathSync(loaded.overlayPath as string));
     expect(loaded.config).toMatchObject({
       project: 'lane-project',
       character: 'upstream character',
@@ -199,6 +197,63 @@ describe('loadConfig', () => {
     expect(loaded.config).toBeNull();
     expect(loaded.errors[0]).toContain('config.json JSON 파싱 오류');
     expect(loaded.errors.join('\n')).not.toContain('local config overlay');
+  });
+
+  describe('local overlay의 verifications 병합(ADK stage 4, mergeByName)', () => {
+    function projectWithVerifications(): string {
+      const root = projectWithConfig(
+        JSON.stringify({
+          project: 'maxflow',
+          mainLanguage: ['typescript'],
+          character: '',
+          engineVersion: '0.7.3',
+          verifications: [
+            { name: 'typecheck', cmd: 'tsc --noEmit' },
+            { name: 'e2e', cmd: 'playwright test' },
+          ],
+        }),
+      );
+      makeGitMetadata(root);
+      return root;
+    }
+
+    it('e2e 하나만 skip 해도 typecheck 는 그대로다(배열 통째 교체 아님)', () => {
+      const root = projectWithVerifications();
+      writeLocalOverlay(root, { verifications: [{ name: 'e2e', skip: true }] });
+
+      const loaded = loadConfig(root);
+
+      expect(loaded.config?.verifications).toEqual([
+        { name: 'typecheck', cmd: 'tsc --noEmit' },
+        { name: 'e2e', cmd: 'playwright test', skip: true },
+      ]);
+      expect(loaded.sources.verifications).toEqual({ e2e: 'local' });
+    });
+
+    it('local 이 cmd 를 바꾸면 그 필드만 덮는다(누구는 pnpm, 누구는 npm)', () => {
+      const root = projectWithVerifications();
+      writeLocalOverlay(root, { verifications: [{ name: 'typecheck', cmd: 'pnpm exec tsc' }] });
+
+      const loaded = loadConfig(root);
+
+      expect(loaded.config?.verifications).toEqual([
+        { name: 'typecheck', cmd: 'pnpm exec tsc' },
+        { name: 'e2e', cmd: 'playwright test' },
+      ]);
+    });
+
+    it('base 에 없는 이름을 local 이 가리키면 무시한다', () => {
+      const root = projectWithVerifications();
+      writeLocalOverlay(root, { verifications: [{ name: 'ghost', skip: true }] });
+
+      const loaded = loadConfig(root);
+
+      expect(loaded.config?.verifications).toEqual([
+        { name: 'typecheck', cmd: 'tsc --noEmit' },
+        { name: 'e2e', cmd: 'playwright test' },
+      ]);
+      expect(loaded.sources.verifications).toEqual({});
+    });
   });
 });
 
@@ -239,7 +294,7 @@ describe('config JSON/source output and local writes', () => {
     const report = JSON.parse(stdout) as Record<string, unknown>;
     expect(report).toMatchObject({
       basePath: path.join(root, '.awl', 'config.json'),
-      overlayPath: path.join(root, '.git', 'awl', 'config.local.json'),
+      overlayPath: path.join(root, '.awl', 'config.local.json'),
       effective: { project: 'lane', feedback: { enabled: true } },
       sources: {
         project: 'local',
@@ -261,7 +316,7 @@ describe('config JSON/source output and local writes', () => {
     await runConfigSet('feedback.path', '/lane/feedback', { force: false, local: true });
 
     expect(fs.readFileSync(basePath, 'utf8')).toBe(before);
-    const overlayPath = path.join(root, '.git', 'awl', 'config.local.json');
+    const overlayPath = path.join(root, '.awl', 'config.local.json');
     expect(JSON.parse(fs.readFileSync(overlayPath, 'utf8'))).toEqual({
       project: 'lane',
       feedback: { enabled: true, path: '/lane/feedback' },
@@ -269,6 +324,82 @@ describe('config JSON/source output and local writes', () => {
     expect(
       fs.readdirSync(path.dirname(overlayPath)).filter((name) => name.includes('.tmp')),
     ).toEqual([]);
+  });
+
+  it('config set --local verifications.<name>.skip 은 base 를 안 바꾸고 overlay 에 name+skip 만 남긴다', async () => {
+    const root = gitProject();
+    process.chdir(root);
+    const basePath = path.join(root, '.awl', 'config.json');
+    const before = fs.readFileSync(basePath, 'utf8');
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    await runConfigSet('verifications.typecheck.skip', 'true', { force: false, local: true });
+
+    expect(fs.readFileSync(basePath, 'utf8')).toBe(before);
+    const overlayPath = path.join(root, '.awl', 'config.local.json');
+    expect(JSON.parse(fs.readFileSync(overlayPath, 'utf8'))).toEqual({
+      verifications: [{ name: 'typecheck', skip: true }],
+    });
+    const loaded = loadConfig(root);
+    expect(loaded.config?.verifications).toEqual([
+      { name: 'typecheck', cmd: 'tsc --noEmit', skip: true },
+    ]);
+  });
+
+  it('config set --local verifications.<없는이름>.skip 은 base 에 없다고 거부한다', async () => {
+    const root = gitProject();
+    process.chdir(root);
+    let stderr = '';
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
+      stderr += String(chunk);
+      return true;
+    });
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as typeof process.exit);
+
+    await expect(
+      runConfigSet('verifications.ghost.skip', 'true', { force: false, local: true }),
+    ).rejects.toThrow('exit:1');
+    expect(stderr).toContain('base(config.json)에 없습니다');
+    expect(fs.existsSync(path.join(root, '.awl', 'config.local.json'))).toBe(false);
+  });
+
+  it('config set --local verifications.<name>.cmd 를 빈 값으로 주면(삭제 시도) skip 을 쓰라고 안내하며 거부한다', async () => {
+    const root = gitProject();
+    process.chdir(root);
+    let stderr = '';
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
+      stderr += String(chunk);
+      return true;
+    });
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as typeof process.exit);
+
+    await expect(
+      runConfigSet('verifications.typecheck.cmd', '', { force: false, local: true }),
+    ).rejects.toThrow('exit:1');
+    expect(stderr).toContain('skip');
+    expect(fs.existsSync(path.join(root, '.awl', 'config.local.json'))).toBe(false);
+  });
+
+  it('config --show-origin 은 값별 출처(전역/저장소/개인)를 보여준다', async () => {
+    const root = gitProject();
+    writeLocalOverlay(root, { verifications: [{ name: 'typecheck', skip: true }] });
+    process.chdir(root);
+    let stdout = '';
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+      stdout += String(chunk);
+      return true;
+    });
+
+    await runConfig({ showOrigin: true });
+
+    expect(stdout).toContain('verifications.typecheck.cmd');
+    expect(stdout).toContain(path.join(root, '.awl', 'config.local.json'));
+    expect(stdout).toContain('project');
+    expect(stdout).toContain(path.join(root, '.awl', 'config.json'));
   });
 
   it.each([
@@ -293,7 +424,7 @@ describe('config JSON/source output and local writes', () => {
       'exit:1',
     );
     expect(stderr).toMatch(withGit ? /local.*지원|지원.*local/i : /git.*worktree/i);
-    expect(fs.existsSync(path.join(root, '.git', 'awl', 'config.local.json'))).toBe(false);
+    expect(fs.existsSync(path.join(root, '.awl', 'config.local.json'))).toBe(false);
   });
 
   it.each([
@@ -304,7 +435,6 @@ describe('config JSON/source output and local writes', () => {
           fs.mkdtempSync(path.join(os.tmpdir(), 'awl-cfg-empty-gitdir-')),
         );
         fs.writeFileSync(path.join(root, '.git'), `gitdir: ${gitDir}\n`);
-        return gitDir;
       },
     },
     {
@@ -319,23 +449,25 @@ describe('config JSON/source output and local writes', () => {
         fs.writeFileSync(path.join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
         fs.writeFileSync(path.join(gitDir, 'commondir'), `${commonDir}\n`);
         fs.writeFileSync(path.join(root, '.git'), `gitdir: ${gitDir}\n`);
-        return gitDir;
       },
     },
-  ])('$name scope는 local overlay를 만들기 전에 거부한다', async ({ arrange }) => {
+    // 예전엔 overlay 경로 자체를 resolveGitLayout(git 메타데이터 상세 검증)으로 구했었기 때문에
+    // 깨진/빈 gitdir 이면 경로 계산부터 실패해 쓰기가 거부됐다. 이제 .awl/config.local.json 은
+    // .git 존재 여부(findDotGitPath, lstat 만)만 보고 git 메타데이터 내용은 안 본다 — 그래서
+    // 이 두 시나리오는 더는 거부 사유가 아니다(ADK stage 4, 로컬 오버라이드가 git 내부 구조와
+    // 무관해졌다는 게 이번 변경의 요점이다). "$name" 은 이제 정상적으로 써진다는 걸 확인한다.
+  ])('$name 이어도(.git 파일은 있음) local overlay를 정상적으로 쓴다', async ({ arrange }) => {
     const root = fs.realpathSync(projectWithConfig(VALID));
-    const gitDir = arrange(root);
+    arrange(root);
     process.chdir(root);
-    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
-      throw new Error(`exit:${code}`);
-    }) as typeof process.exit);
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
 
-    await expect(
-      runConfigSet('project', 'unexpected-write', { force: false, local: true }),
-    ).rejects.toThrow('exit:1');
-    expect(fs.existsSync(path.join(gitDir, 'awl', 'config.local.json'))).toBe(false);
-    expect(fs.existsSync(path.join(gitDir, 'awl'))).toBe(false);
+    await runConfigSet('project', 'unexpected-write', { force: false, local: true });
+
+    const overlayPath = path.join(root, '.awl', 'config.local.json');
+    expect(JSON.parse(fs.readFileSync(overlayPath, 'utf8'))).toEqual({
+      project: 'unexpected-write',
+    });
   });
 });
 
