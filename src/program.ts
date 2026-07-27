@@ -690,6 +690,15 @@ export function buildProgram(): Command {
       },
     );
 
+  // 사람이 치는 명령: profile (이 저장소의 공유 가능한 스킬 선택을 봅니다, ADK stage 4)
+  const profile = program
+    .command('profile')
+    .description('이 프로젝트의 프로파일(스킬 선택)을 봅니다');
+  profile.action(async () => {
+    const { runProfile } = await import('./commands/profile.js');
+    await runProfile();
+  });
+
   // 사람이 치는 명령: work (워크아이템 여러 개를 오간다, WI-D)
   const work = program.command('work').description('이 프로젝트의 워크아이템을 관리합니다');
   work

@@ -27,6 +27,7 @@ import {
 import { runInteractiveSelect } from '../core/select.js';
 import type { AwlConfig, VerificationEntry } from './config.js';
 import { migrateLegacyVerify } from './config.js';
+import { ensureProfile } from './profile.js';
 import {
   type Caps,
   type Colors,
@@ -1005,6 +1006,10 @@ export function syncExistingInstall(
     configUpdated = true;
   }
 
+  // profile.json 이 없는 기존 설치(단계 4 이전 저장소)를 여기서 백필한다 — 있으면
+  // ensureProfile 이 아무것도 안 건드린다.
+  ensureProfile(projectRoot, typeof raw?.project === 'string' ? raw.project : path.basename(projectRoot));
+
   // applyInit(처음부터 다시)만 registerProject 를 불렀다 — "그대로 쓴다"/--yes 재실행은
   // config 를 이미 있는 것으로 간주해 레지스트리를 건드리지 않았다. 그래서 awl remove
   // --all 등으로 ~/.awl/projects.json 이 비워진 뒤엔 재init 을 아무리 해도 이 경로로는
@@ -1117,6 +1122,9 @@ export function applyInit(
   const g = scaffoldGlobal();
   const config = buildConfig(inputs, g.engineVersion);
   const configPath = writeConfig(projectRoot, config);
+  // profile.json 이 이미 있으면 안 건드린다(ensureProfile) — lane/work new --worktree
+  // 도 applyInit()을 재사용하는데, 팀이 고른 스킬 설정을 레인 만들 때마다 지우면 안 된다.
+  ensureProfile(projectRoot, inputs.project);
   const existingStatePath = path.join(projectRoot, '.awl', 'state.json');
   const statePath =
     opts.preserveState && exists(existingStatePath)
