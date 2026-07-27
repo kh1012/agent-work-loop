@@ -837,6 +837,15 @@ export function buildProgram(): Command {
       await runDeriveTickets(specId);
     });
 
+  // 사람이 치는 명령: next (티켓의 지금 상태 + 다음 할 일 조립, ADK stage 2c, 읽기 전용)
+  program
+    .command('next <ticket-id>')
+    .description('티켓의 조건·게이트 이력·다음 할 일을 조립해 보여줍니다(읽기 전용)')
+    .action(async (ticketId: string) => {
+      const { runNext } = await import('./commands/next.js');
+      await runNext(ticketId);
+    });
+
   // 사람이 치는 명령: records (기록 조회, 사람이 읽는 목록)
   program
     .command('records')
