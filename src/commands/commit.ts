@@ -1,11 +1,12 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { parseFrontmatter } from '../core/doc-frontmatter.js';
 import { protectedFilesMessage } from '../core/protected-files.js';
 import { run } from '../core/runner.js';
 import { type Caps, caps, feedback, makeColors, makeTokens, signal } from '../core/tty.js';
 import { loadConfig, resolveProjectRoot } from './config.js';
-import { hasApprovedGate1 } from './record.js';
+import { hasApprovedGate1, readRecords } from './record.js';
 import { getCriterion, loadState, setCriterion, writeState } from './state.js';
 
 /**
@@ -434,6 +435,114 @@ export async function checkBaseDrift(
 }
 
 // ---------------------------------------------------------------------------
+// 티켓 인식 (ADK stage 2d) — awl commit <id> 를 다형적으로 만든다.
+//
+// <id> 가 docs/tickets/*.md 의 티켓이면 이 아래 함수들로 .awl/tickets/<id>.json
+// (untracked)에 baseline/snapshot 을 저장한다. 아니면(레거시 AC-XX 자유 텍스트)
+// 지금 이 파일의 getCriterion/setCriterion(state.criteria[]) 경로를 한 글자도
+// 안 바꾸고 그대로 쓴다 — dual-write 모드나 플래그가 필요 없다.
+//
+// doc.ts 를 안 가져온다: record.ts 가 이미 doc.ts→record.ts 순환을 피하려고
+// 티켓 조회를 로컬로 다시 쓴 선례(findTicketFileById)를 따라, 여기서도
+// doc-frontmatter.ts(의존성 없는 leaf)만 가져와 조회를 작게 다시 쓴다.
+// ---------------------------------------------------------------------------
+
+/** <id> 가 티켓이면 그 파일 경로, 아니면 null(=레거시 AC 경로 그대로). */
+export function findTicketPath(projectRoot: string, id: string): string | null {
+  const dir = path.join(projectRoot, 'docs', 'tickets');
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(dir).filter((f) => f.endsWith('.md'));
+  } catch {
+    return null;
+  }
+  for (const name of entries) {
+    const filePath = path.join(dir, name);
+    try {
+      const parsed = parseFrontmatter(fs.readFileSync(filePath, 'utf8'));
+      if (parsed?.data.id === id) {
+        return filePath;
+      }
+    } catch {
+      // 손상된 파일 하나가 전체 조회를 막지 않는다.
+    }
+  }
+  return null;
+}
+
+/** .awl/tickets/<ticket-id>.json 경로 — untracked(.awl/* gitignore 화이트리스트가 이미 커버). */
+export function ticketRuntimePath(projectRoot: string, ticketId: string): string {
+  return path.join(projectRoot, '.awl', 'tickets', `${ticketId}.json`);
+}
+
+/** 티켓 런타임(baseline/snapshot 등)을 읽는다. 없거나 손상되면 undefined. */
+export function loadTicketRuntime(
+  projectRoot: string,
+  ticketId: string,
+): Record<string, unknown> | undefined {
+  try {
+    return JSON.parse(fs.readFileSync(ticketRuntimePath(projectRoot, ticketId), 'utf8')) as Record<
+      string,
+      unknown
+    >;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 티켓 런타임을 원자적으로 쓴다(state.ts writeState 와 같은 tmp+rename 패턴). */
+export function writeTicketRuntime(
+  projectRoot: string,
+  ticketId: string,
+  data: Record<string, unknown>,
+): void {
+  const p = ticketRuntimePath(projectRoot, ticketId);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  const tmp = `${p}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`);
+  fs.renameSync(tmp, p);
+}
+
+/** id 가 티켓이면 .awl/tickets/<id>.json 을, 아니면 state.criteria[] 를 읽는다(다형적). */
+function readRuntime(
+  projectRoot: string,
+  id: string,
+  isTicket: boolean,
+): Record<string, unknown> | undefined {
+  return isTicket ? loadTicketRuntime(projectRoot, id) : getCriterion(loadState(projectRoot), id);
+}
+
+/** id 가 티켓이면 .awl/tickets/<id>.json 을, 아니면 state.criteria[] 를 얕은 병합으로 갱신한다. */
+function writeRuntimePatch(
+  projectRoot: string,
+  id: string,
+  isTicket: boolean,
+  patch: Record<string, unknown>,
+): void {
+  if (isTicket) {
+    const current = loadTicketRuntime(projectRoot, id) ?? {};
+    writeTicketRuntime(projectRoot, id, { ...current, ...patch });
+    return;
+  }
+  writeState(projectRoot, setCriterion(loadState(projectRoot), id, patch));
+}
+
+/**
+ * 티켓 버전의 record 트레일 공백 경고(buildTrailGapWarning 의 티켓 대응) — 이 티켓의
+ * 게이트2(착수) 승인 기록이 없으면 알린다(차단 아님). 순수 함수가 아니다(readRecords 가
+ * 파일을 읽는다) — root 를 받는다.
+ */
+function buildTicketGateGapWarning(root: string, ticketId: string, c: Caps): string | null {
+  const hasApprovedGate2 = readRecords({ type: 'gate' }).some(
+    (r) => r.ticket === ticketId && r.gate === 2 && r.decision === 'approved',
+  );
+  if (hasApprovedGate2) {
+    return null;
+  }
+  return `  ${signal(c, 'warn')} 이 티켓의 게이트 2(착수) 승인 기록 없이 커밋합니다 — awl record gate 로 착수를 승인하세요.\n`;
+}
+
+// ---------------------------------------------------------------------------
 // 명령 진입점
 // ---------------------------------------------------------------------------
 
@@ -462,12 +571,16 @@ export async function runCommit(
   const root = requireRoot();
   const c = caps();
   const color = makeColors(c.color);
+  // <id> 가 티켓이면(docs/tickets/*.md) 새 경로, 아니면 레거시 AC 경로 그대로(ADK stage 2d).
+  const isTicket = findTicketPath(root, ac) !== null;
   // 게이트1 승인 전에는 커밋하지 않는다. 판정은 가변 phase 가 아니라 "승인된
   // gate:1 레코드"로 한다(0.6.3, 적대검증 발견) — phase 를 state set 으로 조작해도
   // 우회되지 않는다. 현재 워크아이템이 있는데 승인 레코드가 없으면 차단한다.
+  // 티켓 커밋은 이 레거시 workitem 게이트와 무관하다 — 우연히 활성 workitem이
+  // 남아 있어도(다른 흐름의 잔재) 티켓 커밋을 막으면 안 된다(!isTicket 로 배제).
   const gateState = loadState(root);
   const gateWorkitem = typeof gateState.workitem === 'string' ? gateState.workitem : undefined;
-  if (gateWorkitem && !hasApprovedGate1(gateWorkitem)) {
+  if (!isTicket && gateWorkitem && !hasApprovedGate1(gateWorkitem)) {
     process.stderr.write(
       `\n  ${signal(c, 'warn')} Gate 1 승인이 먼저 필요합니다. awl record gate 로 계획을 승인한 뒤 커밋하세요.\n`,
     );
@@ -490,18 +603,22 @@ export async function runCommit(
     //그대로 고정돼야 한다 — 하나의 필드(baseline)로 두 목적을 겸용한 게 버그의
     // 근본 원인이었다. setCriterion 은 얕은 병합이라 여기서 안 건드리면(닫는 경로도
     // 마찬가지) 기존 값이 그대로 보존된다.
-    const existing = getCriterion(loadState(root), ac);
+    const existing = readRuntime(root, ac, isTicket);
     const firstBaseline =
       typeof existing?.firstBaseline === 'string' ? existing.firstBaseline : head;
-    const state = setCriterion(loadState(root), ac, {
-      status: 'in_progress',
+    const patch: Record<string, unknown> = {
       baseline: head,
       snapshot,
       untrackedAtStart: untracked,
       startedAt: now,
       firstBaseline,
-    });
-    writeState(root, state);
+    };
+    // status 는 티켓 프론트매터에만 있고 게이트 기록(Stage 2b)만 바꾼다 — 티켓
+    // 런타임 파일에는 안 넣는다(출처가 두 개가 되는 걸 피한다).
+    if (!isTicket) {
+      patch.status = 'in_progress';
+    }
+    writeRuntimePatch(root, ac, isTicket, patch);
     process.stdout.write(`\n  ${ac} 베이스라인을 잡았습니다: ${head.slice(0, 10)}\n`);
     process.stdout.write(
       `  ${color.dim(`이제 작업한 뒤 awl commit ${ac} -m "..." 로 격리 커밋하세요.`)}\n`,
@@ -516,8 +633,7 @@ export async function runCommit(
     process.exit(1);
   }
 
-  const state = loadState(root);
-  const crit = getCriterion(state, ac);
+  const crit = readRuntime(root, ac, isTicket);
   const snapshot = crit && typeof crit.snapshot === 'string' ? crit.snapshot : undefined;
   if (!snapshot) {
     const lines = [
@@ -540,7 +656,9 @@ export async function runCommit(
   // 격리 커밋한다. 활성 워크아이템이 없으면 이 커밋의 판단 근거(gate/attempt)가 안 남으니 한 줄만
   // 알린다(하드 차단 아님, 정상 흐름은 조용 — AC-03). baseline-missing exit 뒤에 둬서 "커밋합니다"
   // 가 커밋하지 않는 경로에서 뜨지 않게 한다(리뷰 지적 AC-04).
-  const trailWarning = buildTrailGapWarning(gateWorkitem, c);
+  const trailWarning = isTicket
+    ? buildTicketGateGapWarning(root, ac, c)
+    : buildTrailGapWarning(gateWorkitem, c);
   if (trailWarning) {
     process.stderr.write(trailWarning);
   }
@@ -617,16 +735,13 @@ export async function runCommit(
   const newSnap = await captureSnapshot(root);
   const newUntracked = await listUntracked(root);
   await pinBaselineRef(root, ac, newSnap);
-  writeState(
-    root,
-    setCriterion(loadState(root), ac, {
-      snapshot: newSnap,
-      baseline: outcome.commit,
-      // baseline 은 다음 격리 커밋의 diff 기준점이라 --start 때 HEAD 로 리셋된다.
-      // commit 은 리셋 안 되는 "이 AC 의 마지막 격리 커밋" 전용 필드 — status 의
-      // 캐노니컬 HEAD 검증(wi8-F3)이 이 값이 HEAD 조상인지 대조한다.
-      commit: outcome.commit,
-      untrackedAtStart: newUntracked,
-    }),
-  );
+  writeRuntimePatch(root, ac, isTicket, {
+    snapshot: newSnap,
+    baseline: outcome.commit,
+    // baseline 은 다음 격리 커밋의 diff 기준점이라 --start 때 HEAD 로 리셋된다.
+    // commit 은 리셋 안 되는 "이 AC(또는 티켓)의 마지막 격리 커밋" 전용 필드 —
+    // status 의 캐노니컬 HEAD 검증(wi8-F3)이 이 값이 HEAD 조상인지 대조한다.
+    commit: outcome.commit,
+    untrackedAtStart: newUntracked,
+  });
 }
