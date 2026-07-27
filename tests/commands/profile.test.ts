@@ -4,10 +4,12 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   type AwlProfile,
+  type SkillInstaller,
   SKILL_SLOTS,
   defaultProfile,
   emptyProfileSkills,
   ensureProfile,
+  installProfile,
   loadProfile,
   profileLocalPath,
   profilePath,
@@ -268,5 +270,107 @@ describe('runProfile — 로컬 오버라이드는 정보 표시다(경고 아�
     expect(reviewLine).not.toContain('로컬 설정');
 
     vi.restoreAllMocks();
+  });
+});
+
+describe('installProfile — 공유 프로파일 받기(ADK stage 4, reference.md:882-884)', () => {
+  function writeIncomingProfile(profile: AwlProfile): string {
+    const p = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-incoming-')), 'profile.json');
+    fs.writeFileSync(p, JSON.stringify(profile, null, 2));
+    return p;
+  }
+
+  it('이미 .claude/skills/<name>/ 이 있는 자리는 installer 를 안 부른다(EARS #4)', async () => {
+    const root = tmpProjectRoot();
+    fs.mkdirSync(path.join(root, '.claude', 'skills', 'adversarial-review'), { recursive: true });
+    const incoming: AwlProfile = {
+      name: 'shared',
+      skills: {
+        ...emptyProfileSkills(),
+        review: { type: 'external', url: 'https://x/adversarial-review' },
+      },
+    };
+    const sourcePath = writeIncomingProfile(incoming);
+    const installer = vi.fn<SkillInstaller>(async () => ({ ok: true }));
+
+    const result = await installProfile(root, sourcePath, installer);
+
+    expect(installer).not.toHaveBeenCalled();
+    expect(result.outcomes.find((o) => o.slot === 'review')?.status).toBe('already-installed');
+  });
+
+  it('없는 자리만 installer 를 부른다', async () => {
+    const root = tmpProjectRoot();
+    const incoming: AwlProfile = {
+      name: 'shared',
+      skills: {
+        ...emptyProfileSkills(),
+        implement: { type: 'custom', path: '.claude/skills/our-tdd', name: 'our-tdd' },
+        review: { type: 'external', url: 'https://x/adversarial-review' },
+      },
+    };
+    const sourcePath = writeIncomingProfile(incoming);
+    const installer = vi.fn<SkillInstaller>(async () => ({ ok: true }));
+
+    const result = await installProfile(root, sourcePath, installer);
+
+    expect(installer).toHaveBeenCalledTimes(2);
+    expect(result.outcomes.filter((o) => o.status === 'installed')).toHaveLength(2);
+  });
+
+  it('config.json 은 절대 안 건드린다(EARS #3)', async () => {
+    const root = tmpProjectRoot();
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    const configPath = path.join(root, '.awl', 'config.json');
+    fs.writeFileSync(configPath, JSON.stringify({ project: 'x' }));
+    const before = fs.readFileSync(configPath, 'utf8');
+    const sourcePath = writeIncomingProfile({ name: 'shared', skills: emptyProfileSkills() });
+
+    await installProfile(root, sourcePath);
+
+    expect(fs.readFileSync(configPath, 'utf8')).toBe(before);
+  });
+
+  it('받은 프로파일을 .awl/profile.json 에 쓴다', async () => {
+    const root = tmpProjectRoot();
+    const incoming: AwlProfile = {
+      name: 'shared',
+      description: '공유 프로파일',
+      skills: emptyProfileSkills(),
+    };
+    const sourcePath = writeIncomingProfile(incoming);
+
+    await installProfile(root, sourcePath);
+
+    expect(JSON.parse(fs.readFileSync(profilePath(root), 'utf8'))).toEqual(incoming);
+  });
+
+  it('설치가 실패해도(외부 스킬 기본 installer) 나머지는 계속 진행하고 사유를 남긴다', async () => {
+    const root = tmpProjectRoot();
+    const incoming: AwlProfile = {
+      name: 'shared',
+      skills: {
+        ...emptyProfileSkills(),
+        review: { type: 'external', url: 'https://x/adversarial-review' },
+      },
+    };
+    const sourcePath = writeIncomingProfile(incoming);
+
+    const result = await installProfile(root, sourcePath); // 기본 installer(스텁) 사용
+
+    const outcome = result.outcomes.find((o) => o.slot === 'review');
+    expect(outcome?.status).toBe('failed');
+    expect(outcome?.message).toContain('수동 설치');
+  });
+
+  it('잘못된 프로파일 JSON 이면 거부하고 아무것도 안 쓴다', async () => {
+    const root = tmpProjectRoot();
+    const sourcePath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-incoming-')), 'bad.json');
+    fs.writeFileSync(sourcePath, 'not json{{{');
+
+    const result = await installProfile(root, sourcePath);
+
+    expect(result.ok).toBe(false);
+    expect(fs.existsSync(profilePath(root))).toBe(false);
   });
 });

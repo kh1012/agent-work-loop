@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { mergeSlots } from '../core/config-merge.js';
 import { type Caps, caps, makeColors, makeSymbols, sectionBox, signal } from '../core/tty.js';
-import { multiProjectFooter, resolveProjectScope } from './config.js';
+import { multiProjectFooter, resolveProjectRoot, resolveProjectScope } from './config.js';
 
 /**
  * .awl/profile.json — 공유 가능한 프로파일(ADK stage 4, adk-reference.md:713-963).
@@ -302,6 +302,124 @@ export function ensureProfile(projectRoot: string, projectName: string): AwlProf
   return profile;
 }
 
+// ---------------------------------------------------------------------------
+// awl profile install — 공유 프로파일 받기(ADK stage 4, reference.md:882-884)
+// ---------------------------------------------------------------------------
+
+/** 스킬 하나를 실제로 설치한다. custom 은 이미 이 저장소에 커밋돼 있어야 하는
+ * 것이라 설치할 게 없다 — 있는지만 확인한다(없으면 원본이 잘못된 것, 에러로
+ * 알린다). external 은 실제 URL fetch 를 이번 단계에서 구현하지 않는다 —
+ * 마켓플레이스(GET /profiles)는 있지만 스킬 번들을 받아오는 곳은 아직 없다
+ * (prototype.md "하지 않을 것"). 테스트/미래 구현을 위해 주입 가능하게
+ * 둔다(Stage 3 의 fetchImpl 주입과 같은 이유). */
+export type SkillInstaller = (
+  ref: Exclude<SkillRef, null>,
+  projectRoot: string,
+) => Promise<{ ok: boolean; message?: string }>;
+
+const defaultSkillInstaller: SkillInstaller = async (ref, projectRoot) => {
+  if (ref.type === 'custom') {
+    const exists = fs.existsSync(path.join(projectRoot, ref.path));
+    return exists
+      ? { ok: true }
+      : { ok: false, message: `custom 스킬인데 이 저장소에 없습니다: ${ref.path}` };
+  }
+  return { ok: false, message: `외부 스킬은 수동 설치가 필요합니다: ${ref.url}` };
+};
+
+function skillNameFor(ref: Exclude<SkillRef, null>): string {
+  if (ref.name) {
+    return ref.name;
+  }
+  if (ref.type === 'custom') {
+    return path.basename(ref.path);
+  }
+  const segments = ref.url.split('/').filter(Boolean);
+  return segments[segments.length - 1] ?? ref.url;
+}
+
+export interface SkillInstallOutcome {
+  slot: SkillSlot;
+  name: string;
+  status: 'empty' | 'already-installed' | 'installed' | 'failed';
+  message?: string;
+}
+
+export interface InstallProfileResult {
+  ok: boolean;
+  errors: string[];
+  outcomes: SkillInstallOutcome[];
+}
+
+/**
+ * 공유 프로파일(profile.json 모양의 문서)을 받아 설치한다.
+ * - **config.json 은 이 함수가 절대 안 건드린다**(EARS #3 — 공유 프로파일을 받아도
+ *   config.json 이 덮어써지지 않아야 한다).
+ * - `.claude/skills/<name>/` 이 이미 있는 자리는 건너뛴다(EARS #4 — 설치 안 된
+ *   것만 받는다). "설치됐는지"는 이 디렉토리 존재로만 안다(reference.md:882-884,
+ *   별도 설치 기록을 안 둔다).
+ */
+export async function installProfile(
+  projectRoot: string,
+  sourcePath: string,
+  installer: SkillInstaller = defaultSkillInstaller,
+): Promise<InstallProfileResult> {
+  let text: string;
+  try {
+    text = fs.readFileSync(sourcePath, 'utf8');
+  } catch (e) {
+    return { ok: false, errors: [`프로파일 파일을 읽지 못했습니다: ${String(e)}`], outcomes: [] };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (e) {
+    return { ok: false, errors: [`프로파일 JSON 파싱 오류: ${String(e)}`], outcomes: [] };
+  }
+  const errors = validateProfile(parsed);
+  if (errors.length > 0) {
+    return { ok: false, errors, outcomes: [] };
+  }
+  const raw = parsed as Record<string, unknown>;
+  const rawSkills = raw.skills as Record<string, unknown>;
+  const skills = emptyProfileSkills();
+  for (const slot of SKILL_SLOTS) {
+    if (slot in rawSkills) {
+      skills[slot] = rawSkills[slot] as SkillRef;
+    }
+  }
+  const incoming: AwlProfile = {
+    name: raw.name as string,
+    ...(typeof raw.description === 'string' ? { description: raw.description } : {}),
+    skills,
+  };
+
+  const outcomes: SkillInstallOutcome[] = [];
+  for (const slot of SKILL_SLOTS) {
+    const ref = incoming.skills[slot];
+    if (!ref) {
+      outcomes.push({ slot, name: '(없음)', status: 'empty' });
+      continue;
+    }
+    const name = skillNameFor(ref);
+    if (fs.existsSync(path.join(projectRoot, '.claude', 'skills', name))) {
+      outcomes.push({ slot, name, status: 'already-installed' });
+      continue;
+    }
+    const result = await installer(ref, projectRoot);
+    outcomes.push({
+      slot,
+      name,
+      status: result.ok ? 'installed' : 'failed',
+      message: result.message,
+    });
+  }
+
+  writeProfile(projectRoot, incoming);
+
+  return { ok: true, errors: [], outcomes };
+}
+
 function skillRefLabel(ref: SkillRef): string {
   if (ref === null) {
     return '(없음)';
@@ -366,4 +484,46 @@ export async function runProfile(): Promise<void> {
     process.exit(1);
   }
   process.stdout.write(`${renderProfile(loaded.profile, loaded.sources, caps())}\n`);
+}
+
+function skillInstallStatusLabel(c: Caps, status: SkillInstallOutcome['status']): string {
+  if (status === 'empty') {
+    return '(비어있음)';
+  }
+  if (status === 'already-installed') {
+    return `${signal(c, 'ok')} 이미 설치됨`;
+  }
+  if (status === 'installed') {
+    return `${signal(c, 'ok')} 설치됨`;
+  }
+  return `${signal(c, 'warn')} 수동 설치 필요`;
+}
+
+/** awl profile install <path> — 공유 프로파일을 받는다. config.json 은 절대 안
+ * 건드리고, 이미 .claude/skills/ 에 있는 자리는 건너뛴다. */
+export async function runProfileInstall(sourcePath: string): Promise<void> {
+  const projectRoot = resolveProjectRoot();
+  if (!projectRoot) {
+    process.stderr.write(
+      `\n  ${signal(caps(), 'error')} 프로젝트 루트를 찾을 수 없습니다. awl init 을 실행하세요.\n`,
+    );
+    process.exit(1);
+  }
+  const result = await installProfile(projectRoot, sourcePath);
+  if (!result.ok) {
+    process.stderr.write(`\n  ${signal(caps(), 'error')} 프로파일을 설치하지 못했습니다:\n`);
+    for (const e of result.errors) {
+      process.stderr.write(`    - ${e}\n`);
+    }
+    process.exit(1);
+  }
+  const c = caps();
+  const out: string[] = [];
+  for (const o of result.outcomes) {
+    out.push(`  ${o.slot.padEnd(14, ' ')}${o.name.padEnd(20, ' ')}${skillInstallStatusLabel(c, o.status)}`);
+    if (o.message) {
+      out.push(`    ${o.message}`);
+    }
+  }
+  process.stdout.write(`${sectionBox('프로파일 설치', out, c)}\n`);
 }

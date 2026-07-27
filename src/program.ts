@@ -699,6 +699,13 @@ export function buildProgram(): Command {
     const { runProfile } = await import('./commands/profile.js');
     await runProfile();
   });
+  profile
+    .command('install <path>')
+    .description('공유 프로파일을 받습니다 (config.json은 안 건드리고, 설치 안 된 스킬만 받습니다)')
+    .action(async (sourcePath: string) => {
+      const { runProfileInstall } = await import('./commands/profile.js');
+      await runProfileInstall(sourcePath);
+    });
 
   // 사람이 치는 명령: work (워크아이템 여러 개를 오간다, WI-D)
   const work = program.command('work').description('이 프로젝트의 워크아이템을 관리합니다');
