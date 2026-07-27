@@ -5,6 +5,20 @@ import { parseFrontmatter, serializeFrontmatter } from '../core/doc-frontmatter.
 import { readGlobalAwlConfig } from '../core/global-config.js';
 import { recordsDir } from '../core/paths.js';
 import { run } from '../core/runner.js';
+import {
+  buildFeedbackEnvelope,
+  buildRecordEnvelope,
+  buildSpecEnvelope,
+  giveUp,
+  isBackedOff,
+  postEnvelope,
+  readSyncCursor,
+  recordFailure,
+  recordSuccess,
+  shouldGiveUp,
+  type SyncCursor,
+  writeSyncCursor,
+} from '../core/sync.js';
 import { type Caps, caps, makeColors, sectionBox, signal } from '../core/tty.js';
 import { loadConfig, resolveProjectRoot } from './config.js';
 import { getCriterion, loadState, writeState } from './state.js';
@@ -160,6 +174,129 @@ function writeSpecStatus(specPath: string, status: string): void {
   }
   const nextData = { ...parsed.data, status };
   fs.writeFileSync(specPath, `${serializeFrontmatter(nextData)}\n${parsed.body}`);
+}
+
+// ---------------------------------------------------------------------------
+// 중앙 저장소 전송 (ADK stage 3) — 세 지점(스펙 closed·티켓 done·awl-feedback)에서만
+// 부른다. endpoint 가 없으면 core/sync.ts 의 함수들이 자체적으로 no-op 이므로 여기선
+// 그냥 부르기만 하면 된다. 실패해도 절대 throw 하지 않는다(postEnvelope 계약) — 이
+// 계층은 그 실패를 커서에 기록하고 조용히 리턴한다("서버가 죽어도 루프는 돈다").
+// ---------------------------------------------------------------------------
+
+/** git remote 로 organization(owner)을 추정한다. doc.ts 의 deriveOrganizationFromGitRemote
+ * 와 완전히 같은 로직 — record.ts 가 doc.ts 를 import 하면 순환 참조가 생기므로
+ * (findTicketFileById 등과 같은 이유) 여기서 작게 다시 둔다. */
+async function deriveOrganizationForSync(projectRoot: string): Promise<string> {
+  try {
+    const result = await run({
+      cmd: 'git',
+      args: ['config', '--get', 'remote.origin.url'],
+      cwd: projectRoot,
+    });
+    if (result.exitCode !== 0) {
+      return '';
+    }
+    const s = result.stdout.trim().replace(/\.git$/, '');
+    let m = s.match(/^[\w.-]+@[^:/]+:(.+)$/);
+    if (!m) {
+      m = s.match(/^ssh:\/\/[^/]+\/(.+)$/);
+    }
+    if (!m) {
+      m = s.match(/^https?:\/\/[^/]+\/(.+)$/);
+    }
+    return m?.[1]?.split('/')[0] ?? '';
+  } catch {
+    return '';
+  }
+}
+
+/** endpoint 가 없거나 이미 7일 넘게 실패 중이면 즉시 포기·no-op, 아니면 한 번 시도한다. */
+async function attemptSend(
+  streamKey: keyof SyncCursor,
+  endpoint: string | undefined,
+  envelopeId: string,
+  send: () => Promise<{ ok: boolean; reason?: string }>,
+  now: () => number = () => Date.now(),
+): Promise<void> {
+  if (!endpoint) {
+    return; // 전송 기능이 꺼진 상태 — 커서를 절대 안 만든다(소급 전송 없음).
+  }
+  const cursor = readSyncCursor();
+  const stream = cursor[streamKey];
+  if (shouldGiveUp(stream, now)) {
+    process.stderr.write(
+      `  [-] sync(${streamKey}) 7일 넘게 실패해 포기합니다 — 미전송 ${stream?.pendingCount ?? 0}건은 로컬에만 남습니다.\n`,
+    );
+    writeSyncCursor({ ...cursor, [streamKey]: giveUp(envelopeId, now) });
+    return;
+  }
+  if (isBackedOff(stream, now)) {
+    return; // 다음 재시도 시각 전 — 조용히 건너뛴다.
+  }
+  const result = await send();
+  const nextStream = result.ok ? recordSuccess(envelopeId, now) : recordFailure(stream, now);
+  writeSyncCursor({ ...cursor, [streamKey]: nextStream });
+}
+
+/** 스펙이 closed 로 전이된 직후 그 스펙 하나를 전송한다(prototype.md:401 "closed 가 될 때만"). */
+async function syncClosedSpec(specPath: string): Promise<void> {
+  const cfg = readGlobalAwlConfig();
+  const endpoint = cfg?.sync?.records?.endpoint;
+  const parsed = parseFrontmatter(fs.readFileSync(specPath, 'utf8'));
+  if (!parsed) {
+    return;
+  }
+  const envelope = buildSpecEnvelope({
+    id: String(parsed.data.id ?? ''),
+    organization: String(parsed.data.organization ?? ''),
+    project: String(parsed.data.project ?? ''),
+    author: cfg?.author,
+    frontmatter: parsed.data,
+    body: parsed.body,
+  });
+  await attemptSend('specs', endpoint, envelope.id, () =>
+    postEnvelope(endpoint as string, '/specs', envelope, cfg?.sync?.records?.token),
+  );
+}
+
+/** 티켓이 done 으로 전이된 직후 그 티켓에 속한 기록을 순서대로 전송한다(prototype.md:402
+ * "기록은 워크아이템이 끝날 때"). 하나라도 실패하면 그 자리에서 멈춘다 — 커서가 정확히
+ * "여기까지 보냈다"를 가리키게 하기 위함(순서 없는 재전송·중복 방지). */
+async function syncTicketRecords(projectRoot: string, ticketId: string): Promise<void> {
+  const cfg = readGlobalAwlConfig();
+  const endpoint = cfg?.sync?.records?.endpoint;
+  if (!endpoint) {
+    return;
+  }
+  const organization = await deriveOrganizationForSync(projectRoot);
+  const records = readRecords({ workitem: ticketId });
+  for (const record of records) {
+    const envelope = buildRecordEnvelope(record, organization);
+    let lastResult: { ok: boolean; reason?: string } = { ok: true };
+    await attemptSend('records', endpoint, envelope.id, async () => {
+      lastResult = await postEnvelope(endpoint as string, '/records', envelope, cfg?.sync?.records?.token);
+      return lastResult;
+    });
+    if (!lastResult.ok) {
+      break;
+    }
+  }
+}
+
+/** awl-feedback 레코드가 기록되는 즉시 전송한다(prototype.md:403 "피드백은 발생할 때").
+ * sync.feedback.endpoint 는 records 와 달리 전체 경로를 이미 포함한다
+ * (prototype.md:105 "http://localhost:9999/feedback") — 그래서 urlPath 를 안 붙인다. */
+async function syncFeedback(projectRoot: string, record: Record<string, unknown>): Promise<void> {
+  const cfg = readGlobalAwlConfig();
+  const endpoint = cfg?.sync?.feedback?.endpoint;
+  if (!endpoint) {
+    return;
+  }
+  const organization = await deriveOrganizationForSync(projectRoot);
+  const envelope = buildFeedbackEnvelope(record, organization);
+  await attemptSend('feedback', endpoint, envelope.id, () =>
+    postEnvelope(endpoint as string, '', envelope),
+  );
 }
 
 /**
@@ -1186,6 +1323,11 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
     const nextStatus = TICKET_STATUS_TRANSITIONS[data.gate]?.[data.decision];
     if (nextStatus) {
       writeTicketStatus(ticketPathForTransition, nextStatus);
+      // 티켓이 done 이 된 순간 그 기록을 전송한다(ADK stage 3, prototype.md:402).
+      if (nextStatus === 'done' && projectRoot) {
+        const ticketId = typeof data.ticket === 'string' ? data.ticket : '';
+        await syncTicketRecords(projectRoot, ticketId);
+      }
     }
   }
 
@@ -1200,7 +1342,16 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
     const nextStatus = SPEC_STATUS_TRANSITIONS[data.gate]?.[data.decision];
     if (nextStatus) {
       writeSpecStatus(specPathForTransition, nextStatus);
+      // 스펙이 closed 가 된 순간 전송한다(prototype.md:401 "closed 가 될 때만").
+      if (nextStatus === 'closed') {
+        await syncClosedSpec(specPathForTransition);
+      }
     }
+  }
+
+  // awl-feedback 은 발생 즉시 전송한다(ADK stage 3, prototype.md:403).
+  if (type === 'awl-feedback' && projectRoot) {
+    await syncFeedback(projectRoot, record);
   }
 
   // gate:2 리뷰 누락 경고 (WI-S AC-03) — 거부하지 않는다, 안내만 한다.

@@ -22,6 +22,7 @@ import {
   selectMonthFiles,
   shouldDefer,
 } from '../../src/commands/record.js';
+import { readSyncCursor } from '../../src/core/sync.js';
 
 const origHome = process.env.AWL_HOME;
 
@@ -1357,6 +1358,135 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
     });
 
     expect(readSpecStatus(specPath)).toBe('draft');
+  });
+
+  // --- ADK stage 3: 세 지점(스펙 closed·티켓 done·awl-feedback)의 전송 트리거 ---
+
+  function writeGlobalSyncConfig(opts: {
+    recordsEndpoint?: string;
+    feedbackEndpoint?: string;
+  }): void {
+    fs.writeFileSync(
+      path.join(process.env.AWL_HOME as string, 'config.json'),
+      JSON.stringify({
+        sync: {
+          records: opts.recordsEndpoint ? { endpoint: opts.recordsEndpoint } : undefined,
+          feedback: opts.feedbackEndpoint ? { endpoint: opts.feedbackEndpoint } : undefined,
+        },
+      }),
+    );
+  }
+
+  function okFetch() {
+    return vi.fn(async () => new Response('{}', { status: 200 })) as unknown as typeof fetch;
+  }
+
+  function failFetch() {
+    return vi.fn(async () => new Response('nope', { status: 500 })) as unknown as typeof fetch;
+  }
+
+  function stubFetch(impl: typeof fetch) {
+    const orig = globalThis.fetch;
+    globalThis.fetch = impl;
+    return () => {
+      globalThis.fetch = orig;
+    };
+  }
+
+  it('스펙이 closed 로 전이되면 /specs 로 전송을 시도한다(endpoint 설정됨)', async () => {
+    const root = project({ workitem: 'WI-9', workitems: {} });
+    writeSpecFixture(root, 'spec-1', 'active');
+    writeGlobalSyncConfig({ recordsEndpoint: 'http://localhost:9999' });
+    const fetchImpl = okFetch();
+    const restore = stubFetch(fetchImpl);
+
+    await runRecord('gate', {
+      json: '{"gate":4,"layer":"request","spec":"spec-1","decision":"merge","presentedCriteria":["AC-01"]}',
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const [url] = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0] as [string];
+    expect(url).toBe('http://localhost:9999/specs');
+    expect(readSyncCursor().specs?.lastSentId).toBe('spec-1');
+
+    restore();
+  });
+
+  it('endpoint 가 없으면 스펙이 closed 돼도 전송 시도 자체가 없고 커서 파일도 안 생긴다(소급 전송 없음의 전제)', async () => {
+    const root = project({ workitem: 'WI-9', workitems: {} });
+    writeSpecFixture(root, 'spec-1', 'active');
+    const fetchImpl = okFetch();
+    const restore = stubFetch(fetchImpl);
+
+    await runRecord('gate', {
+      json: '{"gate":4,"layer":"request","spec":"spec-1","decision":"merge","presentedCriteria":["AC-01"]}',
+    });
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(fs.existsSync(path.join(process.env.AWL_HOME as string, 'sync-cursor.json'))).toBe(false);
+
+    restore();
+  });
+
+  it('전송이 실패해도(HTTP 500) 명령은 그대로 성공하고 커서에 백오프가 기록된다("서버가 죽어도 루프는 돈다")', async () => {
+    const root = project({ workitem: 'WI-9', workitems: {} });
+    writeSpecFixture(root, 'spec-1', 'active');
+    writeGlobalSyncConfig({ recordsEndpoint: 'http://localhost:9999' });
+    const restore = stubFetch(failFetch());
+
+    await runRecord('gate', {
+      json: '{"gate":4,"layer":"request","spec":"spec-1","decision":"merge","presentedCriteria":["AC-01"]}',
+    });
+
+    expect(readSpecStatus(path.join(root, 'docs', 'specs', '20260101-000000-spec-1.md'))).toBe(
+      'closed',
+    ); // 로컬은 이미 반영됨 — 전송 실패와 무관
+    const cursor = readSyncCursor();
+    expect(cursor.specs?.backoffIndex).toBe(0);
+    expect(cursor.specs?.nextAttemptAt).toBeDefined();
+
+    restore();
+  });
+
+  it('티켓이 done 이 되면 그 티켓에 속한 기록들을 /records 로 전송한다', async () => {
+    // 티켓 주도 흐름(ADK stage 2d)에서는 활성 workitem 자체가 티켓 id다 —
+    // 그래야 이 티켓에 딸린 기록이 전부 workitem:'ticket-1' 로 태깅된다.
+    const root = project({ workitem: 'ticket-1', workitems: {} });
+    writeTicketFixture(root, 'ticket-1', 'implementing');
+    writeGlobalSyncConfig({ recordsEndpoint: 'http://localhost:9999' });
+    // 이 티켓에 속한 작업 기록 하나를 미리 남겨둔다.
+    await runRecord('spike', { json: '{"question":"q","found":"f"}' });
+
+    const fetchImpl = okFetch();
+    const restore = stubFetch(fetchImpl);
+
+    await runRecord('gate', {
+      json: '{"gate":3,"layer":"ticket","ticket":"ticket-1","decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+
+    // spike 기록 1건 + 방금 남긴 gate:3 기록 1건 = 2건 전송 시도.
+    expect((fetchImpl as ReturnType<typeof vi.fn>).mock.calls.length).toBe(2);
+    const urls = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    expect(urls.every((u) => u === 'http://localhost:9999/records')).toBe(true);
+
+    restore();
+  });
+
+  it('awl-feedback 은 records 가 아니라 feedback endpoint 로, 발생 즉시 전송된다', async () => {
+    project({ workitem: 'WI-9', workitems: {} });
+    writeGlobalSyncConfig({ feedbackEndpoint: 'http://localhost:8888/feedback' });
+    const fetchImpl = okFetch();
+    const restore = stubFetch(fetchImpl);
+
+    await runRecord('awl-feedback', {
+      json: '{"area":"cli","severity":"low","what":"x","impact":"y"}',
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const [url] = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0] as [string];
+    expect(url).toBe('http://localhost:8888/feedback'); // endpoint 가 이미 전체 경로(prototype.md:105)
+
+    restore();
   });
 });
 
