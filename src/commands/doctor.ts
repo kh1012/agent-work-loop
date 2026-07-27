@@ -8,7 +8,9 @@ import {
   projectsFile,
   rulesDir,
 } from '../core/paths.js';
+import { readGlobalAwlConfig } from '../core/global-config.js';
 import { CommandNotFoundError, run, tokenize } from '../core/runner.js';
+import { readSyncCursor } from '../core/sync.js';
 import {
   type Caps,
   caps,
@@ -523,6 +525,33 @@ function collectGlobal(checks: Check[], versionResult: VersionCheckResult): void
     projectCount = Object.keys(projects).length;
   }
   checks.push({ group: '전역 설치', name: '프로젝트', status: 'info', value: `${projectCount}개` });
+
+  // sync(중앙 저장소 전송, ADK stage 3) — prototype.md:419-430 화면 그대로.
+  // 사람마다 한 번(전역) 설정이라 전역 설치와 나란히 검사하되, 그룹은 따로 둔다.
+  const recordsEndpoint = readGlobalAwlConfig()?.sync?.records?.endpoint;
+  if (!recordsEndpoint) {
+    checks.push({
+      group: 'sync',
+      name: 'endpoint',
+      status: 'info',
+      value: '없음',
+      hint: '전송이 꺼져 있습니다. 기록은 로컬에만 쌓입니다.',
+    });
+  } else {
+    checks.push({ group: 'sync', name: 'endpoint', status: 'ok', value: recordsEndpoint });
+    const stream = readSyncCursor().records;
+    if (stream?.backoffIndex !== undefined) {
+      checks.push({
+        group: 'sync',
+        name: '상태',
+        status: 'warn',
+        value: `재시도 중${stream.lastFailureReason ? ` (${stream.lastFailureReason})` : ''}`,
+        hint: `미전송 ${stream.pendingCount ?? 0}건. 서버를 켜면 함께 나갑니다.`,
+      });
+    } else {
+      checks.push({ group: 'sync', name: '상태', status: 'ok', value: '정상' });
+    }
+  }
 }
 
 /**

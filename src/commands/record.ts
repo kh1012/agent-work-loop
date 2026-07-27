@@ -234,7 +234,9 @@ async function attemptSend(
     return; // 다음 재시도 시각 전 — 조용히 건너뛴다.
   }
   const result = await send();
-  const nextStream = result.ok ? recordSuccess(envelopeId, now) : recordFailure(stream, now);
+  const nextStream = result.ok
+    ? recordSuccess(envelopeId, now)
+    : recordFailure(stream, now, result.reason);
   writeSyncCursor({ ...cursor, [streamKey]: nextStream });
 }
 

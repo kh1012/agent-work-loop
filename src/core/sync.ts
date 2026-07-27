@@ -112,6 +112,8 @@ export interface SyncStreamState {
   firstFailureAt?: string;
   /** doctor 표시용 — 아직 못 보낸 것으로 추정되는 건수. */
   pendingCount?: number;
+  /** doctor 표시용 — 마지막 실패 사유(prototype.md:428 "재시도 중 (ECONNREFUSED)"). */
+  lastFailureReason?: string;
 }
 
 export interface SyncCursor {
@@ -172,6 +174,7 @@ export function shouldGiveUp(stream: SyncStreamState | undefined, now: () => num
 export function recordFailure(
   stream: SyncStreamState | undefined,
   now: () => number,
+  reason?: string,
 ): SyncStreamState {
   const prevIndex = stream?.backoffIndex ?? -1;
   const nextIndex = Math.min(prevIndex + 1, BACKOFF_SCHEDULE_MIN.length - 1);
@@ -182,6 +185,7 @@ export function recordFailure(
     nextAttemptAt: new Date(now() + delayMs).toISOString(),
     firstFailureAt: stream?.firstFailureAt ?? new Date(now()).toISOString(),
     pendingCount: (stream?.pendingCount ?? 0) + 1,
+    lastFailureReason: reason ?? stream?.lastFailureReason,
   };
 }
 

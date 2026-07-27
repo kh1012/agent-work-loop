@@ -244,6 +244,60 @@ describe('collectChecks — 설치됨 흉내', () => {
   });
 });
 
+describe('collectChecks — sync 섹션 (ADK stage 3, prototype.md:419-430)', () => {
+  beforeEach(() => {
+    process.env.AWL_HOME = makeInstalledHome();
+    process.chdir(makeInstalledProject());
+  });
+
+  it('endpoint 가 없으면 info · "없음"으로 표시하고 전송이 꺼져 있음을 안내한다', async () => {
+    const report = await collectChecks();
+    const endpoint = find(report.checks, 'endpoint');
+    expect(endpoint?.status).toBe('info');
+    expect(endpoint?.value).toBe('없음');
+    expect(endpoint?.hint).toContain('전송이 꺼져 있습니다');
+    expect(find(report.checks, '상태')).toBeUndefined(); // endpoint 없으면 상태 행 자체가 없다
+  });
+
+  it('endpoint 가 있고 실패 기록이 없으면 ok · "정상"으로 표시한다', async () => {
+    fs.writeFileSync(
+      path.join(process.env.AWL_HOME as string, 'config.json'),
+      JSON.stringify({ sync: { records: { endpoint: 'http://localhost:9999' } } }),
+    );
+    const report = await collectChecks();
+    expect(find(report.checks, 'endpoint')?.status).toBe('ok');
+    expect(find(report.checks, 'endpoint')?.value).toBe('http://localhost:9999');
+    expect(find(report.checks, '상태')?.status).toBe('ok');
+    expect(find(report.checks, '상태')?.value).toBe('정상');
+  });
+
+  it('endpoint 가 있고 백오프 중이면 warn · 재시도 사유와 미전송 건수를 보여준다', async () => {
+    fs.writeFileSync(
+      path.join(process.env.AWL_HOME as string, 'config.json'),
+      JSON.stringify({ sync: { records: { endpoint: 'http://localhost:9999' } } }),
+    );
+    fs.writeFileSync(
+      path.join(process.env.AWL_HOME as string, 'sync-cursor.json'),
+      JSON.stringify({
+        records: {
+          backoffIndex: 1,
+          pendingCount: 12,
+          lastFailureReason: 'ECONNREFUSED',
+        },
+      }),
+    );
+    const report = await collectChecks();
+    const status = find(report.checks, '상태');
+    expect(status?.status).toBe('warn');
+    expect(status?.value).toContain('재시도 중');
+    expect(status?.value).toContain('ECONNREFUSED');
+    expect(status?.hint).toContain('미전송 12건');
+    // warn 이어도 doctor 종료코드(problems)에는 안 걸린다(prototype.md:432 "꺼짐은 고장이 아니다").
+    const problems = report.checks.filter((c) => c.status === 'missing' || c.status === 'fail');
+    expect(problems.some((c) => c.name === '상태')).toBe(false);
+  });
+});
+
 describe('collectChecks — 프로젝트 루트/브랜치 표시 (WI-C)', () => {
   beforeEach(() => {
     process.env.AWL_HOME = makeInstalledHome();
