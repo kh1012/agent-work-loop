@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { applyInit, nonInteractiveInputs } from '../../src/commands/init.js';
+import { applyInit, nonInteractiveInputs, stagesMdContent } from '../../src/commands/init.js';
 import { applyLocalUpdate, applyUpdate, runUpdate } from '../../src/commands/update.js';
 
 const origHome = process.env.AWL_HOME;
@@ -131,6 +131,26 @@ describe('applyLocalUpdate — 등록된 프로젝트 전부 재동기화 (awl-u
     const results = applyLocalUpdate(engineVersion, '2026-01-02T00:00:00.000Z');
     expect(results).toHaveLength(1);
     expect(results[0]?.status).toBe('up-to-date');
+  });
+
+  it('낡은 stages.md 는 awl update --local(applyLocalUpdate) 이 최신으로 재생성한다(ADK stage 1)', () => {
+    const home = tmp('awl-update-local-home-');
+    seedEngineDir(home);
+    process.env.AWL_HOME = home;
+    applyUpdate();
+    const engineVersion = readEngineVersion(home);
+
+    const proj = tmp('awl-update-local-proj-');
+    const inputs = nonInteractiveInputs(proj);
+    applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
+
+    const stagesMdPath = path.join(proj, '.awl', 'stages.md');
+    fs.writeFileSync(stagesMdPath, '낡은 내용\n');
+    expect(fs.readFileSync(stagesMdPath, 'utf8')).not.toBe(stagesMdContent());
+
+    applyLocalUpdate(engineVersion, '2026-01-02T00:00:00.000Z');
+
+    expect(fs.readFileSync(stagesMdPath, 'utf8')).toBe(stagesMdContent());
   });
 
   it('등록된 프로젝트의 경로가 사라졌으면 죽지 않고 status:skipped 로 건너뛴다', () => {

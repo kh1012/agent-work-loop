@@ -14,4 +14,5 @@
 - pipeline의 plan/exec/review 역할만 직접 수행할 때는 각각 `$awl-pipeline-plan`,
   `$awl-pipeline-exec`, `$awl-pipeline-review`를 사용한다.
 - push는 사용자가 직접 한다.
+- 단계 계약은 `.awl/stages.md`를 참조한다.
 <!-- awl-loop:end -->

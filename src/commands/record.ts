@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { readGlobalAwlConfig } from '../core/global-config.js';
 import { recordsDir } from '../core/paths.js';
 import { run } from '../core/runner.js';
 import { type Caps, caps, makeColors, sectionBox, signal } from '../core/tty.js';
@@ -190,7 +191,7 @@ function isHangulSyllable(ch: string): boolean {
  * 일부로 보고 건너뛰고, 앞/뒤가 한글이 아니면(공백·문장부호·문자열 시작/끝)
  * 독립된 표현으로 보고 거부 대상으로 삼는다.
  */
-function includesBannedWord(text: string, word: string): boolean {
+export function includesBannedWord(text: string, word: string): boolean {
   let idx = text.indexOf(word);
   while (idx !== -1) {
     const before = idx > 0 ? text[idx - 1] : undefined;
@@ -211,6 +212,8 @@ export interface RecordDefaults {
   workitem?: string;
   id: string;
   at: string;
+  /** 전역 config(~/.awl/config.json)의 author (ADK stage 1). 없으면 필드 자체를 생략한다 — 필수 아님. */
+  author?: string;
 }
 
 export interface BuildResult {
@@ -415,6 +418,9 @@ export function buildRecord(
   record.at = defaults.at;
   if (workitem) {
     record.workitem = workitem;
+  }
+  if (defaults.author) {
+    record.author = defaults.author;
   }
   return { record, missing: [] };
 }
@@ -925,6 +931,7 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
     workitem: defaultWorkitem,
     id,
     at,
+    author: readGlobalAwlConfig()?.author,
   });
   if (!record) {
     process.stderr.write(

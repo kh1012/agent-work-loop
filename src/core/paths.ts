@@ -101,6 +101,15 @@ export function npmVersionCachePath(): string {
 }
 
 /**
+ * ~/.awl/config.json — 전역 사용자 설정(author · sync). installationRoot() 기준이라
+ * 격리 홈(--isolated 레인) 안에서도 부모 설치의 값을 그대로 본다 — 레인마다
+ * author 를 다시 묻지 않는다(ADK stage 1).
+ */
+export function globalConfigPath(): string {
+  return path.join(installationRoot(), 'config.json');
+}
+
+/**
  * 현재 디렉토리에서 위로 올라가며 .git 또는 .awl 을 찾는다.
  * 파일 시스템 루트까지 못 찾으면 명확한 에러를 던진다.
  *

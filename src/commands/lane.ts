@@ -181,15 +181,20 @@ export async function unmergedCommitCount(root: string, branch: string): Promise
   return Number.isNaN(n) ? null : n;
 }
 
-/** awl/도구가 워크트리에 만드는 산출물 경로(진짜 WIP 아님, worktreeUntracked 에서 제외). */
-const AWL_INTERNAL_DIRS = new Set(['.awl', '.awl-worktrees', '.claude']);
+/**
+ * awl/도구가 워크트리에 만드는 산출물 최상위 경로(진짜 WIP 아님, worktreeUntracked 에서
+ * 제외). 디렉토리(.awl 등)와 단일 루트 파일(CLAUDE.md/AGENTS.md — 스킬 설치가 프로젝트에
+ * 처음 만드는 참조 파일, ADK stage 1) 둘 다 담는다.
+ */
+const AWL_INTERNAL_PATHS = new Set(['.awl', '.awl-worktrees', '.claude', 'CLAUDE.md', 'AGENTS.md']);
 
 /**
  * 레인 워크트리의 genuine untracked 파일(미add 신규)을 조사한다(AC-01, F-01). work done
  * 과 공유하는 worktreeDirtyTracked 는 --untracked-files=no 라 이걸 못 본다 — lane rm 은
  * 워크트리를 통째로 파기하므로 미커밋 신규 파일도 손실이다. awl 자신의 산출물
  * (.awl/(·.awl/home/ 포함) state·verify-baseline·isolated records, .awl-worktrees/, lane new 가
- * 재설치하는 .claude/)은 WIP 가 아니므로 제외한다(G-034: 도구 산출물은 도구 필터로 무시).
+ * 재설치하는 .claude/, 스킬 설치가 처음 만드는 CLAUDE.md/AGENTS.md)은 WIP 가 아니므로
+ * 제외한다(G-034: 도구 산출물은 도구 필터로 무시).
  *
  * remove(awl-uninstall-reset AC-03)도 이 안전망을 그대로 재사용한다 — export.
  */
@@ -207,7 +212,7 @@ export async function worktreeUntracked(
     .split('\n')
     .map((l) => l.trim())
     .filter(Boolean)
-    .filter((f) => !AWL_INTERNAL_DIRS.has(f.split('/')[0] ?? ''));
+    .filter((f) => !AWL_INTERNAL_PATHS.has(f.split('/')[0] ?? ''));
   return { untracked: files.length > 0, count: files.length, first: files[0] };
 }
 

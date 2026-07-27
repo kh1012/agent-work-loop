@@ -12,7 +12,18 @@ import {
   step,
 } from '../core/flow.js';
 import { resolveGitLayout } from '../core/git-layout.js';
-import { engineDir, globalRoot, isInsideWorktreesDir, projectsFile } from '../core/paths.js';
+import {
+  type GlobalAwlConfig,
+  seedAuthorFromGitConfig,
+  writeGlobalAwlConfig,
+} from '../core/global-config.js';
+import {
+  engineDir,
+  globalConfigPath,
+  globalRoot,
+  isInsideWorktreesDir,
+  projectsFile,
+} from '../core/paths.js';
 import { runInteractiveSelect } from '../core/select.js';
 import {
   type Caps,
@@ -478,6 +489,67 @@ export function isGlobalInstalled(): boolean {
   return exists(globalRoot());
 }
 
+function emptyGlobalConfig(author: string): GlobalAwlConfig {
+  // sync 는 스키마만 미리 갖춘다 — 실제 전송 로직은 ADK stage 3 대상이라 여기서
+  // endpoint 를 채우거나 호출하지 않는다.
+  return { author, sync: { records: { endpoint: '', token: '' }, feedback: { endpoint: '' } } };
+}
+
+/**
+ * author 를 대화형으로 묻는다(promptVerifyLocation 과 같은 패턴 — rl 을 주입받아
+ * 순수 로직만 테스트 가능하게 한다). Enter 만 치면 seed 값 그대로, 값을 입력하면
+ * 그 값을 돌려준다.
+ */
+export async function promptAuthorInteractive(
+  rl: readline.Interface,
+  seed: string,
+  c: Caps,
+): Promise<string> {
+  process.stdout.write(
+    `${flowConnector(c)}\n${flowActiveNode(
+      '작성자',
+      ['기록에 남을 이메일입니다. ~/.awl/config.json 에 저장되고, 저장소마다 다시 묻지 않습니다.'],
+      c,
+    )}\n`,
+  );
+  const shown = seed || '(없음)';
+  const answer = (await ask(rl, `${flowConnector(c)}  author [${shown}]: `)).trim();
+  return answer || seed;
+}
+
+/**
+ * ~/.awl/config.json(전역, author·sync)이 없을 때만 만든다 — 사람마다 평생 한 번.
+ * 게이팅은 이 파일 자체의 존재 여부로 한다. isGlobalInstalled()(=~/.awl 디렉토리
+ * 존재)를 재사용하면 이미 ~/.awl 이 있는 기존 사용자에게 author 프롬프트가
+ * 영원히 안 뜨는 버그가 생긴다(ADK stage 1).
+ *
+ * promptInteractively=false(--yes)면 git config user.email 시드값으로 조용히
+ * 만든다 — 실패해도(git 없음 등) 빈 문자열로 진행하며 절대 막지 않는다.
+ */
+export async function ensureGlobalAwlConfig(opts: {
+  promptInteractively: boolean;
+  c: Caps;
+}): Promise<void> {
+  if (exists(globalConfigPath())) {
+    return;
+  }
+  const seed = await seedAuthorFromGitConfig(process.cwd());
+  if (!opts.promptInteractively) {
+    writeGlobalAwlConfig(emptyGlobalConfig(seed));
+    return;
+  }
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const flow = openFlow('전역 설정 · 최초 1회', opts.c);
+  try {
+    const author = await promptAuthorInteractive(rl, seed, opts.c);
+    selectStep(flow, `author: ${author || '(없음)'}`);
+    writeGlobalAwlConfig(emptyGlobalConfig(author));
+  } finally {
+    rl.close();
+    closeFlow(flow);
+  }
+}
+
 /**
  * ~/.awl 골격을 만들고, 패키지에 든 최신 engine 템플릿을 복사한다.
  * `awl init` 재실행은 프로젝트 설정을 선택적으로 유지하면서도 홈 템플릿은
@@ -531,36 +603,139 @@ export function writeState(projectRoot: string, now: string): string {
 }
 
 /**
- * .gitignore 에 awl 이 관리하는 항목을 추가한다. 이미 있는 항목은 건너뛴다.
- *  - `.awl/state.json`: 로컬 루프 상태(팀과 공유하지 않는다).
- *  - `.awl/verify-baseline.json`: work new 가 잡는 검증 베이스라인(로컬 전용). init 이
- *    미리 안 넣으면 나중에 verify 가 추가하면서 .gitignore 를 미커밋으로 남기고, 첫
- *    `awl commit` 이 그 변경을 "남의 것"으로 오인해 제외한다 — 그래서 init 이 한 번에 넣는다.
- *  - `.awl-worktrees/`: awl 이 `work new --worktree` 로 만드는 워크트리. gitignore 하지 않으면
- *    그 안의 파일들이 `commit --start` 의 untracked 스냅샷에 박혀 state.json 을 폭증시킨다
- *    (피드백 F-1 근원 차단 — commit.ts 의 코드 레벨 필터와 이중 방어).
- *  - `.awl/home/`: awl 이 `work new --isolated` 로 만드는 워크아이템 전용 records home.
- *    `.awl-worktrees/` 와 같은 이유로 이중 방어한다(commit self-filter + gitignore).
- * 하나라도 새로 추가하면 'added', 전부 이미 있으면 'exists' 를 돌려준다.
+ * `docs/CONTEXT.md` 스켈레톤 — 없으면 만든다(ADK stage 1 용어집). `awl doc lint`
+ * 가 이 파일의 `- 쓰지 않음:` 목록을 검사 대상으로 삼으므로, init 시점에 항상
+ * 대상 파일이 있게 해둔다. doc.ts 는 여기서 만든 이 함수를 그대로 가져다 쓴다
+ * (반대로 init.ts 가 doc.ts 를 가져오면 doc.ts→config.ts→init.ts 순환 참조가 된다).
+ */
+export function ensureContextMd(projectRoot: string): 'added' | 'exists' {
+  const p = path.join(projectRoot, 'docs', 'CONTEXT.md');
+  if (exists(p)) {
+    return 'exists';
+  }
+  writeFileEnsuringDir(
+    p,
+    [
+      '# CONTEXT.md',
+      '',
+      '용어를 정의합니다. 섹션 하나가 용어 하나입니다.',
+      '',
+      '## 예시 용어',
+      '설명.',
+      '',
+      '- 쓰지 않음: 대체하지 않을 동의어',
+      '- 코드: `Identifier`',
+      '',
+    ].join('\n'),
+  );
+  return 'added';
+}
+
+/**
+ * `.awl/stages.md` 내용 — ADK 단계 계약 표. 정적이다(스테이지 2에서 실제 게이트/티켓
+ * 파이프라인이 재배선되면 이 표도 갱신된다). untracked(WI-2의 `.awl/*` 화이트리스트가
+ * 이미 커버) — 항상 지금 설치된 엔진 버전 기준 최신이다.
+ */
+export function stagesMdContent(): string {
+  return [
+    '# .awl/stages.md',
+    '',
+    '이 파일은 awl 이 생성합니다. 직접 고치지 마세요 — `awl update`/`awl doctor` 가 다시 씁니다.',
+    '',
+    '| 단계 | 입력 | 출력 | 끝났다는 판정 |',
+    '|---|---|---|---|',
+    '| investigation | 조건 · 기존 finding | finding 목록 + file:line | 조건을 건드리는 경로가 전부 목록에 있는가 |',
+    '| clarification | 코드 · 계획 | 정한 것 목록 또는 "없음" | 코드로 답할 수 있는 질문이 안 남았는가 |',
+    '| implement | 조건 · finding | 커밋 | 검증이 통과하는가 |',
+    '',
+  ].join('\n');
+}
+
+/** `.awl/stages.md` 를 (재)생성한다 — 매번 무조건 덮어쓴다(정적 내용이라 diff 감지가 불필요). */
+export function writeStagesMd(projectRoot: string): string {
+  const p = path.join(projectRoot, '.awl', 'stages.md');
+  writeFileEnsuringDir(p, stagesMdContent());
+  return p;
+}
+
+const AWL_STAGES_START = '<!-- awl-stages:start -->';
+const AWL_STAGES_END = '<!-- awl-stages:end -->';
+
+function claudeMdStagesSnippet(): string {
+  return [AWL_STAGES_START, '@.awl/stages.md', AWL_STAGES_END].join('\n');
+}
+
+/**
+ * CLAUDE.md 가 `.awl/stages.md` 를 참조하게 한다(마커 블록, 파일 끝에 둔다 — AGENTS.md
+ * 패치와 같은 자리). CLAUDE.md 는 커밋되는 파일이라 계약 표 자체를 박지 않고 참조만
+ * 남긴다 — 원본(stages.md)이 매번 최신으로 재생성되므로 CLAUDE.md 는 안 건드려도 된다.
+ */
+export function upsertClaudeMdStagesRef(projectRoot: string): void {
+  const p = path.join(projectRoot, 'CLAUDE.md');
+  const current = exists(p) ? fs.readFileSync(p, 'utf8') : '';
+  const next = upsertMarkedBlock(
+    current,
+    AWL_STAGES_START,
+    AWL_STAGES_END,
+    claudeMdStagesSnippet(),
+  );
+  if (next !== current) {
+    fs.writeFileSync(p, next);
+  }
+}
+
+const AWL_GITIGNORE_START = '# awl:start';
+const AWL_GITIGNORE_END = '# awl:end';
+
+/**
+ * `.awl/*` 를 통째로 무시하고 커밋해야 하는 파일만 화이트리스트로 되살린다(ADK
+ * stage 1 — 허용목록 방식). 새 파일이 `.awl/` 아래 생겨도 gitignore 를 안 고쳐도
+ * 항상 untracked 다. 거부목록(개별 라인 추가)이었던 예전 방식은 파일이 늘 때마다
+ * 한 줄씩 추가해야 했고, 빠뜨리면 그대로 유출됐다.
+ */
+function awlGitignoreBlock(): string {
+  return [
+    AWL_GITIGNORE_START,
+    '.awl/*',
+    '!.awl/config.json',
+    '!.awl/profile.json',
+    AWL_GITIGNORE_END,
+  ].join('\n');
+}
+
+/**
+ * .gitignore 에 awl 이 관리하는 항목을 반영한다.
+ *  - `.awl/*` 화이트리스트 블록을 파일 맨 위에 둔다 — 사람이 손으로 얹은 예외보다
+ *    항상 앞에 있어야 이후에 추가되는 어떤 예외도 이긴다.
+ *  - `.awl-worktrees/`: `.awl/` 바깥이라 위 블록이 못 덮는다. awl 이 `work new
+ *    --worktree` 로 만드는 워크트리다. gitignore 하지 않으면 그 안의 파일들이
+ *    `commit --start` 의 untracked 스냅샷에 박혀 state.json 을 폭증시킨다(피드백
+ *    F-1 근원 차단 — commit.ts 의 코드 레벨 필터와 이중 방어). 블록 밖의 개별
+ *    라인으로 계속 유지한다.
+ * 하나라도 새로 반영하면 'added', 전부 이미 있으면 'exists' 를 돌려준다.
  */
 export function ensureGitignore(projectRoot: string): 'added' | 'exists' {
   const gi = path.join(projectRoot, '.gitignore');
-  const targets = [
-    '.awl/state.json',
-    '.awl/verify-baseline.json',
-    '.awl/state.lock',
-    '.awl-worktrees/',
-    '.awl/home/',
-  ];
-  let content = exists(gi) ? fs.readFileSync(gi, 'utf8') : '';
-  const has = (t: string): boolean => content.split(/\r?\n/).some((line) => line.trim() === t);
-  const missing = targets.filter((t) => !has(t));
-  if (missing.length === 0) {
-    return 'exists';
-  }
-  for (const target of missing) {
+  const original = exists(gi) ? fs.readFileSync(gi, 'utf8') : '';
+
+  let content = upsertMarkedBlock(
+    original,
+    AWL_GITIGNORE_START,
+    AWL_GITIGNORE_END,
+    awlGitignoreBlock(),
+    {
+      position: 'top',
+    },
+  );
+
+  const hasWorktreesLine = content.split(/\r?\n/).some((line) => line.trim() === '.awl-worktrees/');
+  if (!hasWorktreesLine) {
     const prefix = content.length > 0 && !content.endsWith('\n') ? '\n' : '';
-    content = `${content}${prefix}${target}\n`;
+    content = `${content}${prefix}.awl-worktrees/\n`;
+  }
+
+  if (content === original) {
+    return 'exists';
   }
   fs.writeFileSync(gi, content);
   return 'added';
@@ -706,19 +881,39 @@ export function codexSkillLabel(names: string[] = codexSkillNames()): string {
   return `Codex (.agents/skills/ 에 ${names.length}개 스킬 + AGENTS.md)`;
 }
 
+/**
+ * 마커 블록(startMarker...endMarker)을 최신 snippet 으로 교체하고, 없으면
+ * 추가한다. position: 'end'(기본)는 파일 끝에 붙인다(AGENTS.md 등 안내문 성격).
+ * position: 'top'은 파일 맨 앞에 둔다(gitignore 등 — 사람이 손으로 얹은 예외보다
+ * 항상 앞에 있어야 이후 예외가 이긴다).
+ */
+export function upsertMarkedBlock(
+  current: string,
+  startMarker: string,
+  endMarker: string,
+  snippet: string,
+  opts: { position?: 'top' | 'end' } = {},
+): string {
+  const start = current.indexOf(startMarker);
+  const end = start >= 0 ? current.indexOf(endMarker, start) : -1;
+  if (start >= 0 && end >= 0) {
+    const blockEnd = end + endMarker.length;
+    return `${current.slice(0, start)}${snippet.trimEnd()}${current.slice(blockEnd)}`;
+  }
+  if (opts.position === 'top') {
+    const trimmed = snippet.trimEnd();
+    return current.length === 0 ? `${trimmed}\n` : `${trimmed}\n\n${current}`;
+  }
+  const prefix = current.length > 0 && !current.endsWith('\n') ? '\n' : '';
+  return `${current}${prefix}${current.length > 0 ? '\n' : ''}${snippet}`;
+}
+
 const AWL_AGENTS_START = '<!-- awl-loop:start -->';
 const AWL_AGENTS_END = '<!-- awl-loop:end -->';
 
 /** 기존 awl 마커 블록은 최신 snippet으로 교체하고, 없으면 파일 끝에 추가한다. */
 function upsertAwlAgentsBlock(current: string, snippet: string): string {
-  const start = current.indexOf(AWL_AGENTS_START);
-  const end = start >= 0 ? current.indexOf(AWL_AGENTS_END, start) : -1;
-  if (start >= 0 && end >= 0) {
-    const blockEnd = end + AWL_AGENTS_END.length;
-    return `${current.slice(0, start)}${snippet.trimEnd()}${current.slice(blockEnd)}`;
-  }
-  const prefix = current.length > 0 && !current.endsWith('\n') ? '\n' : '';
-  return `${current}${prefix}${current.length > 0 ? '\n' : ''}${snippet}`;
+  return upsertMarkedBlock(current, AWL_AGENTS_START, AWL_AGENTS_END, snippet);
 }
 
 /**
@@ -862,6 +1057,16 @@ export function syncExistingInstall(
     engineVersion,
   );
 
+  // stages.md 는 항상 최신 엔진 버전 기준으로 재생성한다(untracked) — 재실행마다
+  // 무조건 덮어써 "awl 을 업데이트하면 stages.md 가 새 버전으로 재생성되어야 한다"를
+  // 만족시킨다. CLAUDE.md 참조는 Claude Code 를 쓰는 프로젝트에만 만든다(applyInit 과
+  // 같은 이유 — Codex-only 프로젝트에 낯선 루트 파일을 남기지 않는다).
+  writeStagesMd(projectRoot);
+  ensureContextMd(projectRoot);
+  if (claudeInUse) {
+    upsertClaudeMdStagesRef(projectRoot);
+  }
+
   return { configUpdated, skills, registrationSkipped };
 }
 
@@ -956,6 +1161,20 @@ export function applyInit(
     { claude: claudeInstalled, codex: codexInstalled },
     g.engineVersion,
   );
+
+  writeStagesMd(projectRoot);
+  // docs/CONTEXT.md 는 여기서 안 만든다 — applyInit()은 lane.ts(`work new
+  // --worktree`/`lane new`)도 재사용하는데, 거기서 만들면 실제 내용이 없는(빈)
+  // CONTEXT.md 가 레인 워크트리마다 새로 untracked 로 생겨 lane rm 의 WIP 안전망을
+  // 매번 건드린다(CLAUDE.md 와 달리 CONTEXT.md 는 사람이 채워가는 진짜 산출물이라
+  // "awl 이 만들었으니 버려도 된다" 취급을 하면 안 된다). 그래서 runInit/
+  // syncExistingInstall(사람이 직접 여는 awl init/update 경로)에서만 부른다.
+  // CLAUDE.md 참조는 AGENTS.md 와 같은 원칙 — Claude Code 를 쓰는 프로젝트에만 만든다.
+  // (lane.ts 의 AWL_INTERNAL_PATHS 가 CLAUDE.md/AGENTS.md 를 awl 산출물로 이미 인식하지만,
+  // 그래도 안 쓰는 에이전트의 루트 파일을 굳이 새로 만들 이유는 없다.)
+  if (claudeInstalled) {
+    upsertClaudeMdStagesRef(projectRoot);
+  }
 
   return {
     globalCreated: g.created,
@@ -1621,6 +1840,7 @@ async function handleExistingConfig(
   rl.close();
   const { inputs, session } = await interactiveInputs(projectRoot, isGlobalInstalled(), c);
   const result = applyInit(projectRoot, inputs, now, { installPushGuard: pushGuard });
+  ensureContextMd(projectRoot);
   commitResultFlow(session, result, inputs, c);
   closeFlow(session);
 }
@@ -1830,6 +2050,10 @@ export async function runInit(opts: { yes: boolean; pushGuard?: boolean }): Prom
   const now = new Date().toISOString();
   const configExists = exists(path.join(projectRoot, '.awl', 'config.json'));
 
+  // 전역 설정(author)은 이 저장소의 .awl/config.json 존재 여부와 무관하게, 사람마다
+  // 평생 한 번만 묻는다 — 그래서 4개 실행 분기가 갈라지기 전에 독립적으로 처리한다.
+  await ensureGlobalAwlConfig({ promptInteractively: !opts.yes, c });
+
   if (opts.yes) {
     if (configExists) {
       const engine = scaffoldGlobal();
@@ -1849,6 +2073,7 @@ export async function runInit(opts: { yes: boolean; pushGuard?: boolean }): Prom
     }
     const inputs = nonInteractiveInputs(projectRoot);
     const result = applyInit(projectRoot, inputs, now, { installPushGuard: pushGuard });
+    ensureContextMd(projectRoot);
     process.stdout.write(`${renderResult(result, inputs, c)}\n`);
     return;
   }
@@ -1882,6 +2107,7 @@ export async function runInit(opts: { yes: boolean; pushGuard?: boolean }): Prom
   }
   const { inputs, session } = await interactiveInputs(chosenRoot, isGlobalInstalled(), c);
   const result = applyInit(chosenRoot, inputs, now, { installPushGuard: pushGuard });
+  ensureContextMd(chosenRoot);
   commitResultFlow(session, result, inputs, c);
   closeFlow(session);
 }

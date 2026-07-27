@@ -110,6 +110,27 @@ describe('buildRecord — awl-feedback (0.6.x, AC-01)', () => {
   });
 });
 
+describe('buildRecord — author (ADK stage 1)', () => {
+  it('defaults.author 가 있으면 기록에 author 필드가 붙는다', () => {
+    const r = buildRecord(
+      'awl-feedback',
+      { area: 'commit', what: 'x', impact: 'y', severity: 'high' },
+      { ...DEFAULTS, author: 'hong@midasit.com' },
+    );
+    expect(r.record?.author).toBe('hong@midasit.com');
+  });
+
+  it('defaults.author 가 없으면 진행은 되고 author 필드는 아예 생략된다(필수 아님)', () => {
+    const r = buildRecord(
+      'awl-feedback',
+      { area: 'commit', what: 'x', impact: 'y', severity: 'high' },
+      DEFAULTS,
+    );
+    expect(r.missing).toEqual([]);
+    expect(r.record).not.toHaveProperty('author');
+  });
+});
+
 describe('buildRecord — refactor (loop-refactor-checkpoint AC-03)', () => {
   it('what/kind 가 다 있으면 기록을 만든다', () => {
     const r = buildRecord(
@@ -1003,6 +1024,25 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
     });
     const records = readRecords({ workitem: 'WI-9' });
     expect(records).toHaveLength(1);
+  });
+
+  it('전역 config(~/.awl/config.json) 가 없으면 author 없이 정상 기록된다(진행을 막지 않는다, ADK stage 1)', async () => {
+    project({ workitem: 'WI-9', workitems: {} });
+    await runRecord('spike', { json: '{"question":"q","found":"f"}' });
+    const records = readRecords({ workitem: 'WI-9' });
+    expect(records).toHaveLength(1);
+    expect(records[0]?.author).toBeUndefined();
+  });
+
+  it('전역 config 에 author 가 있으면 기록에 반영된다(ADK stage 1)', async () => {
+    project({ workitem: 'WI-9', workitems: {} });
+    fs.writeFileSync(
+      path.join(process.env.AWL_HOME as string, 'config.json'),
+      JSON.stringify({ author: 'hong@midasit.com' }),
+    );
+    await runRecord('spike', { json: '{"question":"q","found":"f"}' });
+    const records = readRecords({ workitem: 'WI-9' });
+    expect(records[0]?.author).toBe('hong@midasit.com');
   });
 });
 

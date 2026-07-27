@@ -795,6 +795,36 @@ export function buildProgram(): Command {
       await runLaneRemove(name, { force: opts.force === true });
     });
 
+  // 사람이 치는 명령: doc (ADK 문서 — spec/ticket/decision, ADK stage 1)
+  const doc = program.command('doc').description('ADK 문서(spec/ticket/decision)를 관리합니다');
+  doc
+    .command('new <type> <title...>')
+    .description('스펙/티켓/결정 스켈레톤을 만듭니다 (type: spec, ticket, decision)')
+    .option('--spec <id>', '(ticket 전용) 소속 스펙 id')
+    .option('--supersedes <id>', '(decision 전용) 대체하는 이전 결정 id')
+    .action(
+      async (type: string, titleParts: string[], opts: { spec?: string; supersedes?: string }) => {
+        if (type !== 'spec' && type !== 'ticket' && type !== 'decision') {
+          process.stderr.write(
+            `\n  ${signal(caps(), 'error')} type 은 spec, ticket, decision 중 하나여야 합니다: ${type}\n`,
+          );
+          process.exit(1);
+          return;
+        }
+        const { runDocNew } = await import('./commands/doc.js');
+        await runDocNew(type, titleParts, opts);
+      },
+    );
+  doc
+    .command('lint [path]')
+    .description(
+      'EARS 문형·질적 표현·파일경로·파일명·용어집을 검사합니다 (path 생략 시 docs/ 전체)',
+    )
+    .action(async (targetPath: string | undefined) => {
+      const { runDocLint } = await import('./commands/doc.js');
+      await runDocLint(targetPath);
+    });
+
   // 사람이 치는 명령: records (기록 조회, 사람이 읽는 목록)
   program
     .command('records')

@@ -11,6 +11,7 @@ import {
   detectRecordTrailGap,
   renderText,
 } from '../../src/commands/doctor.js';
+import { stagesMdContent } from '../../src/commands/init.js';
 import { stringWidth } from '../../src/core/tty.js';
 
 const ASCII = { unicode: false, color: false, tty: false };
@@ -153,6 +154,25 @@ describe('collectChecks — 설치됨 흉내', () => {
     expect(source?.value).toContain('config.local.json');
     expect(source?.hint).toContain('project=local');
     expect(source?.hint).toContain('effective project=doctor-lane');
+  });
+
+  it('stages.md 가 없으면 warn 하고 awl update --local 을 안내한다(ADK stage 1)', async () => {
+    const report = await collectChecks();
+    expect(find(report.checks, 'stages.md')).toMatchObject({ status: 'warn', value: '없음' });
+    expect(find(report.checks, 'stages.md')?.hint).toContain('awl update --local');
+  });
+
+  it('stages.md 가 엔진 산출물과 같으면 ok, 다르면(낡음) warn 한다(ADK stage 1)', async () => {
+    const proj = process.cwd();
+    fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+    fs.writeFileSync(path.join(proj, '.awl', 'stages.md'), stagesMdContent());
+
+    const okReport = await collectChecks();
+    expect(find(okReport.checks, 'stages.md')).toMatchObject({ status: 'ok', value: '최신' });
+
+    fs.writeFileSync(path.join(proj, '.awl', 'stages.md'), '낡은 내용\n');
+    const staleReport = await collectChecks();
+    expect(find(staleReport.checks, 'stages.md')).toMatchObject({ status: 'warn', value: '낡음' });
   });
 
   it('검증 명령 확인은 빠르다(전체 테스트를 돌리지 않는다)', async () => {

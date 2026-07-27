@@ -27,7 +27,7 @@ import {
   checkVersions,
 } from '../core/versions.js';
 import { loadConfig } from './config.js';
-import { codexSkillNames, listRegisteredProjects } from './init.js';
+import { codexSkillNames, listRegisteredProjects, stagesMdContent } from './init.js';
 import { loadProjectName, readRecords } from './record.js';
 import { loadState, readStateLock } from './state.js';
 import { gatherVersionInputs } from './version-check.js';
@@ -628,6 +628,29 @@ async function collectSingleProject(
   }
   const raw = loadedConfig.config;
   checks.push({ group: groupLabel, name: 'config.json', status: 'ok', value: '있음' });
+
+  // .awl/stages.md (ADK stage 1) — doctor 는 아무것도 고치지 않는다, 안내만 한다.
+  const stagesMdPath = path.join(projectRoot, '.awl', 'stages.md');
+  if (!exists(stagesMdPath)) {
+    checks.push({
+      group: groupLabel,
+      name: 'stages.md',
+      status: 'warn',
+      value: '없음',
+      hint: '단계 계약 파일이 없습니다. awl update --local 로 다시 만드세요.',
+    });
+  } else if (fs.readFileSync(stagesMdPath, 'utf8') !== stagesMdContent()) {
+    checks.push({
+      group: groupLabel,
+      name: 'stages.md',
+      status: 'warn',
+      value: '낡음',
+      hint: '엔진이 만드는 계약 표와 다릅니다. awl update --local 로 다시 만드세요.',
+    });
+  } else {
+    checks.push({ group: groupLabel, name: 'stages.md', status: 'ok', value: '최신' });
+  }
+
   checks.push({
     group: groupLabel,
     name: 'config source',
