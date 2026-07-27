@@ -501,7 +501,13 @@ describe('buildRecord — 구조 강제', () => {
   it('gate 1/2 에 layer 를 같이 줘도(정보성 태그) decision 검증 목록은 안 바뀐다', () => {
     const r = buildRecord(
       'gate',
-      { gate: 1, decision: 'approved', presentedCriteria: ['AC-01'], layer: 'request' },
+      {
+        gate: 1,
+        decision: 'approved',
+        presentedCriteria: ['AC-01'],
+        layer: 'request',
+        spec: 'spec-id-1',
+      },
       DEFAULTS,
     );
     expect(r.missing).toEqual([]);
@@ -568,11 +574,29 @@ describe('buildRecord — 구조 강제', () => {
     for (const decision of ['merge', 'judge-only', 'hold']) {
       const r = buildRecord(
         'gate',
-        { gate: 4, decision, presentedCriteria: ['AC-01'], layer: 'request' },
+        { gate: 4, decision, presentedCriteria: ['AC-01'], layer: 'request', spec: 'spec-id-1' },
         DEFAULTS,
       );
       expect(r.missing).toEqual([]);
     }
+  });
+
+  it("gate 1/4 를 layer:'request' 로 기록하는데 spec 필드가 없으면 거부한다(ADK stage 3)", () => {
+    const r1 = buildRecord(
+      'gate',
+      { gate: 1, decision: 'approved', presentedCriteria: ['AC-01'], layer: 'request' },
+      DEFAULTS,
+    );
+    expect(r1.record).toBeUndefined();
+    expect(r1.missing.some((m) => m.startsWith('spec'))).toBe(true);
+
+    const r4 = buildRecord(
+      'gate',
+      { gate: 4, decision: 'merge', presentedCriteria: ['AC-01'], layer: 'request' },
+      DEFAULTS,
+    );
+    expect(r4.record).toBeUndefined();
+    expect(r4.missing.some((m) => m.startsWith('spec'))).toBe(true);
   });
 
   it('layer 가 request/ticket 이 아닌 값이면 거부한다', () => {
@@ -1235,12 +1259,104 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
   it('gate 4(request 레이어)는 티켓 파일을 안 건드린다', async () => {
     const root = project({ workitem: 'WI-9', workitems: {} });
     const ticketPath = writeTicketFixture(root, 'ticket-1');
+    writeSpecFixture(root, 'spec-1');
 
     await runRecord('gate', {
-      json: '{"gate":4,"layer":"request","decision":"merge","presentedCriteria":["AC-01"]}',
+      json: '{"gate":4,"layer":"request","spec":"spec-1","decision":"merge","presentedCriteria":["AC-01"]}',
     });
 
     expect(readTicketStatus(ticketPath)).toBe('pending');
+  });
+
+  // --- ADK stage 3: gate 1/4(layer:'request') 가 스펙 파일의 status 를 전이시킨다 ---
+
+  function writeSpecFixture(root: string, id: string, status = 'draft'): string {
+    const dir = path.join(root, 'docs', 'specs');
+    fs.mkdirSync(dir, { recursive: true });
+    const filePath = path.join(dir, `20260101-000000-${id}.md`);
+    fs.writeFileSync(
+      filePath,
+      `---\nid: ${id}\nrevision: ''\norganization: acme\nproject: p\ntitle: t\nstatus: ${status}\ndomain: ''\nterms: []\nverification: [binary]\ntickets: []\ndecisions: []\n---\n## Request\n`,
+    );
+    return filePath;
+  }
+
+  function readSpecStatus(filePath: string): string | undefined {
+    return fs.readFileSync(filePath, 'utf8').match(/^status: (.+)$/m)?.[1];
+  }
+
+  it('gate:1 layer:request approved 를 기록하면 그 스펙의 status 가 active 가 된다', async () => {
+    const root = project({ workitem: 'WI-9', workitems: {} });
+    const specPath = writeSpecFixture(root, 'spec-1');
+
+    await runRecord('gate', {
+      json: '{"gate":1,"layer":"request","spec":"spec-1","decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+
+    expect(readSpecStatus(specPath)).toBe('active');
+  });
+
+  it('gate:4 layer:request merge/judge-only 를 기록하면 그 스펙의 status 가 closed 가 된다', async () => {
+    const root = project({ workitem: 'WI-9', workitems: {} });
+    for (const decision of ['merge', 'judge-only']) {
+      const specPath = writeSpecFixture(root, `spec-${decision}`, 'active');
+      await runRecord('gate', {
+        json: `{"gate":4,"layer":"request","spec":"spec-${decision}","decision":"${decision}","presentedCriteria":["AC-01"]}`,
+      });
+      expect(readSpecStatus(specPath)).toBe('closed');
+    }
+  });
+
+  it("gate:4 layer:request hold 를 기록해도 스펙의 status 는 안 바뀐다(일시정지는 상태가 아니다)", async () => {
+    const root = project({ workitem: 'WI-9', workitems: {} });
+    const specPath = writeSpecFixture(root, 'spec-1', 'active');
+
+    await runRecord('gate', {
+      json: '{"gate":4,"layer":"request","spec":"spec-1","decision":"hold","presentedCriteria":["AC-01"]}',
+    });
+
+    expect(readSpecStatus(specPath)).toBe('active');
+  });
+
+  it('gate:1 layer:request rejected/split 를 기록하면 그 스펙의 status 가 draft 로 (되)돌아간다', async () => {
+    const root = project({ workitem: 'WI-9', workitems: {} });
+    for (const decision of ['rejected', 'split']) {
+      const specPath = writeSpecFixture(root, `spec-${decision}`, 'active');
+      await runRecord('gate', {
+        json: `{"gate":1,"layer":"request","spec":"spec-${decision}","decision":"${decision}","presentedCriteria":["AC-01"]}`,
+      });
+      expect(readSpecStatus(specPath)).toBe('draft');
+    }
+  });
+
+  it('존재하지 않는 spec id 를 가리키면 기록 자체가 거부되고 파일도 안 바뀐다', async () => {
+    const root = project({ workitem: 'WI-9', workitems: {} });
+    const specPath = writeSpecFixture(root, 'spec-1');
+    const { exitSpy, stderrSpy } = mockExit();
+
+    await expect(
+      runRecord('gate', {
+        json: '{"gate":1,"layer":"request","spec":"no-such-spec","decision":"approved","presentedCriteria":["AC-01"]}',
+      }),
+    ).rejects.toThrow('exit:1');
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('스펙을 찾을 수 없습니다'))).toBe(
+      true,
+    );
+    expect(readSpecStatus(specPath)).toBe('draft'); // 손대지 않음
+
+    exitSpy.mockRestore();
+    stderrSpy.mockRestore();
+  });
+
+  it('레거시 gate 1(layer 없음)는 스펙 파일을 전혀 안 건드린다(회귀 없음)', async () => {
+    const root = project({ workitem: 'WI-9', workitems: {} });
+    const specPath = writeSpecFixture(root, 'spec-1');
+
+    await runRecord('gate', {
+      json: '{"gate":1,"decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+
+    expect(readSpecStatus(specPath)).toBe('draft');
   });
 });
 

@@ -77,6 +77,17 @@ const TICKET_STATUS_TRANSITIONS: Record<number, Record<string, string>> = {
 };
 
 /**
+ * gate 1/4(layer:'request') 승인 시 그 스펙의 다음 status(ADK stage 3, adk-reference.md
+ * 397-405행: draft→게이트1 통과→active, active→게이트4 통과→closed). gate:4 의 'hold' 는
+ * 항목이 없다 — "일시정지는 상태가 아니라 별도 필드"(reference.md:407) 원칙이라 status
+ * 전이가 없다(active 유지, 기존 lookup 결과 undefined 를 그대로 쓰는 아래 가드가 처리).
+ */
+const SPEC_STATUS_TRANSITIONS: Record<number, Record<string, string>> = {
+  1: { approved: 'active', modified: 'active', rejected: 'draft', split: 'draft' },
+  4: { merge: 'closed', 'judge-only': 'closed' },
+};
+
+/**
  * ticketId 로 `docs/tickets/*.md` 를 훑어 파일 경로를 찾는다. doc.ts/tickets.ts 도
  * 비슷한 조회를 하지만, record.ts 가 그쪽을 import 하면 doc.ts→record.ts(이미 있음:
  * BANNED_QUALITATIVE_WORDS)와 겹쳐 순환 참조가 생긴다 — 그래서 여기서 작게 다시 쓴다.
@@ -112,6 +123,43 @@ function writeTicketStatus(ticketPath: string, status: string): void {
   }
   const nextData = { ...parsed.data, status };
   fs.writeFileSync(ticketPath, `${serializeFrontmatter(nextData)}\n${parsed.body}`);
+}
+
+/**
+ * specId 로 `docs/specs/*.md` 를 훑어 파일 경로를 찾는다. findTicketFileById 와 완전히
+ * 같은 이유(순환 참조 회피)로 작게 다시 쓴다.
+ */
+function findSpecFileById(projectRoot: string, specId: string): string | null {
+  const dir = path.join(projectRoot, 'docs', 'specs');
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(dir).filter((f) => f.endsWith('.md'));
+  } catch {
+    return null;
+  }
+  for (const name of entries) {
+    const filePath = path.join(dir, name);
+    let parsed: ReturnType<typeof parseFrontmatter>;
+    try {
+      parsed = parseFrontmatter(fs.readFileSync(filePath, 'utf8'));
+    } catch {
+      continue;
+    }
+    if (parsed?.data.id === specId) {
+      return filePath;
+    }
+  }
+  return null;
+}
+
+/** 스펙 파일의 frontmatter status 만 바꿔 다시 쓴다. 본문은 그대로 보존한다. */
+function writeSpecStatus(specPath: string, status: string): void {
+  const parsed = parseFrontmatter(fs.readFileSync(specPath, 'utf8'));
+  if (!parsed) {
+    return;
+  }
+  const nextData = { ...parsed.data, status };
+  fs.writeFileSync(specPath, `${serializeFrontmatter(nextData)}\n${parsed.body}`);
 }
 
 /**
@@ -443,6 +491,17 @@ export function buildRecord(
       const ticketMissing = data.ticket === undefined || data.ticket === null || data.ticket === '';
       if (ticketMissing) {
         missing.push("ticket (gate 2/3 을 layer:'ticket' 으로 기록하려면 필수)");
+      }
+    }
+
+    // gate 1/4 를 layer:'request' 로 기록하면(ADK stage 3) 어느 스펙의 status 를
+    // 전이시킬지 알아야 한다 — spec(그 스펙의 id)이 필수다. 레거시 gate 1(layer 없이
+    // 부르는 기존 awl-loop 스킬 호출)은 이 조건에 안 걸린다 — layer==='request' 일
+    // 때만 요구한다(ticket 필드와 동일한 조건부 구조).
+    if (!gateMissing && (gate === 1 || gate === 4) && layer === 'request') {
+      const specMissing = data.spec === undefined || data.spec === null || data.spec === '';
+      if (specMissing) {
+        missing.push("spec (gate 1/4 를 layer:'request' 로 기록하려면 필수)");
       }
     }
 
@@ -1090,6 +1149,25 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
     }
   }
 
+  // gate 1/4 를 layer:'request' 로 기록하면(ADK stage 3) 가리키는 스펙이 실제로
+  // 있어야 한다 — ticketPathForTransition 과 완전히 같은 이유·구조.
+  let specPathForTransition: string | null = null;
+  if (
+    projectRoot &&
+    type === 'gate' &&
+    (data.gate === 1 || data.gate === 4) &&
+    data.layer === 'request'
+  ) {
+    const specId = typeof data.spec === 'string' ? data.spec : '';
+    specPathForTransition = specId ? findSpecFileById(projectRoot, specId) : null;
+    if (!specPathForTransition) {
+      process.stderr.write(
+        `\n  ${signal(caps(), 'error')} 스펙을 찾을 수 없습니다: ${specId || '(비어있음)'}\n`,
+      );
+      process.exit(1);
+    }
+  }
+
   const file = appendRecord(record);
 
   // 승인 기록 자체가 Gate 1 대기 상태를 해제한다. state set을 별도로 허용하면
@@ -1108,6 +1186,20 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
     const nextStatus = TICKET_STATUS_TRANSITIONS[data.gate]?.[data.decision];
     if (nextStatus) {
       writeTicketStatus(ticketPathForTransition, nextStatus);
+    }
+  }
+
+  // gate 1/4(layer:'request') 가 그 스펙의 status 를 전이시킨다(ADK stage 3).
+  // gate:4 의 'hold' 는 SPEC_STATUS_TRANSITIONS 에 항목이 없어 nextStatus 가
+  // undefined 이므로 아래 가드에서 자연히 전이가 안 일어난다(active 유지).
+  if (
+    specPathForTransition &&
+    typeof data.gate === 'number' &&
+    typeof data.decision === 'string'
+  ) {
+    const nextStatus = SPEC_STATUS_TRANSITIONS[data.gate]?.[data.decision];
+    if (nextStatus) {
+      writeSpecStatus(specPathForTransition, nextStatus);
     }
   }
 
