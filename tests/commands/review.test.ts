@@ -54,6 +54,41 @@ describe('assembleReview — provenance 가 핵심', () => {
     expect(() => JSON.parse(JSON.stringify(bundle))).not.toThrow();
   });
 
+  it('profile.json 이 없으면 localSkills 는 빈 배열이다(크래시 없음)', async () => {
+    const dir = makeRepo();
+    const state = { criteria: [{ id: 'AC-01' }] };
+    const bundle = await assembleReview(dir, CONFIG, state, 'AC-01', undefined);
+    expect(bundle.localSkills).toEqual([]);
+  });
+
+  it('profile.local.json 이 스킬을 바꾸면 bundle.localSkills 에 슬롯 이름이 실린다(WI-G16)', async () => {
+    const dir = makeRepo();
+    fs.mkdirSync(path.join(dir, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, '.awl', 'profile.json'),
+      JSON.stringify({
+        name: 'p',
+        skills: {
+          spec: null,
+          investigation: null,
+          clarification: null,
+          spike: null,
+          implement: null,
+          review: null,
+        },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(dir, '.awl', 'profile.local.json'),
+      JSON.stringify({
+        skills: { implement: { type: 'custom', path: 'my-tdd.md' } },
+      }),
+    );
+    const state = { criteria: [{ id: 'AC-01' }] };
+    const bundle = await assembleReview(dir, CONFIG, state, 'AC-01', undefined);
+    expect(bundle.localSkills).toEqual(['implement']);
+  });
+
   it('config.local.json 이 skip:true 로 끈 검증은 bundle.verify 에 skipped:"local" 로 그대로 실린다(ADK stage 4, 게이트가 경고로 볼 자료)', async () => {
     const dir = makeRepo();
     const state = { criteria: [{ id: 'AC-01', status: 'passed' }] };

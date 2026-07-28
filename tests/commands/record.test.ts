@@ -1406,6 +1406,48 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
     expect(readTicketStatus(ticketPath)).toBe('implementing');
   });
 
+  it('profile.local.json 이 스킬을 바꾼 상태에서 게이트를 기록하면 localSkills 가 자동으로 실린다(WI-G16)', async () => {
+    const root = project({ workitem: 'WI-9', workitems: {} });
+    writeTicketFixture(root, 'ticket-1');
+    fs.writeFileSync(
+      path.join(root, '.awl', 'profile.json'),
+      JSON.stringify({
+        name: 'p',
+        skills: {
+          spec: null,
+          investigation: null,
+          clarification: null,
+          spike: null,
+          implement: null,
+          review: null,
+        },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(root, '.awl', 'profile.local.json'),
+      JSON.stringify({ skills: { review: { type: 'custom', path: 'my-review.md' } } }),
+    );
+
+    await runRecord('gate', {
+      json: '{"gate":2,"layer":"ticket","ticket":"ticket-1","decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+
+    const [record] = readRecords({ type: 'gate' });
+    expect(record?.localSkills).toEqual(['review']);
+  });
+
+  it('profile.local.json 이 없으면 게이트 기록에 localSkills 필드 자체가 없다(D-21, 안 쓰는 필드를 안 만든다)', async () => {
+    const root = project({ workitem: 'WI-9', workitems: {} });
+    writeTicketFixture(root, 'ticket-1');
+
+    await runRecord('gate', {
+      json: '{"gate":2,"layer":"ticket","ticket":"ticket-1","decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+
+    const [record] = readRecords({ type: 'gate' });
+    expect(record).not.toHaveProperty('localSkills');
+  });
+
   it('연속으로 여러 번 전이해도 본문이 안 자라난다(round-trip 안정성, ADK stage 3 e2e 검증이 발견)', async () => {
     const root = project({ workitem: 'WI-9', workitems: {} });
     const ticketPath = writeTicketFixture(root, 'ticket-1');

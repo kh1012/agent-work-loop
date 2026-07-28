@@ -23,6 +23,7 @@ import {
 } from '../core/sync.js';
 import { type Caps, caps, makeColors, sectionBox, signal } from '../core/tty.js';
 import { loadConfig, resolveProjectRoot } from './config.js';
+import { type SkillSlot, loadProfile } from './profile.js';
 import { getCriterion, loadState, writeState } from './state.js';
 
 /**
@@ -1316,6 +1317,23 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
     const rel = await captureDiff(id, at, projectRoot);
     if (rel) {
       data.diff = rel;
+    }
+  }
+
+  // 게이트 기록에 로컬 스킬 오버라이드를 자동 첨부한다(ADK stage 4,
+  // prototype.md:519-524 "스킬을 바꾸는 건 정보다"). profile.local.json 이 어떤
+  // 슬롯을 바꿨는지는 doctor 에만 표시되고 기록엔 안 남았다 — 게이트 순간의
+  // 스킬 출처를 놓치면 나중에 "그때 왜 이 방식으로 했나"를 못 되짚는다. 없으면
+  // 필드를 안 만든다(D-21).
+  if (type === 'gate' && projectRoot && data.localSkills === undefined) {
+    const loadedProfile = loadProfile(projectRoot);
+    if (loadedProfile.profile) {
+      const localSlots = (Object.keys(loadedProfile.sources) as SkillSlot[]).filter(
+        (slot) => loadedProfile.sources[slot] === 'local',
+      );
+      if (localSlots.length > 0) {
+        data.localSkills = localSlots;
+      }
     }
   }
 

@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { run } from '../core/runner.js';
 import { type Caps, caps, makeColors, sectionBox } from '../core/tty.js';
 import { type AwlConfig, requireConfig } from './config.js';
+import { type SkillSlot, loadProfile } from './profile.js';
 import { filterRules, loadRules } from './rules.js';
 import { loadState } from './state.js';
 import { type VerifyReport, runVerifyChecks } from './verify.js';
@@ -34,6 +35,9 @@ export interface ReviewBundle {
   verify: VerifyReport;
   provenance: Provenance;
   rules: { id: string; body: string }[];
+  /** profile.local.json 이 바꾼 스킬 슬롯 이름들(ADK stage 4) — 정보 표시, 경고 아니다
+   * (prototype.md:519-524 "스킬을 바꾸는 건 정보다"). 없으면 빈 배열. */
+  localSkills: string[];
 }
 
 /**
@@ -106,6 +110,13 @@ export async function assembleReview(
     body: r.body,
   }));
 
+  const loadedProfile = loadProfile(cwd);
+  const localSkills = loadedProfile.profile
+    ? (Object.keys(loadedProfile.sources) as SkillSlot[]).filter(
+        (slot) => loadedProfile.sources[slot] === 'local',
+      )
+    : [];
+
   return {
     reviewId: newReviewId(),
     criteria,
@@ -118,6 +129,7 @@ export async function assembleReview(
       note: '이 diff와 검증 결과는 위 워크트리/커밋에서 나왔습니다',
     },
     rules: reviewRules,
+    localSkills,
   };
 }
 
@@ -136,6 +148,10 @@ function renderReview(bundle: ReviewBundle, range: string, c: Caps): string {
     out.push(`             ${color.yellow(`[!] 로컬에서 건너뜀: ${skipped.join(', ')}`)}`);
   }
   out.push(`규칙(review) ${bundle.rules.length}개`);
+  if (bundle.localSkills.length > 0) {
+    // 경고가 아니라 정보다(prototype.md:519-524) — 스킬을 바꾼 건 문제가 아니라 사실.
+    out.push(`             ${color.dim(`[i] 로컬 스킬: ${bundle.localSkills.join(', ')}`)}`);
+  }
   out.push('');
   out.push('provenance (리뷰어가 교차검증할 위치)');
   out.push(`  브랜치       ${bundle.provenance.branch}`);
