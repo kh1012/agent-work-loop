@@ -37,9 +37,12 @@ export interface BlockedByDeps {
   waitingOn: string[];
 }
 
-/** 게이트 1/2 의 기록 상태 (WI-Q AC-03). recorded:false 면 나머지 필드는 없다. */
+/**
+ * 게이트 1~4 의 기록 상태 (WI-Q AC-03, ADK stage 2a 로 3/4 확장). recorded:false 면
+ * 나머지 필드는 없다.
+ */
 export interface GateStatus {
-  gate: 1 | 2;
+  gate: 1 | 2 | 3 | 4;
   recorded: boolean;
   decision?: string;
   at?: string;
@@ -80,13 +83,13 @@ export interface StatusReport {
 }
 
 /**
- * 현재 워크아이템의 게이트 1/2 기록을 찾는다. readRecords 는 최근순이라
+ * 현재 워크아이템의 게이트 1~4 기록을 찾는다. readRecords 는 최근순이라
  * 같은 게이트 번호가 여러 번 기록됐어도(재승인 등) 첫 번째로 만나는 게 최신이다.
- * gate 레코드가 없어도(대기중) 항상 두 항목(1, 2)을 돌려준다 — 계산만 한다.
+ * gate 레코드가 없어도(대기중) 항상 네 항목(1~4)을 돌려준다 — 계산만 한다.
  */
 function buildGateStatus(records: Record<string, unknown>[]): GateStatus[] {
   const gateRecords = records.filter((r) => r.type === 'gate');
-  return ([1, 2] as const).map((gate) => {
+  return ([1, 2, 3, 4] as const).map((gate) => {
     const rec = gateRecords.find((r) => r.gate === gate);
     if (!rec) {
       return { gate, recorded: false };

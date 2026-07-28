@@ -231,7 +231,7 @@ describe('게이트 이력 (WI-Q AC-03)', () => {
       },
     ]);
     const s = buildStatus(root);
-    expect(s.gates).toHaveLength(2);
+    expect(s.gates).toHaveLength(4); // ADK stage 2a: 게이트 3/4 로 확장
     const g1 = s.gates.find((g) => g.gate === 1);
     expect(g1?.recorded).toBe(true);
     expect(g1?.decision).toBe('approved');
@@ -241,6 +241,48 @@ describe('게이트 이력 (WI-Q AC-03)', () => {
     expect(g1?.auto).toBe(false);
     const g2 = s.gates.find((g) => g.gate === 2);
     expect(g2?.recorded).toBe(false);
+    const g3 = s.gates.find((g) => g.gate === 3);
+    expect(g3?.recorded).toBe(false);
+    const g4 = s.gates.find((g) => g.gate === 4);
+    expect(g4?.recorded).toBe(false);
+  });
+
+  it('게이트 3/4(ADK stage 2a) 레코드도 게이트 1/2 와 동일하게 읽힌다', () => {
+    const root = tmpProject({ phase: 'loop', workitem: 'WI-9', criteria: [] });
+    tmpHomeWithRecords([
+      {
+        id: '1',
+        at: '2026-07-15T14:00:00Z',
+        type: 'gate',
+        workitem: 'WI-9',
+        gate: 3,
+        layer: 'ticket',
+        ticket: 'ticket-1',
+        decision: 'approved',
+        presentedCriteria: ['AC-01'],
+        auto: true,
+      },
+      {
+        id: '2',
+        at: '2026-07-15T15:00:00Z',
+        type: 'gate',
+        workitem: 'WI-9',
+        gate: 4,
+        layer: 'request',
+        spec: 'spec-1',
+        decision: 'merge',
+        presentedCriteria: ['AC-01'],
+      },
+    ]);
+    const s = buildStatus(root);
+    expect(s.gates).toHaveLength(4);
+    const g3 = s.gates.find((g) => g.gate === 3);
+    expect(g3?.recorded).toBe(true);
+    expect(g3?.decision).toBe('approved');
+    expect(g3?.auto).toBe(true);
+    const g4 = s.gates.find((g) => g.gate === 4);
+    expect(g4?.recorded).toBe(true);
+    expect(g4?.decision).toBe('merge');
   });
 
   it('게이트 decision 을 상태값으로 색코딩한다 — approved=green, rejected=red (cli-visual-consistency AC-04)', () => {
