@@ -870,6 +870,16 @@ export function buildProgram(): Command {
       await runNext(ticketId);
     });
 
+  // 사람이 치는 명령: tokens (티켓별·단계별 토큰 사용량, ADK stage 5, 읽기 전용)
+  program
+    .command('tokens <ticket-id>')
+    .description('티켓의 기록 시간창을 세션 로그 usage 와 엮어 단계별 토큰 사용량을 보여줍니다(읽기 전용)')
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .action(async (ticketId: string, opts: { json?: boolean }) => {
+      const { runTokens } = await import('./commands/tokens.js');
+      await runTokens(ticketId, { json: opts.json === true });
+    });
+
   // 사람이 치는 명령: records (기록 조회, 사람이 읽는 목록)
   program
     .command('records')
