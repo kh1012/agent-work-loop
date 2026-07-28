@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { computeTokensReport, renderTokensReport } from '../../src/commands/tokens.js';
+import {
+  buildLaneTokensReport,
+  computeTokensReport,
+  renderLaneTokensReport,
+  renderTokensReport,
+} from '../../src/commands/tokens.js';
 import type { SessionUsageEvent } from '../../src/core/session-log.js';
 
 const ASCII = { unicode: false, color: false, tty: false };
@@ -139,5 +144,83 @@ describe('renderTokensReport — 크래시 없이 렌더', () => {
       ASCII,
     );
     expect(out).toContain('못 찾았습니다');
+  });
+});
+
+describe('buildLaneTokensReport — 순수 함수 (WI-G17d, 레인별 합계 + 총합)', () => {
+  it('레인마다 합계를 내고, 전체 합은 레인 합계의 합이다', () => {
+    const report = buildLaneTokensReport([
+      {
+        lane: '(메인)',
+        records: [{ type: 'spike', at: '2026-07-17T04:00:00.000Z' }],
+        events: [ev('2026-07-17T04:00:00.000Z', 10, 5)],
+      },
+      {
+        lane: 'keyboard',
+        records: [{ type: 'attempt', at: '2026-07-17T04:00:00.000Z' }],
+        events: [ev('2026-07-17T04:00:00.000Z', 20, 8)],
+      },
+    ]);
+    expect(report.lanes).toHaveLength(2);
+    expect(report.lanes.find((l) => l.lane === '(메인)')?.input).toBe(10);
+    expect(report.lanes.find((l) => l.lane === 'keyboard')?.input).toBe(20);
+    expect(report.total).toEqual({ input: 30, output: 13, cacheCreation: 0, cacheRead: 0 });
+  });
+
+  it('레코드가 없는(찾을 게 없는) 레인은 결과에서 빠진다', () => {
+    const report = buildLaneTokensReport([
+      { lane: '(메인)', records: [], events: [] },
+      {
+        lane: 'keyboard',
+        records: [{ type: 'spike', at: '2026-07-17T04:00:00.000Z' }],
+        events: [ev('2026-07-17T04:00:00.000Z', 5)],
+      },
+    ]);
+    expect(report.lanes.map((l) => l.lane)).toEqual(['keyboard']);
+  });
+
+  it('input 내림차순으로 정렬한다', () => {
+    const report = buildLaneTokensReport([
+      {
+        lane: 'small',
+        records: [{ type: 's', at: '2026-07-17T04:00:00.000Z' }],
+        events: [ev('2026-07-17T04:00:00.000Z', 5)],
+      },
+      {
+        lane: 'big',
+        records: [{ type: 's', at: '2026-07-17T04:00:00.000Z' }],
+        events: [ev('2026-07-17T04:00:00.000Z', 50)],
+      },
+    ]);
+    expect(report.lanes.map((l) => l.lane)).toEqual(['big', 'small']);
+  });
+
+  it('레인이 하나도 없으면(빈 배열) lanes/total 이 빈 값이다', () => {
+    const report = buildLaneTokensReport([]);
+    expect(report.lanes).toEqual([]);
+    expect(report.total).toEqual({ input: 0, output: 0, cacheCreation: 0, cacheRead: 0 });
+  });
+});
+
+describe('renderLaneTokensReport — 크래시 없이 렌더', () => {
+  it('레인이 없으면 안내 문구만 보여준다', () => {
+    const out = renderLaneTokensReport({ lanes: [], total: { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 } }, ASCII);
+    expect(out).toContain('못 찾았습니다');
+  });
+
+  it('레인마다 한 줄 + 총합 줄을 보여준다', () => {
+    const out = renderLaneTokensReport(
+      {
+        lanes: [
+          { lane: 'keyboard', input: 20, output: 8, cacheCreation: 0, cacheRead: 0 },
+          { lane: '(메인)', input: 10, output: 5, cacheCreation: 0, cacheRead: 0 },
+        ],
+        total: { input: 30, output: 13, cacheCreation: 0, cacheRead: 0 },
+      },
+      ASCII,
+    );
+    expect(out).toContain('keyboard');
+    expect(out).toContain('(메인)');
+    expect(out).toContain('30');
   });
 });

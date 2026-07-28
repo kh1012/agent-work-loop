@@ -1088,11 +1088,23 @@ export function selectMonthFiles(files: string[], filter: RecordFilter = {}): st
 }
 
 /**
+ * 파일명(YYYY-MM[.접미사].jsonl)에서 레인/세션 접미사를 뽑는다. 없으면 null(메인).
+ * 순수 함수 — tokens.ts 의 레인별 집계(WI-G17d)가 재사용한다.
+ */
+export function laneFromRecordFilename(f: string): string | null {
+  const withoutExt = f.endsWith('.jsonl') ? f.slice(0, -'.jsonl'.length) : f;
+  const rest = withoutExt.slice(7); // 'YYYY-MM'(7자) 다음.
+  return rest.startsWith('.') ? rest.slice(1) : null;
+}
+
+/**
  * 월별 JSONL 을 읽어 레코드 배열을 돌려준다(파싱 실패 줄은 건너뜀).
  * filter 에 months/from/to 가 있으면 그 월 파일만 읽는다(selectMonthFiles) — 전량 로드 회피.
  * projectRoot 의 records/ 디렉토리 전체를 훑는다 — 레인 접미사가 붙은 파일도
  * `.jsonl` 로 끝나기만 하면 자연히 걸린다(별도 매칭 로직 불필요, monthOf 의
- * slice(0,7) 도 접미사 유무와 무관하게 YYYY-MM 을 정확히 뽑는다).
+ * slice(0,7) 도 접미사 유무와 무관하게 YYYY-MM 을 정확히 뽑는다). 레인 파일에서 읽은
+ * 레코드에는 파일명 기준 lane 필드를 읽기 시점에만 얹는다(저장은 안 함, D-21 — 메인
+ * 파일 레코드는 안 건드림) — tokens.ts 의 레인별 집계(WI-G17d)가 이 필드로 나눈다.
  */
 export function readRecords(
   projectRoot: string,
@@ -1113,12 +1125,17 @@ export function readRecords(
     } catch {
       continue;
     }
+    const lane = laneFromRecordFilename(f);
     for (const line of text.split('\n')) {
       if (line.trim() === '') {
         continue;
       }
       try {
-        records.push(JSON.parse(line) as Record<string, unknown>);
+        const record = JSON.parse(line) as Record<string, unknown>;
+        if (lane !== null) {
+          record.lane = lane;
+        }
+        records.push(record);
       } catch {
         // 깨진 줄은 건너뛴다.
       }

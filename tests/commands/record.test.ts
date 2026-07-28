@@ -10,6 +10,7 @@ import {
   collectDeferred,
   computeCoverage,
   detailTierFor,
+  laneFromRecordFilename,
   loadProjectName,
   measureDiffSize,
   monthFile,
@@ -1076,6 +1077,51 @@ describe('record 저장 — append only', () => {
     // from/to 범위도 동작
     expect(readRecords(root, { from: '2026-06', to: '2026-06' })).toHaveLength(1);
     expect(readRecords(root, { from: '2026-06', to: '2026-07' })).toHaveLength(2);
+  });
+});
+
+describe('laneFromRecordFilename — 순수 함수 (WI-G17d)', () => {
+  it('접미사가 없으면 null(메인)', () => {
+    expect(laneFromRecordFilename('2026-07.jsonl')).toBeNull();
+  });
+
+  it('접미사가 있으면 그 이름을 돌려준다', () => {
+    expect(laneFromRecordFilename('2026-07.keyboard.jsonl')).toBe('keyboard');
+  });
+
+  it('.jsonl 이 아니어도(diffs 등) 크래시 없이 처리한다', () => {
+    expect(laneFromRecordFilename('diffs')).toBeNull();
+  });
+});
+
+describe('readRecords — 레인 접미사 파일에서 읽은 레코드에 lane 필드를 얹는다 (WI-G17d)', () => {
+  beforeEach(() => {
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-record-lane-'));
+  });
+
+  it('메인 파일(접미사 없음) 레코드에는 lane 필드가 없다', () => {
+    const root = process.env.AWL_HOME as string;
+    appendRecord(
+      buildRecord('spike', { question: 'q', found: 'f' }, DEFAULTS).record ?? {},
+      root,
+    );
+    const [record] = readRecords(root);
+    expect(record).not.toHaveProperty('lane');
+  });
+
+  it('레인 접미사 파일(records-suffix.json)에서 읽은 레코드에는 lane 필드가 붙는다', () => {
+    const root = process.env.AWL_HOME as string;
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, '.awl', 'records-suffix.json'),
+      JSON.stringify({ suffix: 'keyboard' }),
+    );
+    appendRecord(
+      buildRecord('spike', { question: 'q', found: 'f' }, DEFAULTS).record ?? {},
+      root,
+    );
+    const [record] = readRecords(root);
+    expect(record?.lane).toBe('keyboard');
   });
 });
 

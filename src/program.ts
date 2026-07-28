@@ -908,10 +908,23 @@ export function buildProgram(): Command {
 
   // 사람이 치는 명령: tokens (티켓별·단계별 토큰 사용량, ADK stage 5, 읽기 전용)
   program
-    .command('tokens <ticket-id>')
+    .command('tokens [ticket-id]')
     .description('티켓의 기록 시간창을 세션 로그 usage 와 엮어 단계별 토큰 사용량을 보여줍니다(읽기 전용)')
     .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
-    .action(async (ticketId: string, opts: { json?: boolean }) => {
+    .option('--lanes', '레인별 합계와 총합을 보여줍니다(ticket-id 대신)')
+    .action(async (ticketId: string | undefined, opts: { json?: boolean; lanes?: boolean }) => {
+      if (opts.lanes) {
+        const { runTokensByLane } = await import('./commands/tokens.js');
+        await runTokensByLane({ json: opts.json === true });
+        return;
+      }
+      if (!ticketId) {
+        process.stderr.write(
+          `\n  ${signal(caps(), 'error')} ticket-id 를 주거나 --lanes 를 쓰세요.\n`,
+        );
+        process.exit(1);
+        return;
+      }
       const { runTokens } = await import('./commands/tokens.js');
       await runTokens(ticketId, { json: opts.json === true });
     });

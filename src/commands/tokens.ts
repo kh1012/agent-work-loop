@@ -1,6 +1,7 @@
 import { type SessionUsageEvent, readSessionUsageEvents } from '../core/session-log.js';
 import { type Caps, caps, makeColors, sectionBox, signal } from '../core/tty.js';
 import { resolveProjectRoot } from './config.js';
+import { collectLanes } from './lane.js';
 import { readRecords } from './record.js';
 
 /**
@@ -146,6 +147,113 @@ export function renderTokensReport(report: TokensReport, c: Caps): string {
     }
   }
   return sectionBox(`tokens · ${report.ticketId}`, out, c);
+}
+
+export interface LaneTokensEntry extends TokenTotals {
+  /** '(메인)' 은 레인 접미사가 없는 기록(메인 트리 또는 워크트리 없는 세션). */
+  lane: string;
+}
+
+export interface LaneTokensReport {
+  lanes: LaneTokensEntry[];
+  total: TokenTotals;
+}
+
+const MAIN_LANE_LABEL = '(메인)';
+
+function sumTotals(totals: TokenTotals[]): TokenTotals {
+  const sum = zeroTotals();
+  for (const t of totals) {
+    sum.input += t.input;
+    sum.output += t.output;
+    sum.cacheCreation += t.cacheCreation;
+    sum.cacheRead += t.cacheRead;
+  }
+  return sum;
+}
+
+/**
+ * 순수 함수 — 레인(+메인)마다 이미 갖고 온 기록·세션 이벤트로 합계를 낸다(WI-G17d).
+ * 레인 하나당 computeTokensReport 를 그대로 재사용해 그 레인의 기록 시간창과 세션
+ * usage 를 엮는다(레인 이름을 ticketId 자리에 넣어 재사용 — 의미는 "이 레인 전체").
+ * I/O(readRecords/readSessionUsageEvents/collectLanes)는 호출부(computeLaneTokensReport)
+ * 가 맡는다 — 테스트가 실제 ~/.claude/projects 세션 로그나 git 없이도 이 로직을 검증한다.
+ */
+export function buildLaneTokensReport(
+  buckets: { lane: string; records: Record<string, unknown>[]; events: SessionUsageEvent[] }[],
+): LaneTokensReport {
+  const entries: LaneTokensEntry[] = [];
+  for (const b of buckets) {
+    const report = computeTokensReport(b.lane, b.records, b.events);
+    if (report.found) {
+      entries.push({ lane: b.lane, ...report.total });
+    }
+  }
+  entries.sort((a, b) => b.input - a.input);
+  return { lanes: entries, total: sumTotals(entries) };
+}
+
+/**
+ * 레인별 토큰 합계(WI-G17d, ADK stage 5 "레인을 여럿 돌리면 레인별 합계와 총합이
+ * 나와야 한다"). 레인마다 세션 로그가 그 워크트리 경로(sessionLogDir)에 따로
+ * 쌓이므로(mangleProjectPath 가 절대경로를 그대로 쓴다), main 의 records/session-log
+ * 뿐 아니라 각 레인 워크트리의 것도 따로 읽어야 한다 — lane.ts collectLanes 로 경로를
+ * 얻는다. 집계 로직 자체는 buildLaneTokensReport(순수)에 맡긴다.
+ */
+export async function computeLaneTokensReport(projectRoot: string): Promise<LaneTokensReport> {
+  const allRecords = readRecords(projectRoot);
+  const lanes = await collectLanes(projectRoot);
+
+  const buckets = [
+    {
+      lane: MAIN_LANE_LABEL,
+      records: allRecords.filter((r) => typeof r.lane !== 'string'),
+      events: readSessionUsageEvents(projectRoot),
+    },
+    ...lanes.map((l) => ({
+      lane: l.name,
+      records: allRecords.filter((r) => r.lane === l.name),
+      events: readSessionUsageEvents(l.path),
+    })),
+  ];
+
+  return buildLaneTokensReport(buckets);
+}
+
+export function renderLaneTokensReport(report: LaneTokensReport, c: Caps): string {
+  const color = makeColors(c.color);
+  const out: string[] = [];
+  if (report.lanes.length === 0) {
+    out.push(color.dim('레인·메인 어디에도 대응하는 기록/세션 로그를 못 찾았습니다.'));
+    return sectionBox('tokens · 레인별', out, c);
+  }
+  for (const l of report.lanes) {
+    out.push(
+      `  ${l.lane.padEnd(12, ' ')}input ${l.input.toLocaleString().padStart(8, ' ')}  output ${l.output.toLocaleString()}  cache생성 ${l.cacheCreation.toLocaleString()}  cache읽기 ${l.cacheRead.toLocaleString()}`,
+    );
+  }
+  out.push('');
+  out.push(
+    `총     input ${report.total.input.toLocaleString()} · output ${report.total.output.toLocaleString()} · cache생성 ${report.total.cacheCreation.toLocaleString()} · cache읽기 ${report.total.cacheRead.toLocaleString()}`,
+  );
+  return sectionBox('tokens · 레인별', out, c);
+}
+
+export async function runTokensByLane(opts: { json?: boolean } = {}): Promise<void> {
+  const projectRoot = resolveProjectRoot();
+  if (!projectRoot) {
+    process.stderr.write(
+      `\n  ${signal(caps(), 'error')} 프로젝트 루트를 찾을 수 없습니다. awl init 을 실행하세요.\n`,
+    );
+    process.exit(1);
+    return;
+  }
+  const report = await computeLaneTokensReport(projectRoot);
+  if (opts.json === true) {
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    return;
+  }
+  process.stdout.write(`${renderLaneTokensReport(report, caps())}\n`);
 }
 
 export async function runTokens(
