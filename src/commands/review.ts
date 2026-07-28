@@ -1,7 +1,11 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import { parseFrontmatter } from '../core/doc-frontmatter.js';
 import { run } from '../core/runner.js';
-import { type Caps, caps, makeColors, sectionBox } from '../core/tty.js';
+import { type Caps, caps, makeColors, sectionBox, signal } from '../core/tty.js';
+import { findTicketPath, loadTicketRuntime } from './commit.js';
 import { type AwlConfig, requireConfig } from './config.js';
+import { extractConditionBlocks, listDocFiles } from './doc.js';
 import { type SkillSlot, loadProfile } from './profile.js';
 import { filterRules, loadRules } from './rules.js';
 import { loadState } from './state.js';
@@ -68,6 +72,46 @@ export function selectCriteria(
   return criteria.filter((c) => c.id === range);
 }
 
+/**
+ * 검증·provenance·규칙·로컬스킬 — range 기반이든 ticket 기반이든 리뷰 번들에 똑같이
+ * 필요한 부분(WI-G23, 중복 제거). diff/criteria/reviewId 만 호출부마다 다르다.
+ */
+async function gatherReviewContext(
+  cwd: string,
+  config: AwlConfig,
+): Promise<Pick<ReviewBundle, 'verify' | 'provenance' | 'rules' | 'localSkills'>> {
+  const verify = await runVerifyChecks(config.verifications, cwd, { bail: false });
+
+  const branch = (await git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd)).trim();
+  const commit = (await git(['rev-parse', 'HEAD'], cwd)).trim();
+  const worktree = (await git(['rev-parse', '--show-toplevel'], cwd)).trim() || cwd;
+
+  const { rules } = loadRules();
+  const reviewRules = filterRules(rules, { scope: 'review' }).map((r) => ({
+    id: r.id,
+    body: r.body,
+  }));
+
+  const loadedProfile = loadProfile(cwd);
+  const localSkills = loadedProfile.profile
+    ? (Object.keys(loadedProfile.sources) as SkillSlot[]).filter(
+        (slot) => loadedProfile.sources[slot] === 'local',
+      )
+    : [];
+
+  return {
+    verify,
+    provenance: {
+      branch,
+      commit,
+      worktree,
+      note: '이 diff와 검증 결과는 위 워크트리/커밋에서 나왔습니다',
+    },
+    rules: reviewRules,
+    localSkills,
+  };
+}
+
 export async function assembleReview(
   cwd: string,
   config: AwlConfig,
@@ -98,42 +142,109 @@ export async function assembleReview(
       : ['diff', 'HEAD'];
   const diff = await git(diffArgs, cwd);
 
-  const verify = await runVerifyChecks(config.verifications, cwd, { bail: false });
-
-  const branch = (await git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd)).trim();
-  const commit = (await git(['rev-parse', 'HEAD'], cwd)).trim();
-  const worktree = (await git(['rev-parse', '--show-toplevel'], cwd)).trim() || cwd;
-
-  const { rules } = loadRules();
-  const reviewRules = filterRules(rules, { scope: 'review' }).map((r) => ({
-    id: r.id,
-    body: r.body,
-  }));
-
-  const loadedProfile = loadProfile(cwd);
-  const localSkills = loadedProfile.profile
-    ? (Object.keys(loadedProfile.sources) as SkillSlot[]).filter(
-        (slot) => loadedProfile.sources[slot] === 'local',
-      )
-    : [];
+  const context = await gatherReviewContext(cwd, config);
 
   return {
     reviewId: newReviewId(),
     criteria,
     diff,
-    verify,
-    provenance: {
-      branch,
-      commit,
-      worktree,
-      note: '이 diff와 검증 결과는 위 워크트리/커밋에서 나왔습니다',
-    },
-    rules: reviewRules,
-    localSkills,
+    ...context,
   };
 }
 
-function renderReview(bundle: ReviewBundle, range: string, c: Caps): string {
+export type ReviewPackResult = { bundle: ReviewBundle } | { missing: string };
+
+/**
+ * `awl review pack <ticket-id>` — 4게이트 티켓 모델용 리뷰 자료 조립(WI-G23).
+ * assembleReview(AC-range 키)와 같은 ReviewBundle 을 만들되, 조건을
+ * docs/tickets/*.md → spec 조건 원문에서 가져오고 diff 기준점은
+ * .awl/tickets/<id>.json 런타임(baseline/firstBaseline)에서 읽는다.
+ *
+ * 리뷰어가 재료로 판단할 수 없으면(설계: "재료 부족: <무엇>") bundle 대신
+ * missing 을 돌려준다 — 티켓을 못 찾거나, 스펙에서 조건 원문을 못 찾거나,
+ * 베이스라인 이후 diff 가 비어 있으면(가장 흔한 원인: `awl commit --start`
+ * 를 안 함) 여기 걸린다.
+ */
+export async function assembleReviewForTicket(
+  cwd: string,
+  config: AwlConfig,
+  ticketId: string,
+  base: string | undefined,
+): Promise<ReviewPackResult> {
+  const ticketPath = findTicketPath(cwd, ticketId);
+  if (!ticketPath) {
+    return { missing: `티켓을 찾을 수 없습니다: ${ticketId}` };
+  }
+  const parsedTicket = parseFrontmatter(fs.readFileSync(ticketPath, 'utf8'));
+  if (!parsedTicket) {
+    return { missing: `티켓 프론트매터를 읽을 수 없습니다: ${ticketId}` };
+  }
+
+  const specId = typeof parsedTicket.data.spec === 'string' ? parsedTicket.data.spec : '';
+  const conditionIds = Array.isArray(parsedTicket.data.conditions)
+    ? (parsedTicket.data.conditions as unknown[]).map(String)
+    : [];
+
+  let specBody: string | null = null;
+  if (specId) {
+    for (const file of listDocFiles(cwd)) {
+      if (file.type !== 'spec') {
+        continue;
+      }
+      try {
+        const parsed = parseFrontmatter(fs.readFileSync(file.path, 'utf8'));
+        if (parsed?.data.id === specId) {
+          specBody = parsed.body;
+          break;
+        }
+      } catch {
+        // 손상된 파일 하나가 조회를 막지 않는다.
+      }
+    }
+  }
+
+  const blocks = specBody ? extractConditionBlocks(specBody) : [];
+  const criteria = conditionIds.map((id) => ({
+    id,
+    text: blocks.find((b) => b.heading === id)?.text ?? null,
+  }));
+  if (criteria.length === 0 || criteria.every((c) => c.text === null)) {
+    return { missing: '완료 조건 원문(스펙에서 조건을 찾을 수 없습니다)' };
+  }
+
+  const runtime = loadTicketRuntime(cwd, ticketId);
+  const runtimeBaseline =
+    typeof runtime?.firstBaseline === 'string'
+      ? runtime.firstBaseline
+      : typeof runtime?.baseline === 'string'
+        ? runtime.baseline
+        : undefined;
+  const diffArgs = base
+    ? ['diff', `${base}..HEAD`]
+    : runtimeBaseline
+      ? ['diff', `${runtimeBaseline}..HEAD`]
+      : ['diff', 'HEAD'];
+  const diff = await git(diffArgs, cwd);
+  if (diff.trim() === '') {
+    return {
+      missing: 'diff(베이스라인 이후 변경이 없습니다 — awl commit --start 를 먼저 실행했는지 확인하세요)',
+    };
+  }
+
+  const context = await gatherReviewContext(cwd, config);
+
+  return {
+    bundle: {
+      reviewId: newReviewId(),
+      criteria,
+      diff,
+      ...context,
+    },
+  };
+}
+
+/** title(sectionBox 제목에 붙는 범위/티켓 표시)·hintCmd(리뷰어에게 넘길 명령)만 호출부마다 다르다. */
+function renderReview(bundle: ReviewBundle, title: string, hintCmd: string, c: Caps): string {
   const color = makeColors(c.color);
   const out: string[] = [];
   out.push(`reviewId     ${bundle.reviewId}`);
@@ -158,13 +269,13 @@ function renderReview(bundle: ReviewBundle, range: string, c: Caps): string {
   out.push(`  커밋         ${bundle.provenance.commit.slice(0, 10)}`);
   out.push(`  워크트리     ${bundle.provenance.worktree}`);
   out.push('');
-  out.push(color.dim(`리뷰어(서브에이전트)에게는 awl review ${range} --json 을 넘기세요.`));
+  out.push(color.dim(`리뷰어(서브에이전트)에게는 ${hintCmd} 을 넘기세요.`));
   out.push(
     color.dim(
       `판정을 받으면 awl record review --json '{"reviewId":"${bundle.reviewId}",...}' 로 기록하세요.`,
     ),
   );
-  return sectionBox(`리뷰 자료 · ${range}`, out, c);
+  return sectionBox(`리뷰 자료 · ${title}`, out, c);
 }
 
 export async function runReview(
@@ -177,6 +288,32 @@ export async function runReview(
   if (opts.json) {
     process.stdout.write(`${JSON.stringify(bundle, null, 2)}\n`);
   } else {
-    process.stdout.write(`${renderReview(bundle, range, caps())}\n`);
+    process.stdout.write(`${renderReview(bundle, range, `awl review ${range} --json`, caps())}\n`);
+  }
+}
+
+/** `awl review pack <ticket-id>` — 4게이트 티켓 모델용(WI-G23). */
+export async function runReviewPack(
+  ticketId: string,
+  opts: { json: boolean; base?: string },
+): Promise<void> {
+  const { projectRoot, config } = requireConfig();
+  const c = caps();
+  const result = await assembleReviewForTicket(projectRoot, config, ticketId, opts.base);
+  if ('missing' in result) {
+    if (opts.json) {
+      process.stdout.write(`${JSON.stringify({ missing: result.missing }, null, 2)}\n`);
+    } else {
+      process.stderr.write(`\n  ${signal(c, 'error')} 재료 부족: ${result.missing}\n`);
+    }
+    process.exit(1);
+    return;
+  }
+  if (opts.json) {
+    process.stdout.write(`${JSON.stringify(result.bundle, null, 2)}\n`);
+  } else {
+    process.stdout.write(
+      `${renderReview(result.bundle, `ticket:${ticketId}`, `awl review pack ${ticketId} --json`, c)}\n`,
+    );
   }
 }

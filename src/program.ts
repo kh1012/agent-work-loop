@@ -1131,15 +1131,39 @@ export function buildProgram(): Command {
     );
 
   // 사람이 치는 명령: review (리뷰어에게 넘길 자료 조립 — awl 은 리뷰하지 않는다)
+  // "pack <ticket-id>" 는 4게이트 티켓 모델 전용 경로다(WI-G23) — 첫 인자가 'pack'
+  // 이면 두 번째 인자를 티켓 id 로, 아니면 첫 인자를 그대로 AC-range 로 다룬다.
+  // 레거시 `awl review AC-01..AC-03` 호출을 한 글자도 안 바꾸려고 별도 서브커맨드
+  // 그룹 대신 이 방식을 골랐다(SKILL.md/reference.md 가 이미 이 형태를 예시로 쓴다).
   program
-    .command('review <range>')
-    .description('리뷰어에게 넘길 자료를 조립합니다 (provenance 포함)')
+    .command('review <rangeOrPack> [ticketId]')
+    .description(
+      '리뷰어에게 넘길 자료를 조립합니다 (provenance 포함). "pack <ticket-id>" 로 4게이트 티켓 모델도 지원합니다',
+    )
     .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
-    .option('--base <ref>', 'diff 기준 (기본은 완료 조건 baseline)')
-    .action(async (range: string, opts: { json?: boolean; base?: string }) => {
-      const { runReview } = await import('./commands/review.js');
-      await runReview(range, { json: opts.json === true, base: opts.base });
-    });
+    .option('--base <ref>', 'diff 기준 (기본은 완료 조건/티켓 baseline)')
+    .action(
+      async (
+        rangeOrPack: string,
+        ticketId: string | undefined,
+        opts: { json?: boolean; base?: string },
+      ) => {
+        if (rangeOrPack === 'pack') {
+          if (!ticketId) {
+            process.stderr.write(
+              `\n  ${signal(caps(), 'error')} awl review pack <ticket-id> 처럼 티켓 id 를 주세요.\n`,
+            );
+            process.exit(1);
+            return;
+          }
+          const { runReviewPack } = await import('./commands/review.js');
+          await runReviewPack(ticketId, { json: opts.json === true, base: opts.base });
+          return;
+        }
+        const { runReview } = await import('./commands/review.js');
+        await runReview(rangeOrPack, { json: opts.json === true, base: opts.base });
+      },
+    );
 
   // 스킬이 치는 명령(숨김): record
   // 타입·필수필드 표(RECORD_TYPES_HELP_TABLE, exec-tooling-friction AC-04)는
