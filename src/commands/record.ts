@@ -355,8 +355,9 @@ async function syncProjectRecords(projectRoot: string, projectName: string): Pro
 
 /** awl-feedback 레코드가 기록되는 즉시 전송한다(prototype.md:403 "피드백은 발생할 때").
  * sync.feedback.endpoint 는 records 와 달리 전체 경로를 이미 포함한다
- * (prototype.md:105 "http://localhost:9999/feedback") — 그래서 urlPath 를 안 붙인다. */
-async function syncFeedback(projectRoot: string, record: Record<string, unknown>): Promise<void> {
+ * (prototype.md:105 "http://localhost:9999/feedback") — 그래서 urlPath 를 안 붙인다.
+ * export: core/auto-feedback.ts(ADK stage 6, CLI 미처리 예외 자동기록)도 재사용한다. */
+export async function syncFeedback(projectRoot: string, record: Record<string, unknown>): Promise<void> {
   const cfg = readGlobalAwlConfig();
   const endpoint = cfg?.sync?.feedback?.endpoint;
   if (!endpoint) {

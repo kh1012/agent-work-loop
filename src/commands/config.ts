@@ -96,6 +96,12 @@ export interface AwlConfig {
    * 전역 기본으로 켜진다. path 미설정 시 DEFAULT_FEEDBACK_PATH 를 쓴다.
    */
   feedback?: { enabled: boolean; path?: string };
+  /**
+   * awl CLI 자신의 미처리 예외를 awl-feedback 으로 자동 기록할지(ADK stage 6,
+   * core/auto-feedback.ts). 기본 켜짐 — 끄려면 명시적으로 false. 위 `feedback`(세션
+   * 피드백 모드, 완전히 다른 기능)과 이름이 겹치지 않게 분리했다.
+   */
+  autoFeedback?: boolean;
 }
 
 /** 옛 verify(4키 고정 객체) shape 을 verifications 배열로 변환한다(ADK stage 4 하위호환).
@@ -528,6 +534,7 @@ export function loadConfig(projectRoot: string): ConfigResult {
           },
         }
       : {}),
+    ...(typeof raw.autoFeedback === 'boolean' ? { autoFeedback: raw.autoFeedback } : {}),
     verifications,
   };
   if (!findDotGitPath(projectRoot)) {
