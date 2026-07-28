@@ -56,9 +56,6 @@ export function gatherVersionInputs(
     'engineVersion',
   );
   const installed = installedEngineVersion();
-  const projectEngineVersion = projectRoot
-    ? readVersionField(path.join(projectRoot, '.awl', 'config.json'), 'engineVersion')
-    : null;
   const skillsRaw = projectRoot ? readJson(skillsVersionPath(projectRoot)) : null;
   const installedSkillVersions = {
     claude:
@@ -79,7 +76,6 @@ export function gatherVersionInputs(
     packageVersion,
     engineSourceVersion,
     installedEngineVersion: installed,
-    projectEngineVersion,
     installedSkillVersions,
     npmLatestVersion,
   };

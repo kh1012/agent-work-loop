@@ -447,12 +447,11 @@ function isVerifyEmpty(v: VerificationEntry[]): boolean {
 // ---------------------------------------------------------------------------
 
 /** 입력으로부터 .awl/config.json 객체를 만든다. */
-export function buildConfig(inputs: InitInputs, engineVersion: string): AwlConfig {
+export function buildConfig(inputs: InitInputs): AwlConfig {
   return {
     project: inputs.project,
     mainLanguage: inputs.mainLanguage,
     character: inputs.character,
-    engineVersion,
     verifications: inputs.verifications,
   };
 }
@@ -985,26 +984,29 @@ export function writeSkillsVersionStamp(
 }
 
 /**
- * 이미 설정된 프로젝트를 재실행(그대로 쓰기)할 때 버전 마커를 설치된 엔진에 맞춰
- * 동기화한다(피드백 F-2). `config.engineVersion` 과 이미 설치된 스킬의
+ * 이미 설정된 프로젝트를 재실행(그대로 쓰기)할 때 이미 설치된 스킬의
  * `skills-version.json` 을 갱신하고, 스킬 파일 자체도 재설치해 "마커만 올리고 내용은
- * 옛날" 인 거짓 동기화를 피한다. claude 스킬을 쓰는 프로젝트면 엔진에 나중 추가된
- * 스킬도 함께 설치한다(업그레이드 경로) — claude 를 안 쓰는 프로젝트엔 새로 깔지
- * 않는다. 반환값은 무엇을 동기화했는지 — 로그용.
+ * 옛날" 인 거짓 동기화를 피한다(피드백 F-2). config.json 은 버전을 안 박으므로
+ * (ADK 0.8.0 설계 — 저장소는 engineVersion 필드를 안 갖는다) 여기서 안 건드린다.
+ * claude 스킬을 쓰는 프로젝트면 엔진에 나중 추가된 스킬도 함께 설치한다(업그레이드
+ * 경로) — claude 를 안 쓰는 프로젝트엔 새로 깔지 않는다. 반환값은 무엇을
+ * 동기화했는지 — 로그용.
+ *
+ * `skillsStale` 은 재설치 *전* skills-version.json 스탬프가 실제로 engineVersion 과
+ * 달랐는지를 말한다 — `skills`(재설치된 이름 목록)와 다르다. installClaudeSkill/
+ * installCodexSkill 은 내용이 같아도 항상 무조건 재복사하고 성공만 알리므로,
+ * `skills.length>0` 은 "스킬을 쓴다"는 뜻이지 "이번에 실제로 낡았었다"는 뜻이
+ * 아니다(F-2와 같은 함정 — 예전엔 config.engineVersion 이 이 판단의 유일한
+ * 마커였는데, 그 필드를 없앤 대신 skills-version.json 의 재설치 전 값으로 같은
+ * 판단을 한다).
  */
 export function syncExistingInstall(
   projectRoot: string,
   engineVersion: string,
   now: string,
-): { configUpdated: boolean; skills: string[]; registrationSkipped: boolean } {
-  // 1) config.engineVersion 만 엔진에 맞춘다(나머지 필드는 팀 설정이므로 보존).
-  let configUpdated = false;
+): { skills: string[]; skillsStale: boolean; registrationSkipped: boolean } {
   const configPath = path.join(projectRoot, '.awl', 'config.json');
   const raw = readJson(configPath) as Record<string, unknown> | null;
-  if (raw && raw.engineVersion !== engineVersion) {
-    writeFileEnsuringDir(configPath, `${JSON.stringify({ ...raw, engineVersion }, null, 2)}\n`);
-    configUpdated = true;
-  }
 
   // profile.json 이 없는 기존 설치(단계 4 이전 저장소)를 여기서 백필한다 — 있으면
   // ensureProfile 이 아무것도 안 건드린다.
@@ -1027,19 +1029,26 @@ export function syncExistingInstall(
   //    것은 새로 설치한다(업그레이드 경로: 기존 사용자가 재실행만으로 새 파이프라인
   //    스킬을 받는다). claude 를 아예 안 쓰는 프로젝트(codex-only 등)에는 새로 깔지
   //    않는다 — "그대로" 경로가 스킬 사용 여부(config 결정)를 뒤집지 않게 한다.
-  const skills: string[] = [];
   const claudeInUse = claudeSkillNames().some((name) =>
     exists(path.join(projectRoot, '.claude', 'skills', name)),
   );
-  if (claudeInUse && installClaudeSkill(projectRoot)) {
-    skills.push('claude');
-  }
   const agentsMd = path.join(projectRoot, 'AGENTS.md');
   const codexInstalled =
     (exists(agentsMd) && fs.readFileSync(agentsMd, 'utf8').includes('awl-loop:start')) ||
     codexSkillNames().some((name) =>
       exists(path.join(projectRoot, '.agents', 'skills', name, 'SKILL.md')),
     );
+
+  // 재설치 전 스탬프를 먼저 본다 — writeSkillsVersionStamp 가 아래에서 이 값을 덮어쓰기 전.
+  const priorStamp = readJson(skillsVersionPath(projectRoot)) as Record<string, unknown> | null;
+  const skillsStale =
+    (claudeInUse && priorStamp?.claude !== engineVersion) ||
+    (codexInstalled && priorStamp?.codex !== engineVersion);
+
+  const skills: string[] = [];
+  if (claudeInUse && installClaudeSkill(projectRoot)) {
+    skills.push('claude');
+  }
   if (codexInstalled && installCodexSkill(projectRoot)) {
     skills.push('codex');
   }
@@ -1059,7 +1068,7 @@ export function syncExistingInstall(
     upsertClaudeMdStagesRef(projectRoot);
   }
 
-  return { configUpdated, skills, registrationSkipped };
+  return { skills, skillsStale: Boolean(skillsStale), registrationSkipped };
 }
 
 function countEntries(dir: string): number {
@@ -1120,7 +1129,7 @@ export function applyInit(
   opts: { preserveState?: boolean; skipGitignore?: boolean; installPushGuard?: boolean } = {},
 ): InitResult {
   const g = scaffoldGlobal();
-  const config = buildConfig(inputs, g.engineVersion);
+  const config = buildConfig(inputs);
   const configPath = writeConfig(projectRoot, config);
   // profile.json 이 이미 있으면 안 건드린다(ensureProfile) — lane/work new --worktree
   // 도 applyInit()을 재사용하는데, 팀이 고른 스킬 설정을 레인 만들 때마다 지우면 안 된다.
@@ -1790,19 +1799,12 @@ async function handleExistingConfig(
   scaffoldGlobal();
   const installedVer = installedEngineVersion();
 
-  const engineNote =
-    installedVer && config?.engineVersion
-      ? installedVer === config.engineVersion
-        ? `(설치됨: ${installedVer}  일치)`
-        : `(설치됨: ${installedVer}  불일치 -> '그대로 쓴다'를 고르면 동기화됩니다)`
-      : '';
   const summaryLines = [
     '.awl/config.json 이 이미 있습니다. 팀원이 설정해두었군요.',
     '',
     `프로젝트   ${config?.project ?? '(없음)'}`,
     `주 언어    ${config?.mainLanguage?.join(', ') || '(없음)'}`,
     `성격       ${config?.character || '(없음)'}`,
-    `엔진       ${config?.engineVersion ?? '(없음)'}   ${engineNote}`,
     ...(existingVerifications.length > 0
       ? ['', ...verifyLines(existingVerifications).map((l) => `검증  ${l.trim()}`)]
       : []),
@@ -1826,9 +1828,9 @@ async function handleExistingConfig(
 
   if (choice === 0) {
     const synced = syncExistingInstall(projectRoot, installedVer ?? 'unknown', now);
-    if (synced.configUpdated || synced.skills.length > 0) {
+    if (synced.skills.length > 0) {
       process.stdout.write(
-        `\n  설정을 그대로 씁니다. 버전 마커를 ${installedVer ?? '엔진'} 로 동기화했습니다${synced.skills.length ? ` (스킬: ${synced.skills.join(', ')})` : ''}.\n`,
+        `\n  설정을 그대로 씁니다. 스킬을 ${installedVer ?? '엔진'} 기준으로 재설치했습니다 (${synced.skills.join(', ')}).\n`,
       );
     } else {
       process.stdout.write('\n  설정을 그대로 씁니다. 이미 최신입니다.\n');
@@ -1871,7 +1873,7 @@ async function handleExistingConfig(
       verifications: verify,
       skills: { claude: false, codex: false },
     };
-    writeConfig(projectRoot, buildConfig(merged, installedVer ?? 'unknown'));
+    writeConfig(projectRoot, buildConfig(merged));
     process.stdout.write('\n  검증 명령어를 갱신했습니다.\n');
     return;
   }
@@ -2100,8 +2102,8 @@ export async function runInit(opts: { yes: boolean; pushGuard?: boolean }): Prom
       const hook = pushGuard ? installSafetyHook(projectRoot) : { installed: false };
       const synced = syncExistingInstall(projectRoot, engine.engineVersion, now);
       const syncNote =
-        synced.configUpdated || synced.skills.length > 0
-          ? `\n  ${signal(c, 'ok')} 버전 마커를 ${engine.engineVersion} 로 동기화했습니다${synced.skills.length ? ` (스킬: ${synced.skills.join(', ')})` : ''}.`
+        synced.skills.length > 0
+          ? `\n  ${signal(c, 'ok')} 스킬을 ${engine.engineVersion} 기준으로 재설치했습니다 (${synced.skills.join(', ')}).`
           : '';
       const worktreeNote = synced.registrationSkipped
         ? `\n  ${makeColors(c.color).dim('이 위치는 레인 워크트리입니다(.awl-worktrees 하위) — 전역 프로젝트 목록에는 등록하지 않습니다. 부모 프로젝트에서 awl lane rm/awl remove로 관리하세요.')}`

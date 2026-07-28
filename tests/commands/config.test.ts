@@ -27,7 +27,6 @@ function freshConfig(): AwlConfig {
     project: 'maxflow',
     mainLanguage: ['javascript'], // WI-A 가 고칠 오판 시나리오를 흉내낸다
     character: '',
-    engineVersion: '0.1.0',
     verifications: [{ name: 'typecheck', cmd: 'tsc --noEmit' }],
   };
 }

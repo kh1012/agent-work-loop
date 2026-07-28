@@ -82,7 +82,6 @@ export interface AwlConfig {
   project: string;
   mainLanguage: string[];
   character: string;
-  engineVersion: string;
   /** ADK stage 4: verify(4키 고정 객체) → verifications(자유 이름 배열). loadConfig 가
    * 옛 shape 을 읽을 때 자동으로 이 배열로 변환한다(migrateLegacyVerify). */
   verifications: VerificationEntry[];
@@ -313,9 +312,6 @@ export function validateConfig(obj: unknown): string[] {
   if (typeof o.project !== 'string' || o.project.trim() === '') {
     errors.push('project 가 없습니다 (문자열 필수)');
   }
-  if (typeof o.engineVersion !== 'string') {
-    errors.push('engineVersion 이 없습니다 (문자열 필수)');
-  }
   // ADK stage 4: verifications(배열)가 있으면 그걸 검증하고, 없으면 옛 verify(4키
   // 고정 객체, 하위호환)를 검증한다. 둘 다 없으면 에러 — loadConfig 가 어느 쪽이든
   // migrateLegacyVerify 로 verifications 를 채워야 하므로 최소 하나는 있어야 한다.
@@ -516,7 +512,6 @@ export function loadConfig(projectRoot: string): ConfigResult {
       ? raw.mainLanguage.filter((v): v is string => typeof v === 'string')
       : [],
     character: typeof raw.character === 'string' ? raw.character : '',
-    engineVersion: raw.engineVersion as string,
     ...(typeof raw.namingConvention === 'string' ? { namingConvention: raw.namingConvention } : {}),
     ...(typeof raw.relatedCmd === 'string' ? { relatedCmd: raw.relatedCmd } : {}),
     ...(Array.isArray(raw.protectedFiles)
@@ -1050,7 +1045,6 @@ function renderConfig(config: AwlConfig, c: Caps): string {
   const out: string[] = [];
   out.push(`${s.branch} 주 언어  ${config.mainLanguage.join(', ') || '(없음)'}`);
   out.push(`${s.branch} 성격     ${config.character || '(없음)'}`);
-  out.push(`${s.branch} 엔진     ${config.engineVersion}`);
   const feedbackOn = config.feedback?.enabled ?? false;
   out.push(`${s.branch} 피드백   ${feedbackOn ? '켜짐' : '꺼짐'}`);
   out.push(

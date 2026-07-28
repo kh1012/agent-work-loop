@@ -23,7 +23,6 @@ const CONFIG: AwlConfig = {
   project: 'p',
   mainLanguage: ['typescript'],
   character: '',
-  engineVersion: '0.0.0',
   verifications: [{ name: 'test', cmd: `${process.execPath} --version` }],
 };
 

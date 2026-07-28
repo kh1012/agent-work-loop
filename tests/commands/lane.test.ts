@@ -208,7 +208,6 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
     const statePath = path.join(lanePath, '.awl', 'state.json');
     expect(JSON.parse(fs.readFileSync(configPath, 'utf8'))).toMatchObject({
       project: 'probe',
-      engineVersion: expect.any(String),
       verifications: expect.any(Array),
     });
     expect(JSON.parse(fs.readFileSync(statePath, 'utf8'))).toMatchObject({
@@ -230,7 +229,6 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
       project: 'upstream-v1',
       mainLanguage: ['typescript'],
       character: 'base-v1',
-      engineVersion: '0.7.3',
       verify: { typecheck: null, lint: null, test: null, e2e: null },
       feedback: { enabled: true, path: '/feedback/v1' },
     };

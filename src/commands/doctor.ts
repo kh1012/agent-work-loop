@@ -789,21 +789,6 @@ async function collectSingleProject(
     });
   }
 
-  // 엔진 버전 일치 (WI-X pair #3) — version-check 와 같은 계산(checkVersions)을 쓴다.
-  const installed = installedEngineVersion();
-  if (installed !== null) {
-    const projectMismatch = findMismatch(versionResult, 'project-vs-engine');
-    checks.push({
-      group: groupLabel,
-      name: '엔진 버전 일치',
-      status: projectMismatch ? 'warn' : 'ok',
-      value: projectMismatch
-        ? `config ${raw.engineVersion} / 설치 ${installed}`
-        : raw.engineVersion,
-      hint: projectMismatch?.hint,
-    });
-  }
-
   // 검증 명령 존재 확인: --version 으로 존재만 확인한다. 전체 실행은 하지 않는다(빨라야 함).
   // ADK stage 4: verify(4키 고정 객체) → verifications(배열). raw 는 loadConfig 를 거쳐
   // 이미 배열로 정규화돼 있다(옛 shape 이어도 loadConfig 가 메모리상에서 변환한다).

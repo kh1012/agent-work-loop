@@ -450,7 +450,7 @@ describe('verifyStepLines (리뷰 지적 AC-09 — buildScreens/interactiveInput
 });
 
 describe('buildConfig', () => {
-  it('입력과 엔진버전으로 config 객체를 만든다', () => {
+  it('입력으로 config 객체를 만든다(ADK 0.8.0: engineVersion 필드 없음)', () => {
     const inputs: InitInputs = {
       project: 'proj',
       mainLanguage: ['typescript'],
@@ -458,9 +458,9 @@ describe('buildConfig', () => {
       verifications: [{ name: 'typecheck', cmd: 'tsc --noEmit' }],
       skills: { claude: true, codex: false },
     };
-    const config = buildConfig(inputs, '0.0.0');
+    const config = buildConfig(inputs);
     expect(config.project).toBe('proj');
-    expect(config.engineVersion).toBe('0.0.0');
+    expect(config).not.toHaveProperty('engineVersion');
     expect(config.verifications).toEqual([{ name: 'typecheck', cmd: 'tsc --noEmit' }]);
   });
 });
@@ -867,23 +867,20 @@ describe('applyInit — 전체 산출물', () => {
     );
   });
 
-  it('syncExistingInstall — 옛 마커(config·skills-version)를 설치된 엔진 버전으로 끌어올린다 (F-2)', () => {
+  it('syncExistingInstall — 옛 skills-version 마커를 설치된 엔진 버전으로 끌어올린다 (F-2, ADK 0.8.0: config.json 은 안 건드림)', () => {
     const inputs = nonInteractiveInputs(proj);
     inputs.skills = { claude: true, codex: true };
     const result = applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
     const engineVersion = result.engineVersion;
 
     // 마커만 옛 버전으로 되돌린다(내용은 최신, 선언 마커만 낡은 상태 — F-2 관측 재현).
-    const configPath = path.join(proj, '.awl', 'config.json');
-    const cfg = readJson(configPath) as Record<string, unknown>;
-    fs.writeFileSync(configPath, JSON.stringify({ ...cfg, engineVersion: '0.0.1' }));
     fs.writeFileSync(skillsVersionPath(proj), JSON.stringify({ claude: '0.0.1', codex: '0.0.1' }));
 
     const synced = syncExistingInstall(proj, engineVersion, '2026-01-02T00:00:00.000Z');
 
-    expect(synced.configUpdated).toBe(true);
     expect(synced.skills.sort()).toEqual(['claude', 'codex']);
-    expect((readJson(configPath) as Record<string, unknown>).engineVersion).toBe(engineVersion);
+    const configPath = path.join(proj, '.awl', 'config.json');
+    expect(readJson(configPath) as Record<string, unknown>).not.toHaveProperty('engineVersion');
     const stamp = readJson(skillsVersionPath(proj)) as Record<string, unknown>;
     expect(stamp.claude).toBe(engineVersion);
     expect(stamp.codex).toBe(engineVersion);
@@ -901,16 +898,6 @@ describe('applyInit — 전체 산출물', () => {
 
     expect(synced.skills).toEqual([]);
     expect(fs.existsSync(path.join(proj, '.claude', 'skills', 'awl-loop'))).toBe(false);
-  });
-
-  it('syncExistingInstall — 이미 최신이면 config 를 다시 쓰지 않는다 (F-2)', () => {
-    const inputs = nonInteractiveInputs(proj);
-    inputs.skills = { claude: false, codex: false };
-    const result = applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
-
-    const synced = syncExistingInstall(proj, result.engineVersion, '2026-01-02T00:00:00.000Z');
-
-    expect(synced.configUpdated).toBe(false);
   });
 
   it('syncExistingInstall — awl remove --all 등으로 registry 가 비워진 뒤에도 "그대로 쓴다" 재실행이 재등록한다 (F-1)', () => {
@@ -953,23 +940,19 @@ describe('applyInit — 전체 산출물', () => {
     expect(listRegisteredProjects().map((p) => p.path)).toContain(fs.realpathSync(proj));
   });
 
-  it('runInit --yes 재실행이 낡은 마커를 설치 엔진으로 동기화한다 (F-2 CLI 배선)', async () => {
+  it('runInit --yes 재실행이 낡은 skills-version 마커를 설치 엔진으로 동기화한다 (F-2 CLI 배선, ADK 0.8.0: config.json 은 안 건드림)', async () => {
     const inputs = nonInteractiveInputs(proj);
     inputs.skills = { claude: true, codex: false };
     const result = applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
 
     // 마커만 낡게 되돌린다(선언 마커만 옛 버전 — F-2 관측 재현).
-    const configPath = path.join(proj, '.awl', 'config.json');
-    const cfg = readJson(configPath) as Record<string, unknown>;
-    fs.writeFileSync(configPath, JSON.stringify({ ...cfg, engineVersion: '0.0.1' }));
     fs.writeFileSync(skillsVersionPath(proj), JSON.stringify({ claude: '0.0.1' }));
 
     // proj 가 cwd(beforeEach 에서 chdir)이고 config 가 있으므로 --yes 재실행 경로를 탄다.
     await runInit({ yes: true });
 
-    expect((readJson(configPath) as Record<string, unknown>).engineVersion).toBe(
-      result.engineVersion,
-    );
+    const configPath = path.join(proj, '.awl', 'config.json');
+    expect(readJson(configPath) as Record<string, unknown>).not.toHaveProperty('engineVersion');
     expect((readJson(skillsVersionPath(proj)) as Record<string, unknown>).claude).toBe(
       result.engineVersion,
     );

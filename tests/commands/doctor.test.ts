@@ -54,7 +54,6 @@ function makeInstalledProject(): string {
     path.join(proj, '.awl', 'config.json'),
     JSON.stringify({
       project: 'doctor-test',
-      engineVersion: '0.0.0',
       verify: {
         test: { cmd: 'node --version', env: { NODE_ENV: 'test' } },
         lint: { cmd: 'nonexistent_tool_zzz .' },
@@ -111,7 +110,6 @@ describe('collectChecks — 설치됨 흉내', () => {
     expect(find(report.checks, '규칙')?.value).toBe('1개');
     expect(find(report.checks, '프로젝트')?.value).toBe('2개');
     expect(find(report.checks, 'config.json')?.status).toBe('ok');
-    expect(find(report.checks, '엔진 버전 일치')?.status).toBe('ok');
 
     // 검증 명령: node 는 존재(ok), 없는 명령은 missing 으로 구분
     expect(find(report.checks, '검증: test')?.status).toBe('ok');
@@ -383,7 +381,6 @@ describe('collectChecks — 프로젝트 루트/브랜치 표시 (WI-C)', () => 
       path.join(proj, '.awl', 'config.json'),
       JSON.stringify({
         project: 'doctor-cwd',
-        engineVersion: '0.0.0',
         verify: { typecheck: null, lint: null, test: null, e2e: null },
       }),
     );
@@ -453,7 +450,6 @@ describe('collectChecks — verify.*.cwd 점검 (WI-B, 모노레포)', () => {
       path.join(proj, '.awl', 'config.json'),
       JSON.stringify({
         project: 'doctor-cwd',
-        engineVersion: '0.0.0',
         verify: { test: { cmd: 'node --version', cwd: 'packages/app' }, lint: null, e2e: null },
       }),
     );
@@ -471,7 +467,6 @@ describe('collectChecks — verify.*.cwd 점검 (WI-B, 모노레포)', () => {
       path.join(proj, '.awl', 'config.json'),
       JSON.stringify({
         project: 'doctor-cwd',
-        engineVersion: '0.0.0',
         verify: { test: { cmd: 'node --version', cwd: 'no/such/dir' }, lint: null, e2e: null },
       }),
     );
@@ -493,7 +488,6 @@ describe('collectChecks — verify.*.cwd 점검 (WI-B, 모노레포)', () => {
       path.join(proj, '.awl', 'config.json'),
       JSON.stringify({
         project: 'doctor-cwd',
-        engineVersion: '0.0.0',
         verify: { test: { cmd: 'node --version', cwd: 'not-a-dir.txt' }, lint: null, e2e: null },
       }),
     );
@@ -562,25 +556,9 @@ describe('renderText — 정렬과 출력', () => {
   });
 });
 
-describe('collectChecks — 버전 4쌍 (WI-X)', () => {
+describe('collectChecks — 버전 3쌍 (WI-X, ADK 0.8.0: project-vs-engine 제거)', () => {
   beforeEach(() => {
     process.env.AWL_HOME = makeInstalledHome(); // engine 0.0.0
-  });
-
-  it('프로젝트 config.engineVersion 이 설치된 엔진과 다르면 엔진 버전 일치가 warn 이고 [!] 힌트에 awl init --yes 를 안내한다', async () => {
-    const proj = tmp('awl-proj-');
-    makeGitMetadata(proj);
-    fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
-    fs.writeFileSync(
-      path.join(proj, '.awl', 'config.json'),
-      JSON.stringify({ project: 'doctor-version', engineVersion: '0.0.1', verify: {} }),
-    );
-    process.chdir(proj);
-
-    const report = await collectChecks();
-    const check = find(report.checks, '엔진 버전 일치');
-    expect(check?.status).toBe('warn');
-    expect(check?.hint).toContain('awl init --yes');
   });
 
   it('스킬 미설치면 Claude/Codex 스킬 버전 둘 다 warn', async () => {
@@ -667,7 +645,6 @@ describe('collectChecks — 워킹트리 더러움 점검 (WI-F, 환경이 준 g
     fs.writeFileSync(
       path.join(proj, '.awl', 'config.json'),
       JSON.stringify({
-        engineVersion: '0.0.0',
         verify: { typecheck: null, lint: null, test: null, e2e: null },
       }),
     );
@@ -965,7 +942,6 @@ describe('collectChecks — record 트레일 공백 표면화 (record-trail-guar
       path.join(proj, '.awl', 'config.json'),
       JSON.stringify({
         project: 'trailproj',
-        engineVersion: '0.0.0',
         verify: { typecheck: null, lint: null, test: null, e2e: null },
       }),
     );

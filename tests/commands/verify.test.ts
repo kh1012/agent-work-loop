@@ -548,7 +548,6 @@ describe('runRelatedTests (WI-I AC-04) — relatedCmd 있으면 그것만, 없�
       project: 'p',
       mainLanguage: ['typescript'],
       character: '',
-      engineVersion: '0.0.0',
       verifications: [],
       ...overrides,
     };

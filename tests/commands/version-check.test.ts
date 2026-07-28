@@ -28,30 +28,10 @@ afterEach(() => {
 });
 
 describe('gatherVersionInputs — 실제 값 수집 (WI-X AC-03)', () => {
-  it('projectRoot 가 null 이면(프로젝트 밖) 프로젝트/스킬 값은 전부 null', () => {
+  it('projectRoot 가 null 이면(프로젝트 밖) 스킬 값은 전부 null', () => {
     process.env.AWL_HOME = tmp('awl-vc-home-');
     const inputs = gatherVersionInputs(null);
-    expect(inputs.projectEngineVersion).toBeNull();
     expect(inputs.installedSkillVersions).toEqual({ claude: null, codex: null });
-  });
-
-  it('프로젝트 config.json 의 engineVersion 을 읽는다', () => {
-    process.env.AWL_HOME = tmp('awl-vc-home-');
-    const proj = tmp('awl-vc-proj-');
-    fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
-    fs.writeFileSync(
-      path.join(proj, '.awl', 'config.json'),
-      JSON.stringify({ engineVersion: '0.3.1' }),
-    );
-    const inputs = gatherVersionInputs(proj);
-    expect(inputs.projectEngineVersion).toBe('0.3.1');
-  });
-
-  it('config.json 이 없으면 projectEngineVersion 은 null(크래시 없음)', () => {
-    process.env.AWL_HOME = tmp('awl-vc-home-');
-    const proj = tmp('awl-vc-proj-');
-    const inputs = gatherVersionInputs(proj);
-    expect(inputs.projectEngineVersion).toBeNull();
   });
 
   it('.awl/skills-version.json 을 읽어 claude/codex 각각의 버전을 돌려준다', () => {
@@ -127,13 +107,18 @@ describe('renderVersionCheck — 사람용 출력 (WI-X AC-03)', () => {
       {
         ok: false,
         mismatches: [
-          { kind: 'project-vs-engine', a: '0.3.1', b: '0.5.0', hint: 'awl update 를 실행하세요' },
+          {
+            kind: 'claude-skill-vs-engine',
+            a: '0.3.1',
+            b: '0.5.0',
+            hint: 'awl update 를 실행하세요',
+          },
         ],
       },
       { unicode: false, color: false, tty: false },
     );
     expect(text).toContain('[!]');
-    expect(text).toContain('project-vs-engine');
+    expect(text).toContain('claude-skill-vs-engine');
     expect(text).toContain('awl update 를 실행하세요');
   });
 
