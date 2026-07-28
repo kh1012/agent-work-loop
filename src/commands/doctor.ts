@@ -710,6 +710,19 @@ async function collectSingleProject(
     });
   }
 
+  // exclusive 검증(ADK stage 5) — 정보다. 여러 레인이 동시에 돌아도 이 검증만은
+  // 포트 등 못 나누는 자원 때문에 한 번에 하나씩만 실행된다는 사실을 알린다.
+  const exclusiveVerifications = raw.verifications.filter((v) => v.exclusive).map((v) => v.name);
+  if (exclusiveVerifications.length > 0) {
+    checks.push({
+      group: groupLabel,
+      name: 'exclusive 검증',
+      status: 'info',
+      value: `${exclusiveVerifications.length}개: ${exclusiveVerifications.join(', ')}`,
+      hint: '레인이 여럿이어도 이 검증은 한 번에 하나만 돕니다(verify-lock).',
+    });
+  }
+
   // 로컬 스킬 설정(profile.local.json, ADK stage 4) — 정보다. 스킬을 바꾸는 건
   // 문제가 아니라 사실이다(prototype.md:519-524).
   const loadedProfile = loadProfile(projectRoot);

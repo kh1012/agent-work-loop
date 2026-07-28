@@ -324,6 +324,25 @@ describe('collectChecks — 게이트 가시성: 로컬 skip 경고 · 로컬 �
     expect(find(report.checks, '로컬에서 건너뛴 검증')).toBeUndefined();
   });
 
+  it('config.json 의 verifications 에 exclusive:true 가 있으면 info 로 이름을 보여준다(WI-G10)', async () => {
+    const root = process.cwd();
+    const configPath = path.join(root, '.awl', 'config.json');
+    const raw = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    raw.verifications = [{ name: 'e2e', cmd: 'npm run e2e', exclusive: true }];
+    fs.writeFileSync(configPath, JSON.stringify(raw));
+
+    const report = await collectChecks();
+    const check = find(report.checks, 'exclusive 검증');
+
+    expect(check?.status).toBe('info');
+    expect(check?.value).toContain('e2e');
+  });
+
+  it('exclusive 검증이 없으면 그 체크 자체가 없다', async () => {
+    const report = await collectChecks();
+    expect(find(report.checks, 'exclusive 검증')).toBeUndefined();
+  });
+
   it('profile.local.json 이 스킬을 바꾸면 info 로 슬롯 이름을 보여준다(경고 아님 — 문제가 아니라 사실)', async () => {
     const root = process.cwd();
     fs.writeFileSync(
