@@ -216,6 +216,17 @@ export interface DocNewResult {
   title: string;
 }
 
+/** 같은 초에 같은 제목으로 또 만들어도 조용히 덮어쓰지 않게, 겹치면 -2·-3… 을 붙인다. */
+function uniqueFilePath(dir: string, filename: string): string {
+  const ext = path.extname(filename);
+  const base = filename.slice(0, -ext.length);
+  let candidate = path.join(dir, filename);
+  for (let n = 2; fs.existsSync(candidate); n += 1) {
+    candidate = path.join(dir, `${base}-${n}${ext}`);
+  }
+  return candidate;
+}
+
 /** 실제 파일 쓰기까지 하는 순수에 가까운 빌더 — CLI 핸들러와 테스트 양쪽이 쓴다. */
 export async function createDoc(
   type: DocType,
@@ -228,7 +239,7 @@ export async function createDoc(
   const slug = kebabCase(title);
   const filename = `${localTimestampForFilename(now)}-${slug || 'untitled'}.md`;
   const dir = path.join(projectRoot, 'docs', DOC_DIRS[type]);
-  const filePath = path.join(dir, filename);
+  const filePath = uniqueFilePath(dir, filename);
   const iso = localIsoWithOffset(now);
 
   let frontmatter: FrontmatterData;

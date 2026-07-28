@@ -170,6 +170,18 @@ describe('createDoc — spec', () => {
     expect(a.path).not.toBe(b.path);
   });
 
+  it('같은 초에 같은 제목으로 두 번 만들어도 덮어쓰지 않고 -2 접미사로 갈라진다(WI-G9)', async () => {
+    const p = project();
+    const now = new Date(2026, 6, 25, 14, 30, 52);
+    const a = await createDoc('spec', '제목', p, {}, now);
+    const b = await createDoc('spec', '제목', p, {}, now);
+    expect(a.path).not.toBe(b.path);
+    expect(b.path).toBe(path.join(p, 'docs', 'specs', '20260725-143052-제목-2.md'));
+    expect(fs.existsSync(a.path)).toBe(true);
+    expect(fs.existsSync(b.path)).toBe(true);
+    expect(a.id).not.toBe(b.id);
+  });
+
   it('config.json 이 없어도 디렉터리 이름으로 project 를 채우고 크래시하지 않는다', async () => {
     const p = tmp('awl-doc-noconfig-');
     const result = await createDoc('spec', '제목', p);
