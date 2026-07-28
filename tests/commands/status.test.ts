@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createDoc } from '../../src/commands/doc.js';
 import {
   type StatusReport,
   buildStatus,
@@ -494,6 +495,160 @@ describe('게이트 접기/펼치기 판정 (WI-G19)', () => {
     const text = renderStatus(buildStatus(root), { unicode: false, color: false, tty: false });
     expect(text).not.toContain('▸');
     expect(text).toContain('>');
+  });
+});
+
+describe('게이트4 auto 요청 요약 (WI-H4, adk-prototype.md:365 "auto 는 게이트4 에서 펼친 요약만 낸다")', () => {
+  async function makeSpecWithTickets(
+    root: string,
+    ticketStatuses: string[],
+    conditionsPerTicket: string[][],
+  ): Promise<{ specId: string; ticketIds: string[] }> {
+    const spec = await createDoc('spec', '요약 대상 스펙', root);
+    const ticketIds: string[] = [];
+    for (let i = 0; i < ticketStatuses.length; i++) {
+      const ticket = await createDoc('ticket', `티켓 ${i}`, root, {
+        spec: spec.id,
+        conditions: conditionsPerTicket[i] ?? [],
+      });
+      const content = fs
+        .readFileSync(ticket.path, 'utf8')
+        .replace(/^status: .+$/m, `status: ${ticketStatuses[i]}`);
+      fs.writeFileSync(ticket.path, content);
+      ticketIds.push(ticket.id);
+    }
+    return { specId: spec.id, ticketIds };
+  }
+
+  it('게이트4 가 auto:true 로 기록되면 완료티켓/조건/자동승인 횟수를 집계한다', async () => {
+    const root = tmpProject({ phase: 'loop', workitem: null, criteria: [] });
+    const { specId, ticketIds } = await makeSpecWithTickets(
+      root,
+      ['done', 'done', 'pending'],
+      [['condition-1'], ['condition-1', 'condition-2'], ['condition-1']],
+    );
+    tmpHomeWithRecords(root, [
+      {
+        id: '1',
+        at: '2026-07-28T10:00:00Z',
+        type: 'gate',
+        workitem: null,
+        gate: 2,
+        layer: 'ticket',
+        ticket: ticketIds[0],
+        decision: 'approved',
+        presentedCriteria: [],
+        auto: true,
+      },
+      {
+        id: '2',
+        at: '2026-07-28T10:01:00Z',
+        type: 'gate',
+        workitem: null,
+        gate: 3,
+        layer: 'ticket',
+        ticket: ticketIds[0],
+        decision: 'approved',
+        presentedCriteria: [],
+        auto: true,
+      },
+      {
+        id: '3',
+        at: '2026-07-28T10:02:00Z',
+        type: 'gate',
+        workitem: null,
+        gate: 3,
+        layer: 'ticket',
+        ticket: ticketIds[1],
+        decision: 'approved',
+        presentedCriteria: [],
+        auto: false, // 사람이 직접 승인 — 자동승인 카운트에 안 들어간다
+      },
+      {
+        id: '4',
+        at: '2026-07-28T10:03:00Z',
+        type: 'gate',
+        workitem: null,
+        gate: 4,
+        layer: 'request',
+        spec: specId,
+        decision: 'merge',
+        presentedCriteria: [],
+        auto: true,
+      },
+    ]);
+
+    const s = buildStatus(root);
+    const g4 = s.gates.find((g) => g.gate === 4);
+    expect(g4?.requestSummary).toEqual({
+      totalTickets: 3,
+      completedTickets: 2,
+      conditionsTotal: 4, // 티켓별 조건 1+2+1
+      autoApprovalCount: 3, // gate2(t0)+gate3(t0)+gate4 자신 — gate3(t1)은 auto:false
+    });
+  });
+
+  it('게이트4 가 auto:false(사람이 직접 승인)면 requestSummary 가 없다', async () => {
+    const root = tmpProject({ phase: 'loop', workitem: null, criteria: [] });
+    const spec = await createDoc('spec', '스펙', root);
+    tmpHomeWithRecords(root, [
+      {
+        id: '1',
+        at: '2026-07-28T10:00:00Z',
+        type: 'gate',
+        workitem: null,
+        gate: 4,
+        layer: 'request',
+        spec: spec.id,
+        decision: 'merge',
+        presentedCriteria: [],
+        auto: false,
+      },
+    ]);
+    const s = buildStatus(root);
+    expect(s.gates.find((g) => g.gate === 4)?.requestSummary).toBeUndefined();
+  });
+
+  it('게이트4 가 spec 필드 없이 기록됐으면(레거시) requestSummary 를 안 만든다(크래시 아님)', async () => {
+    const root = tmpProject({ phase: 'loop', workitem: null, criteria: [] });
+    tmpHomeWithRecords(root, [
+      {
+        id: '1',
+        at: '2026-07-28T10:00:00Z',
+        type: 'gate',
+        workitem: null,
+        gate: 4,
+        layer: 'request',
+        decision: 'merge',
+        presentedCriteria: [],
+        auto: true,
+      },
+    ]);
+    const s = buildStatus(root);
+    expect(s.gates.find((g) => g.gate === 4)?.requestSummary).toBeUndefined();
+  });
+
+  it('renderStatus 가 완료 티켓/조건/자동승인 횟수를 사람용 텍스트로 보여준다', async () => {
+    const root = tmpProject({ phase: 'loop', workitem: null, criteria: [] });
+    const { specId } = await makeSpecWithTickets(root, ['done'], [['condition-1']]);
+    tmpHomeWithRecords(root, [
+      {
+        id: '1',
+        at: '2026-07-28T10:00:00Z',
+        type: 'gate',
+        workitem: null,
+        gate: 4,
+        layer: 'request',
+        spec: specId,
+        decision: 'merge',
+        presentedCriteria: [],
+        auto: true,
+      },
+    ]);
+    const text = renderStatus(buildStatus(root), { unicode: false, color: false, tty: false });
+    expect(text).toContain('완료 티켓 1/1개');
+    expect(text).toContain('조건 1개');
+    expect(text).toContain('자동승인 1회');
   });
 });
 

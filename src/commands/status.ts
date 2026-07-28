@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { parseFrontmatter } from '../core/doc-frontmatter.js';
+import { type FrontmatterData, parseFrontmatter } from '../core/doc-frontmatter.js';
 import { WORKTREES_DIR } from '../core/paths.js';
 import { run } from '../core/runner.js';
 import {
@@ -63,6 +63,50 @@ export interface GateStatus {
   /** true = 한 줄로 접힘("N개 통과 ▸"), false = 항목별로 펼침. */
   folded?: boolean;
   auto?: boolean;
+  /** 게이트4 가 auto:true 로 기록됐을 때만 채운다(WI-H4, "auto 모드는 게이트4 에서 펼친 요약만 낸다"). */
+  requestSummary?: RequestSummary;
+}
+
+/** 게이트4(요청 닫기)가 auto 로 기록됐을 때 펼치는 요청 전체 요약(WI-H4). */
+export interface RequestSummary {
+  totalTickets: number;
+  completedTickets: number;
+  conditionsTotal: number;
+  /** 이 스펙에 속한 티켓들(+게이트4 자신)의 게이트 기록 중 auto:true 인 것의 수. */
+  autoApprovalCount: number;
+}
+
+/**
+ * specId 에 속한 티켓들(docs/tickets/*.md 의 spec 필드로 연결)을 모아 완료/조건/
+ * 자동승인 집계를 낸다. 순수 조회 — 판단하지 않는다(개수만 센다).
+ */
+function buildRequestSummary(projectRoot: string, specId: string): RequestSummary {
+  const ticketDocs = listDocFiles(projectRoot)
+    .filter((f) => f.type === 'ticket')
+    .map((f) => {
+      try {
+        return parseFrontmatter(fs.readFileSync(f.path, 'utf8'))?.data;
+      } catch {
+        return undefined;
+      }
+    })
+    .filter((d): d is FrontmatterData => d !== undefined)
+    .filter((d) => d.spec === specId);
+
+  const totalTickets = ticketDocs.length;
+  const completedTickets = ticketDocs.filter((t) => t.status === 'done').length;
+  const conditionsTotal = ticketDocs.reduce(
+    (sum, t) => sum + (Array.isArray(t.conditions) ? t.conditions.length : 0),
+    0,
+  );
+  const ticketIds = new Set(ticketDocs.map((t) => String(t.id)));
+  const autoApprovalCount = readRecords(projectRoot, { type: 'gate' }).filter(
+    (r) =>
+      r.auto === true &&
+      (r.spec === specId || (typeof r.ticket === 'string' && ticketIds.has(r.ticket))),
+  ).length;
+
+  return { totalTickets, completedTickets, conditionsTotal, autoApprovalCount };
 }
 
 /**
@@ -104,8 +148,11 @@ export interface StatusReport {
  * criteriaStatus 는 state.criteria 의 id→status 맵(WI-G19) — 게이트가 제시한 완료조건이
  * 지금 실제로 passed 인지 대조해 접기/펼치기를 판정한다. reviewRecords 는 review 타입
  * 기록 중 이 게이트가 제시한 완료조건을 하나라도 지목한 것 — findings 를 모아 항상 펼친다.
+ * projectRoot 는 게이트4 가 auto 로 기록됐을 때만 requestSummary 를 계산하려고 받는다
+ * (WI-H4) — 나머지 게이트/워크아이템은 이 조회를 안 탄다.
  */
 function buildGateStatus(
+  projectRoot: string,
   records: Record<string, unknown>[],
   criteriaStatus: Map<string, string>,
 ): GateStatus[] {
@@ -137,6 +184,11 @@ function buildGateStatus(
       (item) => item.status !== undefined && item.status !== 'passed',
     );
     const folded = presentedExclusions.length === 0 && reviewFindings.length === 0 && !hasUnresolved;
+    const auto = typeof rec.auto === 'boolean' ? rec.auto : undefined;
+    const requestSummary =
+      gate === 4 && auto === true && typeof rec.spec === 'string'
+        ? buildRequestSummary(projectRoot, rec.spec)
+        : undefined;
     return {
       gate,
       recorded: true,
@@ -146,7 +198,8 @@ function buildGateStatus(
       presentedExclusions,
       reviewFindings,
       folded,
-      auto: typeof rec.auto === 'boolean' ? rec.auto : undefined,
+      auto,
+      requestSummary,
     };
   });
 }
@@ -205,7 +258,11 @@ export function buildStatus(projectRoot: string): StatusReport {
       criteriaStatus.set(cr.id, cr.status);
     }
   }
-  const gates = buildGateStatus(records.filter((r) => r.workitem === workitem), criteriaStatus);
+  const gates = buildGateStatus(
+    projectRoot,
+    records.filter((r) => r.workitem === workitem),
+    criteriaStatus,
+  );
 
   return {
     generation: typeof state.generation === 'number' ? state.generation : 1,
@@ -392,6 +449,14 @@ export function renderStatus(report: StatusReport, c: Caps): string {
         const evidence = typeof f.evidence === 'string' ? `  ${color.dim(f.evidence)}` : '';
         out.push(`        ${s.vGuide}   ${s.lastBranch} ${signal(c, 'warn')} 리뷰: ${what}${evidence}`);
       }
+    }
+    // auto 모드가 게이트4 에서 펼치는 요청 전체 요약(WI-H4, adk-prototype.md:365
+    // "auto 전부 자동. 게이트 4 에서 펼친 요약만 낸다") — folded 여부와 무관하게 항상 보인다.
+    if (g.requestSummary) {
+      const rs = g.requestSummary;
+      out.push(
+        `        ${s.vGuide}   ${s.lastBranch} ${color.dim(`완료 티켓 ${rs.completedTickets}/${rs.totalTickets}개 · 조건 ${rs.conditionsTotal}개 · 자동승인 ${rs.autoApprovalCount}회`)}`,
+      );
     }
   }
   return sectionBox(`진행 상황 · ${report.generation}세대`, out, c);
