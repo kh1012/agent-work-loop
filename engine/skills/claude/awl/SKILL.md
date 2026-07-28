@@ -19,11 +19,17 @@ description: |
 
 **게이트는 사람이 멈추는 자리다.** `awl next` 출력의 "게이트 N 에 도달하려면" 목록이
 채워졌으면, 그 게이트에 해당하는 `awl record gate --json '{...}'` 를 기록하기 전에
-`state.json` 의 `mode`(strict/semi-auto/auto, `awl state get`)를 확인한다 — `strict`
-이거나 mode 가 없으면 `AskUserQuestion` 으로 사람에게 승인을 받은 뒤 기록한다.
-`semi-auto`/`auto` 면 게이트 2·3 은 승인을 묻지 않고 `"auto":true` 를 남겨 자동
-승인한다(게이트 1·4 는 모든 모드에서 사람에게 묻는다 — 티켓 확정과 요청 닫기는
-자주 있는 일이 아니다).
+`state.json` 의 `mode`(strict/semi-auto/auto, `awl state get`, 아무것도 안 주면
+semi-auto)를 확인한다(adk-prototype.md:357-366):
+
+```
+strict      네 게이트에서 다 멈춘다 — 매번 AskUserQuestion 으로 승인을 받는다.
+semi-auto   게이트 2·3 은 승인을 묻지 않고 "auto":true 로 자동 승인한다.
+            게이트 1·4 는 그대로 묻는다(기본값).
+auto        네 게이트 전부 자동 승인한다. 게이트 4(요청 닫기)만 완료 티켓·조건·
+            검증·자동승인 횟수를 펼쳐 요약으로 보여준다(사람이 나중에라도 볼 수 있게
+            — 승인을 묻지는 않는다).
+```
 
 **단계를 하나씩 지시받지 않는다.** 조사부터 하든 코드를 먼저 읽든 사람에게 먼저
 묻든 상관없다 — 게이트에 도달할 때 `awl next` 가 요구한 형식(finding/clarification/
