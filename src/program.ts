@@ -895,6 +895,17 @@ export function buildProgram(): Command {
       await runNext(ticketId);
     });
 
+  // 사람이 치는 명령: stages (파이프라인 전체 조립, ADK stage 2, 읽기 전용)
+  program
+    .command('stages')
+    .description('요청 층/티켓 층 파이프라인 전체를 보여줍니다(--short 는 다섯 줄만)')
+    .option('--short', '다섯 단계 이름만 보여줍니다')
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .action(async (opts: { short?: boolean; json?: boolean }) => {
+      const { runStages } = await import('./commands/stages.js');
+      await runStages({ short: opts.short === true, json: opts.json === true });
+    });
+
   // 사람이 치는 명령: tokens (티켓별·단계별 토큰 사용량, ADK stage 5, 읽기 전용)
   program
     .command('tokens <ticket-id>')

@@ -420,7 +420,7 @@ export async function installProfile(
   return { ok: true, errors: [], outcomes };
 }
 
-function skillRefLabel(ref: SkillRef): string {
+export function skillRefLabel(ref: SkillRef): string {
   if (ref === null) {
     return '(없음)';
   }
