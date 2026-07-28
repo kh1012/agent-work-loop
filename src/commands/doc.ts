@@ -313,16 +313,19 @@ function isEarsForm(text: string): boolean {
 }
 
 /**
- * 스펙 본문의 `## Conditions` 아래 `### condition-N` 블록들을 뽑는다(제목·본문 텍스트).
- * `line` 은 그 조건 제목(`###`)이 본문(body) 안에서 몇 번째 줄인지(1-인덱스) — lint 가
- * 파일 전체 기준 줄 번호로 바꿀 때 이 값에 프론트매터 줄 수를 더한다.
+ * 스펙 본문의 `## <sectionHeading>` 아래 `### <slug>-N` 블록들을 뽑는다(제목·본문 텍스트).
+ * `line` 은 그 블록 제목(`###`)이 본문(body) 안에서 몇 번째 줄인지(1-인덱스) — lint 가
+ * 파일 전체 기준 줄 번호로 바꿀 때 이 값에 프론트매터 줄 수를 더한다. Conditions 와
+ * Constraints 가 이 함수를 공유한다(구조가 동형이다 — 섹션 이름만 다르다).
  */
-export function extractConditionBlocks(
+export function extractSubBlocks(
   body: string,
+  sectionHeading: string,
 ): { heading: string; text: string; line: number }[] {
   const lines = body.split(/\r?\n/);
   const results: { heading: string; text: string; line: number }[] = [];
-  let inConditions = false;
+  const sectionPattern = new RegExp(`^##\\s+${sectionHeading}\\s*$`);
+  let inSection = false;
   let currentHeading: string | null = null;
   let currentLine = 0;
   let buffer: string[] = [];
@@ -337,16 +340,16 @@ export function extractConditionBlocks(
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? '';
-    if (/^##\s+Conditions\s*$/.test(line)) {
-      inConditions = true;
+    if (sectionPattern.test(line)) {
+      inSection = true;
       continue;
     }
-    if (inConditions && /^##\s+\S/.test(line)) {
+    if (inSection && /^##\s+\S/.test(line)) {
       flush();
-      inConditions = false;
+      inSection = false;
       continue;
     }
-    if (!inConditions) {
+    if (!inSection) {
       continue;
     }
     const headingMatch = line.match(/^###\s+(.+)$/);
@@ -362,6 +365,20 @@ export function extractConditionBlocks(
   }
   flush();
   return results;
+}
+
+/** `## Conditions` 아래 `### condition-N` 블록들. extractSubBlocks 의 얇은 특수화. */
+export function extractConditionBlocks(
+  body: string,
+): { heading: string; text: string; line: number }[] {
+  return extractSubBlocks(body, 'Conditions');
+}
+
+/** `## Constraints` 아래 `### constraint-N` 블록들. extractSubBlocks 의 얇은 특수화. */
+export function extractConstraintBlocks(
+  body: string,
+): { heading: string; text: string; line: number }[] {
+  return extractSubBlocks(body, 'Constraints');
 }
 
 /** body 안의 1-인덱스 줄 번호를, 프론트매터를 포함한 파일 전체 기준 줄 번호로 바꾼다. */
@@ -461,6 +478,23 @@ export function lintDoc(
         message: `스펙 본문에 파일 경로가 있습니다: "${pathMatch[0]}" (경로는 finding 전용입니다)`,
         line: toFileLine(content, body, lineOfMatch(body, pathMatch[0]) ?? 1),
       });
+    }
+
+    // 제약(### constraint-N)마다 verification·source·hits 가 함께 있어야 한다(ADK
+    // stage 1/6). hits 는 검사기/리뷰어가 나중에 세는 값이라 "0"이어도 필드 자체는
+    // 있어야 한다 — 없으면 그 제약이 실제로 몇 번 걸렸는지 추적할 자리가 없다.
+    for (const block of extractConstraintBlocks(body)) {
+      const line = toFileLine(content, body, block.line);
+      const missing = ['verification', 'source', 'hits'].filter(
+        (key) => !new RegExp(`^${key}:`, 'm').test(block.text),
+      );
+      if (missing.length > 0) {
+        violations.push({
+          file: filePath,
+          message: `${block.heading} 에 ${missing.join('·')} 이(가) 없습니다(제약마다 verification·source·hits 가 함께 있어야 합니다)`,
+          line,
+        });
+      }
     }
   }
 

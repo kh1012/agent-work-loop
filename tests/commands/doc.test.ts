@@ -8,6 +8,7 @@ import {
   createDoc,
   deriveOrganizationFromGitRemote,
   extractConditionBlocks,
+  extractConstraintBlocks,
   kebabCase,
   lintDoc,
   lintFilename,
@@ -386,6 +387,81 @@ describe('lintDoc — 질적 표현 (record.ts BANNED_QUALITATIVE_WORDS 재사�
     );
     const violations = lintDoc('spec', file, new Set());
     expect(violations.some((v) => v.message.includes('질적 표현'))).toBe(true);
+  });
+});
+
+describe('extractConstraintBlocks (WI-G6)', () => {
+  it('## Constraints 아래 ### constraint-N 블록들을 뽑는다', () => {
+    const body = [
+      '## Constraints',
+      '',
+      '### constraint-1',
+      'Puck 코어를 수정하지 않는다',
+      'verification: git diff 에 @measured/puck 없음',
+      'source: -',
+      'hits: 0',
+      '',
+      '## Conditions',
+    ].join('\n');
+    const blocks = extractConstraintBlocks(body);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]?.heading).toBe('constraint-1');
+    expect(blocks[0]?.text).toContain('verification:');
+  });
+});
+
+describe('lintDoc — 제약(Constraints)에 verification·source·hits 요구 (WI-G6)', () => {
+  function writeSpec(dir: string, body: string): string {
+    fs.mkdirSync(dir, { recursive: true });
+    const p = path.join(dir, '20260725-143052-제목.md');
+    fs.writeFileSync(p, `---\nid: x\n---\n${body}`);
+    return p;
+  }
+
+  it('세 필드가 모두 있으면 통과한다', () => {
+    const p = tmp('awl-lint-constraint-');
+    const file = writeSpec(
+      p,
+      '## Constraints\n\n### constraint-1\nPuck 코어를 수정하지 않는다\nverification: git diff 확인\nsource: -\nhits: 0\n',
+    );
+    const violations = lintDoc('spec', file, new Set());
+    expect(violations.some((v) => v.message.includes('constraint-1'))).toBe(false);
+  });
+
+  it('hits 가 없으면 실패하고 어느 필드가 빠졌는지 알려준다', () => {
+    const p = tmp('awl-lint-constraint-');
+    const file = writeSpec(
+      p,
+      '## Constraints\n\n### constraint-1\nPuck 코어를 수정하지 않는다\nverification: git diff 확인\nsource: -\n',
+    );
+    const violations = lintDoc('spec', file, new Set());
+    const v = violations.find((x) => x.message.includes('constraint-1'));
+    expect(v).toBeDefined();
+    expect(v?.message).toContain('hits');
+  });
+
+  it('세 필드 다 없으면 전부 지목한다', () => {
+    const p = tmp('awl-lint-constraint-');
+    const file = writeSpec(p, '## Constraints\n\n### constraint-1\nPuck 코어를 수정하지 않는다\n');
+    const violations = lintDoc('spec', file, new Set());
+    const v = violations.find((x) => x.message.includes('constraint-1'));
+    expect(v?.message).toContain('verification');
+    expect(v?.message).toContain('source');
+    expect(v?.message).toContain('hits');
+  });
+
+  it('Constraints 섹션이 비어 있으면(스캐폴드 직후) 위반이 없다', () => {
+    const p = tmp('awl-lint-constraint-');
+    const file = writeSpec(p, '## Constraints\n\n## Conditions\n');
+    expect(lintDoc('spec', file, new Set())).toEqual([]);
+  });
+
+  it('ticket/decision 은 이 검사 대상이 아니다', () => {
+    const p = tmp('awl-lint-constraint-');
+    fs.mkdirSync(p, { recursive: true });
+    const file = path.join(p, '20260725-143052-제목.md');
+    fs.writeFileSync(file, '---\nid: x\n---\n## Constraints\n\n### constraint-1\n아무거나\n');
+    expect(lintDoc('ticket', file, new Set())).toEqual([]);
   });
 });
 
