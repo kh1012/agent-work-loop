@@ -1,6 +1,7 @@
 import os from 'node:os';
 import { loadConfig, resolveProjectRoot } from '../commands/config.js';
 import { appendRecord, buildRecord, newRecordId, syncFeedback } from '../commands/record.js';
+import { redactAbsolutePaths } from './redact.js';
 
 /**
  * awl CLI 자신의 미처리 예외를 최소 맥락으로 자동 기록한다(ADK stage 6, "도구 피드백이
@@ -16,18 +17,6 @@ import { appendRecord, buildRecord, newRecordId, syncFeedback } from '../command
  * 분리한 이유: `feedback`은 이미 { enabled, path } shape 의 전혀 다른 기능에 쓰이고
  * 있어(config.ts), 여기서 재사용하면 그 기능의 검증/오버레이 로직과 충돌한다.
  */
-
-/** 절대경로를 상대화한다(홈 디렉토리·프로젝트 루트 → 플레이스홀더). 순수 함수. */
-export function redactAbsolutePaths(text: string, home: string, projectRoot: string | null): string {
-  let out = text;
-  if (projectRoot && projectRoot.trim() !== '') {
-    out = out.split(projectRoot).join('<project>');
-  }
-  if (home.trim() !== '') {
-    out = out.split(home).join('<home>');
-  }
-  return out;
-}
 
 export function buildAutoFeedbackWhat(commandName: string): string {
   return `CLI 미처리 예외: awl ${commandName}`;

@@ -1,9 +1,11 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { parseFrontmatter, serializeFrontmatter } from '../core/doc-frontmatter.js';
 import { readGlobalAwlConfig } from '../core/global-config.js';
 import { recordsDir, rulesDir } from '../core/paths.js';
+import { redactAbsolutePaths } from '../core/redact.js';
 import { run } from '../core/runner.js';
 import {
   buildFeedbackEnvelope,
@@ -1354,6 +1356,17 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
             ? 'what/why/how 와 alternatives(설계 대안)를 채우세요.'
             : 'what/why/how 를 채우세요.';
       process.stderr.write(`\n  이 변경은 ${size.lines}줄/${size.files}파일입니다. ${guidance}\n`);
+    }
+  }
+
+  // 사람이 손으로 남기는 awl-feedback 도 자동수집(core/auto-feedback.ts)과 같은
+  // 방어를 받는다 — 절대경로는 사람이 직접 쓸 때도 새어나갈 수 있다.
+  if (type === 'awl-feedback') {
+    if (typeof data.what === 'string') {
+      data.what = redactAbsolutePaths(data.what, os.homedir(), projectRoot);
+    }
+    if (typeof data.impact === 'string') {
+      data.impact = redactAbsolutePaths(data.impact, os.homedir(), projectRoot);
     }
   }
 

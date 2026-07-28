@@ -1897,6 +1897,25 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
 
     restore();
   });
+
+  it('사람이 직접 남기는 awl-feedback 도 what/impact 의 절대경로가 지워진다(WI-G12)', async () => {
+    const root = project({ workitem: 'WI-9', workitems: {} });
+
+    await runRecord('awl-feedback', {
+      json: JSON.stringify({
+        area: 'cli',
+        severity: 'low',
+        what: `${root}/src/foo.ts 에서 실패`,
+        impact: `${os.homedir()}/.awl/config.json 를 못 읽음`,
+      }),
+    });
+
+    const [record] = readRecords({ type: 'awl-feedback' });
+    expect(record?.what).toBe('<project>/src/foo.ts 에서 실패');
+    expect(record?.impact).toBe('<home>/.awl/config.json 를 못 읽음');
+    expect(record?.what).not.toContain(root);
+    expect(record?.impact).not.toContain(os.homedir());
+  });
 });
 
 describe('runRecord — gate:2 기록 시 리뷰 누락 경고 (WI-S AC-03)', () => {
