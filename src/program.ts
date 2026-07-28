@@ -90,12 +90,12 @@ function renderExamplesCard(c: Caps): string {
     {
       label: '완료조건 게이트',
       examples: [
-        { cmd: 'awl commit AC-01 --start', note: '구현 시작 시 베이스라인부터 잡는다' },
+        { cmd: 'awl commit condition-1 --start', note: '구현 시작 시 베이스라인부터 잡는다' },
         {
-          cmd: 'awl commit AC-01 -m "완료 조건 설명"',
-          note: '<criterion> 자리엔 완료조건 ID(AC-01)',
+          cmd: 'awl commit condition-1 -m "완료 조건 설명"',
+          note: '<criterion> 자리엔 완료조건 ID(condition-1)',
         },
-        { cmd: 'awl review AC-01..AC-03', note: '<range> 자리엔 완료조건 범위' },
+        { cmd: 'awl review condition-1..condition-3', note: '<range> 자리엔 완료조건 범위' },
       ],
     },
     {

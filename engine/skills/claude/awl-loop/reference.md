@@ -11,7 +11,7 @@ SKILL.md 본문에서 조건부·저빈도로 분류된 섹션의 상세. 매 �
   → 3회 도달하면 "막힘 처리".
 - **절차적 실수** = 내가 도구를 잘못 썼다 (git 오조작, 포트 충돌, 스크립트 인자 전달 실패 등).
   → `proceduralErrors` +1. **고치고 계속한다.** `attempts` 는 올리지 않는다.
-  → `awl state set --json '{"criteria":[{"id":"<AC>","proceduralErrors":N}]}'`
+  → `awl state set --json '{"criteria":[{"id":"<condition-ID>","proceduralErrors":N}]}'`
 - **환경 문제** = 검증 환경을 신뢰할 수 없다 (전체 스위트가 대량 실패, 무관한 테스트가 깨짐 등).
   → **먼저 환경을 의심한다.** 동시 편집, 포트 충돌, 스크립트 인자 전달 실패를 배제한다.
   → 배제한 뒤에야 코드 결함으로 결론짓는다. 이건 게이트 대상이 아니다. 자율적으로 처리한다.
@@ -35,10 +35,10 @@ SKILL.md 본문에서 조건부·저빈도로 분류된 섹션의 상세. 매 �
 
 **`--review` 켜짐 — 서브에이전트 교차 검증**
 
-- `awl review AC-xx..AC-yy --json` 으로 자료를 조립한다. 조립 결과에 `reviewId`(새로 발급, `rev_` 접두어)가 포함된다.
+- `awl review condition-xx..condition-yy --json` 으로 자료를 조립한다. 조립 결과에 `reviewId`(새로 발급, `rev_` 접두어)가 포함된다.
 - **리뷰어를 서브에이전트로 호출한다. 구현자의 대화 맥락을 넘기지 마라.** (아래 "리뷰어" 참고)
 - 리뷰어의 지적은 **새 완료 조건으로 편입**한다. 리뷰어는 코드를 고치지 않는다. 편입한 완료 조건의 `awl record criteria` 항목에 `becameCriterion` 자유 필드로 `"<reviewId> finding #1"` 처럼 원래 지적을 가리키는 값을 남겨, 나중에 어느 리뷰 지적이 어느 완료 조건이 됐는지 역추적할 수 있게 한다.
-- **판정을 받으면 바로 기록한다**: `awl record review --json '{"reviewId":"<번들의 reviewId>","criteria":["AC-xx","AC-yy"],"findings":[{"severity":"medium","what":"...","evidence":"파일:줄"}],"cheatingDetected":[],"verifyPassedBefore":true}'`.
+- **판정을 받으면 바로 기록한다**: `awl record review --json '{"reviewId":"<번들의 reviewId>","criteria":["condition-xx","condition-yy"],"findings":[{"severity":"medium","what":"...","evidence":"파일:줄"}],"cheatingDetected":[],"verifyPassedBefore":true}'`.
   - `criteria` 는 비어있지 않은 배열(리뷰한 완료 조건 ID들).
   - `findings`/`cheatingDetected` 는 지적·부정행위가 없으면 빈 배열이어도 된다 — 다만 반드시 **배열**이어야 한다(문자열로 뭉치지 마라, 빈 배열도 정당한 결과다).
   - `verifyPassedBefore` 는 이 리뷰 **직전**에 `awl verify` 가 이미 통과 상태였는지를 적는다. `true` 인 채로 `findings` 가 비어있지 않으면 "기계 검증은 통과했는데 리뷰가 실사고를 잡았다"는 이 시스템의 가장 강한 증거가 된다 — 아래 "narrative" 의 `reviewer-caught` 와 짝을 이룬다.
@@ -101,7 +101,7 @@ awl evolve --collect --workitem <WI>
   → 교훈을 추출한다 (판단):
       - blocked 의 tried/lesson 에서 "무엇이 실패했는가"를 재사용 가능한 문장으로
       - 프로젝트 이름 없이, 완료 조건 ID 없이, 다음에도 쓸 수 있게
-      - 나쁜 예: "AC-03에서 ComponentOverlay 수정이 실패했다"
+      - 나쁜 예: "condition-3에서 ComponentOverlay 수정이 실패했다"
       - 좋은 예: "축을 파라미터로 빼기 전에 오버레이 좌표계가 축에 의존하는지 먼저 확인한다"
   → 기존 gotcha(existingGotchas)와 같으면 sameAs 를 붙인다
 awl evolve --record --json '{"lesson":"...","context":"...","source":{...},"sameAs":"G-003"}'

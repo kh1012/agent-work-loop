@@ -146,9 +146,9 @@ auto        semi-auto 와 같다(이 스킬은 아직 게이트 3·4 를 안 쓰
 
 - 추측하지 않는다. 파일을 연다. 미확인은 미확인으로 남긴다.
 - 이 단계의 규칙을 받는다: `awl rules --scope audit --json`
-- 확인한 것과 안 한 것을 분리해 기록한다: `awl record audit --json '{"scope":"...","findings":[{"id":"F-01","what":"...","severity":"high"}]}'`
-- `findings` 는 배열이다. 줄글로 뭉치지 마라.
-- **발견은 발견이다. 할지 말지는 나중 문제다 — 먼저 전부 적는다(WI-T).** 어려운 문제라고 조용히 완료 조건에서 빼지 마라. 각 발견에 `id`(예: `F-01`)를 붙인다 — 이 id 로 나중에 완료 조건이 이 발견을 다루는지(`addresses`) 또는 범위 밖으로 뺐는지(게이트 1의 `presentedExclusions`)를 추적한다.
+- 확인한 것과 안 한 것을 분리해 기록한다: `awl record audit --json '{"scope":"...","findings":[{"id":"finding-1","what":"...","where":"파일:줄","source":"investigation","severity":"high"}]}'`
+- `findings` 는 배열이다. 줄글로 뭉치지 마라. `where`(file:line)를 붙여두면 `awl next` 가 그 파일이 나중에 바뀌었는지 추적해 "확인 필요"로 표시해준다(선택 필드, 없어도 통과).
+- **발견은 발견이다. 할지 말지는 나중 문제다 — 먼저 전부 적는다(WI-T).** 어려운 문제라고 조용히 완료 조건에서 빼지 마라. 각 발견에 `id`(예: `finding-1`, 축약어 금지)를 붙인다 — 이 id 로 나중에 완료 조건이 이 발견을 다루는지(`addresses`) 또는 범위 밖으로 뺐는지(게이트 1의 `presentedExclusions`)를 추적한다.
 - **구조적 사실(참조·정의실재·dead code 등)은 파일을 하나씩 읽기 전에 작은 스크립트로 먼저 답이 나오는지 본다.** TS/TSX 참조그래프·미사용 export·시그니처 확인은 ts-morph(또는 TS Compiler API)로, CSS 선택자·규칙·값 전수조사는 PostCSS AST로 본다(정규식 기반 유사 스캔이 이미 있으면 그걸 우선 참고한다).
 - **투자 기준**: 매번 스크립트부터 짜라는 뜻은 아니다. 범위가 좁거나 1회성이면 grep+읽기가 더 빠르다. 10개 파일 이상이거나 비슷한 조사가 반복될 걸 예상할 때만 투자 가치가 있다.
 - 스크립트 산출물(file:line 리스트)은 `awl record audit` 의 `findings` 에 그대로 인용한다. 이후 단계는 이 리스트만 근거로 쓰고, 원본을 다시 읽지 않는다.
@@ -183,14 +183,14 @@ auto        semi-auto 와 같다(이 스킬은 아직 게이트 3·4 를 안 쓰
   나쁜 예: "기존 회귀 없음" (저장소 전체인가? 관련 파일인가? 모호하다)
   좋은 예: "기존 회귀 없음 — 범위: src/commands/ 아래 테스트 전부 통과"
 - 기계 판정 가능해야 한다. `awl verify` 로 참/거짓이 갈리는 조건으로 쓴다.
-- **순서가 있으면 `dependsOn` 으로 명시한다.** 완료 조건 B 가 A 가 끝나야 시작할 수 있으면 `"dependsOn": ["AC-01"]` 을 붙인다. `awl verify` 로 판정 못 하는 "순서"까지 억지로 `범위`에 우겨넣지 마라 — `dependsOn` 이 그 자리다. 순서가 없으면(서로 독립이면) 비워둔다.
-- **어떤 발견을 다루는지 `addresses` 로 링크한다(WI-T).** `[조사]`에서 매긴 발견 id 를 완료 조건에 `"addresses": ["F-01"]` 로 붙인다. 어떤 발견도 다루지 않는 완료 조건이면(리팩터/도구 정비 등) 왜 있는지 `범위`에 설명한다.
+- **순서가 있으면 `dependsOn` 으로 명시한다.** 완료 조건 B 가 A 가 끝나야 시작할 수 있으면 `"dependsOn": ["condition-1"]` 을 붙인다. `awl verify` 로 판정 못 하는 "순서"까지 억지로 `범위`에 우겨넣지 마라 — `dependsOn` 이 그 자리다. 순서가 없으면(서로 독립이면) 비워둔다.
+- **어떤 발견을 다루는지 `addresses` 로 링크한다(WI-T).** `[조사]`에서 매긴 발견 id 를 완료 조건에 `"addresses": ["finding-1"]` 로 붙인다. 어떤 발견도 다루지 않는 완료 조건이면(리팩터/도구 정비 등) 왜 있는지 `범위`에 설명한다.
 - **질적 표현을 쓰지 않는다(WI-T).** "저위험", "주요한", "적절한", "가능한 만큼", "필요시" 는 구현 도중 재해석 여지를 남긴다 — `awl record criteria` 가 이 5개 단어를 포함한 항목을 거부한다. 열거 가능하거나 수치화 가능하게 쓴다.
   나쁜 예: "chrome-lint 확정 위반 중 저위험 건 수정"
   좋은 예: "chrome-lint ERROR 4건(파일:라인 명시) 전부 수정, WARN 은 범위 밖"
 - 기록하고 상태에 넣는다:
-  - `awl record criteria --json '{"items":[{"id":"AC-01","조건":"...","범위":"...","검증":"awl verify","addresses":["F-01"]},{"id":"AC-02","조건":"...","범위":"...","검증":"awl verify","dependsOn":["AC-01"],"addresses":["F-02"]}]}'`
-  - `awl state set --json '{"phase":"awaiting-gate1","criteria":[{"id":"AC-01","status":"pending","attempts":0,"proceduralErrors":0,"addresses":["F-01"]},{"id":"AC-02","status":"pending","attempts":0,"proceduralErrors":0,"dependsOn":["AC-01"],"addresses":["F-02"]}]}'` — **addresses 를 여기에도 넣는다(WI-T AC-06, 리뷰 지적)**. `awl record criteria` 에만 넣고 `state set` 에 빠뜨리면, 게이트 1 의 배제 판정이 state 를 우선 보므로(리뷰 이력에서 최신 보완은 하지만) 최신값을 명확히 하려면 두 곳 다 채우는 게 안전하다.
+  - `awl record criteria --json '{"items":[{"id":"condition-1","조건":"...","범위":"...","검증":"awl verify","addresses":["finding-1"]},{"id":"condition-2","조건":"...","범위":"...","검증":"awl verify","dependsOn":["condition-1"],"addresses":["finding-2"]}]}'`
+  - `awl state set --json '{"phase":"awaiting-gate1","criteria":[{"id":"condition-1","status":"pending","attempts":0,"proceduralErrors":0,"addresses":["finding-1"]},{"id":"condition-2","status":"pending","attempts":0,"proceduralErrors":0,"dependsOn":["condition-1"],"addresses":["finding-2"]}]}'` — **addresses 를 여기에도 넣는다(WI-T AC-06, 리뷰 지적)**. `awl record criteria` 에만 넣고 `state set` 에 빠뜨리면, 게이트 1 의 배제 판정이 state 를 우선 보므로(리뷰 이력에서 최신 보완은 하지만) 최신값을 명확히 하려면 두 곳 다 채우는 게 안전하다.
   - `awl status` 가 `dependsOn` 이 아직 안 끝난 완료 조건을 "블록됨"으로 보여준다 — 어느 걸 먼저 할지는 여전히 네가 정한다(awl 은 계산만 한다).
 
 ---
@@ -208,19 +208,19 @@ auto        semi-auto 와 같다(이 스킬은 아직 게이트 3·4 를 안 쓰
   완료 조건 5개.  범위 밖 2건.
 
     다룰 것 (5)
-      AC-01  ...  -> F-01
+      condition-1  ...  -> finding-1
       ...
 
     범위 밖 (2)  <- 이것을 사람이 승인해야 한다
-      F-02  spacing 토큰 부재     이유: 구조적 결함, 별도 워크아이템 필요
-      F-03  다중 선택             이유: 큰 작업, 범위 밖
+      finding-2  spacing 토큰 부재     이유: 구조적 결함, 별도 워크아이템 필요
+      finding-3  다중 선택             이유: 큰 작업, 범위 밖
 
     (*) 이대로 시작   ( ) 범위 밖 항목을 다시 논의   ( ) 완료 조건 수정   ( ) 중단
   ```
 
 응답을 받은 뒤에만 반복 단계로 넘어간다.
 
-**응답을 받으면 바로 기록한다 (WI-Q)**: `awl record gate --json '{"gate":1,"decision":"approved|modified|rejected|split","presentedCriteria":["AC-01",...],"presentedExclusions":[{"id":"F-02","reason":"..."}]}'`. 게이트가 실제로 일어났다는 사실 자체를 이 기록 말고는 아무도 검증할 수 없다 — 이걸 빼먹으면 `awl state set` 의 `phase:"loop"` 전환이 거부된다("게이트 1 기록이 없습니다"). **`presentedExclusions` 는 배제가 있으면 이제 강제된다(WI-T)**: `[조사]`의 audit findings 중 어떤 완료 조건의 `addresses` 도 안 가리키는 게 있는데 `presentedExclusions` 가 그 id 를 다 담지 않으면 `awl record gate` 자체가 기록을 거부한다 — "배제는 판단이다. 판단은 게이트를 거쳐야 한다." 배제가 없으면(전부 `addresses` 로 다뤄짐) 안 넣어도 된다. **자리 비움 등으로 자율 승인했다면 `"auto":true` 로 남긴다** — 사람이 실제로 응답한 게 아니라는 걸 숨기지 않는다.
+**응답을 받으면 바로 기록한다 (WI-Q)**: `awl record gate --json '{"gate":1,"decision":"approved|modified|rejected|split","presentedCriteria":["condition-1",...],"presentedExclusions":[{"id":"finding-2","reason":"..."}]}'`. 게이트가 실제로 일어났다는 사실 자체를 이 기록 말고는 아무도 검증할 수 없다 — 이걸 빼먹으면 `awl state set` 의 `phase:"loop"` 전환이 거부된다("게이트 1 기록이 없습니다"). **`presentedExclusions` 는 배제가 있으면 이제 강제된다(WI-T)**: `[조사]`의 audit findings 중 어떤 완료 조건의 `addresses` 도 안 가리키는 게 있는데 `presentedExclusions` 가 그 id 를 다 담지 않으면 `awl record gate` 자체가 기록을 거부한다 — "배제는 판단이다. 판단은 게이트를 거쳐야 한다." 배제가 없으면(전부 `addresses` 로 다뤄짐) 안 넣어도 된다. **자리 비움 등으로 자율 승인했다면 `"auto":true` 로 남긴다** — 사람이 실제로 응답한 게 아니라는 걸 숨기지 않는다.
 
 ---
 
@@ -230,11 +230,11 @@ auto        semi-auto 와 같다(이 스킬은 아직 게이트 3·4 를 안 쓰
 
 ```
 awl state get                     다음 완료 조건 선택
-awl commit --start <AC-ID>        베이스라인 기록 (지금부터가 내 변경)
+awl commit --start <condition-ID>        베이스라인 기록 (지금부터가 내 변경)
 실패하는 테스트를 먼저 작성        지금 통과하면 그 테스트가 잘못된 것이다
 구현
 awl verify --json
-  통과 → awl commit <AC-ID> -m "..."    내 변경만 격리 커밋
+  통과 → awl commit <condition-ID> -m "..."    내 변경만 격리 커밋
          awl record attempt --json '{"what":"...","why":"...","how":"...","result":"passed","attempt":N}'
   실패 → 아래 "실패 원인 판별"
 ```
@@ -285,7 +285,7 @@ awl verify --json
 
 **필요하다고 판단하면 규모로 나눠 진행한다:**
 
-- **작은 정리**(국소적이고 `awl verify` 가 계속 통과하며 동작이 보존되는 것 — 함수 추출, 이름 정리, 중복 제거): 방금 통과한 완료 조건의 AC-ID 로 `awl commit <AC> --start`(재베이스라인) 후 `awl commit <AC> -m "refactor: ..."` 로 격리 커밋한다(절대 규칙 9 — `git add` 직접 쓰지 않는다). 그다음 `awl record refactor --json '{"what":"...","kind":"split|dedup|abstraction|rename|inline|기타"}'` 로 남긴다. 완료 조건을 새로 만들지 않는다.
+- **작은 정리**(국소적이고 `awl verify` 가 계속 통과하며 동작이 보존되는 것 — 함수 추출, 이름 정리, 중복 제거): 방금 통과한 완료 조건의 id 로 `awl commit <condition-ID> --start`(재베이스라인) 후 `awl commit <condition-ID> -m "refactor: ..."` 로 격리 커밋한다(절대 규칙 9 — `git add` 직접 쓰지 않는다). 그다음 `awl record refactor --json '{"what":"...","kind":"split|dedup|abstraction|rename|inline|기타"}'` 로 남긴다. 완료 조건을 새로 만들지 않는다.
 - **큰 구조 변경**(모듈 경계 이동, 인터페이스 변경, 여러 파일이 얽히는 정리): 완료 조건으로 편입해 게이트를 거친다(절대 규칙 1 — 완료 조건 없이 구현하지 않는다). 리뷰어 지적을 완료 조건으로 편입하는 것과 같은 경로다.
 - 어느 쪽이든 `awl verify` 가 안전망이다 — 리팩토링 전후로 통과 상태가 유지되는지 확인한다. 통과가 깨지면 그 리팩토링은 동작을 바꾼 것이니 되돌리거나 완료 조건으로 승격한다.
 - 실제로 진행했을 때만 `awl record refactor` 를 남긴다 — 점검만 하고 손대지 않았으면 아무것도 기록하지 않는다(gotcha 확인과 같은 원칙).

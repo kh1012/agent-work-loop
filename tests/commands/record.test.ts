@@ -2458,6 +2458,30 @@ describe('runRecord — 게이트 1 배제 목록 강제 (WI-T AC-02, 핵심)', 
     });
     expect(readRecords(root, { type: 'gate' })).toHaveLength(1);
   });
+
+  describe('audit findings — where/source 선택 필드 (WI-G20, awl next 의 finding 재사용 기반)', () => {
+    it('finding 에 where/source 를 붙여도(새 관례) 그대로 저장된다', async () => {
+      const root = project([{ id: 'condition-1' }]);
+      await runRecord('audit', {
+        json: '{"scope":"s","findings":[{"id":"finding-1","what":"a","where":"src/x.ts:10","source":"investigation"}]}',
+      });
+      const [r] = readRecords(root, { type: 'audit' });
+      const [f] = r?.findings as Record<string, unknown>[];
+      expect(f?.where).toBe('src/x.ts:10');
+      expect(f?.source).toBe('investigation');
+    });
+
+    it('where/source 없이(옛 관례) 와도 그대로 통과한다(하위호환)', async () => {
+      const root = project([{ id: 'condition-1' }]);
+      await runRecord('audit', {
+        json: '{"scope":"s","findings":[{"id":"F-01","what":"a","severity":"high"}]}',
+      });
+      const [r] = readRecords(root, { type: 'audit' });
+      const [f] = r?.findings as Record<string, unknown>[];
+      expect(f?.where).toBeUndefined();
+      expect(f?.id).toBe('F-01');
+    });
+  });
 });
 
 describe('detailTierFor — 순수 계산 (WI-U AC-01)', () => {
