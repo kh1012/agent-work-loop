@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseFrontmatter, serializeFrontmatter } from '../core/doc-frontmatter.js';
 import { readGlobalAwlConfig } from '../core/global-config.js';
-import { recordsDir } from '../core/paths.js';
+import { recordsDir, rulesDir } from '../core/paths.js';
 import { run } from '../core/runner.js';
 import {
   buildFeedbackEnvelope,
@@ -757,6 +757,29 @@ export function buildRecord(
     }
   }
 
+  // review.findings 의 각 항목은 어느 제약(rule)을 지목했는지 표현해야 한다(ADK
+  // stage 6, EARS: "리뷰어가 제약을 지목하지 않으면 '없음'을 명시해야 한다"). D-15
+  // (중첩 구조 비강제)의 의도적이고 좁은 예외다 — findings 항목 전체가 아니라
+  // ruleId 딱 한 키만 요구한다. 값은 실재하는 rule id 이거나 리터럴 '없음'.
+  // rules.ts 를 정적으로 import 하지 않는다 — rules.ts → evolve.ts → record.ts 로
+  // 이미 순환 고리가 있어(evolve.ts 가 record.ts 의 readRecords/computeCoverage 를
+  // 쓴다), activeRulesDir() 의 경로 계산만 rulesDir(paths.js, 순환 없음)로 직접
+  // 재현한다(established: 작은 조회는 로컬로 복제, lane.ts/doc.ts 순환 회피와 동일 원칙).
+  if (type === 'review' && Array.isArray(data.findings)) {
+    for (const finding of data.findings as Record<string, unknown>[]) {
+      const ruleId = (finding as Record<string, unknown> | null)?.ruleId;
+      if (typeof ruleId !== 'string' || ruleId.trim() === '') {
+        missing.push(
+          `findings(${String((finding as Record<string, unknown> | null)?.id ?? '?')}) 에 ruleId 가 없습니다 — 어느 제약을 지목하는지, 없으면 '없음'을 적으세요`,
+        );
+        continue;
+      }
+      if (ruleId !== '없음' && !fs.existsSync(path.join(rulesDir(), 'active', `${ruleId}.md`))) {
+        missing.push(`findings 의 ruleId "${ruleId}" 에 해당하는 규칙을 찾을 수 없습니다`);
+      }
+    }
+  }
+
   // refactor.kind 도 정해진 값 중 하나여야 한다(narrative.kind 와 같은 특수 분기).
   if (type === 'refactor') {
     const kindMissing = data.kind === undefined || data.kind === null || data.kind === '';
@@ -1433,6 +1456,24 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
   // 생략한다.
   if (type === 'gate' && data.gate === 4 && data.decision === 'merge' && projectRoot) {
     await suggestGate4Merge(projectRoot);
+  }
+
+  // review findings 가 실재 규칙을 지목하면 그 규칙의 hits 를 자동으로 늘린다(ADK
+  // stage 6 — "리뷰어가 잡는 경우"의 hits 카운팅. "검사기가 잡는 경우"는
+  // awl rules hit 로 별도 충족한다). buildRecord 가 이미 존재를 검증했다. 동적
+  // import — rules.ts 를 정적으로 물면 rules.ts → evolve.ts → record.ts 순환이 된다.
+  if (type === 'review' && Array.isArray(data.findings)) {
+    const { incrementRuleHits } = await import('./rules.js');
+    for (const finding of data.findings as Record<string, unknown>[]) {
+      const ruleId = finding?.ruleId;
+      if (typeof ruleId === 'string' && ruleId !== '없음') {
+        try {
+          incrementRuleHits(ruleId);
+        } catch {
+          // 저장 자체는 막지 않는다 — 방어적 무시(buildRecord 가 이미 존재를 검증했다).
+        }
+      }
+    }
   }
 
   // gate:2 리뷰 누락 경고 (WI-S AC-03) — 거부하지 않는다, 안내만 한다.

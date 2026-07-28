@@ -729,13 +729,14 @@ describe('buildRecord — 구조 강제', () => {
     expect(r.missing).toEqual([]);
   });
 
-  it('review 의 findings 내부에 becameCriterion 같은 자유 필드를 넣어도 그대로 보존된다', () => {
+  it('review 의 findings 내부에 becameCriterion 같은 자유 필드를 넣어도 그대로 보존된다(ruleId 는 필수, ADK stage 6)', () => {
     const findings = [
       {
         severity: 'high',
         what: 'AC-C1 이 주 진입점을 놓침',
         evidence: 'LayersPanel.toggleProp:236',
         becameCriterion: 'AC-C3',
+        ruleId: '없음',
       },
     ];
     const r = buildRecord(
@@ -784,6 +785,149 @@ describe('buildRecord — 구조 강제', () => {
     );
     expect(r.record).toBeUndefined();
     expect(r.missing.some((m) => m.startsWith('findings'))).toBe(true);
+  });
+});
+
+describe('review.findings — ruleId 지목 (ADK stage 6, D-15 의 좁은 예외)', () => {
+  const origCwd = process.cwd();
+  const origHome = process.env.AWL_HOME;
+  let home: string;
+
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-review-ruleid-'));
+    process.env.AWL_HOME = home;
+  });
+
+  afterEach(() => {
+    process.chdir(origCwd);
+    if (origHome === undefined) {
+      delete process.env.AWL_HOME;
+    } else {
+      process.env.AWL_HOME = origHome;
+    }
+  });
+
+  function writeActiveRule(id: string): void {
+    const dir = path.join(home, 'rules', 'active');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, `${id}.md`),
+      `---\nid: ${id}\napplies: a\ncounter: c\nhits: 0\n---\n\nbody`,
+    );
+  }
+
+  /** runRecord 가 요구하는 프로젝트 루트 + 활성 워크아이템을 갖춘 임시 프로젝트. */
+  function project(): void {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-review-ruleid-proj-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, '.awl', 'config.json'),
+      JSON.stringify({ project: 'p', mainLanguage: 'other', engineVersion: '0.0.0', verify: {} }),
+    );
+    fs.writeFileSync(
+      path.join(root, '.awl', 'state.json'),
+      JSON.stringify({ workitem: 'WI-X' }),
+    );
+    process.chdir(root);
+  }
+
+  it('ruleId 가 없는 finding 은 거부한다', () => {
+    const r = buildRecord(
+      'review',
+      {
+        reviewId: 'rev_1',
+        criteria: ['AC-01'],
+        findings: [{ severity: 'high', what: 'x' }],
+        cheatingDetected: [],
+        verifyPassedBefore: true,
+      },
+      DEFAULTS,
+    );
+    expect(r.record).toBeUndefined();
+    expect(r.missing.some((m) => m.includes('ruleId'))).toBe(true);
+  });
+
+  it("ruleId: '없음' 은 통과한다(제약에 해당 없음을 명시)", () => {
+    const r = buildRecord(
+      'review',
+      {
+        reviewId: 'rev_1',
+        criteria: ['AC-01'],
+        findings: [{ severity: 'low', what: 'x', ruleId: '없음' }],
+        cheatingDetected: [],
+        verifyPassedBefore: true,
+      },
+      DEFAULTS,
+    );
+    expect(r.missing).toEqual([]);
+  });
+
+  it('실재하는 규칙을 가리키면 통과한다', () => {
+    writeActiveRule('R-001');
+    const r = buildRecord(
+      'review',
+      {
+        reviewId: 'rev_1',
+        criteria: ['AC-01'],
+        findings: [{ severity: 'high', what: 'x', ruleId: 'R-001' }],
+        cheatingDetected: [],
+        verifyPassedBefore: true,
+      },
+      DEFAULTS,
+    );
+    expect(r.missing).toEqual([]);
+  });
+
+  it('존재하지 않는 규칙 id(오탈자)는 거부한다', () => {
+    const r = buildRecord(
+      'review',
+      {
+        reviewId: 'rev_1',
+        criteria: ['AC-01'],
+        findings: [{ severity: 'high', what: 'x', ruleId: 'R-999' }],
+        cheatingDetected: [],
+        verifyPassedBefore: true,
+      },
+      DEFAULTS,
+    );
+    expect(r.record).toBeUndefined();
+    expect(r.missing.some((m) => m.includes('R-999'))).toBe(true);
+  });
+
+  it('review 저장 시 실재 ruleId 를 가리키는 finding 마다 그 규칙의 hits 가 자동으로 늘어난다', async () => {
+    project();
+    writeActiveRule('R-001');
+    await runRecord('review', {
+      json: JSON.stringify({
+        reviewId: 'rev_1',
+        criteria: ['AC-01'],
+        findings: [
+          { severity: 'high', what: 'a', ruleId: 'R-001' },
+          { severity: 'low', what: 'b', ruleId: 'R-001' },
+          { severity: 'low', what: 'c', ruleId: '없음' },
+        ],
+        cheatingDetected: [],
+        verifyPassedBefore: true,
+      }),
+    });
+    const text = fs.readFileSync(path.join(home, 'rules', 'active', 'R-001.md'), 'utf8');
+    expect(text).toContain('hits: 2');
+  });
+
+  it("ruleId: '없음' 인 finding 은 어떤 규칙의 hits 도 건드리지 않는다", async () => {
+    project();
+    writeActiveRule('R-001');
+    await runRecord('review', {
+      json: JSON.stringify({
+        reviewId: 'rev_1',
+        criteria: ['AC-01'],
+        findings: [{ severity: 'low', what: 'x', ruleId: '없음' }],
+        cheatingDetected: [],
+        verifyPassedBefore: true,
+      }),
+    });
+    const text = fs.readFileSync(path.join(home, 'rules', 'active', 'R-001.md'), 'utf8');
+    expect(text).toContain('hits: 0');
   });
 });
 
