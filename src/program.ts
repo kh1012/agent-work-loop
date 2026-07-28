@@ -887,10 +887,12 @@ export function buildProgram(): Command {
     });
 
   // 사람이 치는 명령: next (티켓의 지금 상태 + 다음 할 일 조립, ADK stage 2c, 읽기 전용)
+  // ticket-id 생략 시 "지금" 티켓을 자동판정한다(WI-H1) — 얇은 오케스트레이션 스킬이
+  // 인자 없이 부르는 게 기본 사용법이다(adk-prototype.md:330 "목표를 받으면 `awl next` 를 호출한다").
   program
-    .command('next <ticket-id>')
-    .description('티켓의 조건·게이트 이력·다음 할 일을 조립해 보여줍니다(읽기 전용)')
-    .action(async (ticketId: string) => {
+    .command('next [ticket-id]')
+    .description('티켓의 조건·제약·게이트 이력·다음 할 일을 조립해 보여줍니다(읽기 전용, 생략하면 지금 티켓 자동판정)')
+    .action(async (ticketId: string | undefined) => {
       const { runNext } = await import('./commands/next.js');
       await runNext(ticketId);
     });

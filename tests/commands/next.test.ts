@@ -4,7 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createDoc } from '../../src/commands/doc.js';
-import { checkFindingsFreshness, computeNextView } from '../../src/commands/next.js';
+import {
+  checkFindingsFreshness,
+  computeNextView,
+  resolveCurrentTicketId,
+} from '../../src/commands/next.js';
 import { profilePath } from '../../src/commands/profile.js';
 import { appendRecord } from '../../src/commands/record.js';
 import { deriveTickets } from '../../src/commands/tickets.js';
@@ -339,5 +343,143 @@ describe('checkFindingsFreshness — "확인 필요" 판정 (WI-G21)', () => {
       { id: 'finding-1', what: 'x', where: 'a.ts:1', recordedAt: new Date().toISOString() },
     ]);
     expect(out[0]?.id).toBe('finding-1');
+  });
+});
+
+/** ticket 파일의 status 줄을 직접 바꾼다(테스트 전용 — status 별로 알맞은 안내 문구 테스트와 같은 패턴). */
+function setTicketStatus(ticketPath: string, status: string): void {
+  const content = fs.readFileSync(ticketPath, 'utf8').replace(/^status: .+$/m, `status: ${status}`);
+  fs.writeFileSync(ticketPath, content);
+}
+
+describe('resolveCurrentTicketId — "지금" 티켓 자동판정 (WI-H1)', () => {
+  it('implementing 인 티켓이 있으면 그걸 고른다', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    const { ticketId: t1 } = await specWithOneTicket(p);
+    const dir = path.join(p, 'docs', 'tickets');
+    const files = fs.readdirSync(dir);
+    const t1Path = files
+      .map((f) => path.join(dir, f))
+      .find((fp) => parseFrontmatter(fs.readFileSync(fp, 'utf8'))?.data.id === t1);
+    if (!t1Path) {
+      throw new Error('t1 파일을 못 찾음');
+    }
+    setTicketStatus(t1Path, 'implementing');
+
+    expect(resolveCurrentTicketId(p)).toBe(t1);
+  });
+
+  it('implementing 이 없고 dependencies 가 없는 pending 만 있으면 그걸 고른다', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    const { ticketId } = await specWithOneTicket(p);
+    expect(resolveCurrentTicketId(p)).toBe(ticketId); // 기본 status 는 pending, dependencies 없음
+  });
+
+  it('dependencies 가 아직 done 이 아닌 pending 티켓은 건너뛴다(막힘)', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    const spec = await createDoc('spec', '스펙', p);
+    const blocked = await createDoc('ticket', '막힌 티켓', p, {
+      spec: spec.id,
+      conditions: [],
+      dependencies: ['no-such-ticket-not-done'],
+    });
+    expect(resolveCurrentTicketId(p)).toBe(null); // 유일한 티켓이 막혀있어 고를 게 없다
+    void blocked;
+  });
+
+  it('dependencies 가 전부 done 이면 그 pending 티켓을 고른다(막힘 해제)', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    const spec = await createDoc('spec', '스펙', p);
+    const base = await createDoc('ticket', '기반 티켓', p, { spec: spec.id, conditions: [] });
+    const dir = path.join(p, 'docs', 'tickets');
+    const files = fs.readdirSync(dir);
+    const basePath = files
+      .map((f) => path.join(dir, f))
+      .find((fp) => parseFrontmatter(fs.readFileSync(fp, 'utf8'))?.data.id === base.id);
+    if (!basePath) {
+      throw new Error('base 파일을 못 찾음');
+    }
+    setTicketStatus(basePath, 'done');
+    const dependent = await createDoc('ticket', '의존 티켓', p, {
+      spec: spec.id,
+      conditions: [],
+      dependencies: [base.id],
+    });
+
+    expect(resolveCurrentTicketId(p)).toBe(dependent.id);
+  });
+
+  it('티켓이 하나도 없으면 null', () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    expect(resolveCurrentTicketId(p)).toBe(null);
+  });
+
+  it('computeNextView 가 ticketId 를 생략하면 resolveCurrentTicketId 로 고른 티켓을 쓴다', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    const { ticketId } = await specWithOneTicket(p);
+    const view = computeNextView(p);
+    expect(view.ticketId).toBe(ticketId);
+  });
+
+  it('고를 티켓이 없으면 computeNextView 가 명확한 에러를 던진다(크래시 스택 아님)', () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    expect(() => computeNextView(p)).toThrow('진행할 티켓을 찾지 못했습니다');
+  });
+});
+
+describe('NextView.constraints — 스펙 Constraints 섹션 노출 (WI-H1)', () => {
+  it('스펙의 constraint 블록을 전부 뽑아 id/text 로 담는다', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    const { specId, ticketId } = await specWithOneTicket(p);
+    const specDir = path.join(p, 'docs', 'specs');
+    const [specFile] = fs.readdirSync(specDir);
+    const specPath = path.join(specDir, specFile as string);
+    const content = fs.readFileSync(specPath, 'utf8');
+    const parsed = parseFrontmatter(content);
+    if (!parsed) {
+      throw new Error('스펙 파싱 실패');
+    }
+    const body = parsed.body.replace(
+      '## Constraints\n',
+      '## Constraints\n\n### constraint-1\nPuck 코어를 수정하지 않는다\n\nverification: git diff 에 없음\n',
+    );
+    fs.writeFileSync(specPath, content.replace(parsed.body, body));
+    void specId;
+
+    const view = computeNextView(p, ticketId);
+    expect(view.constraints).toHaveLength(1);
+    expect(view.constraints[0]?.id).toBe('constraint-1');
+    expect(view.constraints[0]?.text).toContain('Puck 코어를 수정하지 않는다');
+  });
+
+  it('Constraints 섹션이 비어있으면 빈 배열(크래시 아님)', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    const { ticketId } = await specWithOneTicket(p);
+    const view = computeNextView(p, ticketId);
+    expect(view.constraints).toEqual([]);
+  });
+});
+
+describe('NextView.gateChecklists — 게이트 2/3 도달 계약 (WI-H1)', () => {
+  it('항상 게이트 2/3 체크리스트를 정적으로 담는다', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    const { ticketId } = await specWithOneTicket(p);
+    const view = computeNextView(p, ticketId);
+    expect(view.gateChecklists.map((g) => g.gate)).toEqual([2, 3]);
+    expect(view.gateChecklists[0]?.items.map((i) => i.name)).toEqual([
+      'finding',
+      'clarification',
+      'verification',
+    ]);
   });
 });
