@@ -935,6 +935,14 @@ export function buildProgram(): Command {
         });
       },
     );
+  rules
+    .command('hit <id>')
+    .description('이 규칙이 걸렸다고 알립니다 — hits 를 1 늘립니다 (검사기/사람이 실행)')
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .action(async (id: string, opts: { json?: boolean }) => {
+      const { runRulesHit } = await import('./commands/rules.js');
+      runRulesHit(id, { json: opts.json === true });
+    });
 
   // 사람이 치는 명령: gotchas (아직 규칙이 되지 않은 교훈, WI-O — 예전 이름 deltas 를 개명함)
   program

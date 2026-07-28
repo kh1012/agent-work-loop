@@ -7,10 +7,12 @@ import {
   buildRuleFile,
   checkRuleLoadLimit,
   filterRules,
+  incrementRuleHits,
   loadRules,
   parseRuleFile,
   suggestLinter,
   validatePromoteOpts,
+  writeRuleHitsIntoText,
 } from '../../src/commands/rules.js';
 
 const origHome = process.env.AWL_HOME;
@@ -28,8 +30,9 @@ id: R-001
 scope: implement
 applies: 무조건 (범용)
 counter: 테스트가 실제로 기능을 검증하지 않는 예외적 경우
-violations: 0
+hits: 3
 createdAt: 2026-07-14
+source: G-003
 ---
 
 테스트를 삭제하거나 약화시켜 통과시키지 않는다.
@@ -56,6 +59,80 @@ any 로 덮지 마라.`;
     expect(warnings.some((w) => w.includes('applies'))).toBe(true);
     expect(warnings.some((w) => w.includes('counter'))).toBe(true);
   });
+
+  it('hits/source 를 읽는다(ADK stage 6)', () => {
+    const { rule } = parseRuleFile(GOOD, 'R-001.md');
+    expect(rule?.hits).toBe(3);
+    expect(rule?.source).toBe('G-003');
+  });
+
+  it('hits 가 없으면 레거시 violations 로 폴백한다(하위호환)', () => {
+    const legacy = `---
+id: R-009
+applies: a
+counter: c
+violations: 5
+---
+
+body`;
+    const { rule } = parseRuleFile(legacy, 'R-009.md');
+    expect(rule?.hits).toBe(5);
+  });
+
+  it('hits/violations 둘 다 없으면 0', () => {
+    const { rule } = parseRuleFile(
+      `---\nid: R-010\napplies: a\ncounter: c\n---\n\nbody`,
+      'R-010.md',
+    );
+    expect(rule?.hits).toBe(0);
+    expect(rule?.source).toBeUndefined();
+  });
+});
+
+describe('writeRuleHitsIntoText — 순수 함수', () => {
+  it('기존 hits 줄을 새 값으로 바꾼다', () => {
+    const out = writeRuleHitsIntoText(GOOD, 4);
+    expect(out).toContain('hits: 4');
+    expect(out).not.toContain('hits: 3');
+  });
+
+  it('레거시 violations 줄은 hits 로 옮겨 쓴다(다음 쓰기부터 신규 필드명)', () => {
+    const legacy = `---\nid: R-009\napplies: a\ncounter: c\nviolations: 5\n---\n\nbody`;
+    const out = writeRuleHitsIntoText(legacy, 6);
+    expect(out).toContain('hits: 6');
+    expect(out).not.toContain('violations:');
+  });
+
+  it('hits/violations 둘 다 없으면 새로 추가한다', () => {
+    const noHits = `---\nid: R-010\napplies: a\ncounter: c\n---\n\nbody`;
+    const out = writeRuleHitsIntoText(noHits, 1);
+    expect(out).toContain('hits: 1');
+  });
+});
+
+describe('incrementRuleHits — 규칙 파일에 반영 (ADK stage 6)', () => {
+  it('hits 를 1 늘리고 파일에 반영한다', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-rules-hit-'));
+    process.env.AWL_HOME = home;
+    const activeDir = path.join(home, 'rules', 'active');
+    fs.mkdirSync(activeDir, { recursive: true });
+    fs.writeFileSync(path.join(activeDir, 'R-001.md'), GOOD);
+
+    const rule = incrementRuleHits('R-001');
+    expect(rule.hits).toBe(4);
+
+    const { rule: reloaded } = parseRuleFile(
+      fs.readFileSync(path.join(activeDir, 'R-001.md'), 'utf8'),
+      'R-001.md',
+    );
+    expect(reloaded?.hits).toBe(4);
+  });
+
+  it('존재하지 않는 규칙 id 는 던진다', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-rules-hit-'));
+    process.env.AWL_HOME = home;
+    expect(() => incrementRuleHits('R-999')).toThrow(/찾을 수 없습니다/);
+  });
 });
 
 describe('loadRules — 규칙 0개', () => {
@@ -81,8 +158,8 @@ describe('loadRules — 규칙 0개', () => {
 
 describe('filterRules — scope', () => {
   const rules = [
-    { id: 'A', scope: 'implement', applies: '', counter: '', violations: 0, body: 'a', file: 'a' },
-    { id: 'B', applies: '', counter: '', violations: 0, body: 'b', file: 'b' }, // 무태그
+    { id: 'A', scope: 'implement', applies: '', counter: '', hits: 0, body: 'a', file: 'a' },
+    { id: 'B', applies: '', counter: '', hits: 0, body: 'b', file: 'b' }, // 무태그
   ];
 
   it('scope 지정 시 무태그와 일치 scope 만 남긴다', () => {
