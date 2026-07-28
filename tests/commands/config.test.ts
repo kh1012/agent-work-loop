@@ -383,6 +383,22 @@ describe('config JSON/source output and local writes', () => {
     expect(fs.existsSync(path.join(root, '.awl', 'config.local.json'))).toBe(false);
   });
 
+  it('author 는 저장소(config.json) → local(config.local.json) 순으로 전역을 덮는다(WI-G13)', async () => {
+    const root = gitProject();
+    const basePath = path.join(root, '.awl', 'config.json');
+    const base = JSON.parse(fs.readFileSync(basePath, 'utf8'));
+    fs.writeFileSync(basePath, JSON.stringify({ ...base, author: 'repo@example.com' }));
+
+    let loaded = loadConfig(root);
+    expect(loaded.config?.author).toBe('repo@example.com');
+    expect(loaded.sources.author).toBe('base');
+
+    writeLocalOverlay(root, { author: 'local@example.com' });
+    loaded = loadConfig(root);
+    expect(loaded.config?.author).toBe('local@example.com');
+    expect(loaded.sources.author).toBe('local');
+  });
+
   it('config --show-origin 은 값별 출처(전역/저장소/개인)를 보여준다', async () => {
     const root = gitProject();
     writeLocalOverlay(root, { verifications: [{ name: 'typecheck', skip: true }] });
@@ -399,6 +415,41 @@ describe('config JSON/source output and local writes', () => {
     expect(stdout).toContain(path.join(root, '.awl', 'config.local.json'));
     expect(stdout).toContain('project');
     expect(stdout).toContain(path.join(root, '.awl', 'config.json'));
+  });
+
+  it('config --show-origin 은 저장소가 author 를 덮으면 전역이 아니라 저장소 config.json 을 출처로 보여준다(WI-G13)', async () => {
+    const origHome = process.env.AWL_HOME;
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-cfg-home-'));
+    try {
+      fs.mkdirSync(process.env.AWL_HOME, { recursive: true });
+      fs.writeFileSync(
+        path.join(process.env.AWL_HOME, 'config.json'),
+        JSON.stringify({ author: 'global@example.com' }),
+      );
+      const root = gitProject();
+      const basePath = path.join(root, '.awl', 'config.json');
+      const base = JSON.parse(fs.readFileSync(basePath, 'utf8'));
+      fs.writeFileSync(basePath, JSON.stringify({ ...base, author: 'repo@example.com' }));
+      process.chdir(root);
+
+      let stdout = '';
+      vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+        stdout += String(chunk);
+        return true;
+      });
+
+      await runConfig({ showOrigin: true });
+
+      expect(stdout).toContain('repo@example.com');
+      expect(stdout).not.toContain('global@example.com');
+      expect(stdout).toContain(basePath);
+    } finally {
+      if (origHome === undefined) {
+        delete process.env.AWL_HOME;
+      } else {
+        process.env.AWL_HOME = origHome;
+      }
+    }
   });
 
   it.each([

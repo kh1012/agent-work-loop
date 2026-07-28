@@ -18,6 +18,7 @@ import {
   renderDeferSummary,
   renderRecords,
   resolveBlockedBaseline,
+  resolveEffectiveAuthor,
   runDeferSummary,
   runRecord,
   selectMonthFiles,
@@ -59,6 +60,64 @@ describe('loadProjectName — effective worktree config', () => {
     );
 
     expect(loadProjectName(root)).toBe('lane-project');
+  });
+});
+
+describe('resolveEffectiveAuthor — 전역 → 저장소 → local (WI-G13, adk-prototype.md:117)', () => {
+  function project(overlay?: { author?: string }): string {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-record-author-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.git', 'objects'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.git', 'refs'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+    fs.writeFileSync(
+      path.join(root, '.awl', 'config.json'),
+      JSON.stringify({ project: 'p', engineVersion: '0.0.0', verify: {}, author: 'repo@x.com' }),
+    );
+    if (overlay) {
+      fs.writeFileSync(path.join(root, '.awl', 'config.local.json'), JSON.stringify(overlay));
+    }
+    return root;
+  }
+
+  it('저장소 config.json 이 author 를 정했으면 전역보다 그걸 쓴다', () => {
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-record-author-home-'));
+    fs.writeFileSync(
+      path.join(process.env.AWL_HOME, 'config.json'),
+      JSON.stringify({ author: 'global@x.com' }),
+    );
+    const root = project();
+    expect(resolveEffectiveAuthor(root)).toBe('repo@x.com');
+  });
+
+  it('config.local.json 이 author 를 덮으면 저장소 base 보다 그걸 쓴다', () => {
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-record-author-home-'));
+    const root = project({ author: 'local@x.com' });
+    expect(resolveEffectiveAuthor(root)).toBe('local@x.com');
+  });
+
+  it('저장소가 author 를 안 정했으면 전역으로 폴백한다', () => {
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-record-author-home-'));
+    fs.writeFileSync(
+      path.join(process.env.AWL_HOME, 'config.json'),
+      JSON.stringify({ author: 'global@x.com' }),
+    );
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-record-author-nooverride-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, '.awl', 'config.json'),
+      JSON.stringify({ project: 'p', engineVersion: '0.0.0', verify: {} }),
+    );
+    expect(resolveEffectiveAuthor(root)).toBe('global@x.com');
+  });
+
+  it('projectRoot 가 null 이어도 전역으로 폴백한다', () => {
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-record-author-home-'));
+    fs.writeFileSync(
+      path.join(process.env.AWL_HOME, 'config.json'),
+      JSON.stringify({ author: 'global@x.com' }),
+    );
+    expect(resolveEffectiveAuthor(null)).toBe('global@x.com');
   });
 });
 

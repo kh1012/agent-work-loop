@@ -1375,7 +1375,7 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
     workitem: defaultWorkitem,
     id,
     at,
-    author: readGlobalAwlConfig()?.author,
+    author: resolveEffectiveAuthor(projectRoot),
   });
   if (!record) {
     process.stderr.write(
@@ -1580,6 +1580,21 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
 /** 검증된 effective config에서 project 이름을 읽는다. */
 export function loadProjectName(projectRoot: string): string | undefined {
   return loadConfig(projectRoot).config?.project;
+}
+
+/**
+ * 기록에 붙는 author — 전역 → 저장소 → local 순으로 덮는다(adk-prototype.md:117
+ * "저장소가 덮으려면 .awl/config.json 이나 config.local.json 에 쓰면 된다"). 저장소가
+ * author 를 안 정했으면 전역(~/.awl/config.json) 값으로 폴백한다.
+ */
+export function resolveEffectiveAuthor(projectRoot: string | null): string | undefined {
+  if (projectRoot) {
+    const projectAuthor = loadConfig(projectRoot).config?.author;
+    if (projectAuthor) {
+      return projectAuthor;
+    }
+  }
+  return readGlobalAwlConfig()?.author;
 }
 
 /** awl records — 사람이 읽는 조회. */

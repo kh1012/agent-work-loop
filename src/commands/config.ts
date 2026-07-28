@@ -82,6 +82,12 @@ export interface AwlConfig {
   project: string;
   mainLanguage: string[];
   character: string;
+  /**
+   * 이 저장소가 정한 author(전역 ~/.awl/config.json 의 author 를 덮는다,
+   * adk-prototype.md:117 "저장소가 덮으려면 .awl/config.json 이나 config.local.json 에
+   * 쓰면 된다"). 없으면 전역 author 로 폴백한다(record.ts resolveEffectiveAuthor).
+   */
+  author?: string;
   /** ADK stage 4: verify(4키 고정 객체) → verifications(자유 이름 배열). loadConfig 가
    * 옛 shape 을 읽을 때 자동으로 이 배열로 변환한다(migrateLegacyVerify). */
   verifications: VerificationEntry[];
@@ -149,6 +155,7 @@ export interface ConfigSources {
   project: ConfigSource;
   'feedback.enabled': ConfigSource;
   'feedback.path': ConfigSource;
+  author: ConfigSource;
   /** 검증 이름별 출처 — local overlay 가 그 이름을 하나라도 건드렸으면 'local'. */
   verifications: Record<string, ConfigSource>;
 }
@@ -159,6 +166,8 @@ export interface LocalConfigOverlay {
     enabled?: boolean;
     path?: string;
   };
+  /** 이 저장소 config.json 의 author 를 이 환경에서만 덮는다(전역→저장소→local). */
+  author?: string;
   /**
    * base(config.json) 의 verifications 를 name 으로 지목해 부분적으로 덮는다(mergeByName,
    * ADK stage 4) — skip 을 켜거나 cmd/cwd/env 를 개인 사정으로 바꾸는 통로다. base 에
@@ -171,6 +180,7 @@ const BASE_SOURCES: ConfigSources = {
   project: 'base',
   'feedback.enabled': 'base',
   'feedback.path': 'base',
+  author: 'base',
   verifications: {},
 };
 
@@ -343,6 +353,9 @@ export function validateConfig(obj: unknown): string[] {
   ) {
     errors.push('protectedFiles 형식 오류 (문자열 배열)');
   }
+  if ('author' in o && o.author !== undefined && typeof o.author !== 'string') {
+    errors.push('author 형식 오류 (문자열)');
+  }
   if ('feedback' in o && o.feedback !== undefined) {
     if (typeof o.feedback !== 'object' || o.feedback === null) {
       errors.push('feedback 형식 오류 (객체 필수)');
@@ -377,7 +390,7 @@ export function validateLocalConfigOverlay(obj: unknown): string[] {
   }
   const overlay = obj as Record<string, unknown>;
   for (const key of Object.keys(overlay)) {
-    if (key !== 'project' && key !== 'feedback' && key !== 'verifications') {
+    if (key !== 'project' && key !== 'feedback' && key !== 'verifications' && key !== 'author') {
       errors.push(`local config overlay의 지원하지 않는 키: ${key}`);
     }
   }
@@ -386,6 +399,9 @@ export function validateLocalConfigOverlay(obj: unknown): string[] {
     (typeof overlay.project !== 'string' || overlay.project.trim() === '')
   ) {
     errors.push('local config overlay project 형식 오류 (비어 있지 않은 문자열 필수)');
+  }
+  if ('author' in overlay && (typeof overlay.author !== 'string' || overlay.author.trim() === '')) {
+    errors.push('local config overlay author 형식 오류 (비어 있지 않은 문자열 필수)');
   }
   if ('feedback' in overlay) {
     if (
@@ -530,6 +546,7 @@ export function loadConfig(projectRoot: string): ConfigResult {
         }
       : {}),
     ...(typeof raw.autoFeedback === 'boolean' ? { autoFeedback: raw.autoFeedback } : {}),
+    ...(typeof raw.author === 'string' && raw.author.trim() !== '' ? { author: raw.author } : {}),
     verifications,
   };
   if (!findDotGitPath(projectRoot)) {
@@ -567,6 +584,7 @@ export function loadConfig(projectRoot: string): ConfigResult {
   const effective: AwlConfig = {
     ...config,
     ...(overlay.project ? { project: overlay.project } : {}),
+    ...(overlay.author ? { author: overlay.author } : {}),
     ...(config.feedback || overlay.feedback
       ? {
           feedback: {
@@ -591,6 +609,7 @@ export function loadConfig(projectRoot: string): ConfigResult {
     project: overlay.project === undefined ? 'base' : 'local',
     'feedback.enabled': overlay.feedback?.enabled === undefined ? 'base' : 'local',
     'feedback.path': overlay.feedback?.path === undefined ? 'base' : 'local',
+    author: overlay.author === undefined ? 'base' : 'local',
     verifications: verificationSources,
   };
   return baseResult(effective, [], overlayPath, sources, config);
@@ -1340,7 +1359,15 @@ function renderShowOrigin(loaded: ConfigResult, config: AwlConfig, c: Caps): str
   const rows: { key: string; value: string; source: string }[] = [];
 
   const global = readGlobalAwlConfig();
-  if (global?.author) {
+  const overlaySourceForAuthor = loaded.overlayPath ?? loaded.basePath;
+  if (config.author) {
+    // 저장소(base) 나 local 이 전역 author 를 덮었다(adk-prototype.md:117).
+    rows.push({
+      key: 'author',
+      value: config.author,
+      source: loaded.sources.author === 'local' ? overlaySourceForAuthor : loaded.basePath,
+    });
+  } else if (global?.author) {
     rows.push({ key: 'author', value: global.author, source: globalConfigPath() });
   }
   if (global?.sync?.records?.endpoint) {
