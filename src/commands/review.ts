@@ -3,10 +3,11 @@ import fs from 'node:fs';
 import { parseFrontmatter } from '../core/doc-frontmatter.js';
 import { run } from '../core/runner.js';
 import { type Caps, caps, makeColors, sectionBox, signal } from '../core/tty.js';
-import { findTicketPath, loadTicketRuntime } from './commit.js';
+import { findTicketPath, loadTicketRuntime, writeTicketRuntime } from './commit.js';
 import { type AwlConfig, requireConfig } from './config.js';
 import { extractConditionBlocks, listDocFiles } from './doc.js';
 import { type SkillSlot, loadProfile } from './profile.js';
+import { readRecords } from './record.js';
 import { filterRules, loadRules } from './rules.js';
 import { loadState } from './state.js';
 import { type VerifyReport, runVerifyChecks } from './verify.js';
@@ -42,6 +43,9 @@ export interface ReviewBundle {
   /** profile.local.json 이 바꾼 스킬 슬롯 이름들(ADK stage 4) — 정보 표시, 경고 아니다
    * (prototype.md:519-524 "스킬을 바꾸는 건 정보다"). 없으면 빈 배열. */
   localSkills: string[];
+  /** 이 티켓에 대해 findings 가 비어있지 않았던 review 기록 수(WI-G24, "왕복"). ticket
+   * 경로(assembleReviewForTicket)에서만 채운다 — AC-range 경로(assembleReview)는 없음. */
+  roundTrips?: number;
 }
 
 /**
@@ -155,10 +159,31 @@ export async function assembleReview(
 export type ReviewPackResult = { bundle: ReviewBundle } | { missing: string };
 
 /**
- * `awl review pack <ticket-id>` — 4게이트 티켓 모델용 리뷰 자료 조립(WI-G23).
+ * 이 티켓의 조건을 지목한 review 기록 중 findings 가 비어있지 않은 것의 수(WI-G24,
+ * "왕복"). 지적이 있어야 "다시 고치고 다시 봤다"는 왕복이 성립한다 — 지적 없이
+ * 끝난 리뷰는 왕복이 아니다. 저장하지 않고 매번 readRecords 에서 계산한다(D-15,
+ * 파생 가능한 값을 별도로 안 쓴다 — countMissing 류와 같은 원칙).
+ */
+export function countReviewRoundTrips(
+  reviewRecords: Record<string, unknown>[],
+  conditionIds: string[],
+): number {
+  return reviewRecords.filter(
+    (r) =>
+      Array.isArray(r.criteria) &&
+      (r.criteria as unknown[]).some((id) => conditionIds.includes(String(id))) &&
+      Array.isArray(r.findings) &&
+      r.findings.length > 0,
+  ).length;
+}
+
+/**
+ * `awl review pack <ticket-id>` — 4게이트 티켓 모델용 리뷰 자료 조립(WI-G23/G24).
  * assembleReview(AC-range 키)와 같은 ReviewBundle 을 만들되, 조건을
  * docs/tickets/*.md → spec 조건 원문에서 가져오고 diff 기준점은
- * .awl/tickets/<id>.json 런타임(baseline/firstBaseline)에서 읽는다.
+ * .awl/tickets/<id>.json 런타임에서 읽는다 — lastReviewedCommit 이 있으면
+ * (재리뷰, runReviewPack 이 이전 호출 성공 시 남겨둔다) 그 지점부터, 없으면
+ * firstBaseline/baseline(첫 리뷰, 티켓 전체) 부터.
  *
  * 리뷰어가 재료로 판단할 수 없으면(설계: "재료 부족: <무엇>") bundle 대신
  * missing 을 돌려준다 — 티켓을 못 찾거나, 스펙에서 조건 원문을 못 찾거나,
@@ -213,16 +238,20 @@ export async function assembleReviewForTicket(
   }
 
   const runtime = loadTicketRuntime(cwd, ticketId);
-  const runtimeBaseline =
-    typeof runtime?.firstBaseline === 'string'
-      ? runtime.firstBaseline
-      : typeof runtime?.baseline === 'string'
-        ? runtime.baseline
-        : undefined;
+  // 재리뷰(고친 커밋만 본다, WI-G24): lastReviewedCommit 이 있으면 최우선(명시 base
+  // 다음). 없으면(첫 리뷰) firstBaseline/baseline — 티켓 전체 diff.
+  const runtimeBase =
+    typeof runtime?.lastReviewedCommit === 'string'
+      ? runtime.lastReviewedCommit
+      : typeof runtime?.firstBaseline === 'string'
+        ? runtime.firstBaseline
+        : typeof runtime?.baseline === 'string'
+          ? runtime.baseline
+          : undefined;
   const diffArgs = base
     ? ['diff', `${base}..HEAD`]
-    : runtimeBaseline
-      ? ['diff', `${runtimeBaseline}..HEAD`]
+    : runtimeBase
+      ? ['diff', `${runtimeBase}..HEAD`]
       : ['diff', 'HEAD'];
   const diff = await git(diffArgs, cwd);
   if (diff.trim() === '') {
@@ -232,12 +261,14 @@ export async function assembleReviewForTicket(
   }
 
   const context = await gatherReviewContext(cwd, config);
+  const roundTrips = countReviewRoundTrips(readRecords(cwd, { type: 'review' }), conditionIds);
 
   return {
     bundle: {
       reviewId: newReviewId(),
       criteria,
       diff,
+      roundTrips,
       ...context,
     },
   };
@@ -262,6 +293,12 @@ function renderReview(bundle: ReviewBundle, title: string, hintCmd: string, c: C
   if (bundle.localSkills.length > 0) {
     // 경고가 아니라 정보다(prototype.md:519-524) — 스킬을 바꾼 건 문제가 아니라 사실.
     out.push(`             ${color.dim(`[i] 로컬 스킬: ${bundle.localSkills.join(', ')}`)}`);
+  }
+  if (bundle.roundTrips !== undefined) {
+    // 왕복 2회 초과면 사람을 불러야 한다(WI-G24, adk-reference.md) — 여기선 표시만
+    // 한다(판단은 스킬/사람 몫). 2회까지는 정보, 3회부터 경고.
+    const tag = bundle.roundTrips > 2 ? signal(c, 'warn') : signal(c, 'info');
+    out.push(`왕복         ${bundle.roundTrips}회  ${tag}${bundle.roundTrips > 2 ? '  2회를 넘었습니다 — 사람을 불러야 합니다' : ''}`);
   }
   out.push('');
   out.push('provenance (리뷰어가 교차검증할 위치)');
@@ -292,7 +329,13 @@ export async function runReview(
   }
 }
 
-/** `awl review pack <ticket-id>` — 4게이트 티켓 모델용(WI-G23). */
+/**
+ * `awl review pack <ticket-id>` — 4게이트 티켓 모델용(WI-G23/G24). 성공하면 지금
+ * HEAD 를 .awl/tickets/<id>.json 의 lastReviewedCommit 으로 남긴다 — 다음 호출
+ * (재리뷰)이 이 지점부터 diff 를 잡아 고친 커밋만 보게 한다(WI-G24, "재리뷰는
+ * 고친 커밋만 봐야 한다"). assembleReviewForTicket 자체는 순수하게 유지하고(테스트
+ * 용이) 이 쓰기는 CLI 진입점에서만 한다.
+ */
 export async function runReviewPack(
   ticketId: string,
   opts: { json: boolean; base?: string },
@@ -309,6 +352,11 @@ export async function runReviewPack(
     process.exit(1);
     return;
   }
+  const existing = loadTicketRuntime(projectRoot, ticketId) ?? {};
+  writeTicketRuntime(projectRoot, ticketId, {
+    ...existing,
+    lastReviewedCommit: result.bundle.provenance.commit,
+  });
   if (opts.json) {
     process.stdout.write(`${JSON.stringify(result.bundle, null, 2)}\n`);
   } else {

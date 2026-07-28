@@ -2,11 +2,17 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { writeTicketRuntime } from '../../src/commands/commit.js';
+import { describe, expect, it, vi } from 'vitest';
+import { loadTicketRuntime, writeTicketRuntime } from '../../src/commands/commit.js';
 import type { AwlConfig } from '../../src/commands/config.js';
 import { createDoc } from '../../src/commands/doc.js';
-import { assembleReview, assembleReviewForTicket, selectCriteria } from '../../src/commands/review.js';
+import {
+  assembleReview,
+  assembleReviewForTicket,
+  countReviewRoundTrips,
+  runReviewPack,
+  selectCriteria,
+} from '../../src/commands/review.js';
 import { deriveTickets } from '../../src/commands/tickets.js';
 import { parseFrontmatter } from '../../src/core/doc-frontmatter.js';
 
@@ -29,6 +35,35 @@ const CONFIG: AwlConfig = {
   character: '',
   verifications: [{ name: 'test', cmd: `${process.execPath} --version` }],
 };
+
+function git(dir: string, args: string[]): string {
+  return execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
+}
+
+/** 조건 하나짜리 스펙 → 티켓 하나를 실제로 도출한다(next.test.ts 와 같은 패턴). */
+async function specWithOneTicket(
+  dir: string,
+  conditionText = '언제 포커스가 패널에 있고 방향키를 누르면, 선택이 이동해야 한다',
+): Promise<{ specId: string; ticketId: string }> {
+  const spec = await createDoc('spec', '레이어 패널 키보드 조작', dir);
+  const content = fs.readFileSync(spec.path, 'utf8');
+  const parsed = parseFrontmatter(content);
+  if (!parsed) {
+    throw new Error('spec 스캐폴드 파싱 실패');
+  }
+  const body = parsed.body.replace(
+    '## Conditions\n',
+    `## Conditions\n\n### condition-1\n${conditionText}\n`,
+  );
+  fs.writeFileSync(spec.path, content.replace(parsed.body, body));
+
+  const derived = await deriveTickets(dir, spec.id);
+  const ticketId = derived.created[0]?.id;
+  if (!ticketId) {
+    throw new Error('티켓 도출 실패');
+  }
+  return { specId: spec.id, ticketId };
+}
 
 describe('selectCriteria', () => {
   const state = { criteria: [{ id: 'AC-01' }, { id: 'AC-02' }, { id: 'AC-03' }] };
@@ -125,10 +160,6 @@ describe('assembleReview — reviewId 발급 (WI-S AC-02)', () => {
 });
 
 describe('assembleReview — firstBaseline (WI-H AC-01, D-26/D-28 실사고 재현)', () => {
-  function git(dir: string, args: string[]): string {
-    return execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
-  }
-
   it('범위 첫 AC 가 이미 닫혀 baseline 필드가 자기 자신의 커밋으로 덮어써졌어도, firstBaseline 이 있으면 그 AC 자신의 diff 가 빠지지 않는다', async () => {
     const dir = makeRepo();
     const commit0 = git(dir, ['rev-parse', 'HEAD']);
@@ -191,35 +222,6 @@ describe('assembleReview — firstBaseline (WI-H AC-01, D-26/D-28 실사고 재�
 });
 
 describe('assembleReviewForTicket — 4게이트 티켓 모델 review pack (WI-G23)', () => {
-  function git(dir: string, args: string[]): string {
-    return execFileSync('git', args, { cwd: dir, encoding: 'utf8' }).trim();
-  }
-
-  /** 조건 하나짜리 스펙 → 티켓 하나를 실제로 도출한다(next.test.ts 와 같은 패턴). */
-  async function specWithOneTicket(
-    dir: string,
-    conditionText = '언제 포커스가 패널에 있고 방향키를 누르면, 선택이 이동해야 한다',
-  ): Promise<{ specId: string; ticketId: string }> {
-    const spec = await createDoc('spec', '레이어 패널 키보드 조작', dir);
-    const content = fs.readFileSync(spec.path, 'utf8');
-    const parsed = parseFrontmatter(content);
-    if (!parsed) {
-      throw new Error('spec 스캐폴드 파싱 실패');
-    }
-    const body = parsed.body.replace(
-      '## Conditions\n',
-      `## Conditions\n\n### condition-1\n${conditionText}\n`,
-    );
-    fs.writeFileSync(spec.path, content.replace(parsed.body, body));
-
-    const derived = await deriveTickets(dir, spec.id);
-    const ticketId = derived.created[0]?.id;
-    if (!ticketId) {
-      throw new Error('티켓 도출 실패');
-    }
-    return { specId: spec.id, ticketId };
-  }
-
   it('존재하지 않는 티켓이면 재료 부족을 반환한다(크래시 아님)', async () => {
     const dir = makeRepo();
     const result = await assembleReviewForTicket(dir, CONFIG, 'no-such-ticket', undefined);
@@ -291,5 +293,98 @@ describe('assembleReviewForTicket — 4게이트 티켓 모델 review pack (WI-G
     const result = await assembleReviewForTicket(dir, CONFIG, ticket.id, undefined);
     expect('missing' in result).toBe(true);
     expect('missing' in result && result.missing).toContain('완료 조건');
+  });
+
+  it('lastReviewedCommit 이 있으면(재리뷰) firstBaseline 대신 그 지점부터 diff 를 잡는다(WI-G24, 고친 커밋만)', async () => {
+    const dir = makeRepo();
+    const { ticketId } = await specWithOneTicket(dir);
+    const commit0 = git(dir, ['rev-parse', 'HEAD']);
+    fs.writeFileSync(path.join(dir, 'first-review.ts'), 'v1\n');
+    git(dir, ['add', '-A']);
+    git(dir, ['commit', '-q', '-m', '첫 리뷰 이전 작업']);
+    const firstReviewedCommit = git(dir, ['rev-parse', 'HEAD']);
+
+    fs.writeFileSync(path.join(dir, 'after-review.ts'), 'v2\n');
+    git(dir, ['add', '-A']);
+    git(dir, ['commit', '-q', '-m', '지적 반영']);
+
+    writeTicketRuntime(dir, ticketId, {
+      firstBaseline: commit0,
+      lastReviewedCommit: firstReviewedCommit,
+    });
+
+    const result = await assembleReviewForTicket(dir, CONFIG, ticketId, undefined);
+    expect('bundle' in result).toBe(true);
+    if ('bundle' in result) {
+      expect(result.bundle.diff).toContain('after-review.ts');
+      expect(result.bundle.diff).not.toContain('first-review.ts'); // 재리뷰라 고친 커밋만
+    }
+  });
+
+  it('lastReviewedCommit 이 HEAD 와 같으면(새 커밋 없는 재요청) 재료 부족을 반환한다', async () => {
+    const dir = makeRepo();
+    const { ticketId } = await specWithOneTicket(dir);
+    const commit0 = git(dir, ['rev-parse', 'HEAD']);
+    fs.writeFileSync(path.join(dir, 'a.ts'), 'v1\n');
+    git(dir, ['add', '-A']);
+    git(dir, ['commit', '-q', '-m', 'a']);
+    const head = git(dir, ['rev-parse', 'HEAD']);
+    writeTicketRuntime(dir, ticketId, { firstBaseline: commit0, lastReviewedCommit: head });
+
+    const result = await assembleReviewForTicket(dir, CONFIG, ticketId, undefined);
+    expect('missing' in result).toBe(true);
+  });
+});
+
+describe('countReviewRoundTrips — 순수 계산 (WI-G24)', () => {
+  it('findings 가 비어있지 않은 review 만 왕복으로 센다', () => {
+    const records = [
+      { type: 'review', criteria: ['condition-1'], findings: [{ what: 'x' }] },
+      { type: 'review', criteria: ['condition-1'], findings: [] }, // 지적 없음 — 왕복 아님
+      { type: 'review', criteria: ['condition-2'], findings: [{ what: 'y' }] }, // 다른 조건 — 안 셈
+    ];
+    expect(countReviewRoundTrips(records, ['condition-1'])).toBe(1);
+  });
+
+  it('조건 여러 개 중 하나만 겹쳐도 센다(같은 티켓의 여러 조건)', () => {
+    const records = [
+      { type: 'review', criteria: ['condition-2'], findings: [{ what: 'x' }] },
+    ];
+    expect(countReviewRoundTrips(records, ['condition-1', 'condition-2'])).toBe(1);
+  });
+
+  it('review 기록이 없으면 0', () => {
+    expect(countReviewRoundTrips([], ['condition-1'])).toBe(0);
+  });
+});
+
+describe('runReviewPack — CLI 진입점 (WI-G24 글루)', () => {
+  const origCwd = process.cwd();
+
+  it('성공하면 lastReviewedCommit 을 티켓 런타임에 남긴다(다음 재리뷰가 diff-only 로 좁혀지도록)', async () => {
+    const dir = fs.realpathSync(makeRepo());
+    const { ticketId } = await specWithOneTicket(dir);
+    fs.mkdirSync(path.join(dir, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, '.awl', 'config.json'),
+      JSON.stringify({ project: 'p', mainLanguage: 'other', verify: {} }),
+    );
+    const commit0 = git(dir, ['rev-parse', 'HEAD']);
+    fs.writeFileSync(path.join(dir, 'panel.ts'), 'v1\n');
+    git(dir, ['add', '-A']);
+    git(dir, ['commit', '-q', '-m', '구현']);
+    const head = git(dir, ['rev-parse', 'HEAD']);
+    writeTicketRuntime(dir, ticketId, { firstBaseline: commit0 });
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    process.chdir(dir);
+    try {
+      await runReviewPack(ticketId, { json: true });
+    } finally {
+      process.chdir(origCwd);
+      stdoutSpy.mockRestore();
+    }
+
+    expect(loadTicketRuntime(dir, ticketId)?.lastReviewedCommit).toBe(head);
   });
 });
