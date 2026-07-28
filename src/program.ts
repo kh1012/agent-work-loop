@@ -1153,6 +1153,10 @@ export function buildProgram(): Command {
       '--related',
       '변경된 파일에 관련된 테스트만 실행합니다(relatedCmd 필요, 없으면 전체 테스트로 폴백)',
     )
+    .option(
+      '--level <level>',
+      'ticket 또는 request 레벨 검증만 골라 돕니다(안 주면 레벨 무관하게 전부)',
+    )
     .action(
       async (opts: {
         json?: boolean;
@@ -1160,7 +1164,15 @@ export function buildProgram(): Command {
         sinceBaseline?: boolean;
         related?: boolean;
         force?: boolean;
+        level?: string;
       }) => {
+        if (opts.level !== undefined && opts.level !== 'ticket' && opts.level !== 'request') {
+          process.stderr.write(
+            `\n  ${signal(caps(), 'error')} --level 은 ticket 또는 request 여야 합니다: ${opts.level}\n`,
+          );
+          process.exit(1);
+          return;
+        }
         const { runVerify } = await import('./commands/verify.js');
         await runVerify({
           json: opts.json === true,
@@ -1168,6 +1180,7 @@ export function buildProgram(): Command {
           sinceBaseline: opts.sinceBaseline === true,
           related: opts.related === true,
           force: opts.force === true,
+          level: opts.level,
         });
       },
     );

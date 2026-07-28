@@ -54,7 +54,7 @@ describe('assembleReview — provenance 가 핵심', () => {
     expect(() => JSON.parse(JSON.stringify(bundle))).not.toThrow();
   });
 
-  it('config.local.json 이 skip:true 로 끈 검증은 bundle.verify 에 skipped:true 로 그대로 실린다(ADK stage 4, 게이트가 경고로 볼 자료)', async () => {
+  it('config.local.json 이 skip:true 로 끈 검증은 bundle.verify 에 skipped:"local" 로 그대로 실린다(ADK stage 4, 게이트가 경고로 볼 자료)', async () => {
     const dir = makeRepo();
     const state = { criteria: [{ id: 'AC-01', status: 'passed' }] };
     const configWithSkip: AwlConfig = {
@@ -67,7 +67,7 @@ describe('assembleReview — provenance 가 핵심', () => {
 
     const bundle = await assembleReview(dir, configWithSkip, state, 'AC-01', undefined);
 
-    expect(bundle.verify.results.find((r) => r.name === 'e2e')?.skipped).toBe(true);
+    expect(bundle.verify.results.find((r) => r.name === 'e2e')?.skipped).toBe('local');
     expect(bundle.verify.passed).toBe(true); // skip 은 실패가 아니다
   });
 });

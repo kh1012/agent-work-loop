@@ -26,10 +26,14 @@ export interface VerifyResult {
   output: string;
   error?: 'command_not_found' | 'cwd_not_found' | 'lock_timeout';
   timedOut?: boolean;
-  /** config.local.json 이 이 검증을 skip:true 로 껐다(ADK stage 4) — 실행 자체를
-   * 안 한다. 실패가 아니라 경고다(report.passed 에 영향 없음, prototype.md:519-524
-   * "검증을 끄는 건 경고, 스킬을 바꾸는 건 정보다"). */
-  skipped?: boolean;
+  /**
+   * 안 돈 이유(둘 다 실패가 아니다, report.passed 에 영향 없음):
+   * - local: config.local.json 이 skip:true 로 껐다(ADK stage 4,
+   *   prototype.md:519-524 "검증을 끄는 건 경고, 스킬을 바꾸는 건 정보다").
+   * - no-changed-files: scope:changed 인데 지금 변경 파일이 없다 — 볼 게 없다
+   *   (reference.md:841-842).
+   */
+  skipped?: 'local' | 'no-changed-files';
 }
 
 export interface VerifyReport {
@@ -37,20 +41,50 @@ export interface VerifyReport {
   results: VerifyResult[];
 }
 
+/**
+ * scope:changed(reference.md:841-842) — 검증 명령을 불투명하게 다루므로(D-30, awl
+ * 은 출력을 파싱해 실패를 파일 단위로 걸러내지 않는다) 명령 자체를 변경 파일로
+ * 좁혀서 돌린다. `{files}` 자리표시자가 있으면 --related 와 같은 방식으로
+ * 치환하고, 없으면 뒤에 그대로 붙인다(예: `eslint .` → `eslint . "a.ts" "b.ts"`).
+ */
+export function applyChangedScope(cmd: string, changedFiles: string[]): string {
+  if (cmd.includes('{files}')) {
+    return substituteRelatedCmd(cmd, changedFiles);
+  }
+  const quoted = changedFiles.map((f) => `"${f}"`).join(' ');
+  return `${cmd} ${quoted}`;
+}
+
 export async function runVerifyChecks(
   verifications: VerificationEntry[],
   projectRoot: string,
-  opts: { bail: boolean },
+  opts: { bail: boolean; level?: 'ticket' | 'request' },
 ): Promise<VerifyReport> {
   const results: VerifyResult[] = [];
   let passed = true;
 
+  // scope:changed 인 검증이 하나라도 있을 때만 git 을 부른다(reference.md:841-842).
+  const needsChangedFiles = verifications.some((v) => v.scope === 'changed');
+  const changedFiles = needsChangedFiles ? ((await gitDirtyFiles(projectRoot)) ?? []) : [];
+
   for (const entry of verifications) {
     const name = entry.name;
 
+    // level:ticket(기본)=티켓마다, level:request=요청을 닫을 때 한 번(reference.md:844-845).
+    // opts.level 을 명시적으로 준 호출만 걸러낸다 — 안 주면(기존 awl verify 호출부
+    // 하위호환) 지금처럼 레벨 무관하게 전부 돈다.
+    if (opts.level && (entry.level ?? 'ticket') !== opts.level) {
+      continue;
+    }
+
     if (entry.skip) {
-      results.push({ name, exitCode: null, durationMs: 0, output: '', skipped: true });
+      results.push({ name, exitCode: null, durationMs: 0, output: '', skipped: 'local' });
       continue; // 경고이지 실패가 아니다 — passed 를 안 건드린다.
+    }
+
+    if (entry.scope === 'changed' && changedFiles.length === 0) {
+      results.push({ name, exitCode: null, durationMs: 0, output: '', skipped: 'no-changed-files' });
+      continue; // 변경 파일이 없으면 볼 것도 없다 — 실패가 아니라 건너뜀.
     }
 
     const cwd = entry.cwd
@@ -91,8 +125,10 @@ export async function runVerifyChecks(
     }
 
     try {
+      const cmd =
+        entry.scope === 'changed' ? applyChangedScope(entry.cmd, changedFiles) : entry.cmd;
       const r = await run({
-        cmd: entry.cmd,
+        cmd,
         env: entry.env,
         cwd,
         timeoutMs: 600_000,
@@ -142,8 +178,10 @@ function renderVerify(report: VerifyReport, c: Caps): string {
   const color = makeColors(c.color);
   const out: string[] = [];
   for (const r of report.results) {
-    const mark = r.skipped
+    const mark = r.skipped === 'local'
       ? `${signal(c, 'warn')} 로컬에서 건너뜀`
+      : r.skipped === 'no-changed-files'
+      ? `${signal(c, 'ok')} 변경 파일 없음(건너뜀)`
       : r.error === 'command_not_found'
         ? `${signal(c, 'error')} 명령 없음`
         : r.error === 'cwd_not_found'
@@ -437,6 +475,7 @@ export async function runVerify(opts: {
   sinceBaseline?: boolean;
   related?: boolean;
   force?: boolean;
+  level?: 'ticket' | 'request';
 }): Promise<void> {
   const { projectRoot, config } = requireConfig();
   if (!opts.force) {
@@ -468,7 +507,10 @@ export async function runVerify(opts: {
     process.exit(isCheckPassed(outcome.result) ? 0 : 1);
   }
 
-  const report = await runVerifyChecks(config.verifications, projectRoot, { bail: opts.bail });
+  const report = await runVerifyChecks(config.verifications, projectRoot, {
+    bail: opts.bail,
+    level: opts.level,
+  });
   persistVerificationAttempts(projectRoot, report.passed);
 
   if (opts.sinceBaseline) {
