@@ -172,12 +172,21 @@ function findSpecFileById(projectRoot: string, specId: string): string | null {
 
 /** 스펙 파일의 frontmatter status 만 바꿔 다시 쓴다. 본문은 그대로 보존한다.
  * writeTicketStatus 와 같은 이유로 body 앞에 `\n` 을 더 안 붙인다(round-trip 안정성). */
+/** doc.ts 의 bodySha256 과 동일 로직 — doc.ts 가 이미 record.ts 를 import 하므로(BANNED_QUALITATIVE_WORDS
+ * 등) record.ts→doc.ts 임포트를 추가하면 순환이 된다. core/sync.ts 의 같은 이유의 중복과 동형이다. */
+function specBodySha256(body: string): string {
+  return crypto.createHash('sha256').update(body).digest('hex');
+}
+
+/** status 전이마다 revision(본문 sha256)도 다시 계산해 써넣는다(ADK stage 1, "스펙을
+ * 저장하면 revision 이 본문 해시로 채워져야 한다") — 스펙은 사람이 직접 편집하므로
+ * 모든 저장 시점을 가로챌 수 없지만, 게이트 전이는 awl 이 아는 유일한 "저장 이벤트"다. */
 function writeSpecStatus(specPath: string, status: string): void {
   const parsed = parseFrontmatter(fs.readFileSync(specPath, 'utf8'));
   if (!parsed) {
     return;
   }
-  const nextData = { ...parsed.data, status };
+  const nextData = { ...parsed.data, status, revision: specBodySha256(parsed.body) };
   fs.writeFileSync(specPath, `${serializeFrontmatter(nextData)}${parsed.body}`);
 }
 

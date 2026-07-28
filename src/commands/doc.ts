@@ -140,8 +140,23 @@ function specFrontmatter(opts: {
   };
 }
 
-const SPEC_BODY = `## Request
-> (사용자가 던진 원문 그대로)
+/**
+ * `--request` 로 실제 사용자 원문을 받으면 그걸 인용으로 넣는다(ADK stage 1, "Request 에
+ * 사용자 원문이 인용으로 남아야 한다"). 안 주면(하위호환·ticket/decision 흐름과 공유하던
+ * 옛 호출부) 예전처럼 자리표시자만 남긴다 — 이 스킬이 강제하는 게 아니라 값이 있을 때만
+ * 정확히 채운다. 여러 줄이면 각 줄 앞에 `>` 를 붙여 인용 블록을 유지한다.
+ */
+function specBody(request?: string): string {
+  const quote =
+    request && request.trim() !== ''
+      ? request
+          .trim()
+          .split(/\r?\n/)
+          .map((line) => `> ${line}`)
+          .join('\n')
+      : '> (사용자가 던진 원문 그대로)';
+  return `## Request
+${quote}
 
 ## Instruction
 
@@ -151,6 +166,7 @@ const SPEC_BODY = `## Request
 
 ## Out of scope
 `;
+}
 
 function ticketFrontmatter(opts: {
   id: string;
@@ -187,6 +203,8 @@ export interface DocNewOptions {
   supersedes?: string;
   /** (ticket 전용) 이 티켓이 검증하는 조건 식별자들 — 기본은 빈 배열(수동 생성). */
   conditions?: string[];
+  /** (spec 전용) 사용자가 던진 원문 그대로 — Request 절에 인용으로 들어간다. */
+  request?: string;
 }
 
 export interface DocNewResult {
@@ -221,7 +239,7 @@ export async function createDoc(
       title,
       now: iso,
     });
-    body = SPEC_BODY;
+    body = specBody(opts.request);
   } else if (type === 'ticket') {
     frontmatter = ticketFrontmatter({
       id,
@@ -278,6 +296,8 @@ export async function runDocNew(
 export interface LintViolation {
   file: string;
   message: string;
+  /** 1-인덱스 줄 번호(파일 전체 기준, 프론트매터 포함) — 못 구했으면 없음. */
+  line?: number;
 }
 
 /** 파일명이 `YYYYMMDD-HHMMSS-kebab.md` 형식인지 — kebabCase() 가 만드는 charset(유니코드 글자·숫자)과 맞춘다. */
@@ -292,23 +312,31 @@ function isEarsForm(text: string): boolean {
   return EARS_PREFIXES.some((prefix) => trimmed.startsWith(prefix));
 }
 
-/** 스펙 본문의 `## Conditions` 아래 `### condition-N` 블록들을 뽑는다(제목·본문 텍스트). */
-export function extractConditionBlocks(body: string): { heading: string; text: string }[] {
+/**
+ * 스펙 본문의 `## Conditions` 아래 `### condition-N` 블록들을 뽑는다(제목·본문 텍스트).
+ * `line` 은 그 조건 제목(`###`)이 본문(body) 안에서 몇 번째 줄인지(1-인덱스) — lint 가
+ * 파일 전체 기준 줄 번호로 바꿀 때 이 값에 프론트매터 줄 수를 더한다.
+ */
+export function extractConditionBlocks(
+  body: string,
+): { heading: string; text: string; line: number }[] {
   const lines = body.split(/\r?\n/);
-  const results: { heading: string; text: string }[] = [];
+  const results: { heading: string; text: string; line: number }[] = [];
   let inConditions = false;
   let currentHeading: string | null = null;
+  let currentLine = 0;
   let buffer: string[] = [];
 
   const flush = (): void => {
     if (currentHeading !== null) {
-      results.push({ heading: currentHeading, text: buffer.join('\n').trim() });
+      results.push({ heading: currentHeading, text: buffer.join('\n').trim(), line: currentLine });
     }
     currentHeading = null;
     buffer = [];
   };
 
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? '';
     if (/^##\s+Conditions\s*$/.test(line)) {
       inConditions = true;
       continue;
@@ -325,6 +353,7 @@ export function extractConditionBlocks(body: string): { heading: string; text: s
     if (headingMatch?.[1]) {
       flush();
       currentHeading = headingMatch[1].trim();
+      currentLine = i + 1;
       continue;
     }
     if (currentHeading !== null) {
@@ -333,6 +362,25 @@ export function extractConditionBlocks(body: string): { heading: string; text: s
   }
   flush();
   return results;
+}
+
+/** body 안의 1-인덱스 줄 번호를, 프론트매터를 포함한 파일 전체 기준 줄 번호로 바꾼다. */
+function toFileLine(content: string, body: string, bodyLine: number): number | undefined {
+  const idx = content.indexOf(body);
+  if (idx === -1) {
+    return undefined;
+  }
+  const frontmatterLines = content.slice(0, idx).split('\n').length - 1;
+  return frontmatterLines + bodyLine;
+}
+
+/** needle 이 처음 나오는 body 안의 1-인덱스 줄 번호. 못 찾으면 undefined. */
+function lineOfMatch(body: string, needle: string): number | undefined {
+  const idx = body.indexOf(needle);
+  if (idx === -1) {
+    return undefined;
+  }
+  return body.slice(0, idx).split('\n').length;
 }
 
 /**
@@ -387,10 +435,12 @@ export function lintDoc(
 
   if (type === 'spec') {
     for (const block of extractConditionBlocks(body)) {
+      const line = toFileLine(content, body, block.line);
       if (!isEarsForm(block.text)) {
         violations.push({
           file: filePath,
           message: `${block.heading} 이 EARS 문형(언제/만약/동안/어디서/항상)으로 시작하지 않습니다`,
+          line,
         });
       }
       for (const word of BANNED_QUALITATIVE_WORDS) {
@@ -398,6 +448,7 @@ export function lintDoc(
           violations.push({
             file: filePath,
             message: `${block.heading} 에 질적 표현이 있습니다: "${word}"`,
+            line,
           });
         }
       }
@@ -408,6 +459,7 @@ export function lintDoc(
       violations.push({
         file: filePath,
         message: `스펙 본문에 파일 경로가 있습니다: "${pathMatch[0]}" (경로는 finding 전용입니다)`,
+        line: toFileLine(content, body, lineOfMatch(body, pathMatch[0]) ?? 1),
       });
     }
   }
@@ -417,6 +469,7 @@ export function lintDoc(
       violations.push({
         file: filePath,
         message: `용어집의 "쓰지 않음" 단어가 쓰였습니다: "${term}"`,
+        line: toFileLine(content, body, lineOfMatch(body, term) ?? 1),
       });
     }
   }
@@ -481,7 +534,8 @@ export async function runDocLint(targetPath?: string): Promise<void> {
   }
 
   for (const v of violations) {
-    process.stderr.write(`  ${path.relative(projectRoot, v.file)}: ${v.message}\n`);
+    const loc = v.line ? `${path.relative(projectRoot, v.file)}:${v.line}` : path.relative(projectRoot, v.file);
+    process.stderr.write(`  ${loc}: ${v.message}\n`);
   }
   process.stderr.write(`\n  ${signal(c, 'error')} 위반 ${violations.length}건\n`);
   process.exit(1);

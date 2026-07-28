@@ -175,6 +175,33 @@ describe('createDoc — spec', () => {
     expect(parsed?.data.project).toBe(path.basename(p));
     expect(parsed?.data.organization).toBe('');
   });
+
+  it('--request 로 원문을 주면 Request 절에 그대로 인용된다(WI-G5)', async () => {
+    const p = project();
+    const result = await createDoc(
+      'spec',
+      '제목',
+      p,
+      { request: '레이어 패널을 키보드로 조작하고 싶어' },
+    );
+    const parsed = parseFrontmatter(fs.readFileSync(result.path, 'utf8'));
+    expect(parsed?.body).toContain('> 레이어 패널을 키보드로 조작하고 싶어');
+    expect(parsed?.body).not.toContain('(사용자가 던진 원문 그대로)');
+  });
+
+  it('request 를 안 주면 기존처럼 자리표시자만 남는다(하위호환)', async () => {
+    const p = project();
+    const result = await createDoc('spec', '제목', p);
+    const parsed = parseFrontmatter(fs.readFileSync(result.path, 'utf8'));
+    expect(parsed?.body).toContain('> (사용자가 던진 원문 그대로)');
+  });
+
+  it('여러 줄 request 는 줄마다 인용 부호(>)를 붙인다', async () => {
+    const p = project();
+    const result = await createDoc('spec', '제목', p, { request: '첫 줄\n둘째 줄' });
+    const parsed = parseFrontmatter(fs.readFileSync(result.path, 'utf8'));
+    expect(parsed?.body).toContain('> 첫 줄\n> 둘째 줄');
+  });
 });
 
 describe('createDoc — ticket', () => {
@@ -269,6 +296,24 @@ describe('extractConditionBlocks', () => {
     const body = '## Instruction\n\n## Conditions\n\n## Out of scope\n';
     expect(extractConditionBlocks(body)).toEqual([]);
   });
+
+  it('각 블록의 line 은 본문(body) 안에서 ### 제목이 있는 1-인덱스 줄 번호다(WI-G4)', () => {
+    const body = [
+      '## Instruction', // 1
+      '아무 내용', // 2
+      '', // 3
+      '## Conditions', // 4
+      '', // 5
+      '### condition-1', // 6
+      '언제 X 이면, Y 해야 한다', // 7
+      '', // 8
+      '### condition-2', // 9
+      '만약 Z 라면, W 해야 한다', // 10
+    ].join('\n');
+    const blocks = extractConditionBlocks(body);
+    expect(blocks[0]?.line).toBe(6);
+    expect(blocks[1]?.line).toBe(9);
+  });
 });
 
 describe('parseGlossaryBannedTerms', () => {
@@ -312,6 +357,21 @@ describe('lintDoc — EARS 문형 (EARS #2)', () => {
     );
     const violations = lintDoc('spec', file, new Set());
     expect(violations.some((v) => v.message.includes('EARS 문형'))).toBe(true);
+  });
+
+  it('위반에 파일 전체 기준 줄 번호가 붙는다(WI-G4) — 프론트매터 3줄 + body 3번째 줄(### condition-1)', () => {
+    const p = tmp('awl-lint-ears-line-');
+    // frontmatter 는 정확히 3줄(---/id: x/---) — body 는 파일의 4번째 줄부터 시작한다.
+    // body 안에서 "### condition-1"은 3번째 줄(## Conditions=1, 빈줄=2, ### condition-1=3)
+    // → 파일 전체 기준 4-1+3 = 6번째 줄.
+    const file = writeSpec(
+      p,
+      '20260725-143052-제목.md',
+      '## Conditions\n\n### condition-1\n포커스가 있으면 이동한다\n',
+    );
+    const violations = lintDoc('spec', file, new Set());
+    const v = violations.find((x) => x.message.includes('EARS 문형'));
+    expect(v?.line).toBe(6);
   });
 });
 

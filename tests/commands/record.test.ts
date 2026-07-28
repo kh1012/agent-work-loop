@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -22,6 +23,7 @@ import {
   selectMonthFiles,
   shouldDefer,
 } from '../../src/commands/record.js';
+import { parseFrontmatter } from '../../src/core/doc-frontmatter.js';
 import { readSyncCursor } from '../../src/core/sync.js';
 
 const origHome = process.env.AWL_HOME;
@@ -1448,6 +1450,10 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
     return fs.readFileSync(filePath, 'utf8').match(/^status: (.+)$/m)?.[1];
   }
 
+  function readSpecRevision(filePath: string): string | undefined {
+    return fs.readFileSync(filePath, 'utf8').match(/^revision: (.*)$/m)?.[1];
+  }
+
   it('gate:1 layer:request approved 를 기록하면 그 스펙의 status 가 active 가 된다', async () => {
     const root = project({ workitem: 'WI-9', workitems: {} });
     const specPath = writeSpecFixture(root, 'spec-1');
@@ -1457,6 +1463,26 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
     });
 
     expect(readSpecStatus(specPath)).toBe('active');
+  });
+
+  it('게이트 전이(저장) 때마다 revision 이 본문 sha256 으로 채워진다(ADK stage 1, WI-G3)', async () => {
+    const root = project({ workitem: 'WI-9', workitems: {} });
+    const specPath = writeSpecFixture(root, 'spec-1'); // 픽스처는 revision: '' 로 시작한다
+
+    await runRecord('gate', {
+      json: '{"gate":1,"layer":"request","spec":"spec-1","decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+
+    const revision = readSpecRevision(specPath);
+    expect(revision).toBeDefined();
+    expect(revision).not.toBe("''");
+    expect(revision).toMatch(/^[0-9a-f]{64}$/); // sha256 hex
+
+    // 저장된 body(프론트매터 제외)로 직접 재계산 — writeSpecStatus 가 쓰는 것과 같은
+    // parseFrontmatter 를 써서 body 추출 방식이 정확히 일치하게 한다.
+    const reparsed = parseFrontmatter(fs.readFileSync(specPath, 'utf8'));
+    const expected = crypto.createHash('sha256').update(reparsed?.body ?? '').digest('hex');
+    expect(revision).toBe(expected);
   });
 
   it('gate:1→gate:4 로 두 번 전이해도 본문(frontmatter 제외)이 바이트 단위로 그대로다 — sync 의 revision(본문 sha256, ADK stage 3)이 안정되려면 필수', async () => {

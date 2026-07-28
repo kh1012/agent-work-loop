@@ -826,8 +826,13 @@ export function buildProgram(): Command {
     .description('스펙/티켓/결정 스켈레톤을 만듭니다 (type: spec, ticket, decision)')
     .option('--spec <id>', '(ticket 전용) 소속 스펙 id')
     .option('--supersedes <id>', '(decision 전용) 대체하는 이전 결정 id')
+    .option('--request <text>', '(spec 전용) 사용자가 던진 원문 그대로 — Request 절에 인용으로 들어간다')
     .action(
-      async (type: string, titleParts: string[], opts: { spec?: string; supersedes?: string }) => {
+      async (
+        type: string,
+        titleParts: string[],
+        opts: { spec?: string; supersedes?: string; request?: string },
+      ) => {
         if (type !== 'spec' && type !== 'ticket' && type !== 'decision') {
           process.stderr.write(
             `\n  ${signal(caps(), 'error')} type 은 spec, ticket, decision 중 하나여야 합니다: ${type}\n`,
