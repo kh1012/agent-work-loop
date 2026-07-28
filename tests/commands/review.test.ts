@@ -2,18 +2,20 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadTicketRuntime, writeTicketRuntime } from '../../src/commands/commit.js';
 import type { AwlConfig } from '../../src/commands/config.js';
 import { createDoc } from '../../src/commands/doc.js';
 import { appendRecord } from '../../src/commands/record.js';
 import {
+  MAX_SHOWN_RULES,
   assembleReview,
   assembleReviewForTicket,
   countReviewRoundTrips,
   runReviewPack,
   selectCriteria,
 } from '../../src/commands/review.js';
+import { activeRulesDir } from '../../src/commands/rules.js';
 import { deriveTickets } from '../../src/commands/tickets.js';
 import { parseFrontmatter } from '../../src/core/doc-frontmatter.js';
 
@@ -471,5 +473,69 @@ describe('runReviewPack — CLI 진입점 (WI-G24 글루)', () => {
     }
 
     expect(loadTicketRuntime(dir, ticketId)?.lastReviewedCommit).toBe(head);
+  });
+});
+
+describe('토큰 상한 — 프로젝트 규칙 대량 누적 스트레스 (WI-I2)', () => {
+  const origHome = process.env.AWL_HOME;
+
+  afterEach(() => {
+    if (origHome === undefined) {
+      delete process.env.AWL_HOME;
+    } else {
+      process.env.AWL_HOME = origHome;
+    }
+  });
+
+  /** activeRulesDir() 에 hits 가 서로 다른 규칙 n개를 직접 시딩한다(AWL_HOME 격리 후). */
+  function seedRules(n: number): void {
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-review-rules-home-'));
+    const dir = activeRulesDir();
+    fs.mkdirSync(dir, { recursive: true });
+    for (let i = 0; i < n; i++) {
+      fs.writeFileSync(
+        path.join(dir, `rule-${String(i).padStart(3, '0')}.md`),
+        `---\nid: R-${i}\nscope: review\napplies: 조건 ${i}\ncounter: 반증 ${i}\nhits: ${i}\n---\n\n본문 ${i}\n`,
+      );
+    }
+  }
+
+  it(`규칙이 ${MAX_SHOWN_RULES}개를 넘으면 hits 상위 ${MAX_SHOWN_RULES}개만 본문에, 나머지는 additionalRuleIds 로 id만 담는다`, async () => {
+    const total = MAX_SHOWN_RULES + 20;
+    seedRules(total);
+    const dir = makeRepo();
+    const state = { criteria: [{ id: 'AC-01', status: 'passed' }] };
+
+    const bundle = await assembleReview(dir, CONFIG, state, 'AC-01', undefined);
+
+    expect(bundle.rules).toHaveLength(MAX_SHOWN_RULES);
+    expect(bundle.additionalRuleIds).toHaveLength(total - MAX_SHOWN_RULES);
+    // hits 가 가장 높은(id 가 가장 큰 번호) 규칙들이 본문에 남는다.
+    const shownIds = bundle.rules.map((r) => r.id);
+    expect(shownIds).toContain(`R-${total - 1}`); // hits 최댓값
+    expect(shownIds).not.toContain('R-0'); // hits 최솟값은 잘려나간다
+    expect(bundle.additionalRuleIds).toContain('R-0');
+  });
+
+  it(`규칙이 ${MAX_SHOWN_RULES}개 이하면 안 잘리고 additionalRuleIds 는 빈 배열이다`, async () => {
+    seedRules(10);
+    const dir = makeRepo();
+    const state = { criteria: [{ id: 'AC-01', status: 'passed' }] };
+
+    const bundle = await assembleReview(dir, CONFIG, state, 'AC-01', undefined);
+
+    expect(bundle.rules).toHaveLength(10);
+    expect(bundle.additionalRuleIds).toEqual([]);
+  });
+
+  it('규칙이 없으면(seedRules 안 씀) rules/additionalRuleIds 둘 다 빈 배열(크래시 아님)', async () => {
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-review-norules-home-'));
+    const dir = makeRepo();
+    const state = { criteria: [{ id: 'AC-01', status: 'passed' }] };
+
+    const bundle = await assembleReview(dir, CONFIG, state, 'AC-01', undefined);
+
+    expect(bundle.rules).toEqual([]);
+    expect(bundle.additionalRuleIds).toEqual([]);
   });
 });

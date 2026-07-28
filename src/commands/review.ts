@@ -39,7 +39,10 @@ export interface ReviewBundle {
   diff: string;
   verify: VerifyReport;
   provenance: Provenance;
+  /** hits 내림차순 상위 MAX_SHOWN_RULES 개까지만 본문 포함(WI-I2). */
   rules: { id: string; body: string }[];
+  /** rules 에서 잘려나간(본문 대신 id만 남은) 규칙 id들. 빈 배열이면 안 잘림(WI-I2). */
+  additionalRuleIds: string[];
   /** profile.local.json 이 바꾼 스킬 슬롯 이름들(ADK stage 4) — 정보 표시, 경고 아니다
    * (prototype.md:519-524 "스킬을 바꾸는 건 정보다"). 없으면 빈 배열. */
   localSkills: string[];
@@ -47,6 +50,15 @@ export interface ReviewBundle {
    * 경로(assembleReviewForTicket)에서만 채운다 — AC-range 경로(assembleReview)는 없음. */
   roundTrips?: number;
 }
+
+/**
+ * review pack 에 본문을 싣는 프로젝트 규칙 개수 상한(WI-I2, 토큰 스트레스 테스트로
+ * 확정). scope:review 로 승격된 규칙은 diff 와의 관련성과 무관하게 전부 실렸었다
+ * — 성숙한 프로젝트일수록(gotcha 가 계속 승격될수록) 이 목록이 무한정 커진다.
+ * hits(실제로 몇 번 걸렸나)가 관련성의 유일한 신호라 그 기준 내림차순으로 자른다
+ * — 파일 경로 매칭은 규칙에 구조화된 path 필드가 없어 못 한다(rules.ts:16-27).
+ */
+export const MAX_SHOWN_RULES = 25;
 
 /**
  * 새 리뷰 ID 를 발급한다(WI-S AC-02) — record.ts 의 newRecordId() 와 같은
@@ -83,18 +95,20 @@ export function selectCriteria(
 async function gatherReviewContext(
   cwd: string,
   config: AwlConfig,
-): Promise<Pick<ReviewBundle, 'verify' | 'provenance' | 'rules' | 'localSkills'>> {
+): Promise<Pick<ReviewBundle, 'verify' | 'provenance' | 'rules' | 'additionalRuleIds' | 'localSkills'>> {
   const verify = await runVerifyChecks(config.verifications, cwd, { bail: false });
 
   const branch = (await git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd)).trim();
   const commit = (await git(['rev-parse', 'HEAD'], cwd)).trim();
   const worktree = (await git(['rev-parse', '--show-toplevel'], cwd)).trim() || cwd;
 
+  // hits 내림차순 상위 MAX_SHOWN_RULES 개만 본문을 싣는다(WI-I2) — 실제로 몇 번
+  // 걸렸는지가 관련성의 유일한 신호다. 나머지는 id만 additionalRuleIds 로 남겨
+  // 조용히 숨기지 않는다.
   const { rules } = loadRules();
-  const reviewRules = filterRules(rules, { scope: 'review' }).map((r) => ({
-    id: r.id,
-    body: r.body,
-  }));
+  const sortedRules = filterRules(rules, { scope: 'review' }).sort((a, b) => b.hits - a.hits);
+  const reviewRules = sortedRules.slice(0, MAX_SHOWN_RULES).map((r) => ({ id: r.id, body: r.body }));
+  const additionalRuleIds = sortedRules.slice(MAX_SHOWN_RULES).map((r) => r.id);
 
   const loadedProfile = loadProfile(cwd);
   const localSkills = loadedProfile.profile
@@ -112,6 +126,7 @@ async function gatherReviewContext(
       note: '이 diff와 검증 결과는 위 워크트리/커밋에서 나왔습니다',
     },
     rules: reviewRules,
+    additionalRuleIds,
     localSkills,
   };
 }
@@ -303,7 +318,11 @@ function renderReview(bundle: ReviewBundle, title: string, hintCmd: string, c: C
     // reference.md:1222).
     out.push(`             ${color.yellow(`[!] 로컬에서 건너뜀: ${skipped.join(', ')}`)}`);
   }
-  out.push(`규칙(review) ${bundle.rules.length}개`);
+  const ruleCountLine =
+    bundle.additionalRuleIds.length > 0
+      ? `규칙(review) ${bundle.rules.length}개  ${color.dim(`(+${bundle.additionalRuleIds.length}개 더, hits 낮음 — awl rules --json 으로 확인)`)}`
+      : `규칙(review) ${bundle.rules.length}개`;
+  out.push(ruleCountLine);
   if (bundle.localSkills.length > 0) {
     // 경고가 아니라 정보다(prototype.md:519-524) — 스킬을 바꾼 건 문제가 아니라 사실.
     out.push(`             ${color.dim(`[i] 로컬 스킬: ${bundle.localSkills.join(', ')}`)}`);
