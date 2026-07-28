@@ -48,7 +48,13 @@ export async function recordAutoFeedback(err: unknown, argv: string[]): Promise<
 
     const { record } = buildRecord(
       'awl-feedback',
-      { area: 'cli', what: buildAutoFeedbackWhat(commandName), impact, severity: 'low' },
+      {
+        area: 'cli',
+        what: buildAutoFeedbackWhat(commandName),
+        impact,
+        severity: 'low',
+        source: 'auto',
+      },
       { project: config?.project, id: newRecordId(), at: new Date().toISOString() },
     );
     if (!record) {

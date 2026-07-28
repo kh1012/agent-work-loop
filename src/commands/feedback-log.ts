@@ -1,7 +1,19 @@
 import fs from 'node:fs';
+import os from 'node:os';
+import { redactAbsolutePaths } from '../core/redact.js';
 import { type Caps, caps, makeColors, sectionBox, signal } from '../core/tty.js';
+import { loadConfig, resolveProjectRoot } from './config.js';
 import { listRegisteredProjects } from './init.js';
-import { readRecords } from './record.js';
+import {
+  AWL_FEEDBACK_AREAS,
+  AWL_FEEDBACK_SEVERITIES,
+  appendRecord,
+  buildRecord,
+  newRecordId,
+  readRecords,
+  resolveEffectiveAuthor,
+  syncFeedback,
+} from './record.js';
 
 /**
  * awl feedback-log — awl 도구 자체에 대해 이미 남겨진 피드백(awl-feedback 기록)을
@@ -177,4 +189,72 @@ export function runFeedbackLog(opts: {
     return;
   }
   process.stdout.write(`${renderFeedbackLog(report, caps())}\n`);
+}
+
+/**
+ * awl feedback "<text>" — 사람이 awl 도구 자체에 대해 짧게 남기는 단축 쓰기 명령.
+ * `awl record awl-feedback --json '{...}'`(구조화 기록)과 core/auto-feedback.ts
+ * (CLI 크래시 자동수집)에 이어 세 번째 쓰기 경로다 — source:'manual' 로 자동수집과
+ * 구분한다(둘 다 awl-feedback 레코드라 형태는 같지만 누가 남겼는지가 다르다).
+ *
+ * 활성 워크아이템을 요구하지 않는다(awl record 의 일반 강제와 다름) — 도구가
+ * 불편했던 순간은 어느 워크아이템 중이든, 심지어 워크아이템 밖에서도 남길 수
+ * 있어야 한다(자동수집도 같은 원칙: core/auto-feedback.ts 참고).
+ */
+export async function runFeedback(
+  text: string,
+  opts: { area?: string; impact?: string; severity?: string } = {},
+): Promise<void> {
+  const c = caps();
+  if (text.trim() === '') {
+    process.stderr.write(`\n  ${signal(c, 'error')} 내용을 입력하세요: awl feedback "무엇이 아팠나"\n`);
+    process.exit(1);
+    return;
+  }
+  const area = opts.area ?? '기타';
+  if (!(AWL_FEEDBACK_AREAS as readonly string[]).includes(area)) {
+    process.stderr.write(
+      `\n  ${signal(c, 'error')} --area 는 다음 중 하나여야 합니다: ${AWL_FEEDBACK_AREAS.join(', ')}\n`,
+    );
+    process.exit(1);
+    return;
+  }
+  const severity = opts.severity ?? 'low';
+  if (!(AWL_FEEDBACK_SEVERITIES as readonly string[]).includes(severity)) {
+    process.stderr.write(
+      `\n  ${signal(c, 'error')} --severity 는 다음 중 하나여야 합니다: ${AWL_FEEDBACK_SEVERITIES.join(', ')}\n`,
+    );
+    process.exit(1);
+    return;
+  }
+
+  const projectRoot = resolveProjectRoot();
+  if (!projectRoot) {
+    process.stderr.write(
+      `\n  ${signal(c, 'error')} 프로젝트 루트를 찾을 수 없습니다. awl init 을 실행하세요.\n`,
+    );
+    process.exit(1);
+    return;
+  }
+  const { config } = loadConfig(projectRoot);
+
+  const home = os.homedir();
+  const what = redactAbsolutePaths(text, home, projectRoot);
+  const impact = redactAbsolutePaths(opts.impact ?? text, home, projectRoot);
+
+  const { record, missing } = buildRecord(
+    'awl-feedback',
+    { area, what, impact, severity, source: 'manual' },
+    { project: config?.project, id: newRecordId(), at: new Date().toISOString(), author: resolveEffectiveAuthor(projectRoot) },
+  );
+  if (!record) {
+    process.stderr.write(
+      `\n  ${signal(c, 'error')} 기록을 거부했습니다. 빠진 필수 필드: ${missing.join(', ')}\n`,
+    );
+    process.exit(1);
+    return;
+  }
+  appendRecord(record, projectRoot);
+  await syncFeedback(projectRoot, record);
+  process.stdout.write(`\n  ${signal(c, 'ok')} 피드백을 남겼습니다. (area: ${area})\n`);
 }

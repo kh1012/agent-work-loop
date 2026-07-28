@@ -1048,6 +1048,20 @@ export function buildProgram(): Command {
       },
     );
 
+  // 사람이 치는 명령: feedback (awl 도구 자체에 짧게 남기는 단축 쓰기, ADK stage 6)
+  program
+    .command('feedback <text>')
+    .description('awl 도구 자체가 아팠던 점을 짧게 남깁니다 (awl-feedback 기록, source:manual)')
+    .option('--area <area>', 'commit, review, gate, verify, state, init, cli, 기타 중 하나(기본: 기타)')
+    .option('--impact <text>', '영향(생략하면 text 를 그대로 씁니다)')
+    .option('--severity <sev>', 'high/medium/low 중 하나(기본: low)')
+    .action(
+      async (text: string, opts: { area?: string; impact?: string; severity?: string }) => {
+        const { runFeedback } = await import('./commands/feedback-log.js');
+        await runFeedback(text, opts);
+      },
+    );
+
   // 사람이 치는 명령: feedback-log (이미 남겨진 awl-feedback 기록을 area 별로 모아서 본다.
   // `awl config`의 feedback.*(다른 프로젝트로 실시간 라우팅하는 파이프라인 모드)와는 별개다.)
   program
