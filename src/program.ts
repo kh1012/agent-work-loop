@@ -825,13 +825,17 @@ export function buildProgram(): Command {
     .command('new <type> <title...>')
     .description('스펙/티켓/결정 스켈레톤을 만듭니다 (type: spec, ticket, decision)')
     .option('--spec <id>', '(ticket 전용) 소속 스펙 id')
+    .option(
+      '--dependencies <ids>',
+      '(ticket 전용) 먼저 끝나야 하는 티켓 id들, 쉼표로 구분 — 의존이 곧 구현 순서',
+    )
     .option('--supersedes <id>', '(decision 전용) 대체하는 이전 결정 id')
     .option('--request <text>', '(spec 전용) 사용자가 던진 원문 그대로 — Request 절에 인용으로 들어간다')
     .action(
       async (
         type: string,
         titleParts: string[],
-        opts: { spec?: string; supersedes?: string; request?: string },
+        opts: { spec?: string; dependencies?: string; supersedes?: string; request?: string },
       ) => {
         if (type !== 'spec' && type !== 'ticket' && type !== 'decision') {
           process.stderr.write(
@@ -841,7 +845,14 @@ export function buildProgram(): Command {
           return;
         }
         const { runDocNew } = await import('./commands/doc.js');
-        await runDocNew(type, titleParts, opts);
+        await runDocNew(type, titleParts, {
+          spec: opts.spec,
+          dependencies: opts.dependencies
+            ? opts.dependencies.split(',').map((s) => s.trim()).filter((s) => s !== '')
+            : undefined,
+          supersedes: opts.supersedes,
+          request: opts.request,
+        });
       },
     );
   doc

@@ -172,12 +172,13 @@ function ticketFrontmatter(opts: {
   id: string;
   spec: string;
   conditions: string[];
+  dependencies: string[];
 }): FrontmatterData {
   return {
     id: opts.id,
     spec: opts.spec,
     conditions: opts.conditions,
-    dependencies: [],
+    dependencies: opts.dependencies,
     status: 'pending',
   };
 }
@@ -203,6 +204,8 @@ export interface DocNewOptions {
   supersedes?: string;
   /** (ticket 전용) 이 티켓이 검증하는 조건 식별자들 — 기본은 빈 배열(수동 생성). */
   conditions?: string[];
+  /** (ticket 전용) 먼저 끝나야 하는 티켓 id들 — 의존이 곧 구현 순서다. 판정은 호출자(AI) 몫, awl 은 저장만 한다. */
+  dependencies?: string[];
   /** (spec 전용) 사용자가 던진 원문 그대로 — Request 절에 인용으로 들어간다. */
   request?: string;
 }
@@ -245,6 +248,7 @@ export async function createDoc(
       id,
       spec: opts.spec ?? '',
       conditions: opts.conditions ?? [],
+      dependencies: opts.dependencies ?? [],
     });
     body = TICKET_BODY;
   } else {

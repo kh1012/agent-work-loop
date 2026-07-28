@@ -223,6 +223,20 @@ describe('createDoc — ticket', () => {
     expect(parsed?.body).toContain('## Files');
     expect(result.path).toContain(`${path.sep}docs${path.sep}tickets${path.sep}`);
   });
+
+  it('dependencies 를 opts 로 넘기면 프론트매터에 그대로 저장된다(의존이 곧 구현 순서, 판정은 호출자 몫)', async () => {
+    const p = tmp('awl-doc-ticket-deps-');
+    const result = await createDoc('ticket', '방향키 이동', p, {
+      spec: 'spec-id-1',
+      conditions: ['condition-1'],
+      dependencies: ['ticket-1', 'ticket-2'],
+    });
+    const parsed = parseFrontmatter(fs.readFileSync(result.path, 'utf8'));
+    expect(parsed?.data).toMatchObject({
+      conditions: ['condition-1'],
+      dependencies: ['ticket-1', 'ticket-2'],
+    });
+  });
 });
 
 describe('createDoc — decision', () => {
