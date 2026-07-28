@@ -9,6 +9,7 @@ import {
   collectLanes,
   laneRegistryRoot,
   parseWorktreeBranches,
+  readLaneMeta,
   renderLaneList,
   runLaneList,
   runLaneNew,
@@ -395,7 +396,15 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
     const lanePath = path.join(proj, '.awl-worktrees', 'probe');
 
     const main = await collectLanes(proj);
-    expect(main).toContainEqual({ name: 'probe', path: lanePath, branch: 'work/probe' });
+    // ADK stage 5: baseBranch/port 는 lane-meta.json 에서 온다(WI-A) — 값 자체(레인을
+    // 열 때 서 있던 브랜치가 main, 첫 레인이라 포트 오프셋 3000)는 아래에서 따로 확인한다.
+    expect(main).toContainEqual({
+      name: 'probe',
+      path: lanePath,
+      branch: 'work/probe',
+      baseBranch: 'main',
+      port: 3000,
+    });
 
     process.chdir(lanePath);
     const jsonCap = captureStdout();
@@ -408,6 +417,8 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
       name: 'probe',
       path: lanePath,
       branch: 'work/probe',
+      baseBranch: 'main',
+      port: 3000,
     });
 
     const humanCap = captureStdout();
@@ -418,6 +429,46 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
     }
     expect(humanCap.writes.join('')).toContain('work/probe');
     expect(humanCap.writes.join('')).not.toContain('레인이 없습니다');
+  });
+
+  it('레인 메타(ADK stage 5, WI-A): 서로 다른 브랜치에서 연 레인은 각자 다른 기준 브랜치·포트를 갖는다', async () => {
+    const proj = realGitProject();
+
+    await runLaneNew('alpha'); // root 는 지금 main
+    execFileSync('git', ['checkout', '-b', 'feature/x'], { cwd: proj });
+    await runLaneNew('beta'); // root 는 지금 feature/x
+
+    const alphaMeta = readLaneMeta(path.join(proj, '.awl-worktrees', 'alpha'));
+    const betaMeta = readLaneMeta(path.join(proj, '.awl-worktrees', 'beta'));
+
+    expect(alphaMeta?.baseBranch).toBe('main');
+    expect(betaMeta?.baseBranch).toBe('feature/x');
+    // 포트는 생성 시점의 기존 레인 개수로 매겨진다 — 겹치지 않는다.
+    expect(alphaMeta?.port).toBe(3000);
+    expect(betaMeta?.port).toBe(3001);
+  });
+
+  it('레인 메타: lane-meta.json 이 없거나 깨져도 readLaneMeta 는 크래시 없이 null(단계5 이전 레인 하위호환)', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-lane-nometa-'));
+    expect(readLaneMeta(dir)).toBeNull();
+
+    fs.mkdirSync(path.join(dir, '.awl'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.awl', 'lane-meta.json'), 'not json{{{');
+    expect(readLaneMeta(dir)).toBeNull();
+  });
+
+  it('레인 메타 없는 레인은 collectLanes/renderLaneList 에서 기준 브랜치 줄 자체가 생략된다', async () => {
+    const proj = realGitProject();
+    await runLaneNew('probe');
+    const lanePath = path.join(proj, '.awl-worktrees', 'probe');
+    fs.rmSync(path.join(lanePath, '.awl', 'lane-meta.json'));
+
+    const lanes = await collectLanes(proj);
+    expect(lanes[0]?.baseBranch).toBeUndefined();
+    expect(lanes[0]?.port).toBeUndefined();
+
+    const rendered = renderLaneList(lanes, { unicode: false, color: false, tty: false });
+    expect(rendered).not.toContain('기준 브랜치');
   });
 
   it('lane rm: removeGitWorktree 로 워크트리·브랜치를 회수하고 디렉토리를 제거한다 (AC-03)', async () => {

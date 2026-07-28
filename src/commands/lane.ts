@@ -30,6 +30,68 @@ const PIPELINE_TRIGGERS = [
   '/awl-pipeline-review  |  $awl-pipeline-review',
 ];
 
+// ---------------------------------------------------------------------------
+// 레인 메타 (ADK stage 5) — 기준 브랜치 + 포트 오프셋. .awl/lane-meta.json 에
+// 레인 워크트리 로컬로 둔다(untracked, .awl/* 블랭킷 무시가 자동 커버 — state.json
+// 과 같은 층위). "레인을 열 때 서 있던 브랜치"는 lane rm 이 쓰는 "그 순간의 root
+// HEAD"와 다르다 — 시점을 고정해 게이트4 병합 제안(WI-D)이 정확한 대상을 가리키게 한다.
+// ---------------------------------------------------------------------------
+
+export interface LaneMeta {
+  /** 레인을 열 때 root(메인 트리)가 서 있던 브랜치. 게이트4 병합 제안의 대상. */
+  baseBranch: string;
+  /** 정보성 포트 오프셋 — awl 이 강제로 주입하지 않는다, 참고용 숫자만 준다. */
+  port: number;
+  createdAt: string;
+}
+
+const BASE_PORT = 3000;
+
+function laneMetaPath(lanePath: string): string {
+  return path.join(lanePath, '.awl', 'lane-meta.json');
+}
+
+function writeLaneMeta(lanePath: string, meta: LaneMeta): void {
+  const p = laneMetaPath(lanePath);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, `${JSON.stringify(meta, null, 2)}\n`);
+}
+
+/** 레인 메타를 읽는다. 없거나 깨졌으면 null(단계5 이전에 만든 레인 — 크래시하지 않는다). */
+export function readLaneMeta(lanePath: string): LaneMeta | null {
+  try {
+    const raw = JSON.parse(fs.readFileSync(laneMetaPath(lanePath), 'utf8')) as Record<
+      string,
+      unknown
+    >;
+    if (
+      typeof raw.baseBranch === 'string' &&
+      typeof raw.port === 'number' &&
+      typeof raw.createdAt === 'string'
+    ) {
+      return { baseBranch: raw.baseBranch, port: raw.port, createdAt: raw.createdAt };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** root 의 현재 브랜치. detached 등으로 못 읽으면 null(크래시하지 않는다). */
+async function currentBranch(root: string): Promise<string | null> {
+  const r = await run({
+    cmd: 'git',
+    args: ['rev-parse', '--abbrev-ref', 'HEAD'],
+    cwd: root,
+    timeoutMs: 10_000,
+  });
+  if (r.exitCode !== 0) {
+    return null;
+  }
+  const branch = r.stdout.trim();
+  return branch && branch !== 'HEAD' ? branch : null;
+}
+
 function requireRoot(): string {
   const root = resolveProjectRoot();
   if (!root) {
@@ -88,6 +150,13 @@ export async function runLaneNew(name: string, description?: string): Promise<vo
 
   const inheritedFeedback = loadConfig(root).config?.feedback;
 
+  // 레인 메타 캡처(ADK stage 5, WI-A) — worktree 를 만들기 전에 root 의 "지금" 브랜치와
+  // 기존 레인 개수를 본다. base branch 는 시점을 고정해야 의미가 있다(lane rm 이 쓰는
+  // "그 순간의 root HEAD"와 다르다 — 나중에 root 브랜치가 바뀌어도 이 값은 안 바뀐다).
+  const baseBranch = await currentBranch(root);
+  const existingLaneCount = (await collectLanes(root)).length;
+  const port = BASE_PORT + existingLaneCount;
+
   // 원시경로 재사용(AC-01) — worktree + isolated home + 스킬 재설치 + export AWL_HOME
   // 안내 + orphan 롤백을 runWorkNew 가 전부 처리한다. lane 은 이 위에 얇게 얹는다.
   await runWorkNew(name, description, { worktree: true, isolated: true });
@@ -106,10 +175,18 @@ export async function runLaneNew(name: string, description?: string): Promise<vo
     project: laneName,
     ...(inheritedFeedback ? { feedback: { ...inheritedFeedback } } : {}),
   });
+  if (baseBranch) {
+    writeLaneMeta(lanePath, { baseBranch, port, createdAt: new Date().toISOString() });
+  }
 
   // 레인 기동 안내(AC-01 c) — export AWL_HOME 은 runWorkNew 가 이미 찍었다(단일 출처,
   // 표면 중복 금지). 여기선 역할 세션이 실행할 파이프라인 스킬 트리거만 얹는다.
   process.stdout.write(`\n${feedback(c, 'ok', `레인 준비  ${color.bold(laneName)}`)}\n`);
+  if (baseBranch) {
+    process.stdout.write(
+      `    ${color.dim(`기준 브랜치: ${baseBranch} · 포트 오프셋(참고용): ${port}`)}\n`,
+    );
+  }
   process.stdout.write(`    ${color.dim('이 레인의 역할 세션에서 스킬 트리거를 실행하세요:')}\n`);
   for (const t of PIPELINE_TRIGGERS) {
     process.stdout.write(`      ${color.dim(t)}\n`);
@@ -120,6 +197,9 @@ export interface LaneInfo {
   name: string;
   path: string;
   branch: string;
+  /** ADK stage 5 — 단계5 이전에 만든 레인은 lane-meta.json 이 없어 undefined. */
+  baseBranch?: string;
+  port?: number;
 }
 
 /**
@@ -248,7 +328,13 @@ export async function collectLanes(root: string): Promise<LaneInfo[]> {
       continue;
     }
     const p = path.join(base, e.name);
-    lanes.push({ name: e.name, path: p, branch: branchOf(branches, p) ?? '(detached)' });
+    const meta = readLaneMeta(p);
+    lanes.push({
+      name: e.name,
+      path: p,
+      branch: branchOf(branches, p) ?? '(detached)',
+      ...(meta ? { baseBranch: meta.baseBranch, port: meta.port } : {}),
+    });
   }
   lanes.sort((a, b) => a.name.localeCompare(b.name));
   return lanes;
@@ -273,6 +359,10 @@ export function renderLaneList(lanes: LaneInfo[], c: Caps): string {
   for (const l of lanes) {
     out.push(`${color.bold(l.name.padEnd(nameWidth, ' '))}${color.dim(l.branch)}`);
     out.push(`  ${color.dim(l.path)}`);
+    // ADK stage 5 — 단계5 이전 레인(lane-meta.json 없음)은 이 줄 자체가 생략된다.
+    if (l.baseBranch) {
+      out.push(`  ${color.dim(`기준 브랜치: ${l.baseBranch} · 포트: ${l.port}`)}`);
+    }
   }
   return sectionBox('레인', out, c);
 }
