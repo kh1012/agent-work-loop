@@ -174,6 +174,16 @@ describe('runBacklog — CLI', () => {
     stdoutSpy.restore();
   });
 
+  it(`후보가 ${BACKLOG_THRESHOLD}건을 넘으면 "누구든 회의를 소집할 수 있습니다" 를 함께 보여준다(WI-G11)`, () => {
+    for (let i = 0; i < BACKLOG_THRESHOLD + 1; i += 1) {
+      writeGotchaFile(gotcha(`G-${i}`, REPEAT_THRESHOLD, ['2026-01-01T00:00:00Z']));
+    }
+    const stdoutSpy = spyStdout();
+    runBacklog({});
+    expect(stdoutSpy.text()).toContain('누구든 회의를 소집할 수 있습니다');
+    stdoutSpy.restore();
+  });
+
   it('--reset 은 커서를 갱신하고 이후 실행에서 그 gotcha 가 후보에서 빠진다', () => {
     writeGotchaFile(
       gotcha('G-001', 3, ['2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z', '2026-01-03T00:00:00Z']),

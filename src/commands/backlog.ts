@@ -102,6 +102,7 @@ function renderBacklog(report: BacklogReport, c: Caps): string {
     out.push(
       `${signal(c, 'warn')} 3회 반복된 승격 후보가 ${report.candidateCount}건 쌓였습니다.`,
     );
+    out.push(color.dim('누구든 회의를 소집할 수 있습니다.'));
   } else {
     out.push(`3회 반복된 승격 후보 ${report.candidateCount}건.`);
   }
