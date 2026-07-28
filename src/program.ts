@@ -853,6 +853,15 @@ export function buildProgram(): Command {
       const { runDocLint } = await import('./commands/doc.js');
       await runDocLint(targetPath);
     });
+  doc
+    .command('related')
+    .description('같은 domain 의 이전 스펙과 gotcha 를 보여줍니다(스펙 단계 시작 시 참고)')
+    .requiredOption('--domain <domain>', '찾을 domain 값')
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .action(async (opts: { domain: string; json?: boolean }) => {
+      const { runDocRelated } = await import('./commands/doc.js');
+      await runDocRelated(opts.domain, { json: opts.json === true });
+    });
 
   // 사람이 치는 명령: tickets (스펙 조건 → 티켓 도출, ADK stage 2a)
   const tickets = program.command('tickets').description('스펙에서 티켓을 도출합니다');

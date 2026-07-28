@@ -540,6 +540,95 @@ export function listDocFiles(projectRoot: string): { type: DocType; path: string
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// awl doc related — domain 기반 이전 스펙·gotcha 자동 로드 (ADK stage 1, WI-G7)
+// ---------------------------------------------------------------------------
+
+export interface RelatedSpec {
+  id: string;
+  title: string;
+  domain: string;
+  status: string;
+  path: string;
+}
+
+/** 같은 domain 의 이전 스펙(closed 여부 무관, draft 포함)을 프론트매터만 훑어 찾는다.
+ * awl 은 관련성을 판단하지 않는다 — domain 값이 정확히 같은 것만 기계적으로 모은다. */
+export function findSpecsByDomain(projectRoot: string, domain: string): RelatedSpec[] {
+  const dir = path.join(projectRoot, 'docs', 'specs');
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(dir).filter((f) => f.endsWith('.md'));
+  } catch {
+    return [];
+  }
+  const out: RelatedSpec[] = [];
+  for (const f of entries.sort()) {
+    const filePath = path.join(dir, f);
+    let parsed: ReturnType<typeof parseFrontmatter>;
+    try {
+      parsed = parseFrontmatter(fs.readFileSync(filePath, 'utf8'));
+    } catch {
+      continue;
+    }
+    if (!parsed || parsed.data.domain !== domain) {
+      continue;
+    }
+    out.push({
+      id: String(parsed.data.id ?? ''),
+      title: String(parsed.data.title ?? ''),
+      domain: String(parsed.data.domain ?? ''),
+      status: String(parsed.data.status ?? ''),
+      path: filePath,
+    });
+  }
+  return out;
+}
+
+/**
+ * `awl doc related --domain <domain>` — 스펙 단계 시작 시 같은 domain 의 이전 스펙과
+ * gotcha 를 자동으로 읽는다(ADK stage 1). awl 은 관련성을 판단하지 않는다:
+ * - 스펙은 domain 필드가 정확히 같은 것만(스펙엔 이미 domain 필드가 있다).
+ * - gotcha 는 domain 필드 자체가 없다(evolve.ts Gotcha 타입 — source 는 project/
+ *   workitem 뿐) — domain 별로 나눌 근거가 코드에 없으므로, 도구가 억지로 관련성을
+ *   추정하지 않고 현재 gotcha 전체를 그대로 낸다. 어느 게 이 domain 과 관련 있는지는
+ *   읽는 쪽(에이전트)이 lesson 내용으로 판단한다 — awl 은 판단하지 않는다.
+ */
+export async function runDocRelated(domain: string, opts: { json?: boolean } = {}): Promise<void> {
+  const c: Caps = caps();
+  let projectRoot: string;
+  try {
+    projectRoot = findProjectRoot();
+  } catch (error) {
+    process.stderr.write(`\n  ${signal(c, 'error')} ${String(error)}\n`);
+    process.exit(1);
+    return;
+  }
+
+  const specs = findSpecsByDomain(projectRoot, domain);
+  const { loadGotchaList } = await import('./evolve.js');
+  const gotchas = loadGotchaList();
+
+  if (opts.json) {
+    process.stdout.write(`${JSON.stringify({ domain, specs, gotchas }, null, 2)}\n`);
+    return;
+  }
+
+  const out: string[] = [];
+  out.push(`domain: ${domain}`);
+  out.push('');
+  out.push(`이전 스펙 ${specs.length}건`);
+  for (const s of specs) {
+    out.push(`  ${s.id}  ${s.title}  (${s.status})`);
+  }
+  out.push('');
+  out.push(`gotcha ${gotchas.length}건(domain 무관 전체 — 관련성은 직접 판단)`);
+  for (const g of gotchas) {
+    out.push(`  ${g.id}  ${g.lesson}`);
+  }
+  process.stdout.write(`${out.join('\n')}\n`);
+}
+
 export async function runDocLint(targetPath?: string): Promise<void> {
   const c: Caps = caps();
   let projectRoot: string;

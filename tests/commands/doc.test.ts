@@ -9,6 +9,7 @@ import {
   deriveOrganizationFromGitRemote,
   extractConditionBlocks,
   extractConstraintBlocks,
+  findSpecsByDomain,
   kebabCase,
   lintDoc,
   lintFilename,
@@ -535,5 +536,47 @@ describe('listDocFiles', () => {
     const files = listDocFiles(p);
     expect(files).toHaveLength(1);
     expect(files[0]).toMatchObject({ type: 'spec' });
+  });
+});
+
+describe('findSpecsByDomain (WI-G7)', () => {
+  function writeSpecWithDomain(dir: string, filename: string, domain: string, extra = ''): void {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, filename),
+      `---\nid: ${filename}\ntitle: t\nstatus: draft\ndomain: ${domain}\n${extra}---\n`,
+    );
+  }
+
+  it('domain 이 정확히 같은 스펙만 모은다', () => {
+    const p = tmp('awl-doc-related-');
+    const dir = path.join(p, 'docs', 'specs');
+    writeSpecWithDomain(dir, '20260101-000000-a.md', 'editor');
+    writeSpecWithDomain(dir, '20260101-000001-b.md', 'auth');
+    writeSpecWithDomain(dir, '20260101-000002-c.md', 'editor');
+
+    const related = findSpecsByDomain(p, 'editor');
+    expect(related).toHaveLength(2);
+    expect(related.every((s) => s.domain === 'editor')).toBe(true);
+  });
+
+  it('draft 스펙도 포함한다(closed 만이 아니다)', () => {
+    const p = tmp('awl-doc-related-');
+    const dir = path.join(p, 'docs', 'specs');
+    writeSpecWithDomain(dir, '20260101-000000-a.md', 'editor');
+    const related = findSpecsByDomain(p, 'editor');
+    expect(related[0]?.status).toBe('draft');
+  });
+
+  it('specs 디렉터리가 없으면 빈 배열(크래시 없음)', () => {
+    const p = tmp('awl-doc-related-empty-');
+    expect(findSpecsByDomain(p, 'editor')).toEqual([]);
+  });
+
+  it('같은 domain 이 하나도 없으면 빈 배열', () => {
+    const p = tmp('awl-doc-related-');
+    const dir = path.join(p, 'docs', 'specs');
+    writeSpecWithDomain(dir, '20260101-000000-a.md', 'auth');
+    expect(findSpecsByDomain(p, 'editor')).toEqual([]);
   });
 });
