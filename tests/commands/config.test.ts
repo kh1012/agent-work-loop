@@ -399,6 +399,38 @@ describe('config JSON/source output and local writes', () => {
     expect(loaded.sources.author).toBe('local');
   });
 
+  it('비-TTY 에서 새 검사를 추가하면 묻지 않고 scope 를 안 건드린다(WI-G15 후속 — CI/스킬 호출부 하위호환)', async () => {
+    const root = gitProject();
+    process.chdir(root);
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    await runConfigSet('verifications.a11y.cmd', `${process.execPath} --version`, {
+      force: false,
+    });
+
+    const loaded = loadConfig(root);
+    expect(loaded.config?.verifications.find((v) => v.name === 'a11y')).toMatchObject({
+      name: 'a11y',
+    });
+    expect(loaded.config?.verifications.find((v) => v.name === 'a11y')?.scope).toBeUndefined();
+  });
+
+  it('이미 있는 검사의 cmd 만 바꿀 때는 새 검사 취급을 안 한다(scope 안 건드림)', async () => {
+    const root = gitProject();
+    process.chdir(root);
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    await runConfigSet('verifications.typecheck.scope', 'changed', { force: false });
+
+    await runConfigSet('verifications.typecheck.cmd', `${process.execPath} --version`, {
+      force: false,
+    });
+
+    const loaded = loadConfig(root);
+    expect(loaded.config?.verifications.find((v) => v.name === 'typecheck')?.scope).toBe(
+      'changed',
+    ); // cmd 만 갱신됐어도 기존 scope 는 보존(applyConfigValue 의 기존 동작)되고, 새로 물어보지도 않는다.
+  });
+
   it('config --show-origin 은 값별 출처(전역/저장소/개인)를 보여준다', async () => {
     const root = gitProject();
     writeLocalOverlay(root, { verifications: [{ name: 'typecheck', skip: true }] });

@@ -1649,6 +1649,15 @@ export async function runConfigSet(
     process.exit(1);
   }
 
+  // 새 검사를 base 에 처음 추가하는 순간인지 미리 잰다(applyConfigValue 가 config
+  // 를 바로 mutate 하므로 호출 전에 확인해야 한다) — reference.md:869-876 "이 검사를
+  // 처음 넣습니까? ... scope: changed 로 시작하면 이번 변경분만 봅니다."
+  const isNewVerification =
+    opts.local !== true &&
+    parsed.kind === 'verifications.cmd' &&
+    parseVerifyValue(value) !== null &&
+    !(loaded.base ?? loaded.config).verifications.some((v) => v.name === parsed.verifyName);
+
   const outcome = await applyConfigValue(config, projectRoot, parsed, value, {
     force: opts.force,
   });
@@ -1656,6 +1665,29 @@ export async function runConfigSet(
     process.stderr.write(`\n  ${signal(caps(), 'error')} ${outcome.message}\n`);
     process.exit(1);
   }
+
+  const interactive = process.stdin.isTTY === true && process.stdout.isTTY === true;
+  if (isNewVerification && interactive) {
+    const entry = config.verifications.find((v) => v.name === parsed.verifyName);
+    if (entry) {
+      const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+      try {
+        const answer = await new Promise<string>((resolve) => {
+          rl.question(
+            `\n  이 검사(${entry.name})를 처음 추가합니다. 기존 코드에서 실패가 많이 나올 수 있습니다.\n` +
+              '  scope: changed 로 시작하면 이번 변경분만 봅니다. (Y/n) ',
+            resolve,
+          );
+        });
+        if (answer.trim().toLowerCase() !== 'n') {
+          entry.scope = 'changed';
+        }
+      } finally {
+        rl.close();
+      }
+    }
+  }
+
   if (opts.local === true) {
     const overlayPath = localConfigOverlayPath(projectRoot);
     let overlay: LocalConfigOverlay = {};
