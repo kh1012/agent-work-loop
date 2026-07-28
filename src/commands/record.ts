@@ -991,6 +991,14 @@ export function computeCoverage(
 
 /** records-suffix.json 이 있으면 그 접미사를, 없으면(메인) undefined 를 돌려준다. */
 function readRecordsSuffix(projectRoot: string): string | undefined {
+  // AWL_RECORDS_SUFFIX(env) 가 우선이다 — 레인처럼 워크트리로 갈라진 곳은 파일
+  // (records-suffix.json)로 충분하지만, 워크트리 없는 --isolated(work.ts, 같은
+  // 디렉토리에서 동시에 도는 두 번째 세션)는 물리적으로 같은 .awl/ 하나뿐이라
+  // 파일로는 세션별로 못 나눈다 — 프로세스별로 다를 수 있는 env 가 필요하다(WI-G17c).
+  const envSuffix = process.env.AWL_RECORDS_SUFFIX;
+  if (typeof envSuffix === 'string' && envSuffix.trim() !== '') {
+    return envSuffix;
+  }
   try {
     const raw = JSON.parse(fs.readFileSync(recordsSuffixPath(projectRoot), 'utf8')) as unknown;
     const suffix =

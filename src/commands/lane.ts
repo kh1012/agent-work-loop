@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { WORKTREES_DIR, globalRoot, parentGlobalRoot, recordsDir, recordsSuffixPath } from '../core/paths.js';
+import { WORKTREES_DIR, globalRoot, parentGlobalRoot } from '../core/paths.js';
 import { run } from '../core/runner.js';
 import { type Caps, caps, feedback, makeColors, sectionBox, signal } from '../core/tty.js';
 import { loadConfig, resolveProjectRoot, writeLocalConfigOverlay } from './config.js';
@@ -58,27 +58,6 @@ function writeLaneMeta(lanePath: string, meta: LaneMeta): void {
   const p = laneMetaPath(lanePath);
   fs.mkdirSync(path.dirname(p), { recursive: true });
   fs.writeFileSync(p, `${JSON.stringify(meta, null, 2)}\n`);
-}
-
-/**
- * 레인 워크트리의 .awl/records 를 main 트리의 .awl/records 로 심링크한다(WI-G17b,
- * adk-reference.md:576-591). config.json/profile.json 의 git 커밋 동기화와 다르다 —
- * records 는 세션 중 실시간으로 다른 레인/메인에 보여야 하므로 심링크로 즉시 공유하고,
- * records-suffix.json 으로 이 레인의 파일명 접미사만 남긴다(쓰기 경합 없이 공존).
- * gotcha/rules 는 그대로 AWL_HOME 격리+명시적 병합을 쓴다(안 건드림, 이미 통과).
- */
-function linkLaneRecords(root: string, lanePath: string, laneName: string): void {
-  const mainRecords = recordsDir(root);
-  fs.mkdirSync(mainRecords, { recursive: true });
-  const laneRecords = path.join(lanePath, '.awl', 'records');
-  if (fs.existsSync(laneRecords)) {
-    fs.rmSync(laneRecords, { recursive: true, force: true });
-  }
-  fs.symlinkSync(mainRecords, laneRecords, 'dir');
-  fs.writeFileSync(
-    recordsSuffixPath(lanePath),
-    `${JSON.stringify({ suffix: laneName }, null, 2)}\n`,
-  );
 }
 
 /** 레인 메타를 읽는다. 없거나 깨졌으면 null(단계5 이전에 만든 레인 — 크래시하지 않는다). */
@@ -202,7 +181,9 @@ export async function runLaneNew(name: string, description?: string): Promise<vo
   if (baseBranch) {
     writeLaneMeta(lanePath, { baseBranch, port, createdAt: new Date().toISOString() });
   }
-  linkLaneRecords(root, lanePath, laneName);
+  // records 심링크+접미사(WI-G17b/c)는 runWorkNew({worktree:true, ...}) 가 이미 했다
+  // (work.ts linkIsolatedRecords, --isolated 여부와 무관하게 워크트리마다 적용) — lane
+  // 은 그 원시경로를 그대로 재사용할 뿐 별도 처리가 없다.
 
   // 레인 기동 안내(AC-01 c) — export AWL_HOME 은 runWorkNew 가 이미 찍었다(단일 출처,
   // 표면 중복 금지). 여기선 역할 세션이 실행할 파이프라인 스킬 트리거만 얹는다.

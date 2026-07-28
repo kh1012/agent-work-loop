@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { recordsDir, recordsSuffixPath } from '../core/paths.js';
 import { run } from '../core/runner.js';
 import {
   type Caps,
@@ -545,6 +546,26 @@ export function sanitizeForGit(s: string): string {
     .replace(/\.{2,}/g, '_');
 }
 
+/**
+ * 워크트리의 .awl/records 를 main 트리(root)의 .awl/records 로 심링크한다(WI-G17c,
+ * lane.ts 가 레인마다 재사용하는 공용 경로). config.json/profile.json 의 git 커밋
+ * 동기화와 다른 메커니즘이다 — records 는 세션 중 실시간으로 main/다른 워크트리에
+ * 보여야 하므로 커밋을 기다릴 수 없다. suffix 로 파일명만 나눠 쓰기 경합을 없앤다.
+ */
+export function linkIsolatedRecords(root: string, worktreePath: string, suffix: string): void {
+  const mainRecords = recordsDir(root);
+  fs.mkdirSync(mainRecords, { recursive: true });
+  const wtRecords = path.join(worktreePath, '.awl', 'records');
+  // 새 워크트리는 git 이 추적하는 파일(config.json/profile.json 등)만 체크아웃되므로
+  // .awl/ 자체가 아직 없을 수 있다 — 심링크를 만들기 전에 부모 디렉토리를 보장한다.
+  fs.mkdirSync(path.dirname(wtRecords), { recursive: true });
+  if (fs.existsSync(wtRecords)) {
+    fs.rmSync(wtRecords, { recursive: true, force: true });
+  }
+  fs.symlinkSync(mainRecords, wtRecords, 'dir');
+  fs.writeFileSync(recordsSuffixPath(worktreePath), `${JSON.stringify({ suffix }, null, 2)}\n`);
+}
+
 /** git worktree add 기본 타임아웃(ms). 15만+ 파일 모노레포 실측 체크아웃 40.177s(디스크
  * 88GB 여유·경합 없음 기준) 대비 4.5배 여유(D-46). 예전 30_000 은 이 실측치보다도 짧아
  * "Could not write new index file" 로 100% 재현되던 실패의 근본 원인이었다. */
@@ -755,14 +776,20 @@ export async function runWorkNew(
       process.exit(1);
     }
     ensureGitignored(root, '.awl-worktrees/');
+    // records(ADK stage 5, WI-G17a)는 project-local(.awl/records/)이라 워크트리(물리적으로
+    // 다른 .awl/)에서는 --isolated 여부와 무관하게 심링크가 필요하다 — 안 하면 워크트리가
+    // main 과 별개인 빈 records/ 를 갖게 돼, 예전(전역 records)의 기본 공유 동작이 깨진다
+    // (WI-G17c). 접미사(파일명 충돌 방지)는 워크아이템 id 를 git/파일명 안전 문자로 좁힌
+    // 것 — lane.ts 는 이 경로를 그대로 재사용해 별도 처리가 없다(레인 이름도 이 id 다).
+    linkIsolatedRecords(root, worktreePath, sanitizeForGit(id) || id);
   }
 
-  // --isolated(concurrency-2): 이 워크아이템 전용 AWL_HOME 을 만든다. records(~/.awl)는
-  // AWL_HOME 파생이라, worktree(state 격리) + 이 전용 home(records 격리)이 합쳐지면
-  // 병렬 루프가 완전히 나뉜다. 미래 셸 env 는 못 바꾸므로 경로만 만들고 export 를
-  // 안내한다(실제 격리는 세션이 그 export 를 적용할 때 발생). --worktree 와 함께 쓰면
-  // 워크트리별 경로라 두 세션이 같은 home 을 공유하지 않는다.
+  // --isolated(concurrency-2): 이 워크아이템 전용 AWL_HOME 을 만든다 — gotchas/rules/
+  // generations(학습)가 AWL_HOME 파생이라, worktree(state 격리) + 이 전용 home(학습
+  // 격리)이 합쳐지면 병렬 루프가 나뉜다. 미래 셸 env 는 못 바꾸므로 경로만 만들고
+  // export 를 안내한다(실제 격리는 세션이 그 export 를 적용할 때 발생).
   let isolatedHome: string | undefined;
+  let recordsSuffixNote: string | undefined;
   if (opts.isolated) {
     isolatedHome = path.join(worktreePath ?? root, '.awl', 'home');
     fs.mkdirSync(isolatedHome, { recursive: true });
@@ -771,8 +798,16 @@ export async function runWorkNew(
     writeParentMarker(isolatedHome);
     // .awl-worktrees/ 와 같은 이중 방어: gitignore(여기) + commit self-filter(commit.ts).
     // 패턴 .awl/home/ 은 root/.awl/home 과 워크트리 하위 .awl/home 을 모두 무시해,
-    // awl 밖 표준 git 조작(git add -A/status)에도 records 가 안 새게 한다.
+    // awl 밖 표준 git 조작(git add -A/status)에도 학습이 안 새게 한다.
     ensureGitignored(root, '.awl/home/');
+
+    if (!worktreePath) {
+      // 워크트리 없이 같은 디렉토리에서 도는 두 번째 세션은 .awl/ 자체가 하나뿐이라
+      // 파일(records-suffix.json)로는 세션별 접미사를 못 나눈다(워크트리가 있으면 위에서
+      // 이미 파일로 처리됨) — 프로세스별로 다를 수 있는 env 로 안내한다(record.ts 의
+      // readRecordsSuffix 가 AWL_RECORDS_SUFFIX 를 파일보다 우선 읽는다, WI-G17c).
+      recordsSuffixNote = `export AWL_RECORDS_SUFFIX=${sanitizeForGit(id) || id}`;
+    }
   }
 
   const result = createWorkitem(
@@ -920,19 +955,27 @@ export async function runWorkNew(
   process.stdout.write(
     `    ${color.dim(worktreePath ? `다음 → cd ${worktreePath} 후 awl-loop 시작` : '다음 → awl-loop 시작')}\n`,
   );
+  if (worktreePath) {
+    // records(WI-G17c)는 워크트리 유무만으로 이미 main 트리와 심링크+접미사로 나뉜다
+    // (위 linkIsolatedRecords) — --isolated 여부와 무관하게 항상 적용되므로 별도 안내가
+    // 필요 없다. gotchas/rules(학습)는 --isolated 일 때만 별도 AWL_HOME 격리가 생긴다.
+    process.stdout.write(
+      `    ${color.dim('records 는 main 트리와 실시간 공유됩니다(심링크, 병렬 세션이어도 파일명으로 안 겹칩니다).')}\n`,
+    );
+  }
   if (isolatedHome) {
-    // --isolated: records 격리용 전용 home. 셸 env 는 못 바꾸므로 export 를 안내한다.
+    // --isolated: 학습(gotchas/rules/generations) 격리용 전용 home. 셸 env 는 못 바꾸므로
+    // export 를 안내한다.
     process.stdout.write(`    ${color.dim(`export AWL_HOME=${isolatedHome}`)}\n`);
     process.stdout.write(
-      `    ${color.dim('(records 를 이 워크아이템 전용으로 격리 — 실제 격리는 이 export 를 적용해야 발생합니다)')}\n`,
+      `    ${color.dim('(gotchas/rules 를 이 워크아이템 전용으로 격리 — 실제 격리는 이 export 를 적용해야 발생합니다)')}\n`,
     );
-  } else if (worktreePath) {
-    // 병렬 세션 방어(concurrency-1): worktree 는 git(워킹트리+state)만 격리한다.
-    // records(~/.awl)는 AWL_HOME 파생이라 전역 공유로 남는다 — 병렬 세션이 같은
-    // 프로젝트를 돌리면 records 가 뒤섞인다. AWL_HOME 분리나 --isolated 로 나뉜다.
-    process.stdout.write(
-      `    ${color.dim('참고 → worktree 는 git 만 격리합니다. records(~/.awl)는 전역 공유이니, 병렬 세션이면 AWL_HOME 을 따로 두거나 --isolated 를 쓰세요.')}\n`,
-    );
+    if (recordsSuffixNote) {
+      process.stdout.write(`    ${color.dim(recordsSuffixNote)}\n`);
+      process.stdout.write(
+        `    ${color.dim('(워크트리 없이 같은 디렉토리에서 병렬로 돌 때 records 파일명이 안 겹치게 — 이 export 를 적용해야 발생합니다)')}\n`,
+      );
+    }
   }
 }
 

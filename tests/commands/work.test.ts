@@ -660,7 +660,7 @@ describe('runWorkNew --worktree (WI-F AC-03, 실제 git 저장소로 통합 확�
     expect(state.workitemExperiment).toEqual({ model: 'lite', mode: 'loop', taskType: 'ui' });
   });
 
-  it('--worktree 출력에 병렬 세션 hint(AWL_HOME 분리)를 붙이고, --worktree 없으면 안 붙인다 (concurrency-1 AC-01)', async () => {
+  it('--worktree 출력에 records 심링크 공유 안내를 붙이고, --worktree 없으면 안 붙인다 (WI-G17c, concurrency-1 AC-01 후속)', async () => {
     const capture = (): { writes: string[]; restore: () => void } => {
       const writes: string[] = [];
       const spy = vi.spyOn(process.stdout, 'write').mockImplementation((s: unknown) => {
@@ -678,18 +678,19 @@ describe('runWorkNew --worktree (WI-F AC-03, 실제 git 저장소로 통합 확�
       withWt.restore();
     }
     const out = withWt.writes.join('');
-    // records(~/.awl)가 전역 공유임을 알리고 AWL_HOME 분리를 안내한다.
-    expect(out).toContain('AWL_HOME');
-    expect(out).toMatch(/전역|병렬/);
+    // records 는 project-local + 심링크로 워크트리 유무만으로 이미 나뉘므로(WI-G17c)
+    // AWL_HOME 분리를 따로 안내할 필요가 없다 — 심링크 공유 사실만 알린다.
+    expect(out).toContain('심링크');
+    expect(out).not.toContain('AWL_HOME');
 
-    // --worktree 없는 실행에는 이 hint 가 뜨지 않는다.
+    // --worktree 없는 실행에는 이 안내가 뜨지 않는다.
     const noWt = capture();
     try {
       await runWorkNew('WI-NOHINT', undefined, {});
     } finally {
       noWt.restore();
     }
-    expect(noWt.writes.join('')).not.toContain('AWL_HOME');
+    expect(noWt.writes.join('')).not.toContain('심링크');
   });
 
   it('--isolated 는 전용 .awl/home 을 만들고 export AWL_HOME 안내를 출력한다 (concurrency-2 AC-02)', async () => {
