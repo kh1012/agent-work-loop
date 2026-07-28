@@ -811,6 +811,13 @@ export function buildProgram(): Command {
       const { runLaneRemove } = await import('./commands/lane.js');
       await runLaneRemove(name, { force: opts.force === true });
     });
+  lane
+    .command('sync <name>')
+    .description('레인을 지우지 않고, 그 레인이 쌓은 학습(교훈·규칙)만 지금 전역에 합칩니다')
+    .action(async (name: string) => {
+      const { runLaneSync } = await import('./commands/lane.js');
+      await runLaneSync(name);
+    });
 
   // 사람이 치는 명령: doc (ADK 문서 — spec/ticket/decision, ADK stage 1)
   const doc = program.command('doc').description('ADK 문서(spec/ticket/decision)를 관리합니다');

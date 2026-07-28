@@ -1,11 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { WORKTREES_DIR } from '../core/paths.js';
+import { WORKTREES_DIR, globalRoot, parentGlobalRoot } from '../core/paths.js';
 import { run } from '../core/runner.js';
 import { type Caps, caps, feedback, makeColors, sectionBox, signal } from '../core/tty.js';
 import { loadConfig, resolveProjectRoot, writeLocalConfigOverlay } from './config.js';
 import { applyInit, nonInteractiveInputs } from './init.js';
-import { type MergeHomeResult, mergeIsolatedHome } from './learning-merge.js';
+import {
+  type MergeHomeResult,
+  type MergeLearningResult,
+  mergeIsolatedHome,
+  mergeIsolatedLearning,
+} from './learning-merge.js';
 import { loadProjectName } from './record.js';
 import { loadState, writeState } from './state.js';
 import {
@@ -383,6 +388,66 @@ export function laneRegistryRoot(root: string): string {
   const marker = `${path.sep}${WORKTREES_DIR}${path.sep}`;
   const index = resolved.indexOf(marker);
   return index === -1 ? resolved : resolved.slice(0, index);
+}
+
+/**
+ * awl lane sync <name> — 레인을 지우지 않고, 그 레인이 격리 홈에 쌓은 학습(gotchas/
+ * rules/generations)만 지금 전역으로 합친다(ADK stage 5, WI-C). "레인 A가 남기면
+ * 레인 B가 읽을 수 있다"를 teardown(lane rm) 전에도 성립시킨다 — 사람/스킬이 명시적으로
+ * 부를 때만(항상-전역-쓰기는 새 전역 동시쓰기 락을 요구하는데, 그건 아직 없다,
+ * learning-merge.ts 주석 참고).
+ *
+ * `mergeIsolatedHome`(lane rm 이 쓰는 전체 병합)이 아니라 `mergeIsolatedLearning`만
+ * 부른다 — records 병합(mergeIsolatedRecords)은 dedup 없이 순수 append 라 여러 번
+ * 부르면 전역에 중복이 쌓인다(레인 생애 동안 딱 한 번, teardown 때만 안전). gotchas/
+ * rules/generations 는 전부 content 기준 dedup 이라 몇 번을 다시 불러도 안전하다 —
+ * sync 를 여러 번 불러도, 나중에 lane rm 이 다시 병합해도 중복이 안 생긴다.
+ */
+export async function runLaneSync(name: string): Promise<void> {
+  const root = requireRoot();
+  const c = caps();
+  const color = makeColors(c.color);
+  const laneName = sanitizeForGit(name);
+  if (!laneName) {
+    process.stderr.write(`\n${feedback(c, 'error', '레인 이름을 입력하세요')}\n`);
+    process.exit(1);
+  }
+  const lanePath = path.join(root, WORKTREES_DIR, laneName);
+  if (!fs.existsSync(lanePath)) {
+    process.stderr.write(
+      `\n${feedback(c, 'error', `레인을 찾을 수 없습니다: ${laneName}`, 'awl lane ls 로 현존 레인을 확인하세요')}\n`,
+    );
+    process.exit(1);
+  }
+
+  const isolatedHome = path.join(lanePath, '.awl', 'home');
+  if (!fs.existsSync(isolatedHome)) {
+    process.stdout.write(
+      `\n${feedback(c, 'info', `레인 ${color.bold(laneName)} 은 격리 홈이 없습니다`, '합칠 학습이 없습니다(격리 없이 만든 레인이거나 아직 아무것도 안 남겼습니다)')}\n`,
+    );
+    return;
+  }
+  const toRoot = parentGlobalRoot(isolatedHome) ?? globalRoot();
+  if (path.resolve(isolatedHome) === path.resolve(toRoot)) {
+    process.stdout.write(
+      `\n${feedback(c, 'info', `레인 ${color.bold(laneName)} 은 이미 전역 홈을 씁니다`, '합칠 게 없습니다')}\n`,
+    );
+    return;
+  }
+
+  let result: MergeLearningResult;
+  try {
+    result = mergeIsolatedLearning(isolatedHome, toRoot);
+  } catch (e) {
+    process.stderr.write(
+      `\n${feedback(c, 'error', '학습 병합 실패 — 레인은 그대로입니다', e instanceof Error ? e.message : String(e))}\n`,
+    );
+    process.exit(1);
+  }
+  process.stdout.write(`\n${feedback(c, 'ok', `레인 ${color.bold(laneName)} 의 학습을 전역에 합쳤습니다`)}\n`);
+  process.stdout.write(
+    `    ${color.dim(`교훈 ${result.gotchasAdded}개 · 규칙 ${result.rulesAdded}개 · 세대 ${result.generationsAdded}개`)}\n`,
+  );
 }
 
 /**

@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Gotcha } from '../../src/commands/evolve.js';
-import { runLaneNew, runLaneRemove } from '../../src/commands/lane.js';
+import { runLaneNew, runLaneRemove, runLaneSync } from '../../src/commands/lane.js';
 import {
   PARENT_MARKER,
   archiveIsolatedRecords,
@@ -493,6 +493,90 @@ describe('teardown 통합 — 격리 학습이 전역으로 이어진다(실제 
       'utf8',
     );
     expect(archived).toContain('probe-wi');
+  });
+
+  it('lane sync(ADK stage 5, WI-C): 레인을 지우지 않고도 그 레인의 gotcha 를 전역에 합친다', async () => {
+    const { proj, global } = realGitProject();
+
+    const restoreOut1 = silenceStdout();
+    try {
+      await runLaneNew('probe');
+    } finally {
+      restoreOut1();
+    }
+    const lanePath = path.join(proj, '.awl-worktrees', 'probe');
+    const isoHome = path.join(lanePath, '.awl', 'home');
+    writeGotchaFile(isoHome, g('G-001', '레인이 아직 살아있는 채로 남긴 교훈'));
+
+    const restoreOut2 = silenceStdout();
+    try {
+      await runLaneSync('probe');
+    } finally {
+      restoreOut2();
+    }
+
+    // 핵심 차이: lane rm 과 달리 레인이 그대로 남아있다.
+    expect(fs.existsSync(lanePath)).toBe(true);
+    expect(fs.existsSync(isoHome)).toBe(true);
+
+    // 그런데도 전역엔 이미 반영돼 있다 — "레인 A 가 남기면 레인 B 가 읽을 수 있다".
+    const gs = readGotchaFiles(global);
+    expect(gs.some((x) => x.lesson === '레인이 아직 살아있는 채로 남긴 교훈')).toBe(true);
+  });
+
+  it('lane sync 를 여러 번 불러도(그리고 나중에 lane rm 이 다시 병합해도) 중복이 안 생긴다', async () => {
+    const { proj, global } = realGitProject();
+    const restoreOut1 = silenceStdout();
+    try {
+      await runLaneNew('probe');
+    } finally {
+      restoreOut1();
+    }
+    const lanePath = path.join(proj, '.awl-worktrees', 'probe');
+    const isoHome = path.join(lanePath, '.awl', 'home');
+    writeGotchaFile(isoHome, g('G-001', '한 번만 세어져야 하는 교훈'));
+
+    const restoreOut2 = silenceStdout();
+    try {
+      await runLaneSync('probe'); // 1차 sync
+      await runLaneSync('probe'); // 2차 sync(멱등이어야 함)
+    } finally {
+      restoreOut2();
+    }
+    const restoreErr = silenceStderr();
+    try {
+      await runLaneRemove('probe', {}); // teardown 이 다시 병합을 시도
+    } finally {
+      restoreErr();
+    }
+
+    const gs = readGotchaFiles(global).filter((x) => x.lesson === '한 번만 세어져야 하는 교훈');
+    expect(gs).toHaveLength(1); // 세 번(sync×2 + rm×1) 병합돼도 전역엔 하나뿐.
+  });
+
+  it('격리 홈이 없는 레인(격리 없이 만든 경우)을 sync 하면 크래시 없이 안내만 한다', async () => {
+    realGitProject();
+    const restoreOut1 = silenceStdout();
+    try {
+      await runLaneNew('probe');
+    } finally {
+      restoreOut1();
+    }
+    const lanePath = path.join(process.cwd(), '.awl-worktrees', 'probe');
+    fs.rmSync(path.join(lanePath, '.awl', 'home'), { recursive: true, force: true });
+
+    let stdout = '';
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((s: unknown) => {
+      stdout += String(s);
+      return true;
+    });
+    try {
+      await runLaneSync('probe');
+    } finally {
+      spy.mockRestore();
+    }
+    expect(stdout).toContain('격리 홈이 없습니다');
+    expect(fs.existsSync(lanePath)).toBe(true); // 아무것도 안 건드리고 그대로 살아있다.
   });
 
   it('work done: 워크트리의 .awl/home 학습을 삭제 전 전역으로 병합한다(수동 격리 flow)', async () => {
