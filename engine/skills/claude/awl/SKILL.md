@@ -39,5 +39,12 @@ verification, 또는 커밋)만 맞으면 된다.
 하면, 목표를 스펙으로 옮긴다: `awl doc new spec <제목> --request "<원문>"` →
 Conditions/Constraints 채우기 → `awl tickets derive <spec-id>` → 다시 `awl next`.
 
+**문서(스펙·티켓)를 만들거나 고치면 그 자리에서 바로 커밋한다** — `git add
+docs/ && git commit -m "..."` (`awl commit`이 아니라 그냥 git — 완료조건 diff
+격리 대상이 아니라 문서라서 그렇다). 미루면 안 된다: `awl commit <ticket-id>
+--start`는 그 시점 워킹트리의 미커밋 변경을 전부 "남의 것"으로 스냅샷해두므로,
+그 전에 커밋 안 한 스펙/티켓 파일은 그 뒤로 어떤 티켓을 커밋해도 영원히 섞여
+안 들어간다(시뮬레이션 발견, 2026-07-29).
+
 **전체 파이프라인이 궁금하면** `awl stages`(전부) 또는 `awl stages --short`(다섯
 줄)를 본다 — 이 스킬 파일이 다시 설명하지 않는다.
