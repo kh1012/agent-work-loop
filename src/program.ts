@@ -1211,13 +1211,14 @@ export function buildProgram(): Command {
     .action(async (opts: { json: string; workitem?: string }) => {
       const { runStateSet } = await import('./commands/state.js');
       const { hasApprovedGate1 } = await import('./commands/record.js');
+      const { resolveProjectRoot } = await import('./commands/config.js');
       runStateSet(opts.json, {
         workitem: opts.workitem,
         // phase:'loop' 로의 전이는 이 워크아이템에 "승인된" 게이트1 레코드가 있을
         // 때만 허용한다(0.6.3, 적대검증 발견). 예전엔 gate:1 레코드의 존재만 봐서
         // (decision 무관) 사람이 REJECT 한 계획도 루프에 진입할 수 있었다.
-        // hasApprovedGate1 이 workitem falsy 도 fail-closed 로 처리한다.
-        requireGateForLoop: (workitem) => hasApprovedGate1(workitem),
+        // hasApprovedGate1 이 workitem falsy 도, 프로젝트 루트를 못 찾아도 fail-closed.
+        requireGateForLoop: (workitem) => hasApprovedGate1(workitem, resolveProjectRoot()),
       });
     });
 

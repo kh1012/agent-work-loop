@@ -1011,21 +1011,24 @@ describe('record 저장 — append only', () => {
     if (!a || !b) {
       throw new Error('레코드 생성 실패');
     }
-    appendRecord(a);
-    appendRecord(b);
-    const all = readRecords();
+    const root = process.env.AWL_HOME as string;
+    appendRecord(a, root);
+    appendRecord(b, root);
+    const all = readRecords(root);
     expect(all).toHaveLength(2);
     // 같은 월이면 같은 파일에 append
-    expect(monthFile(DEFAULTS.at)).toBe(monthFile('2026-07-14T13:00:00.000Z'));
+    expect(monthFile(DEFAULTS.at, root)).toBe(monthFile('2026-07-14T13:00:00.000Z', root));
   });
 
   it('type/workitem 으로 거른다', () => {
+    const root = process.env.AWL_HOME as string;
     appendRecord(
       buildRecord(
         'attempt',
         { what: 'a', why: 'b', how: 'c', result: 'passed', workitem: 'WI-3' },
         DEFAULTS,
       ).record ?? {},
+      root,
     );
     appendRecord(
       buildRecord(
@@ -1039,12 +1042,14 @@ describe('record 저장 — append only', () => {
         },
         { ...DEFAULTS, id: 'r2' },
       ).record ?? {},
+      root,
     );
-    expect(readRecords({ type: 'blocked' })).toHaveLength(1);
-    expect(readRecords({ workitem: 'WI-3' })).toHaveLength(1);
+    expect(readRecords(root, { type: 'blocked' })).toHaveLength(1);
+    expect(readRecords(root, { workitem: 'WI-3' })).toHaveLength(1);
   });
 
   it('months 범위를 주면 그 월 파일만 읽는다(하위호환: 없으면 전량)', () => {
+    const root = process.env.AWL_HOME as string;
     // 6월/7월 각각에 기록을 남긴다(월별 파일 분할).
     appendRecord(
       buildRecord(
@@ -1052,6 +1057,7 @@ describe('record 저장 — append only', () => {
         { question: '6월', found: 'f' },
         { ...DEFAULTS, id: 'jun', at: '2026-06-15T12:00:00.000Z' },
       ).record ?? {},
+      root,
     );
     appendRecord(
       buildRecord(
@@ -1059,16 +1065,17 @@ describe('record 저장 — append only', () => {
         { question: '7월', found: 'f' },
         { ...DEFAULTS, id: 'jul', at: '2026-07-15T12:00:00.000Z' },
       ).record ?? {},
+      root,
     );
     // 범위 없음 = 전량(하위호환)
-    expect(readRecords()).toHaveLength(2);
+    expect(readRecords(root)).toHaveLength(2);
     // 7월만 = 7월 기록만(6월 파일은 읽지 않음 → 6월 기록이 결과에 없다)
-    const jul = readRecords({ months: ['2026-07'] });
+    const jul = readRecords(root, { months: ['2026-07'] });
     expect(jul).toHaveLength(1);
     expect(jul[0]?.id).toBe('jul');
     // from/to 범위도 동작
-    expect(readRecords({ from: '2026-06', to: '2026-06' })).toHaveLength(1);
-    expect(readRecords({ from: '2026-06', to: '2026-07' })).toHaveLength(2);
+    expect(readRecords(root, { from: '2026-06', to: '2026-06' })).toHaveLength(1);
+    expect(readRecords(root, { from: '2026-06', to: '2026-07' })).toHaveLength(2);
   });
 });
 
@@ -1120,7 +1127,8 @@ describe('readRecords 실제 파일 오픈 수 — 통합 성능 가드(AC-03)',
   });
 
   it('1개월 범위 질의는 그 월 파일만 readFileSync 한다(12개월 픽스처)', () => {
-    const dir = path.join(process.env.AWL_HOME as string, 'records');
+    const root = process.env.AWL_HOME as string;
+    const dir = path.join(root, '.awl', 'records');
     fs.mkdirSync(dir, { recursive: true });
     // 12개월 픽스처 — 각 월 파일에 그 월의 레코드 1건.
     for (let m = 1; m <= 12; m++) {
@@ -1139,11 +1147,11 @@ describe('readRecords 실제 파일 오픈 수 — 통합 성능 가드(AC-03)',
       return origRead(...args);
     };
     try {
-      const jul = readRecords({ months: ['2026-07'] });
+      const jul = readRecords(root, { months: ['2026-07'] });
       expect(jul).toHaveLength(1);
       expect(reads).toBe(1); // 7월 파일만 열었다(나머지 11개월 안 엶)
       reads = 0;
-      const all = readRecords();
+      const all = readRecords(root);
       expect(all).toHaveLength(12);
       expect(reads).toBe(12); // 전량은 12개 모두 연다
     } finally {
@@ -1322,24 +1330,24 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
   });
 
   it('--workitem 플래그가 있으면 활성 워크아이템이 없어도 통과한다', async () => {
-    project(undefined);
+    const root = project(undefined);
     await runRecord('spike', { json: '{"question":"q","found":"f"}', workitem: 'WI-9' });
-    const records = readRecords({ workitem: 'WI-9' });
+    const records = readRecords(root, { workitem: 'WI-9' });
     expect(records).toHaveLength(1);
   });
 
   it('state.json 에 현재 워크아이템이 있으면 --workitem 없어도 통과한다', async () => {
-    project({ workitem: 'WI-9', workitems: {} });
+    const root = project({ workitem: 'WI-9', workitems: {} });
     await runRecord('spike', { json: '{"question":"q","found":"f"}' });
-    const records = readRecords({ workitem: 'WI-9' });
+    const records = readRecords(root, { workitem: 'WI-9' });
     expect(records).toHaveLength(1);
   });
 
   it('refactor 를 CLI 로 기록한다 — 유효 kind 통과, 불량 kind 는 CLI 진입점에서 거부 (loop-refactor-checkpoint AC-04)', async () => {
-    project({ workitem: 'WI-9', workitems: {} });
+    const root = project({ workitem: 'WI-9', workitems: {} });
     // 유효 kind → 실제로 기록됨(글루 왕복)
     await runRecord('refactor', { json: '{"what":"헬퍼 추출","kind":"split"}' });
-    expect(readRecords({ workitem: 'WI-9' }).some((r) => r.type === 'refactor')).toBe(true);
+    expect(readRecords(root, { workitem: 'WI-9' }).some((r) => r.type === 'refactor')).toBe(true);
     // 불량 kind → CLI 진입점(runRecord)에서 거부(buildRecord 검증이 exit 로 이어짐)
     const { exitSpy, stderrSpy } = mockExit();
     await expect(runRecord('refactor', { json: '{"what":"x","kind":"없는종류"}' })).rejects.toThrow(
@@ -1351,30 +1359,30 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
   });
 
   it('데이터(JSON) 안에 workitem 이 명시되면 활성 워크아이템이 없어도 통과한다(우선순위 유지)', async () => {
-    project(undefined);
+    const root = project(undefined);
     await runRecord('spike', {
       json: '{"question":"q","found":"f","workitem":"WI-9"}',
     });
-    const records = readRecords({ workitem: 'WI-9' });
+    const records = readRecords(root, { workitem: 'WI-9' });
     expect(records).toHaveLength(1);
   });
 
   it('전역 config(~/.awl/config.json) 가 없으면 author 없이 정상 기록된다(진행을 막지 않는다, ADK stage 1)', async () => {
-    project({ workitem: 'WI-9', workitems: {} });
+    const root = project({ workitem: 'WI-9', workitems: {} });
     await runRecord('spike', { json: '{"question":"q","found":"f"}' });
-    const records = readRecords({ workitem: 'WI-9' });
+    const records = readRecords(root, { workitem: 'WI-9' });
     expect(records).toHaveLength(1);
     expect(records[0]?.author).toBeUndefined();
   });
 
   it('전역 config 에 author 가 있으면 기록에 반영된다(ADK stage 1)', async () => {
-    project({ workitem: 'WI-9', workitems: {} });
+    const root = project({ workitem: 'WI-9', workitems: {} });
     fs.writeFileSync(
       path.join(process.env.AWL_HOME as string, 'config.json'),
       JSON.stringify({ author: 'hong@midasit.com' }),
     );
     await runRecord('spike', { json: '{"question":"q","found":"f"}' });
-    const records = readRecords({ workitem: 'WI-9' });
+    const records = readRecords(root, { workitem: 'WI-9' });
     expect(records[0]?.author).toBe('hong@midasit.com');
   });
 
@@ -1432,7 +1440,7 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
       json: '{"gate":2,"layer":"ticket","ticket":"ticket-1","decision":"approved","presentedCriteria":["AC-01"]}',
     });
 
-    const [record] = readRecords({ type: 'gate' });
+    const [record] = readRecords(root, { type: 'gate' });
     expect(record?.localSkills).toEqual(['review']);
   });
 
@@ -1444,7 +1452,7 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
       json: '{"gate":2,"layer":"ticket","ticket":"ticket-1","decision":"approved","presentedCriteria":["AC-01"]}',
     });
 
-    const [record] = readRecords({ type: 'gate' });
+    const [record] = readRecords(root, { type: 'gate' });
     expect(record).not.toHaveProperty('localSkills');
   });
 
@@ -2011,7 +2019,7 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
       }),
     });
 
-    const [record] = readRecords({ type: 'awl-feedback' });
+    const [record] = readRecords(root, { type: 'awl-feedback' });
     expect(record?.what).toBe('<project>/src/foo.ts 에서 실패');
     expect(record?.impact).toBe('<home>/.awl/config.json 를 못 읽음');
     expect(record?.what).not.toContain(root);
@@ -2055,7 +2063,7 @@ describe('runRecord — gate:2 기록 시 리뷰 누락 경고 (WI-S AC-03)', ()
   ];
 
   it('완료조건 3개 이상 통과했는데 review 기록이 없으면 경고한다(거부는 아님)', async () => {
-    project(threePassed);
+    const root = project(threePassed);
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
     await runRecord('gate', {
@@ -2063,7 +2071,7 @@ describe('runRecord — gate:2 기록 시 리뷰 누락 경고 (WI-S AC-03)', ()
     });
 
     expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('리뷰'))).toBe(true);
-    expect(readRecords({ type: 'gate' })).toHaveLength(1); // 경고만, 기록은 그대로 남는다.
+    expect(readRecords(root, { type: 'gate' })).toHaveLength(1); // 경고만, 기록은 그대로 남는다.
 
     stderrSpy.mockRestore();
   });
@@ -2319,7 +2327,7 @@ describe('runRecord — 게이트 1 배제 목록 강제 (WI-T AC-02, 핵심)', 
   }
 
   it('배제가 있는데 presentedExclusions 가 없으면 gate:1 을 거부한다(파일에 안 씀)', async () => {
-    project([{ id: 'AC-01', addresses: ['F-01'] }]);
+    const root = project([{ id: 'AC-01', addresses: ['F-01'] }]);
     await runRecord('audit', {
       json: '{"scope":"s","findings":[{"id":"F-01","what":"a"},{"id":"F-02","what":"b"}]}',
     });
@@ -2329,14 +2337,14 @@ describe('runRecord — 게이트 1 배제 목록 강제 (WI-T AC-02, 핵심)', 
       runRecord('gate', { json: '{"gate":1,"decision":"approved","presentedCriteria":["AC-01"]}' }),
     ).rejects.toThrow('exit:1');
     expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('F-02'))).toBe(true);
-    expect(readRecords({ type: 'gate' })).toHaveLength(0);
+    expect(readRecords(root, { type: 'gate' })).toHaveLength(0);
 
     exitSpy.mockRestore();
     stderrSpy.mockRestore();
   });
 
   it('배제가 있어도 presentedExclusions 가 전부 포함하면 통과한다', async () => {
-    project([{ id: 'AC-01', addresses: ['F-01'] }]);
+    const root = project([{ id: 'AC-01', addresses: ['F-01'] }]);
     await runRecord('audit', {
       json: '{"scope":"s","findings":[{"id":"F-01","what":"a"},{"id":"F-02","what":"b"}]}',
     });
@@ -2344,11 +2352,11 @@ describe('runRecord — 게이트 1 배제 목록 강제 (WI-T AC-02, 핵심)', 
     await runRecord('gate', {
       json: '{"gate":1,"decision":"approved","presentedCriteria":["AC-01"],"presentedExclusions":[{"id":"F-02","reason":"별도 워크아이템"}]}',
     });
-    expect(readRecords({ type: 'gate' })).toHaveLength(1);
+    expect(readRecords(root, { type: 'gate' })).toHaveLength(1);
   });
 
   it('presentedExclusions 가 순수 문자열 배열이어도 통과한다 (WI-T AC-07, 리뷰 지적)', async () => {
-    project([{ id: 'AC-01', addresses: ['F-01'] }]);
+    const root = project([{ id: 'AC-01', addresses: ['F-01'] }]);
     await runRecord('audit', {
       json: '{"scope":"s","findings":[{"id":"F-01","what":"a"},{"id":"F-02","what":"b"}]}',
     });
@@ -2356,11 +2364,11 @@ describe('runRecord — 게이트 1 배제 목록 강제 (WI-T AC-02, 핵심)', 
     await runRecord('gate', {
       json: '{"gate":1,"decision":"approved","presentedCriteria":["AC-01"],"presentedExclusions":["F-02"]}',
     });
-    expect(readRecords({ type: 'gate' })).toHaveLength(1);
+    expect(readRecords(root, { type: 'gate' })).toHaveLength(1);
   });
 
   it('배제가 여럿인데 presentedExclusions 가 일부만 포함하면 거부한다', async () => {
-    project([{ id: 'AC-01', addresses: [] }]);
+    const root = project([{ id: 'AC-01', addresses: [] }]);
     await runRecord('audit', {
       json: '{"scope":"s","findings":[{"id":"F-01","what":"a"},{"id":"F-02","what":"b"}]}',
     });
@@ -2378,31 +2386,31 @@ describe('runRecord — 게이트 1 배제 목록 강제 (WI-T AC-02, 핵심)', 
   });
 
   it('배제가 없으면(전부 addresses 로 다뤄짐) presentedExclusions 없이도 통과한다', async () => {
-    project([{ id: 'AC-01', addresses: ['F-01'] }]);
+    const root = project([{ id: 'AC-01', addresses: ['F-01'] }]);
     await runRecord('audit', { json: '{"scope":"s","findings":[{"id":"F-01","what":"a"}]}' });
 
     await runRecord('gate', {
       json: '{"gate":1,"decision":"approved","presentedCriteria":["AC-01"]}',
     });
-    expect(readRecords({ type: 'gate' })).toHaveLength(1);
+    expect(readRecords(root, { type: 'gate' })).toHaveLength(1);
   });
 
   it('audit 기록 자체가 없으면(발견 0건) presentedExclusions 없이도 통과한다', async () => {
-    project([{ id: 'AC-01' }]);
+    const root = project([{ id: 'AC-01' }]);
     await runRecord('gate', {
       json: '{"gate":1,"decision":"approved","presentedCriteria":["AC-01"]}',
     });
-    expect(readRecords({ type: 'gate' })).toHaveLength(1);
+    expect(readRecords(root, { type: 'gate' })).toHaveLength(1);
   });
 
   it('gate:2 는 이 체크 대상이 아니다(배제가 있어도 거부하지 않는다)', async () => {
-    project([{ id: 'AC-01', addresses: [] }]);
+    const root = project([{ id: 'AC-01', addresses: [] }]);
     await runRecord('audit', { json: '{"scope":"s","findings":[{"id":"F-01","what":"a"}]}' });
 
     await runRecord('gate', {
       json: '{"gate":2,"decision":"approved","presentedCriteria":["AC-01"]}',
     });
-    expect(readRecords({ type: 'gate' })).toHaveLength(1);
+    expect(readRecords(root, { type: 'gate' })).toHaveLength(1);
   });
 });
 
@@ -2518,7 +2526,7 @@ describe('runRecord — attempt 기록 상세도를 diff 크기에 맞춘다 (WI
     await runRecord('attempt', {
       json: '{"what":"작은 변경","result":"passed","attempt":1}',
     });
-    const records = readRecords({ type: 'attempt' });
+    const records = readRecords(dir, { type: 'attempt' });
     expect(records).toHaveLength(1);
     expect(records[0]?.diffTier).toBe('minimal');
   });
@@ -2552,7 +2560,7 @@ describe('runRecord — attempt 기록 상세도를 diff 크기에 맞춘다 (WI
     await runRecord('attempt', {
       json: '{"what":"큰 변경","why":"y","how":"h","alternatives":["대안 A"],"result":"passed","attempt":1}',
     });
-    const records = readRecords({ type: 'attempt' });
+    const records = readRecords(dir, { type: 'attempt' });
     expect(records).toHaveLength(1);
     expect(records[0]?.diffTier).toBe('detailed');
   });
@@ -2571,19 +2579,19 @@ describe('runRecord — attempt 기록 상세도를 diff 크기에 맞춘다 (WI
   });
 
   it('실패 시도에 why/how 를 채우면 diffTier 와 무관하게 통과한다', async () => {
-    project();
+    const dir = project();
     await runRecord('attempt', {
       json: '{"what":"실패한 시도","why":"y","how":"h","result":"failed","attempt":1}',
     });
-    expect(readRecords({ type: 'attempt' })).toHaveLength(1);
+    expect(readRecords(dir, { type: 'attempt' })).toHaveLength(1);
   });
 
   it('diffTier 를 이미 데이터에 명시하면 재측정하지 않는다(하위호환/오프라인 안전판)', async () => {
-    project();
+    const dir = project();
     await runRecord('attempt', {
       json: '{"what":"수동 지정","diffTier":"minimal","result":"passed","attempt":1}',
     });
-    const records = readRecords({ type: 'attempt' });
+    const records = readRecords(dir, { type: 'attempt' });
     expect(records[0]?.diffTier).toBe('minimal');
   });
 });
@@ -2779,7 +2787,7 @@ describe('runDeferSummary — --json 기계 계약 + workitem 폴백(skip-gate-d
     }
   });
 
-  function project(state: Record<string, unknown> | undefined): void {
+  function project(state: Record<string, unknown> | undefined): string {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-defer-cli-')));
     fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
     fs.writeFileSync(
@@ -2791,19 +2799,29 @@ describe('runDeferSummary — --json 기계 계약 + workitem 폴백(skip-gate-d
     }
     process.chdir(root);
     process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-defer-home-'));
+    return root;
   }
 
-  const seedDefer = (workitem: string, severity: string, what: string, at: string) =>
-    appendRecord({
-      id: `d-${what}`,
-      at,
-      type: 'defer',
-      workitem,
-      severity,
-      what,
-      why: 'w',
-      project: 'p',
-    });
+  const seedDefer = (
+    projectRoot: string,
+    workitem: string,
+    severity: string,
+    what: string,
+    at: string,
+  ) =>
+    appendRecord(
+      {
+        id: `d-${what}`,
+        at,
+        type: 'defer',
+        workitem,
+        severity,
+        what,
+        why: 'w',
+        project: 'p',
+      },
+      projectRoot,
+    );
 
   function captureStdout(fn: () => void): string {
     let buf = '';
@@ -2820,10 +2838,10 @@ describe('runDeferSummary — --json 기계 계약 + workitem 폴백(skip-gate-d
   }
 
   it('--json 은 {workitem,count,items} 를 내고 count 정확·items severity 내림차순', () => {
-    project(undefined);
-    seedDefer('WI-D', 'low', 'L', '2026-07-16T01:00:00Z');
-    seedDefer('WI-D', 'high', 'H', '2026-07-16T02:00:00Z');
-    seedDefer('WI-OTHER', 'high', 'X', '2026-07-16T03:00:00Z'); // 다른 워크아이템 제외
+    const root = project(undefined);
+    seedDefer(root, 'WI-D', 'low', 'L', '2026-07-16T01:00:00Z');
+    seedDefer(root, 'WI-D', 'high', 'H', '2026-07-16T02:00:00Z');
+    seedDefer(root, 'WI-OTHER', 'high', 'X', '2026-07-16T03:00:00Z'); // 다른 워크아이템 제외
     const out = captureStdout(() => runDeferSummary({ json: true, workitem: 'WI-D' }));
     const j = JSON.parse(out);
     expect(j.workitem).toBe('WI-D');
@@ -2832,8 +2850,8 @@ describe('runDeferSummary — --json 기계 계약 + workitem 폴백(skip-gate-d
   });
 
   it('workitem 미지정이면 state.workitem 으로 폴백한다', () => {
-    project({ workitem: 'WI-FALL' });
-    seedDefer('WI-FALL', 'high', 'F', '2026-07-16T02:00:00Z');
+    const root = project({ workitem: 'WI-FALL' });
+    seedDefer(root, 'WI-FALL', 'high', 'F', '2026-07-16T02:00:00Z');
     const out = captureStdout(() => runDeferSummary({ json: true }));
     const j = JSON.parse(out);
     expect(j.workitem).toBe('WI-FALL'); // state.workitem 폴백

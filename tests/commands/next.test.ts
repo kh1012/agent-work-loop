@@ -117,6 +117,7 @@ describe('computeNextView', () => {
         decision: 'approved',
         presentedCriteria: ['AC-01'],
       }),
+      p,
     );
     appendRecord(
       gateRecord({
@@ -127,6 +128,7 @@ describe('computeNextView', () => {
         decision: 'approved',
         presentedCriteria: ['AC-01'],
       }),
+      p,
     );
     appendRecord(
       gateRecord({
@@ -137,6 +139,7 @@ describe('computeNextView', () => {
         decision: 'approved',
         presentedCriteria: ['AC-01'],
       }),
+      p,
     );
 
     const view = computeNextView(p, ticketId);

@@ -533,7 +533,7 @@ function writeRuntimePatch(
  * 파일을 읽는다) — root 를 받는다.
  */
 function buildTicketGateGapWarning(root: string, ticketId: string, c: Caps): string | null {
-  const hasApprovedGate2 = readRecords({ type: 'gate' }).some(
+  const hasApprovedGate2 = readRecords(root, { type: 'gate' }).some(
     (r) => r.ticket === ticketId && r.gate === 2 && r.decision === 'approved',
   );
   if (hasApprovedGate2) {
@@ -580,7 +580,7 @@ export async function runCommit(
   // 남아 있어도(다른 흐름의 잔재) 티켓 커밋을 막으면 안 된다(!isTicket 로 배제).
   const gateState = loadState(root);
   const gateWorkitem = typeof gateState.workitem === 'string' ? gateState.workitem : undefined;
-  if (!isTicket && gateWorkitem && !hasApprovedGate1(gateWorkitem)) {
+  if (!isTicket && gateWorkitem && !hasApprovedGate1(gateWorkitem, root)) {
     process.stderr.write(
       `\n  ${signal(c, 'warn')} Gate 1 승인이 먼저 필요합니다. awl record gate 로 계획을 승인한 뒤 커밋하세요.\n`,
     );

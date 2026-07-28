@@ -96,9 +96,11 @@ describe('remove', () => {
     fs.mkdirSync(path.join(proj, '.tasks', 'plan'), { recursive: true });
     fs.writeFileSync(path.join(proj, '.tasks', 'plan', 'x.md'), '# x\n');
 
+    // records 는 project-local(.awl/records/, WI-G17a) 이라 .awl/ 안에 심는다 —
+    // 위에서 이미 만든 proj/.awl/ 아래 둔다. gotchas 만 아직 전역(F-02) 대표로 쓴다.
+    fs.mkdirSync(path.join(proj, '.awl', 'records'), { recursive: true });
+    fs.writeFileSync(path.join(proj, '.awl', 'records', '2026-01.jsonl'), '{}\n');
     const home = process.env.AWL_HOME as string;
-    fs.mkdirSync(path.join(home, 'records'), { recursive: true });
-    fs.writeFileSync(path.join(home, 'records', '2026-01.jsonl'), '{}\n');
     fs.mkdirSync(path.join(home, 'gotchas'), { recursive: true });
   }
 
@@ -112,10 +114,10 @@ describe('remove', () => {
       const codexSkillPath = path.join(proj, '.agents', 'skills', 'awl-pipeline');
       const agentsPath = path.join(proj, 'AGENTS.md');
       const tasksPlanPath = path.join(proj, '.tasks', 'plan');
-      const homeRecordsPath = path.join(process.env.AWL_HOME as string, 'records');
+      const homeGotchasPath = path.join(process.env.AWL_HOME as string, 'gotchas');
 
       const beforeAwlMtime = fs.statSync(dotAwlPath).mtimeMs;
-      const beforeHomeMtime = fs.statSync(homeRecordsPath).mtimeMs;
+      const beforeHomeMtime = fs.statSync(homeGotchasPath).mtimeMs;
 
       // --all: AC-01 은 F-02(전역)~F-05(레거시) 전 카테고리 표시 범위를 검증한다.
       // 스코프 좁히기 자체(기본=project만)는 AC-02 가 별도로 검증한다.
@@ -133,7 +135,7 @@ describe('remove', () => {
       expect(out).toContain('.agents/skills/awl-pipeline');
       expect(out).toContain('AGENTS.md');
       expect(out).toContain('.tasks/plan');
-      expect(out).toContain('records/');
+      expect(out).toContain('gotchas/');
 
       // 아무것도 안 지워짐 — 존재 + mtime 불변(뮤테이션 저항: rm 이 실수로 불려도 잡힌다).
       for (const p of [
@@ -142,12 +144,12 @@ describe('remove', () => {
         codexSkillPath,
         agentsPath,
         tasksPlanPath,
-        homeRecordsPath,
+        homeGotchasPath,
       ]) {
         expect(fs.existsSync(p)).toBe(true);
       }
       expect(fs.statSync(dotAwlPath).mtimeMs).toBe(beforeAwlMtime);
-      expect(fs.statSync(homeRecordsPath).mtimeMs).toBe(beforeHomeMtime);
+      expect(fs.statSync(homeGotchasPath).mtimeMs).toBe(beforeHomeMtime);
     });
 
     it('실제 발견된 것만 나열한다 — 없는 카테고리는 목록에 안 뜬다', async () => {
@@ -174,12 +176,12 @@ describe('remove', () => {
       fs.mkdirSync(path.join(proj, '.claude', 'skills', 'awl-loop'), { recursive: true });
       fs.mkdirSync(path.join(proj, '.agents', 'skills', 'awl-loop'), { recursive: true });
       const home = process.env.AWL_HOME as string;
-      fs.mkdirSync(path.join(home, 'records'), { recursive: true });
+      fs.mkdirSync(path.join(home, 'gotchas'), { recursive: true });
 
       const dotAwlPath = path.join(proj, '.awl');
       const skillPath = path.join(proj, '.claude', 'skills', 'awl-loop');
       const codexSkillPath = path.join(proj, '.agents', 'skills', 'awl-loop');
-      const homeRecordsPath = path.join(home, 'records');
+      const homeGotchasPath = path.join(home, 'gotchas');
 
       const cap = captureStdout();
       try {
@@ -192,7 +194,7 @@ describe('remove', () => {
       expect(fs.existsSync(dotAwlPath)).toBe(false);
       expect(fs.existsSync(skillPath)).toBe(false);
       expect(fs.existsSync(codexSkillPath)).toBe(false);
-      expect(fs.existsSync(homeRecordsPath)).toBe(false);
+      expect(fs.existsSync(homeGotchasPath)).toBe(false);
     });
   });
 
@@ -208,27 +210,27 @@ describe('remove', () => {
       const proj = fixtureProject();
       seedFullFixture(proj);
       const dotAwlPath = path.join(proj, '.awl');
-      const homeRecordsPath = path.join(process.env.AWL_HOME as string, 'records');
-      const beforeGlobalMtime = fs.statSync(homeRecordsPath).mtimeMs;
+      const homeGotchasPath = path.join(process.env.AWL_HOME as string, 'gotchas');
+      const beforeGlobalMtime = fs.statSync(homeGotchasPath).mtimeMs;
 
       await runRemove({ yes: true });
 
-      expect(fs.existsSync(dotAwlPath)).toBe(false); // 프로젝트: 지워짐.
-      expect(fs.existsSync(homeRecordsPath)).toBe(true); // 전역: 그대로.
-      expect(fs.statSync(homeRecordsPath).mtimeMs).toBe(beforeGlobalMtime);
+      expect(fs.existsSync(dotAwlPath)).toBe(false); // 프로젝트: 지워짐(records 도 그 안에 있었다).
+      expect(fs.existsSync(homeGotchasPath)).toBe(true); // 전역: 그대로.
+      expect(fs.statSync(homeGotchasPath).mtimeMs).toBe(beforeGlobalMtime);
     });
 
     it('--global --yes 는 전역만 지우고 프로젝트 로컬은 그대로다', async () => {
       const proj = fixtureProject();
       seedFullFixture(proj);
       const dotAwlPath = path.join(proj, '.awl');
-      const homeRecordsPath = path.join(process.env.AWL_HOME as string, 'records');
+      const homeGotchasPath = path.join(process.env.AWL_HOME as string, 'gotchas');
       const beforeProjectMtime = fs.statSync(dotAwlPath).mtimeMs;
 
       await runRemove({ yes: true, global: true });
 
-      expect(fs.existsSync(homeRecordsPath)).toBe(false); // 전역: 지워짐.
-      expect(fs.existsSync(dotAwlPath)).toBe(true); // 프로젝트: 그대로.
+      expect(fs.existsSync(homeGotchasPath)).toBe(false); // 전역: 지워짐.
+      expect(fs.existsSync(dotAwlPath)).toBe(true); // 프로젝트: 그대로(records 포함).
       expect(fs.statSync(dotAwlPath).mtimeMs).toBe(beforeProjectMtime);
     });
 
@@ -236,12 +238,12 @@ describe('remove', () => {
       const proj = fixtureProject();
       seedFullFixture(proj);
       const dotAwlPath = path.join(proj, '.awl');
-      const homeRecordsPath = path.join(process.env.AWL_HOME as string, 'records');
+      const homeGotchasPath = path.join(process.env.AWL_HOME as string, 'gotchas');
 
       await runRemove({ yes: true, all: true });
 
       expect(fs.existsSync(dotAwlPath)).toBe(false);
-      expect(fs.existsSync(homeRecordsPath)).toBe(false);
+      expect(fs.existsSync(homeGotchasPath)).toBe(false);
     });
 
     it('readOtherProjects: projects.json 에서 현재 프로젝트를 뺀 나머지만 돌려준다', () => {
@@ -748,13 +750,13 @@ describe('remove', () => {
     it('--global 전용 스코프에서는 라이브 락이 있어도 중단하지 않는다(.tasks 를 안 건드리므로)', async () => {
       const proj = fixtureProject();
       const home = process.env.AWL_HOME as string;
-      fs.mkdirSync(path.join(home, 'records'), { recursive: true });
+      fs.mkdirSync(path.join(home, 'gotchas'), { recursive: true });
       const now = Math.floor(Date.now() / 1000);
       seedLock(proj, 'review', process.pid, now);
 
       await runRemove({ yes: true, global: true });
 
-      expect(fs.existsSync(path.join(home, 'records'))).toBe(false);
+      expect(fs.existsSync(path.join(home, 'gotchas'))).toBe(false);
     });
   });
 
@@ -883,11 +885,11 @@ describe('remove', () => {
     it('scanGlobal 은 AWL_HOME 재정의를 존중한다', () => {
       fixtureProject();
       const home = process.env.AWL_HOME as string;
-      fs.mkdirSync(path.join(home, 'records'), { recursive: true });
+      fs.mkdirSync(path.join(home, 'gotchas'), { recursive: true });
       const items = scanGlobal();
-      const recordsItem = items.find((i) => i.category === 'records/');
-      expect(recordsItem?.present).toBe(true);
-      expect(recordsItem?.path).toBe(path.join(home, 'records'));
+      const gotchasItem = items.find((i) => i.category === 'gotchas/');
+      expect(gotchasItem?.present).toBe(true);
+      expect(gotchasItem?.path).toBe(path.join(home, 'gotchas'));
     });
 
     it('findMarkerLegacyFiles 는 .tasks 하위 ㅍ 마커 .md 파일만 찾는다', () => {

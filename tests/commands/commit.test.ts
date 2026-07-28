@@ -779,11 +779,11 @@ describe('runCommit — 정상 흐름(워크아이템+gate1 승인)은 트레일
     execFileSync('git', ['add', '-A'], { cwd: proj });
     execFileSync('git', ['commit', '-q', '-m', 'base'], { cwd: proj });
     process.chdir(proj);
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-loopok-home-'));
-    process.env.AWL_HOME = home;
-    fs.mkdirSync(path.join(home, 'records'), { recursive: true });
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-loopok-home-'));
+    const recordsDir = path.join(proj, '.awl', 'records');
+    fs.mkdirSync(recordsDir, { recursive: true });
     fs.writeFileSync(
-      path.join(home, 'records', '2026-07.jsonl'),
+      path.join(recordsDir, '2026-07.jsonl'),
       `${JSON.stringify({ id: 'g1', at: '2026-07-18T00:00:00.000Z', type: 'gate', gate: 1, decision: 'approved', workitem, project: 'p' })}\n`,
     );
     return proj;
@@ -1047,17 +1047,20 @@ describe('runCommit — 티켓 id 다형적 디스패치 (ADK stage 2d)', () => 
   it('게이트2 승인 기록이 있으면 티켓 경고 없이 조용히 커밋한다', async () => {
     const ticketId = 'ticket-uuid-6';
     const { dir } = ticketProject(ticketId);
-    appendRecord({
-      id: 'g2',
-      at: '2026-07-18T00:00:00.000Z',
-      type: 'gate',
-      gate: 2,
-      layer: 'ticket',
-      ticket: ticketId,
-      decision: 'approved',
-      presentedCriteria: ['AC-01'],
-      project: 'p',
-    });
+    appendRecord(
+      {
+        id: 'g2',
+        at: '2026-07-18T00:00:00.000Z',
+        type: 'gate',
+        gate: 2,
+        layer: 'ticket',
+        ticket: ticketId,
+        decision: 'approved',
+        presentedCriteria: ['AC-01'],
+        project: 'p',
+      },
+      dir,
+    );
 
     await runCommit(ticketId, { start: true });
     fs.writeFileSync(path.join(dir, 'change.txt'), 'work\n');

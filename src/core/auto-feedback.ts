@@ -54,7 +54,7 @@ export async function recordAutoFeedback(err: unknown, argv: string[]): Promise<
     if (!record) {
       return;
     }
-    appendRecord(record);
+    appendRecord(record, projectRoot);
     await syncFeedback(projectRoot, record);
   } catch {
     // 피드백 수집 자체가 실패해도 원래 에러를 가리지 않는다.

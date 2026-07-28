@@ -12,8 +12,18 @@ import {
 const origHome = process.env.AWL_HOME;
 const ASCII = { unicode: false, color: false, tty: false };
 
+/**
+ * awl-feedback 은 프로젝트 무관 집계라(WI-G17a 후속) records 를 project-local 로
+ * 쓰고 그 프로젝트를 ~/.awl/projects.json 에 등록해야 loadAwlFeedback 이 찾는다.
+ */
 function seedRecords(records: Record<string, unknown>[]): void {
-  const dir = path.join(process.env.AWL_HOME as string, 'records');
+  const home = process.env.AWL_HOME as string;
+  const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-fb-proj-'));
+  fs.writeFileSync(
+    path.join(home, 'projects.json'),
+    JSON.stringify([{ name: 'p', path: proj }]),
+  );
+  const dir = path.join(proj, '.awl', 'records');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
     path.join(dir, '2026-07.jsonl'),

@@ -145,7 +145,7 @@ export function buildStatus(projectRoot: string): StatusReport {
     : [];
   const count = (s: string): number => criteria.filter((c) => c.status === s).length;
 
-  const records = readRecords();
+  const records = readRecords(projectRoot);
   const byType: Record<string, number> = {};
   for (const r of records) {
     const t = String(r.type);

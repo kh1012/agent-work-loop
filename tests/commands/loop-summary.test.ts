@@ -63,10 +63,10 @@ function useTmpHome(): string {
   return home;
 }
 
-/** readRecords 가 읽는 AWL_HOME/records 에 워크아이템 기록을 심는다. */
-function seedRecords(records: Record<string, unknown>[]): void {
-  const home = useTmpHome();
-  const dir = path.join(home, 'records');
+/** readRecords 가 읽는 <projectRoot>/.awl/records 에 워크아이템 기록을 심는다(WI-G17a). */
+function seedRecords(projectRoot: string, records: Record<string, unknown>[]): void {
+  useTmpHome();
+  const dir = path.join(projectRoot, '.awl', 'records');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
     path.join(dir, '2026-07.jsonl'),
@@ -354,8 +354,9 @@ describe('runLoopSummary 핸들러 glue (AC-06/AC-07, 리뷰 round1 finding #1/#
     // 계약의 write 절반: withCostAtStart 가 실제로 costAtStart(.cost) 키를 심었다.
     expect((seeded.costAtStart as { cost?: number } | undefined)?.cost).toBe(2.0);
 
-    process.chdir(tmpProject(seeded));
-    seedRecords([
+    const root = tmpProject(seeded);
+    process.chdir(root);
+    seedRecords(root, [
       gateRec('WI-NOW', 1, '2026-07-18T05:00:00Z'),
       gateRec('WI-NOW', 2, '2026-07-18T06:00:00Z'),
     ]);
@@ -374,8 +375,9 @@ describe('runLoopSummary 핸들러 glue (AC-06/AC-07, 리뷰 round1 finding #1/#
       { workitem: 'WI-NOW', criteria: [{ id: 'AC-01', status: 'passed', commit: 'h1' }] },
       usageFile({ cost: 2.0 }),
     );
-    process.chdir(tmpProject(seeded));
-    seedRecords([gateRec('WI-NOW', 1, '2026-07-18T05:00:00Z')]);
+    const root = tmpProject(seeded);
+    process.chdir(root);
+    seedRecords(root, [gateRec('WI-NOW', 1, '2026-07-18T05:00:00Z')]);
 
     const out = capture(() => runLoopSummary({ json: true, usagePath: usageFile({ cost: 5.5 }) }));
     const j = JSON.parse(out) as LoopSummary;
@@ -387,22 +389,21 @@ describe('runLoopSummary 핸들러 glue (AC-06/AC-07, 리뷰 round1 finding #1/#
   it('과거 워크아이템: criteriaFor 가 레지스트리(state.workitems[id])를 읽고 startCostOf 는 undefined→비용 생략 (AC-07, 리뷰 finding #1)', () => {
     // 현재는 WI-CURRENT, 조회 대상은 과거 WI-PAST. state.criteria(AC-99)가 아니라
     // state.workitems['WI-PAST'].criteria 를 읽어야 한다(criteriaFor 레지스트리 분기 :263-269).
-    process.chdir(
-      tmpProject({
-        workitem: 'WI-CURRENT',
-        criteria: [{ id: 'AC-99', status: 'pending' }],
-        costAtStart: { cost: 2.0 }, // 현재 워크아이템 것 — 과거 조회엔 안 쓰여야 한다.
-        workitems: {
-          'WI-PAST': {
-            criteria: [
-              { id: 'AC-01', status: 'passed', commit: 'h1' },
-              { id: 'AC-02', status: 'passed', commit: 'h2' },
-            ],
-          },
+    const root = tmpProject({
+      workitem: 'WI-CURRENT',
+      criteria: [{ id: 'AC-99', status: 'pending' }],
+      costAtStart: { cost: 2.0 }, // 현재 워크아이템 것 — 과거 조회엔 안 쓰여야 한다.
+      workitems: {
+        'WI-PAST': {
+          criteria: [
+            { id: 'AC-01', status: 'passed', commit: 'h1' },
+            { id: 'AC-02', status: 'passed', commit: 'h2' },
+          ],
         },
-      }),
-    );
-    seedRecords([gateRec('WI-PAST', 1, '2026-07-18T05:00:00Z')]);
+      },
+    });
+    process.chdir(root);
+    seedRecords(root, [gateRec('WI-PAST', 1, '2026-07-18T05:00:00Z')]);
 
     // now usage cost=5.50 주입: startCostOf 가드가 없으면 5.50-2.00=3.50 이 새 나온다(뮤테이션 신호).
     const out = capture(() =>
@@ -641,18 +642,17 @@ describe('resolveBatchWorkitems (AC-01, 순수)', () => {
 
 describe('runLoopSummary 배치모드 glue — --workitems (AC-01/AC-03)', () => {
   function seedThreeWorkitems(): void {
-    process.chdir(
-      tmpProject({
-        workitem: 'WI-CURRENT',
-        criteria: [{ id: 'AC-99', status: 'pending' }],
-        workitems: {
-          'WI-1': { criteria: [{ id: 'AC-01', status: 'passed', commit: 'h1' }] },
-          'WI-2': { criteria: [{ id: 'AC-01', status: 'passed', commit: 'h2' }] },
-          'WI-3': { criteria: [{ id: 'AC-01', status: 'passed', commit: 'h3' }] },
-        },
-      }),
-    );
-    seedRecords([
+    const root = tmpProject({
+      workitem: 'WI-CURRENT',
+      criteria: [{ id: 'AC-99', status: 'pending' }],
+      workitems: {
+        'WI-1': { criteria: [{ id: 'AC-01', status: 'passed', commit: 'h1' }] },
+        'WI-2': { criteria: [{ id: 'AC-01', status: 'passed', commit: 'h2' }] },
+        'WI-3': { criteria: [{ id: 'AC-01', status: 'passed', commit: 'h3' }] },
+      },
+    });
+    process.chdir(root);
+    seedRecords(root, [
       gateRec('WI-1', 1, '2026-07-18T05:00:00Z'),
       gateRec('WI-2', 1, '2026-07-18T05:00:00Z'),
       gateRec('WI-3', 1, '2026-07-18T05:00:00Z'),
@@ -694,15 +694,14 @@ describe('runLoopSummary 배치모드 glue — --workitems (AC-01/AC-03)', () =>
 
 describe('runLoopSummary 배치모드 glue — --since (AC-01, F-04)', () => {
   it('세대 스냅샷(at) 기준으로 그 시각 이후 완료된 워크아이템만 배치에 담는다', () => {
-    process.chdir(
-      tmpProject({
-        workitems: {
-          'WI-OLD': { criteria: [{ id: 'AC-01', status: 'passed' }] },
-          'WI-NEW': { criteria: [{ id: 'AC-01', status: 'passed' }] },
-        },
-      }),
-    );
-    seedRecords([
+    const root = tmpProject({
+      workitems: {
+        'WI-OLD': { criteria: [{ id: 'AC-01', status: 'passed' }] },
+        'WI-NEW': { criteria: [{ id: 'AC-01', status: 'passed' }] },
+      },
+    });
+    process.chdir(root);
+    seedRecords(root, [
       gateRec('WI-OLD', 1, '2026-07-01T05:00:00Z'),
       gateRec('WI-NEW', 1, '2026-07-15T05:00:00Z'),
     ]);
@@ -739,9 +738,13 @@ describe('runLoopSummary 단일모드 — cwd 밖(config-anywhere-fallback)', ()
     const projB = tmpProject({ workitem: 'WI-SAME' }, 'proj-b');
     register(home, 'proj-a', projA);
     register(home, 'proj-b', projB);
-    seedRecords([
+    // records 는 project-local(WI-G17a) 이라 각자의 .awl/records/ 에 따로 심는다 —
+    // project 필드는 무해한 이중 확인으로 남겨둔다(D-15).
+    seedRecords(projA, [
       { ...gateRec('WI-SAME', 1, '2026-07-18T05:00:00Z'), project: 'proj-a' },
       { ...gateRec('WI-SAME', 2, '2026-07-18T06:00:00Z'), project: 'proj-a' },
+    ]);
+    seedRecords(projB, [
       { ...gateRec('WI-SAME', 1, '2026-07-18T05:00:00Z'), project: 'proj-b' },
       { ...gateRec('WI-SAME', 2, '2026-07-18T06:00:00Z'), project: 'proj-b' },
       { ...gateRec('WI-SAME', 3, '2026-07-18T07:00:00Z'), project: 'proj-b' },

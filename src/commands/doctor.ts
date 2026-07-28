@@ -944,7 +944,7 @@ async function collectSingleProject(
       typeof trailState.workitem === 'string' && trailState.workitem.trim() !== ''
         ? trailState.workitem
         : null;
-    const gateAttemptRecords = readRecords().filter(
+    const gateAttemptRecords = readRecords(projectRoot).filter(
       (r) => r.project === trailProjectName && (r.type === 'gate' || r.type === 'attempt'),
     ).length;
     const hasCommits = await gitHasCommits(projectRoot);
@@ -964,7 +964,7 @@ async function collectSingleProject(
   // "다른 세션"이라 단정하지 못한다 — 시각만 표시해 사람이 병렬 충돌을 눈치채게 한다.
   // info 라 doctor 종료코드에도 영향 없다(problems 는 missing/fail 만 센다, F-04).
   try {
-    const recs = readRecords();
+    const recs = readRecords(projectRoot);
     const lastAt = recs.length > 0 ? String(recs[0]?.at ?? '') : '';
     let stateMtime = '';
     try {

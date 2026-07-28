@@ -48,9 +48,28 @@ export function engineDir(): string {
   return path.join(installationRoot(), 'engine');
 }
 
-/** ~/.awl/records — 작업 기록 */
-export function recordsDir(): string {
-  return path.join(globalRoot(), 'records');
+/**
+ * <project>/.awl/records — 작업 기록(ADK stage 5, adk-reference.md:576-591).
+ * 예전엔 globalRoot() 기준 전역이었다 — 레인마다 완전히 다른 AWL_HOME 으로 격리하고
+ * teardown 때 병합해야 했다(정확히 설계와 반대: "정리 때 병합할 게 없어야" 하는데
+ * "정리가 곧 병합"). project-local 로 옮기고 레인은 파일명 접미사(records-suffix.json,
+ * recordsSuffixPath)로만 나눈다 — 레인 워크트리는 이 디렉토리를 main 트리로의
+ * 심링크로 만들어 실시간 공유한다(커밋을 기다리는 git 동기화가 아니다, config.json/
+ * profile.json 과는 다른 메커니즘 — 그건 커밋 시점 동기화라 records 의 세션 중
+ * 실시간 가시성 요구를 못 만족한다).
+ */
+export function recordsDir(projectRoot: string): string {
+  return path.join(projectRoot, '.awl', 'records');
+}
+
+/**
+ * <project>/.awl/records-suffix.json — 이 프로젝트 루트(레인 워크트리 또는 격리
+ * 세션)가 남기는 records 파일명 접미사({"suffix":"<레인 또는 세션 id>"}). 없으면
+ * 접미사 없이 쓴다(메인). 워크트리 로컬이라 심링크 대상이 아니다 — 레인마다 달라야
+ * 하는 유일한 조각.
+ */
+export function recordsSuffixPath(projectRoot: string): string {
+  return path.join(projectRoot, '.awl', 'records-suffix.json');
 }
 
 /** ~/.awl/gotchas — 아직 규칙이 되지 않은 교훈(WI-O — 예전 이름 delta 를 개명함). */
@@ -101,8 +120,10 @@ export function npmVersionCachePath(): string {
 }
 
 /**
- * ~/.awl/sync-cursor.json — 중앙 저장소 전송 커서(ADK stage 3). 기록(~/.awl/records)과
- * sync.records/sync.feedback endpoint 설정이 전역(사람마다 한 번)이므로 커서도 전역이다 —
+ * ~/.awl/sync-cursor.json — 중앙 저장소 전송 커서(ADK stage 3). sync.records/
+ * sync.feedback endpoint 설정이 전역(사람마다 한 번)이므로 커서도 전역이다(records
+ * 자체는 project-local 로 옮겼지만, "어디까지 보냈나"는 사람×프로젝트 조합별로
+ * cursor.records[projectName] 에 저장돼 전역 파일 하나로도 여러 프로젝트를 구분한다) —
  * 프로젝트별 .awl/state.json(baseline/attempts 런타임)과는 다른 층위.
  */
 export function syncCursorPath(): string {

@@ -79,7 +79,7 @@ export function computeNextView(projectRoot: string, ticketId: string): NextView
     conditionText = block?.text ?? null;
   }
 
-  const gateHistory: GateHistoryEntry[] = readRecords({ type: 'gate' })
+  const gateHistory: GateHistoryEntry[] = readRecords(projectRoot, { type: 'gate' })
     .filter((r) => r.ticket === ticketId)
     .map((r) => ({
       gate: typeof r.gate === 'number' ? r.gate : Number.NaN,

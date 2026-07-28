@@ -491,6 +491,7 @@ function startCostOf(
  * startCostOf 규약을 그대로 쓴다 — 배치라고 다른 규약을 새로 만들지 않는다.
  */
 function buildBatchSummaries(
+  projectRoot: string,
   ids: string[],
   state: Rec,
   current: string | null,
@@ -498,7 +499,7 @@ function buildBatchSummaries(
 ): LoopSummary[] {
   const nowSnapshot = readCostSnapshot(usagePath);
   return ids.map((id) => {
-    const records = readRecords({ workitem: id });
+    const records = readRecords(projectRoot, { workitem: id });
     const criteria = criteriaFor(state, id, current);
     const costDelta = computeCostDelta(startCostOf(state, id, current), nowSnapshot);
     return assembleLoopSummary(id, records, criteria, costDelta);
@@ -519,7 +520,7 @@ function runLoopSummaryBatch(opts: {
   const generations = opts.since !== undefined ? loadGenerations(config.project) : [];
   const ids = resolveBatchWorkitems({ workitems: opts.workitems, since: opts.since }, generations);
 
-  const summaries = buildBatchSummaries(ids, state, current, opts.usagePath);
+  const summaries = buildBatchSummaries(projectRoot, ids, state, current, opts.usagePath);
   const aggregate = aggregateLoopSummaries(summaries);
 
   if (opts.json) {
@@ -566,10 +567,10 @@ export function runLoopSummary(opts: {
       const state = loadState(p.path);
       const current = typeof state.workitem === 'string' ? state.workitem : null;
       const workitem = opts.workitem ?? current;
-      // records 는 전역 저장소다 — project 로 걸러야 다른 프로젝트의 같은 workitem 이름과
-      // 안 섞인다(단일모드는 이 필터가 없다 — 거긴 애초에 프로젝트가 하나뿐이라 필요 없다).
+      // records 는 project-local(.awl/records/, WI-G17a) 이라 p.path 로 이미 이
+      // 프로젝트만 읽는다 — project 필터는 무해한 이중 확인으로 남겨둔다.
       const records = workitem
-        ? readRecords({ workitem }).filter((r) => r.project === projectName)
+        ? readRecords(p.path, { workitem }).filter((r) => r.project === projectName)
         : [];
       const criteria = criteriaFor(state, workitem, current);
       const costDelta = computeCostDelta(
@@ -601,7 +602,7 @@ export function runLoopSummary(opts: {
   const state = loadState(projectRoot);
   const current = typeof state.workitem === 'string' ? state.workitem : null;
   const workitem = opts.workitem ?? current;
-  const records = workitem ? readRecords({ workitem }) : [];
+  const records = workitem ? readRecords(projectRoot, { workitem }) : [];
   const criteria = criteriaFor(state, workitem, current);
   // usagePath 미주입이면 readCostSnapshot 기본값(DEFAULT_USAGE_PATH) — 프로덕션 동작 불변.
   // 주입은 테스트 전용(now 스냅샷을 고정해 write→read cost 계약을 hermetic 하게 잠근다).

@@ -338,12 +338,13 @@ export interface EvolveCollection {
  * scope 미지정이면 전량(하위호환, 오래된 워크아이템 evolve 안전).
  */
 export function collectEvolve(
+  projectRoot: string,
   project: string,
   workitem: string | null,
   state: Record<string, unknown>,
   scope?: { months?: string[]; from?: string; to?: string },
 ): EvolveCollection {
-  const records = readRecords({ ...(workitem ? { workitem } : {}), ...(scope ?? {}) });
+  const records = readRecords(projectRoot, { ...(workitem ? { workitem } : {}), ...(scope ?? {}) });
   const blocked = records.filter((r) => r.type === 'blocked');
   const reviews = records.filter((r) => r.type === 'review');
   const retried = records.filter(
@@ -566,7 +567,7 @@ export function runEvolveCollect(opts: {
       opts.months !== undefined || opts.from !== undefined || opts.to !== undefined
         ? { months: opts.months, from: opts.from, to: opts.to }
         : undefined;
-    const collection = collectEvolve(config.project, workitem, state, scope);
+    const collection = collectEvolve(projectRoot, config.project, workitem, state, scope);
     const at = new Date().toISOString();
     // 실험 케이스 메타(work new --experiment)를 세대 스냅샷에 실어 metrics --compare 가
     // 케이스 축으로 읽게 한다. 없으면(대부분) 예전과 동일.

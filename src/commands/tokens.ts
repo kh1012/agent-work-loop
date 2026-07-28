@@ -159,7 +159,7 @@ export async function runTokens(
     );
     process.exit(1);
   }
-  const records = readRecords({ workitem: ticketId });
+  const records = readRecords(projectRoot, { workitem: ticketId });
   const sessionEvents = readSessionUsageEvents(projectRoot);
   const report = computeTokensReport(ticketId, records, sessionEvents);
 

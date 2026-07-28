@@ -36,10 +36,9 @@ function tmpProject(state: unknown): string {
   return root;
 }
 
-function tmpHomeWithRecords(records: Record<string, unknown>[]): void {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-home-'));
-  process.env.AWL_HOME = home;
-  const dir = path.join(home, 'records');
+function tmpHomeWithRecords(root: string, records: Record<string, unknown>[]): void {
+  process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-home-'));
+  const dir = path.join(root, '.awl', 'records');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
     path.join(dir, '2026-07.jsonl'),
@@ -61,7 +60,7 @@ describe('buildStatus', () => {
         { id: 'AC-05', status: 'pending' },
       ],
     });
-    tmpHomeWithRecords([
+    tmpHomeWithRecords(root, [
       { id: '1', at: '2026-07-14T10:00:00Z', type: 'attempt', result: 'passed', what: 'x' },
       { id: '2', at: '2026-07-14T09:00:00Z', type: 'blocked', what: 'y' },
       { id: '3', at: '2026-07-14T08:00:00Z', type: 'audit', scope: 'z' },
@@ -207,7 +206,7 @@ describe('renderStatus (AC-01 사람용)', () => {
 describe('게이트 이력 (WI-Q AC-03)', () => {
   it('buildStatus 가 gate:1/gate:2 레코드를 읽어 게이트 상태를 낸다', () => {
     const root = tmpProject({ phase: 'loop', workitem: 'WI-9', criteria: [] });
-    tmpHomeWithRecords([
+    tmpHomeWithRecords(root, [
       {
         id: '1',
         at: '2026-07-15T13:44:00Z',
@@ -249,7 +248,7 @@ describe('게이트 이력 (WI-Q AC-03)', () => {
 
   it('게이트 3/4(ADK stage 2a) 레코드도 게이트 1/2 와 동일하게 읽힌다', () => {
     const root = tmpProject({ phase: 'loop', workitem: 'WI-9', criteria: [] });
-    tmpHomeWithRecords([
+    tmpHomeWithRecords(root, [
       {
         id: '1',
         at: '2026-07-15T14:00:00Z',
@@ -288,7 +287,7 @@ describe('게이트 이력 (WI-Q AC-03)', () => {
   it('게이트 decision 을 상태값으로 색코딩한다 — approved=green, rejected=red (cli-visual-consistency AC-04)', () => {
     const mk = (decision: string) => {
       const root = tmpProject({ phase: 'loop', workitem: 'WI-9', criteria: [] });
-      tmpHomeWithRecords([
+      tmpHomeWithRecords(root, [
         {
           id: '1',
           at: '2026-07-15T13:44:00Z',
@@ -307,7 +306,7 @@ describe('게이트 이력 (WI-Q AC-03)', () => {
 
   it('같은 게이트 번호로 여러 번 기록되면(재승인 등) 가장 최근 것을 쓴다', () => {
     const root = tmpProject({ phase: 'loop', workitem: 'WI-9', criteria: [] });
-    tmpHomeWithRecords([
+    tmpHomeWithRecords(root, [
       {
         id: '1',
         at: '2026-07-15T14:00:00Z',
@@ -334,7 +333,7 @@ describe('게이트 이력 (WI-Q AC-03)', () => {
 
   it('renderStatus 가 사람용 텍스트로 게이트 이력을 보여준다', () => {
     const root = tmpProject({ phase: 'loop', workitem: 'WI-9', criteria: [] });
-    tmpHomeWithRecords([
+    tmpHomeWithRecords(root, [
       {
         id: '1',
         at: '2026-07-15T13:44:00Z',

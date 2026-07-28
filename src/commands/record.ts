@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { parseFrontmatter, serializeFrontmatter } from '../core/doc-frontmatter.js';
 import { readGlobalAwlConfig } from '../core/global-config.js';
-import { recordsDir, rulesDir } from '../core/paths.js';
+import { recordsDir, recordsSuffixPath, rulesDir } from '../core/paths.js';
 import { redactAbsolutePaths } from '../core/redact.js';
 import { run } from '../core/runner.js';
 import {
@@ -349,7 +349,7 @@ async function syncProjectRecords(projectRoot: string, projectName: string): Pro
   let cursor = readSyncCursor();
   let stream = cursor.records?.[projectName];
   // readRecords() 는 최신순(내림차순)이다 — allDesc[0] 이 가장 최근 기록, 끝이 가장 오래됨.
-  const allDesc = readRecords({}).filter((r) => r.project === projectName);
+  const allDesc = readRecords(projectRoot).filter((r) => r.project === projectName);
 
   if (!stream) {
     // 이 프로젝트의 records 스트림을 처음 추적하는 순간이다 — endpoint 가 방금 켜졌을
@@ -989,15 +989,33 @@ export function computeCoverage(
   return { auditFindingIds, addressedIds, excludedIds };
 }
 
-/** at(ISO) 에서 YYYY-MM 월 파일 이름을 만든다. */
-export function monthFile(at: string): string {
+/** records-suffix.json 이 있으면 그 접미사를, 없으면(메인) undefined 를 돌려준다. */
+function readRecordsSuffix(projectRoot: string): string | undefined {
+  try {
+    const raw = JSON.parse(fs.readFileSync(recordsSuffixPath(projectRoot), 'utf8')) as unknown;
+    const suffix =
+      raw && typeof raw === 'object' ? (raw as Record<string, unknown>).suffix : undefined;
+    return typeof suffix === 'string' && suffix.trim() !== '' ? suffix : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * at(ISO) 에서 YYYY-MM 월 파일 이름을 만든다. records-suffix.json 이 있으면(레인
+ * 워크트리·격리 세션) `YYYY-MM.<접미사>.jsonl` — 같은 디렉토리 안에서 파일명으로만
+ * 나뉘어 쓰기 경합이 없다(레인과 토큰, adk-reference.md:576-591).
+ */
+export function monthFile(at: string, projectRoot: string): string {
   const month = at.slice(0, 7); // YYYY-MM
-  return path.join(recordsDir(), `${month}.jsonl`);
+  const suffix = readRecordsSuffix(projectRoot);
+  const name = suffix ? `${month}.${suffix}.jsonl` : `${month}.jsonl`;
+  return path.join(recordsDir(projectRoot), name);
 }
 
 /** 레코드를 월별 JSONL 에 append 한다. 절대 수정하지 않는다. */
-export function appendRecord(record: Record<string, unknown>): string {
-  const file = monthFile(String(record.at));
+export function appendRecord(record: Record<string, unknown>, projectRoot: string): string {
+  const file = monthFile(String(record.at), projectRoot);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.appendFileSync(file, `${JSON.stringify(record)}\n`);
   return file;
@@ -1009,7 +1027,7 @@ export async function captureDiff(id: string, at: string, cwd: string): Promise<
   if (r.exitCode !== 0 && r.stdout.trim() === '') {
     return null;
   }
-  const diffsDir = path.join(recordsDir(), 'diffs');
+  const diffsDir = path.join(recordsDir(cwd), 'diffs');
   fs.mkdirSync(diffsDir, { recursive: true });
   const name = `${at.slice(0, 10)}-${id}.patch`;
   fs.writeFileSync(path.join(diffsDir, name), r.stdout);
@@ -1064,9 +1082,15 @@ export function selectMonthFiles(files: string[], filter: RecordFilter = {}): st
 /**
  * 월별 JSONL 을 읽어 레코드 배열을 돌려준다(파싱 실패 줄은 건너뜀).
  * filter 에 months/from/to 가 있으면 그 월 파일만 읽는다(selectMonthFiles) — 전량 로드 회피.
+ * projectRoot 의 records/ 디렉토리 전체를 훑는다 — 레인 접미사가 붙은 파일도
+ * `.jsonl` 로 끝나기만 하면 자연히 걸린다(별도 매칭 로직 불필요, monthOf 의
+ * slice(0,7) 도 접미사 유무와 무관하게 YYYY-MM 을 정확히 뽑는다).
  */
-export function readRecords(filter: RecordFilter = {}): Record<string, unknown>[] {
-  const dir = recordsDir();
+export function readRecords(
+  projectRoot: string,
+  filter: RecordFilter = {},
+): Record<string, unknown>[] {
+  const dir = recordsDir(projectRoot);
   let files: string[];
   try {
     files = selectMonthFiles(fs.readdirSync(dir), filter);
@@ -1175,7 +1199,9 @@ export function runDeferSummary(opts: { json?: boolean; workitem?: string }): vo
         ? state.workitem
         : undefined;
   }
-  const items = collectDeferred(readRecords({ type: 'defer', workitem }));
+  const items = collectDeferred(
+    projectRoot ? readRecords(projectRoot, { type: 'defer', workitem }) : [],
+  );
   if (opts.json === true) {
     process.stdout.write(`${JSON.stringify({ workitem, count: items.length, items }, null, 2)}\n`);
     return;
@@ -1191,12 +1217,16 @@ export function runDeferSummary(opts: { json?: boolean; workitem?: string }): vo
  * 계획이나 임의 조작한 phase 로 루프 진입/게이트 전 커밋을 우회할 수 있었다.
  * decision==='approved' 만 인정한다 — `record gate` 의 loop 자동전이 조건과 일관.
  * workitem 이 falsy 면 확인할 게이트 레코드가 없다는 뜻이므로 fail-closed(false).
+ * projectRoot 가 null 이어도(프로젝트를 못 찾음) 마찬가지로 fail-closed.
  */
-export function hasApprovedGate1(workitem: string | undefined): boolean {
-  if (typeof workitem !== 'string' || workitem === '') {
+export function hasApprovedGate1(
+  workitem: string | undefined,
+  projectRoot: string | null,
+): boolean {
+  if (typeof workitem !== 'string' || workitem === '' || !projectRoot) {
     return false;
   }
-  return readRecords({ type: 'gate', workitem }).some(
+  return readRecords(projectRoot, { type: 'gate', workitem }).some(
     (r) => r.gate === 1 && r.decision === 'approved',
   );
 }
@@ -1308,6 +1338,16 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
     );
     process.exit(1);
   }
+  // records 가 project-local(.awl/records/) 이라(WI-G17a) data.workitem 만 주고
+  // 프로젝트를 못 찾으면 쓸 곳이 없다 — 위 워크아이템 가드는 이 조합을 통과시키므로
+  // (dataWorkitem 만으로도 만족) 여기서 별도로 막는다.
+  if (!projectRoot) {
+    process.stderr.write(
+      `\n  ${signal(caps(), 'error')} 프로젝트 루트를 찾을 수 없어 기록을 남길 곳이 없습니다. awl init 을 실행했는지 확인하세요.\n`,
+    );
+    process.exit(1);
+    return;
+  }
 
   const id = newRecordId();
   const at = new Date().toISOString();
@@ -1412,12 +1452,15 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
   // fail-open 을 피하려고 workitem 이 string 일 때만 계산한다.
   if (type === 'gate' && data.gate === 1) {
     const workitemForCheck = typeof record.workitem === 'string' ? record.workitem : undefined;
-    if (workitemForCheck) {
+    if (workitemForCheck && projectRoot) {
       const criteria = Array.isArray(state.criteria)
         ? (state.criteria as Record<string, unknown>[])
         : [];
-      const auditRecords = readRecords({ type: 'audit', workitem: workitemForCheck });
-      const criteriaRecords = readRecords({ type: 'criteria', workitem: workitemForCheck });
+      const auditRecords = readRecords(projectRoot, { type: 'audit', workitem: workitemForCheck });
+      const criteriaRecords = readRecords(projectRoot, {
+        type: 'criteria',
+        workitem: workitemForCheck,
+      });
       const coverage = computeCoverage(auditRecords, criteria, criteriaRecords);
       if (coverage.excludedIds.length > 0) {
         const presented = Array.isArray(data.presentedExclusions) ? data.presentedExclusions : [];
@@ -1475,7 +1518,7 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
     }
   }
 
-  const file = appendRecord(record);
+  const file = appendRecord(record, projectRoot);
 
   // 승인 기록 자체가 Gate 1 대기 상태를 해제한다. state set을 별도로 허용하면
   // 계획 승인 없이 phase만 바꾸는 우회 경로가 생기므로 여기서만 전이한다.
@@ -1559,8 +1602,9 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
     // 실수를 WI-Q 에서 이미 한 번 했다). 판단 불가능하면 경고도 안 준다(소프트
     // 체크라 거부는 원래 안 하므로, 잘못된 안심을 주는 것보다 조용한 게 낫다).
     const workitemForCheck = typeof record.workitem === 'string' ? record.workitem : undefined;
-    if (passedCount >= 3 && workitemForCheck) {
-      const hasReview = readRecords({ type: 'review', workitem: workitemForCheck }).length > 0;
+    if (passedCount >= 3 && workitemForCheck && projectRoot) {
+      const hasReview =
+        readRecords(projectRoot, { type: 'review', workitem: workitemForCheck }).length > 0;
       if (!hasReview) {
         process.stderr.write(
           `\n  ${signal(caps(), 'warn')} 완료 조건 ${passedCount}개가 통과했으나 리뷰 기록이 없습니다.\n  리뷰를 건너뛰었습니까?\n`,
@@ -1579,12 +1623,14 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
       criteria.length > 0 &&
       criteria.every((c) => c.status === 'passed' && (Number(c.attempts) || 0) === 0);
     if (allPassedFirstTry) {
-      const auditRecords = workitemForCheck
-        ? readRecords({ type: 'audit', workitem: workitemForCheck })
-        : [];
-      const criteriaRecords = workitemForCheck
-        ? readRecords({ type: 'criteria', workitem: workitemForCheck })
-        : [];
+      const auditRecords =
+        workitemForCheck && projectRoot
+          ? readRecords(projectRoot, { type: 'audit', workitem: workitemForCheck })
+          : [];
+      const criteriaRecords =
+        workitemForCheck && projectRoot
+          ? readRecords(projectRoot, { type: 'criteria', workitem: workitemForCheck })
+          : [];
       const coverage = computeCoverage(auditRecords, criteria, criteriaRecords);
       process.stderr.write(
         `\n  완료 조건 ${criteria.length}개 전부 1차 통과. 막힘 0건.\n  조사에서 발견한 ${coverage.auditFindingIds.length}건 중 ${coverage.addressedIds.length}건을 다뤘습니다.\n  완료 조건이 충분히 야심찼습니까?\n`,
@@ -1617,7 +1663,15 @@ export function resolveEffectiveAuthor(projectRoot: string | null): string | und
 
 /** awl records — 사람이 읽는 조회. */
 export function runRecords(opts: { type?: string; workitem?: string; json?: boolean }): void {
-  const records = readRecords({ type: opts.type, workitem: opts.workitem });
+  const projectRoot = resolveProjectRoot();
+  if (!projectRoot) {
+    process.stderr.write(
+      `\n  ${signal(caps(), 'error')} 프로젝트 루트를 찾을 수 없습니다. awl init 을 실행하세요.\n`,
+    );
+    process.exit(1);
+    return;
+  }
+  const records = readRecords(projectRoot, { type: opts.type, workitem: opts.workitem });
   if (opts.json) {
     process.stdout.write(`${JSON.stringify(records, null, 2)}\n`);
     return;

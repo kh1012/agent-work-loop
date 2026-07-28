@@ -23,7 +23,7 @@ import { legacyDeltasDir } from '../../src/core/paths.js';
 const origHome = process.env.AWL_HOME;
 
 function seedRecords(records: Record<string, unknown>[]): void {
-  const dir = path.join(process.env.AWL_HOME as string, 'records');
+  const dir = path.join(process.env.AWL_HOME as string, '.awl', 'records');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
     path.join(dir, '2026-07.jsonl'),
@@ -45,7 +45,7 @@ afterEach(() => {
 
 describe('collectEvolve — 기간 범위 scope (records-read-scope AC-02)', () => {
   function seedMonth(month: string, records: Record<string, unknown>[]): void {
-    const dir = path.join(process.env.AWL_HOME as string, 'records');
+    const dir = path.join(process.env.AWL_HOME as string, '.awl', 'records');
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(
       path.join(dir, `${month}.jsonl`),
@@ -67,14 +67,14 @@ describe('collectEvolve — 기간 범위 scope (records-read-scope AC-02)', () 
     seedMonth('2026-07', [blk('j7', '2026-07-10T10:00:00Z', '7월막힘')]);
     const state = { criteria: [] };
     // 폴백(scope 없음) = 두 달 다 (기존 동작 보존)
-    expect(collectEvolve('p', 'WI-6', state).blocked).toHaveLength(2);
+    expect(collectEvolve(process.env.AWL_HOME as string, 'p', 'WI-6', state).blocked).toHaveLength(2);
     // scope 7월만
-    const scoped = collectEvolve('p', 'WI-6', state, { months: ['2026-07'] });
+    const scoped = collectEvolve(process.env.AWL_HOME as string, 'p', 'WI-6', state, { months: ['2026-07'] });
     expect(scoped.blocked).toHaveLength(1);
     expect(scoped.blocked[0]?.what).toBe('7월막힘');
     // from/to 도 동작
     expect(
-      collectEvolve('p', 'WI-6', state, { from: '2026-06', to: '2026-06' }).blocked,
+      collectEvolve(process.env.AWL_HOME as string, 'p', 'WI-6', state, { from: '2026-06', to: '2026-06' }).blocked,
     ).toHaveLength(1);
   });
 });
@@ -125,7 +125,7 @@ describe('collectEvolve — 모으기만 (판단하지 않음)', () => {
         { id: 'AC-02', status: 'blocked', attempts: 3, proceduralErrors: 2 },
       ],
     };
-    const col = collectEvolve('agent-work-loop', 'WI-6', state);
+    const col = collectEvolve(process.env.AWL_HOME as string, 'agent-work-loop', 'WI-6', state);
 
     expect(col.blocked).toHaveLength(1);
     expect(col.reviews).toHaveLength(1);
@@ -176,7 +176,7 @@ describe('collectEvolve — 모으기만 (판단하지 않음)', () => {
         what: 'x',
       },
     ]);
-    const col = collectEvolve('agent-work-loop', 'WI-6', { criteria: [] });
+    const col = collectEvolve(process.env.AWL_HOME as string, 'agent-work-loop', 'WI-6', { criteria: [] });
     expect(col.metrics.gotchaApplied).toBe(2);
     expect(col.metrics.gotchaMissed).toBe(1);
   });
@@ -208,19 +208,19 @@ describe('collectEvolve — 모으기만 (판단하지 않음)', () => {
         kind: 'rename',
       }, // 다른 워크아이템
     ]);
-    expect(collectEvolve('agent-work-loop', 'WI-6', { criteria: [] }).metrics.refactorCount).toBe(
+    expect(collectEvolve(process.env.AWL_HOME as string, 'agent-work-loop', 'WI-6', { criteria: [] }).metrics.refactorCount).toBe(
       2,
     );
     // 레거시(refactor 기록 없음)는 0 — 하위호환
     seedRecords([]);
-    expect(collectEvolve('agent-work-loop', 'WI-6', { criteria: [] }).metrics.refactorCount).toBe(
+    expect(collectEvolve(process.env.AWL_HOME as string, 'agent-work-loop', 'WI-6', { criteria: [] }).metrics.refactorCount).toBe(
       0,
     );
   });
 
   it('gotcha-applied/gotcha-missed 기록이 없으면 0이다', () => {
     seedRecords([]);
-    const col = collectEvolve('agent-work-loop', 'WI-6', { criteria: [] });
+    const col = collectEvolve(process.env.AWL_HOME as string, 'agent-work-loop', 'WI-6', { criteria: [] });
     expect(col.metrics.gotchaApplied).toBe(0);
     expect(col.metrics.gotchaMissed).toBe(0);
   });
@@ -231,7 +231,7 @@ describe('collectEvolve — 모으기만 (판단하지 않음)', () => {
       { lesson: '축을 파라미터로 빼기 전에 좌표계 의존을 확인한다', source: { workitem: 'WI-4' } },
       '2026-07-14T00:00:00Z',
     );
-    const col = collectEvolve('p', 'WI-6', { criteria: [] });
+    const col = collectEvolve(process.env.AWL_HOME as string, 'p', 'WI-6', { criteria: [] });
     expect(col.existingGotchas).toHaveLength(1);
     expect(col.existingGotchas[0]?.count).toBe(1);
     expect(col.existingGotchas[0]?.lesson).toContain('좌표계');
@@ -461,7 +461,7 @@ describe('gotchasBySource + collectEvolve relatedGotchas (AC-03)', () => {
     writeGotchaFile(mk('G-002', { source: { workitem: 'WI-9' } })); // 다른 워크아이템이나 G-001 관계로 딸려옴
     writeGotchaFile(mk('G-003', { source: { workitem: 'WI-6' } })); // 같은 워크아이템, 관계 없음
     writeGotchaFile(mk('G-009', { source: { workitem: 'WI-9' } })); // 무관
-    const col = collectEvolve('p', 'WI-6', { criteria: [] });
+    const col = collectEvolve(process.env.AWL_HOME as string, 'p', 'WI-6', { criteria: [] });
     expect(col.relatedGotchas.map((g) => g.id).sort()).toEqual(['G-001', 'G-002', 'G-003']);
     // existingGotchas 는 여전히 전량(회귀 없음)
     expect(col.existingGotchas).toHaveLength(4);
@@ -470,8 +470,8 @@ describe('gotchasBySource + collectEvolve relatedGotchas (AC-03)', () => {
   it('workitem 이 null 이거나 관련 교훈이 없으면 relatedGotchas 는 빈 배열', () => {
     seedRecords([]);
     writeGotchaFile(mk('G-001', { source: { workitem: 'WI-9' } }));
-    expect(collectEvolve('p', null, { criteria: [] }).relatedGotchas).toEqual([]);
-    expect(collectEvolve('p', 'WI-6', { criteria: [] }).relatedGotchas).toEqual([]);
+    expect(collectEvolve(process.env.AWL_HOME as string, 'p', null, { criteria: [] }).relatedGotchas).toEqual([]);
+    expect(collectEvolve(process.env.AWL_HOME as string, 'p', 'WI-6', { criteria: [] }).relatedGotchas).toEqual([]);
   });
 });
 
@@ -631,7 +631,7 @@ describe('collectEvolve — awlFeedback 유도 (0.6.x, AC-02/AC-03)', () => {
         lesson: 'y',
       },
     ]);
-    const col = collectEvolve('agent-work-loop', 'WI-6', { criteria: [] });
+    const col = collectEvolve(process.env.AWL_HOME as string, 'agent-work-loop', 'WI-6', { criteria: [] });
     expect(col.awlFeedback.recorded).toHaveLength(1);
     expect(col.awlFeedback.recorded[0]?.area).toBe('commit');
     expect(col.awlFeedback.prompt.length).toBeGreaterThan(0);
@@ -644,7 +644,7 @@ describe('collectEvolve — awlFeedback 유도 (0.6.x, AC-02/AC-03)', () => {
     seedRecords([
       { id: '1', at: '2026-07-14T10:00:00Z', type: 'audit', workitem: 'WI-6', scope: 's' },
     ]);
-    const col = collectEvolve('agent-work-loop', 'WI-6', { criteria: [] });
+    const col = collectEvolve(process.env.AWL_HOME as string, 'agent-work-loop', 'WI-6', { criteria: [] });
     expect(col.awlFeedback.recorded).toEqual([]);
     expect(col.awlFeedback.prompt.length).toBeGreaterThan(0);
   });
@@ -662,7 +662,7 @@ describe('collectEvolve — awlFeedback 유도 (0.6.x, AC-02/AC-03)', () => {
         severity: 'medium',
       },
     ]);
-    const col = collectEvolve('agent-work-loop', 'WI-6', { criteria: [] });
+    const col = collectEvolve(process.env.AWL_HOME as string, 'agent-work-loop', 'WI-6', { criteria: [] });
     expect(col.existingGotchas).toEqual([]);
     expect(col.awlFeedback.recorded).toHaveLength(1);
   });
@@ -694,7 +694,7 @@ describe('collectEvolve — coverage 계측 (WI-T AC-04)', () => {
       },
     ]);
     const state = { criteria: [{ id: 'AC-01', status: 'passed', addresses: ['F-01'] }] };
-    const col = collectEvolve('agent-work-loop', 'WI-6', state);
+    const col = collectEvolve(process.env.AWL_HOME as string, 'agent-work-loop', 'WI-6', state);
 
     expect(col.metrics.coverage).toEqual({
       auditFindingsTotal: 2,
@@ -726,7 +726,7 @@ describe('collectEvolve — coverage 계측 (WI-T AC-04)', () => {
       },
     ]);
     const state = { criteria: [{ id: 'AC-01', status: 'passed' }] };
-    const col = collectEvolve('agent-work-loop', 'WI-6', state);
+    const col = collectEvolve(process.env.AWL_HOME as string, 'agent-work-loop', 'WI-6', state);
 
     expect(col.metrics.coverage.excludedApprovedByHuman).toBe(false);
   });
@@ -753,14 +753,14 @@ describe('collectEvolve — coverage 계측 (WI-T AC-04)', () => {
       },
     ]);
     const state = { criteria: [{ id: 'AC-01', status: 'passed' }] };
-    const col = collectEvolve('agent-work-loop', 'WI-6', state);
+    const col = collectEvolve(process.env.AWL_HOME as string, 'agent-work-loop', 'WI-6', state);
 
     expect(col.metrics.coverage.excludedApprovedByHuman).toBe(true);
   });
 
   it('gate:1 기록이 없으면 excludedApprovedByHuman 은 false', () => {
     seedRecords([]);
-    const col = collectEvolve('agent-work-loop', 'WI-6', { criteria: [] });
+    const col = collectEvolve(process.env.AWL_HOME as string, 'agent-work-loop', 'WI-6', { criteria: [] });
     expect(col.metrics.coverage).toEqual({
       auditFindingsTotal: 0,
       addressed: 0,

@@ -53,7 +53,7 @@ describe('recordAutoFeedback — 통합', () => {
 
   it('프로젝트를 찾을 수 있고 기본값(켜짐)이면 awl-feedback 레코드를 남긴다', async () => {
     await recordAutoFeedback(new Error(`${root}/src/foo.ts 에서 실패`), ['node', 'cli.js', 'doctor']);
-    const records = readRecords({ type: 'awl-feedback' });
+    const records = readRecords(root, { type: 'awl-feedback' });
     expect(records).toHaveLength(1);
     expect(records[0]?.area).toBe('cli');
     expect(records[0]?.severity).toBe('low');
@@ -74,19 +74,19 @@ describe('recordAutoFeedback — 통합', () => {
       }),
     );
     await recordAutoFeedback(new Error('실패'), ['node', 'cli.js', 'doctor']);
-    expect(readRecords({ type: 'awl-feedback' })).toHaveLength(0);
+    expect(readRecords(root, { type: 'awl-feedback' })).toHaveLength(0);
   });
 
   it('프로젝트 루트를 못 찾으면(프로젝트 밖) 조용히 아무것도 안 한다', async () => {
     const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-autofb-outside-'));
     process.chdir(outside);
     await expect(recordAutoFeedback(new Error('실패'), ['node', 'cli.js', 'doctor'])).resolves.toBeUndefined();
-    expect(readRecords({ type: 'awl-feedback' })).toHaveLength(0);
+    expect(readRecords(root, { type: 'awl-feedback' })).toHaveLength(0);
   });
 
   it('Error 가 아닌 값(문자열 throw 등)도 크래시 없이 처리한다', async () => {
     await expect(recordAutoFeedback('plain string error', ['node', 'cli.js', 'doctor'])).resolves.toBeUndefined();
-    const records = readRecords({ type: 'awl-feedback' });
+    const records = readRecords(root, { type: 'awl-feedback' });
     expect(records).toHaveLength(1);
     expect(String(records[0]?.impact)).toContain('plain string error');
   });

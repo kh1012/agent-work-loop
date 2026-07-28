@@ -203,10 +203,10 @@ describe('collectChecks — 설치됨 흉내', () => {
   });
 
   it('최근 활동(records 시각 + state mtime)을 info 로 표시한다 (concurrency-1 AC-02)', async () => {
-    const home = process.env.AWL_HOME as string;
-    fs.mkdirSync(path.join(home, 'records'), { recursive: true });
+    const recordsDir = path.join(process.cwd(), '.awl', 'records');
+    fs.mkdirSync(recordsDir, { recursive: true });
     fs.writeFileSync(
-      path.join(home, 'records', '2026-07.jsonl'),
+      path.join(recordsDir, '2026-07.jsonl'),
       `${JSON.stringify({ id: 'rec_x', at: '2026-07-16T10:30:00.000Z', type: 'audit' })}\n`,
     );
     fs.writeFileSync(
@@ -997,10 +997,10 @@ describe('collectChecks — record 트레일 공백 표면화 (record-trail-guar
 
   it('이 프로젝트의 gate/attempt record 가 있으면 경고를 내지 않는다 (트레일 존재)', async () => {
     const proj = realGitProjectNoWorkitem();
-    const home = process.env.AWL_HOME as string;
-    fs.mkdirSync(path.join(home, 'records'), { recursive: true });
+    const recordsDir = path.join(proj, '.awl', 'records');
+    fs.mkdirSync(recordsDir, { recursive: true });
     fs.writeFileSync(
-      path.join(home, 'records', '2026-07.jsonl'),
+      path.join(recordsDir, '2026-07.jsonl'),
       `${JSON.stringify({ id: 'r1', at: '2026-07-18T00:00:00.000Z', type: 'gate', gate: 1, project: 'trailproj' })}\n`,
     );
     process.chdir(proj);
@@ -1011,11 +1011,13 @@ describe('collectChecks — record 트레일 공백 표면화 (record-trail-guar
 
   it('다른 project 의 gate/attempt record 는 이 프로젝트 경고를 억제하지 않는다 (r.project 필터 방향, AC-05)', async () => {
     const proj = realGitProjectNoWorkitem(); // config.project = 'trailproj'
-    const home = process.env.AWL_HOME as string;
-    fs.mkdirSync(path.join(home, 'records'), { recursive: true });
-    // 전역 공유 records 에 '다른 프로젝트'의 gate record 만 있다 — trailproj 트레일을 억제하면 안 된다.
+    const recordsDir = path.join(proj, '.awl', 'records');
+    fs.mkdirSync(recordsDir, { recursive: true });
+    // records 는 project-local(WI-G17a) 이라 실제로는 이 프로젝트 파일이지만, project 필드가
+    // 여전히 필터에 쓰이므로(D-15, 무해한 이중 확인) 필드값만 다른 프로젝트로 남겨 그 필터
+    // 방향을 확인한다 — trailproj 트레일을 억제하면 안 된다.
     fs.writeFileSync(
-      path.join(home, 'records', '2026-07.jsonl'),
+      path.join(recordsDir, '2026-07.jsonl'),
       `${JSON.stringify({ id: 'r1', at: '2026-07-18T00:00:00.000Z', type: 'gate', gate: 1, project: 'otherproj' })}\n`,
     );
     process.chdir(proj);

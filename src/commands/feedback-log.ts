@@ -1,4 +1,6 @@
+import fs from 'node:fs';
 import { type Caps, caps, makeColors, sectionBox, signal } from '../core/tty.js';
+import { listRegisteredProjects } from './init.js';
 import { readRecords } from './record.js';
 
 /**
@@ -12,7 +14,10 @@ import { readRecords } from './record.js';
  * 2회 이상 반복된 area 를 강조하는 것까지가 awl 의 몫이다(반복이 곧 우선순위 신호).
  * 번역(패치로 바꾸기)은 사람 + LLM 이 한다.
  *
- * ~/.awl 의 기록을 읽으므로 어느 폴더에서 실행하든 내용은 같다(프로젝트 무관).
+ * records 는 project-local(.awl/records/) 이라(WI-G17a) 프로젝트 무관 집계를
+ * ~/.awl/projects.json 에 등록된 프로젝트 전부를 순회해 재구성한다 — awl-feedback
+ * 은 도구 자체의 아픈 점이라 어느 프로젝트에서 나왔든 한데 모아 봐야 값어치가 있다
+ * (records 저장 위치와 무관하게 이 명령의 "프로젝트 무관" 의도는 그대로 지킨다).
  */
 
 /** 심각도 정렬 순위 (high 가 먼저 온다). */
@@ -39,9 +44,25 @@ export interface FeedbackReport {
   prioritized: string[];
 }
 
-/** awl-feedback 기록을 읽어 필터를 적용한다(프로젝트 무관, ~/.awl 전역). */
+/** 등록된 프로젝트 전부의 records/ 를 훑어 awl-feedback 만 모은다(프로젝트 무관 집계). */
+function readAwlFeedbackAcrossProjects(): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  for (const p of listRegisteredProjects()) {
+    if (!fs.existsSync(p.path)) {
+      continue;
+    }
+    for (const r of readRecords(p.path)) {
+      if (r.type === 'awl-feedback') {
+        out.push(r);
+      }
+    }
+  }
+  return out;
+}
+
+/** awl-feedback 기록을 읽어 필터를 적용한다(프로젝트 무관 — 등록된 프로젝트 전부 집계). */
 export function loadAwlFeedback(filter: FeedbackFilter = {}): Record<string, unknown>[] {
-  let records = readRecords().filter((r) => r.type === 'awl-feedback');
+  let records = readAwlFeedbackAcrossProjects();
   if (filter.area) {
     records = records.filter((r) => r.area === filter.area);
   }
