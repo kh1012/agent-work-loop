@@ -36,7 +36,7 @@ description: |
 - **너(에이전트)가 머리다.** 판단은 전부 네가 한다.
 - **awl은 손발이다.** 판단하지 않는다. 파일과 상태만 관리한다.
 - awl 명령으로 기록(`record`)·검증(`verify`)·상태(`state`)·규칙(`rules`)·격리 커밋(`commit`)·리뷰 자료(`review`)를 다룬다.
-- 발동이 결정된 뒤 `awl version-check --json`을 첫 awl 명령으로 실행하고, 다음으로 `awl doctor`를 실행한다.
+- 발동이 결정된 뒤 `awl version-check --json`을 첫 awl 명령으로 실행하고, 다음으로 `awl doctor`를, 그 다음 `awl backlog --json`을 실행한다.
 
 ---
 
@@ -82,6 +82,10 @@ awl evolve
   2. **그대로 진행한다.** 이 경우 사람에게 명시적으로 알린다 — "워킹트리가 더러운 상태로 진행합니다. `awl commit` 이 중간에 거부할 수 있습니다." 판단 근거를 `awl record audit` 에 남긴다.
   3. **중단한다.** 더러운 변경이 무엇인지 모르겠거나 위험해 보이면, 사람에게 확인부터 받는다.
 - 이 확인은 [조사]보다도, 게이트 1보다도 먼저 한다 — 시작한 뒤에 알면 이미 늦다.
+
+### 정리 신호 확인 — `awl backlog --json` (ADK stage 6)
+
+`overThreshold`가 `true`면(3회 반복된 승격 후보가 30건을 넘음) 사람에게 한 줄로 알린다 — "정리 신호가 쌓였습니다(N건). `awl backlog` 로 보고 승격/정리할지 판단하세요." **막지 않는다.** 지금 루프를 계속 진행한다. `overThreshold`가 `false`면 조용히 다음 단계로 넘어간다(매번 보여주지 않는다).
 
 ### 피드백 모드 (`--fb`/`--feedback` 또는 `awl config`의 `feedback.enabled`)
 

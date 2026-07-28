@@ -954,6 +954,18 @@ export function buildProgram(): Command {
       runGotchas({ json: opts.json === true });
     });
 
+  // 사람이 치는 명령: backlog (정리 신호, ADK stage 6). awl 은 판단하지 않는다 — 3회
+  // 반복된 승격 후보를 세고 보여줄 뿐, 무엇을 승격할지는 사람이 정한다.
+  program
+    .command('backlog')
+    .description('정리 신호를 봅니다 — 3회 반복된 승격 후보, hits 0인 규칙')
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .option('--reset', '정리를 마쳤다고 표시합니다(커서를 지금 시각으로 갱신)')
+    .action(async (opts: { json?: boolean; reset?: boolean }) => {
+      const { runBacklog } = await import('./commands/backlog.js');
+      runBacklog({ json: opts.json === true, reset: opts.reset === true });
+    });
+
   // 사람이 치는 명령: metrics (세대별 프록시 지표 추세, WI-P)
   program
     .command('metrics')

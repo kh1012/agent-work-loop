@@ -119,6 +119,14 @@ export function globalConfigPath(): string {
 }
 
 /**
+ * ~/.awl/backlog-cursor.json — 정리 신호 커서(ADK stage 6, awl backlog). sync-cursor.json
+ * 과 같은 층위(installationRoot() 기준, 사람마다 한 번) — "지난 정리 이후 증분"의 기준점.
+ */
+export function backlogCursorPath(): string {
+  return path.join(installationRoot(), 'backlog-cursor.json');
+}
+
+/**
  * 현재 디렉토리에서 위로 올라가며 .git 또는 .awl 을 찾는다.
  * 파일 시스템 루트까지 못 찾으면 명확한 에러를 던진다.
  *
