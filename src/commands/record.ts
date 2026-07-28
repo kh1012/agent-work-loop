@@ -181,6 +181,46 @@ function writeSpecStatus(specPath: string, status: string): void {
   fs.writeFileSync(specPath, `${serializeFrontmatter(nextData)}${parsed.body}`);
 }
 
+/**
+ * `.awl/lane-meta.json`(lane.ts 가 만든다, ADK stage 5)의 baseBranch 만 읽는다. lane.ts 가
+ * `loadProjectName`(record.ts)을 이미 import 하므로, 여기서 lane.ts 를 import 하면
+ * record.ts→lane.ts→record.ts 순환이 생긴다 — findSpecFileById 등과 같은 이유로 작게
+ * 다시 둔다. 없거나 깨졌으면 null(단계5 이전 레인·레인이 아닌 곳 모두 이 경로다).
+ */
+function readLaneBaseBranch(projectRoot: string): string | null {
+  try {
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(projectRoot, '.awl', 'lane-meta.json'), 'utf8'),
+    ) as Record<string, unknown>;
+    return typeof raw.baseBranch === 'string' ? raw.baseBranch : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 게이트4 병합 제안(ADK stage 5, WI-D) — 실행은 안 한다, 명령만 보여준다("awl은
+ * 판단하지 않는다"). 레인 안이 아니면(lane-meta.json 없음) 조용히 생략한다. */
+async function suggestGate4Merge(projectRoot: string): Promise<void> {
+  const baseBranch = readLaneBaseBranch(projectRoot);
+  if (!baseBranch) {
+    return;
+  }
+  const r = await run({
+    cmd: 'git',
+    args: ['rev-parse', '--abbrev-ref', 'HEAD'],
+    cwd: projectRoot,
+    timeoutMs: 10_000,
+  });
+  const laneBranch = r.exitCode === 0 ? r.stdout.trim() : null;
+  if (!laneBranch || laneBranch === baseBranch) {
+    return; // 판정 불가하거나(브랜치 못 읽음) 이미 같은 브랜치 — 제안할 게 없다.
+  }
+  process.stdout.write(
+    `\n  병합 제안: git merge ${laneBranch} → ${baseBranch}\n` +
+      '  (awl 은 실행하지 않습니다 — 레인을 열 때 서 있던 브랜치로 되돌리는 게 목적이면 사람/스킬이 직접 실행하세요.)\n',
+  );
+}
+
 // ---------------------------------------------------------------------------
 // 중앙 저장소 전송 (ADK stage 3) — 세 지점(스펙 closed·티켓 done·awl-feedback)에서만
 // 부른다. endpoint 가 없으면 core/sync.ts 의 함수들이 자체적으로 no-op 이므로 여기선
@@ -1386,6 +1426,13 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
   // awl-feedback 은 발생 즉시 전송한다(ADK stage 3, prototype.md:403).
   if (type === 'awl-feedback' && projectRoot) {
     await syncFeedback(projectRoot, record);
+  }
+
+  // 게이트4 병합 제안(ADK stage 5, WI-D) — merge 결정일 때만(judge-only/hold 는 병합
+  // 의사가 없다). lane-meta.json 이 없으면(레인이 아닌 곳) suggestGate4Merge 가 조용히
+  // 생략한다.
+  if (type === 'gate' && data.gate === 4 && data.decision === 'merge' && projectRoot) {
+    await suggestGate4Merge(projectRoot);
   }
 
   // gate:2 리뷰 누락 경고 (WI-S AC-03) — 거부하지 않는다, 안내만 한다.

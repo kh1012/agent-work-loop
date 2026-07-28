@@ -1353,6 +1353,105 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
     expect(readSpecStatus(specPath)).toBe('active');
   });
 
+  describe('게이트4 병합 제안(ADK stage 5, WI-D)', () => {
+    function gitInit(root: string, branch: string): void {
+      const g = (args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' });
+      g(['init', '-q', '-b', branch]);
+      g(['config', 'user.email', 't@t.com']);
+      g(['config', 'user.name', 't']);
+      fs.writeFileSync(path.join(root, 'f.txt'), 'x\n');
+      g(['add', '.']);
+      g(['commit', '-q', '-m', 'base']);
+    }
+
+    function writeLaneMetaFixture(root: string, baseBranch: string): void {
+      fs.writeFileSync(
+        path.join(root, '.awl', 'lane-meta.json'),
+        JSON.stringify({ baseBranch, port: 3000, createdAt: new Date().toISOString() }),
+      );
+    }
+
+    it('lane-meta.json 이 있고 decision 이 merge 면 레인 브랜치→기준 브랜치 병합 제안이 출력된다', async () => {
+      const root = project({ workitem: 'WI-9', workitems: {} });
+      gitInit(root, 'work/probe');
+      writeLaneMetaFixture(root, 'feature/editor-rework');
+      writeSpecFixture(root, 'spec-1', 'active');
+      let stdout = '';
+      const spy = vi.spyOn(process.stdout, 'write').mockImplementation((s: unknown) => {
+        stdout += String(s);
+        return true;
+      });
+      try {
+        await runRecord('gate', {
+          json: '{"gate":4,"layer":"request","spec":"spec-1","decision":"merge","presentedCriteria":["AC-01"]}',
+        });
+      } finally {
+        spy.mockRestore();
+      }
+      expect(stdout).toContain('git merge work/probe → feature/editor-rework');
+    });
+
+    it('실행은 안 한다 — 병합 제안 뒤에도 현재 브랜치는 그대로다', async () => {
+      const root = project({ workitem: 'WI-9', workitems: {} });
+      gitInit(root, 'work/probe');
+      writeLaneMetaFixture(root, 'feature/editor-rework');
+      writeSpecFixture(root, 'spec-1', 'active');
+      vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+      await runRecord('gate', {
+        json: '{"gate":4,"layer":"request","spec":"spec-1","decision":"merge","presentedCriteria":["AC-01"]}',
+      });
+
+      const branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
+        cwd: root,
+        encoding: 'utf8',
+      }).trim();
+      expect(branch).toBe('work/probe'); // merge 를 awl 이 실제로 실행했다면 브랜치가 바뀌었을 것.
+      vi.restoreAllMocks();
+    });
+
+    it('decision 이 judge-only/hold 면 병합 제안이 안 뜬다(merge 일 때만)', async () => {
+      const root = project({ workitem: 'WI-9', workitems: {} });
+      gitInit(root, 'work/probe');
+      writeLaneMetaFixture(root, 'feature/editor-rework');
+      for (const decision of ['judge-only', 'hold']) {
+        writeSpecFixture(root, `spec-${decision}`, 'active');
+        let stdout = '';
+        const spy = vi.spyOn(process.stdout, 'write').mockImplementation((s: unknown) => {
+          stdout += String(s);
+          return true;
+        });
+        try {
+          await runRecord('gate', {
+            json: `{"gate":4,"layer":"request","spec":"spec-${decision}","decision":"${decision}","presentedCriteria":["AC-01"]}`,
+          });
+        } finally {
+          spy.mockRestore();
+        }
+        expect(stdout).not.toContain('병합 제안');
+      }
+    });
+
+    it('lane-meta.json 이 없으면(레인이 아닌 곳) 조용히 생략된다(크래시 없음)', async () => {
+      const root = project({ workitem: 'WI-9', workitems: {} });
+      gitInit(root, 'main');
+      writeSpecFixture(root, 'spec-1', 'active');
+      let stdout = '';
+      const spy = vi.spyOn(process.stdout, 'write').mockImplementation((s: unknown) => {
+        stdout += String(s);
+        return true;
+      });
+      try {
+        await runRecord('gate', {
+          json: '{"gate":4,"layer":"request","spec":"spec-1","decision":"merge","presentedCriteria":["AC-01"]}',
+        });
+      } finally {
+        spy.mockRestore();
+      }
+      expect(stdout).not.toContain('병합 제안');
+    });
+  });
+
   it('gate:1 layer:request rejected/split 를 기록하면 그 스펙의 status 가 draft 로 (되)돌아간다', async () => {
     const root = project({ workitem: 'WI-9', workitems: {} });
     for (const decision of ['rejected', 'split']) {
