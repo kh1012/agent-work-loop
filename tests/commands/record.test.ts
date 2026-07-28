@@ -1646,6 +1646,9 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
     fs.writeFileSync(
       path.join(process.env.AWL_HOME as string, 'config.json'),
       JSON.stringify({
+        // records 봉투는 author 가 필수다(WI-G1) — 이 fixture 로 만든 기록은 전부
+        // author 있는 정상 케이스를 흉내낸다. author 없는 케이스는 별도 테스트에서 다룬다.
+        author: 'tester@example.com',
         sync: {
           records: opts.recordsEndpoint ? { endpoint: opts.recordsEndpoint } : undefined,
           feedback: opts.feedbackEndpoint ? { endpoint: opts.feedbackEndpoint } : undefined,
@@ -1725,13 +1728,14 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
     restore();
   });
 
-  it('티켓이 done 이 되면 그 티켓에 속한 기록들을 /records 로 전송한다', async () => {
+  it('이 프로젝트의 records 스트림을 처음 추적하는 트리거는 소급 전송하지 않는다(prototype.md:435)', async () => {
     // 티켓 주도 흐름(ADK stage 2d)에서는 활성 workitem 자체가 티켓 id다 —
     // 그래야 이 티켓에 딸린 기록이 전부 workitem:'ticket-1' 로 태깅된다.
     const root = project({ workitem: 'ticket-1', workitems: {} });
     writeTicketFixture(root, 'ticket-1', 'implementing');
     writeGlobalSyncConfig({ recordsEndpoint: 'http://localhost:9999' });
-    // 이 티켓에 속한 작업 기록 하나를 미리 남겨둔다.
+    // 이 티켓에 속한 작업 기록 하나를 미리 남겨둔다 — endpoint 를 켜기 "전"에 쌓인
+    // 이력을 흉내낸다.
     await runRecord('spike', { json: '{"question":"q","found":"f"}' });
 
     const fetchImpl = okFetch();
@@ -1741,19 +1745,42 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
       json: '{"gate":3,"layer":"ticket","ticket":"ticket-1","decision":"approved","presentedCriteria":["AC-01"]}',
     });
 
-    // spike 기록 1건 + 방금 남긴 gate:3 기록 1건 = 2건 전송 시도.
-    expect((fetchImpl as ReturnType<typeof vi.fn>).mock.calls.length).toBe(2);
-    const urls = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
-    expect(urls.every((u) => u === 'http://localhost:9999/records')).toBe(true);
+    // 이 프로젝트의 records 커서를 이번에 처음 만든다 — 아무것도 안 보내고
+    // "지금까지는 이미 다룬 것"으로 시드만 한다(소급 전송 없음).
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(readSyncCursor().records?.p?.lastSentId).toBeDefined();
 
     restore();
+
+    // 이후 새로 생기는 기록은 다음 트리거부터 정상 전송된다.
+    const fetchImpl2 = okFetch();
+    const restore2 = stubFetch(fetchImpl2);
+    await runRecord('spike', { json: '{"question":"q2","found":"f2"}' });
+    await runRecord('gate', {
+      json: '{"gate":3,"layer":"ticket","ticket":"ticket-1","decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+    // spike(q2) 기록 1건 + 방금 남긴 gate:3 기록 1건 = 2건 전송 시도(이번 것만).
+    expect((fetchImpl2 as ReturnType<typeof vi.fn>).mock.calls.length).toBe(2);
+    const urls = (fetchImpl2 as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+    expect(urls.every((u) => u === 'http://localhost:9999/records')).toBe(true);
+    restore2();
   });
 
   it('서버가 다시 살아나면, 이전 티켓 완료 때 실패해 밀린 기록도 다음 트리거에 함께 나간다(prototype.md:438)', async () => {
     const root = project({ workitem: 'ticket-a', workitems: {} });
     writeTicketFixture(root, 'ticket-a', 'implementing');
     writeTicketFixture(root, 'ticket-b', 'implementing');
+    writeTicketFixture(root, 'ticket-prime', 'implementing');
     writeGlobalSyncConfig({ recordsEndpoint: 'http://localhost:9999' });
+
+    // records 스트림 커서를 먼저 프라이밍한다(첫 트리거는 소급전송 없이 시드만 하므로,
+    // 이 테스트가 검증하려는 "실패 후 재시도"를 보려면 커서가 이미 있어야 한다) — 다른
+    // 티켓 하나를 먼저 완료시켜 스트림을 연다.
+    const restorePrime = stubFetch(okFetch());
+    await runRecord('gate', {
+      json: '{"gate":3,"layer":"ticket","ticket":"ticket-prime","decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+    restorePrime();
 
     // 티켓 A 완료 — 서버가 죽어있어(500) 전송이 실패한다. 로컬 status 전이는 그대로 된다.
     const restoreFail = stubFetch(failFetch());
@@ -1794,6 +1821,38 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
     // ticket-a 의 gate:3(밀렸던 것) + ticket-b 의 gate:3(방금 것) = 최소 2건.
     expect((fetchImpl as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(2);
     expect(readSyncCursor().records?.p?.backoffIndex).toBeUndefined(); // 성공해 백오프가 지워졌다
+  });
+
+  it('author 없는 기록은(전역 config 에 author 가 없던 시절에 쓰인 것) 전송하지 않고 건너뛴다(WI-G1)', async () => {
+    const root = project({ workitem: 'ticket-x', workitems: {} });
+    writeTicketFixture(root, 'ticket-x', 'implementing');
+    writeTicketFixture(root, 'ticket-prime2', 'implementing');
+    // author 없는 전역 config — records 봉투는 author 가 필수라(prototype.md:394) 이
+    // 상태에서 만든 기록은 author 필드 자체가 안 붙는다(단계1 "전역 config 없으면
+    // author 없이 진행" 과 동일 경로).
+    fs.writeFileSync(
+      path.join(process.env.AWL_HOME as string, 'config.json'),
+      JSON.stringify({ sync: { records: { endpoint: 'http://localhost:9999' } } }),
+    );
+
+    // 스트림을 프라이밍한다(첫 트리거는 시드만 하므로).
+    const restorePrime = stubFetch(okFetch());
+    await runRecord('gate', {
+      json: '{"gate":3,"layer":"ticket","ticket":"ticket-prime2","decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+    restorePrime();
+
+    // author 없이 spike 기록을 하나 남긴 뒤, ticket-x 를 완료시킨다.
+    await runRecord('spike', { json: '{"question":"q","found":"f"}' });
+    const fetchImpl = okFetch();
+    const restore = stubFetch(fetchImpl);
+    await runRecord('gate', {
+      json: '{"gate":3,"layer":"ticket","ticket":"ticket-x","decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+    restore();
+
+    // spike 도 이번 gate:3 기록도 둘 다 author 가 없어 전송 시도 자체가 없다.
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it('awl-feedback 은 records 가 아니라 feedback endpoint 로, 발생 즉시 전송된다', async () => {

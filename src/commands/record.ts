@@ -320,6 +320,12 @@ async function syncClosedSpec(specPath: string): Promise<void> {
  * 실패해 밀린 다른 티켓의 기록도 이번에 같이 훑인다 — "서버를 다시 켜면 밀린 기록이
  * 함께 전송되어야 한다"(prototype.md:438)가 여기서 성립한다. 하나라도 실패하면 그
  * 자리에서 멈춘다 — 커서가 정확히 "여기까지 보냈다"를 가리키게 하기 위함.
+ *
+ * author 없는 기록은(전역 config 가 아직 없던 시절에 쓰인 옛 기록 등, "기록에 author 가
+ * 안 붙되 진행은 된다"의 결과물) 전송하지 않고 조용히 건너뛴다 — records 봉투엔 author
+ * 가 필수이므로(prototype.md:394) 채울 수 없는 값을 억지로 만들어내지 않는다. 건너뛴
+ * 기록의 위치에선 커서가 안 움직이지만, 그 뒤에 author 있는 기록이 성공 전송되면
+ * 커서가 그 기록으로 넘어가 건너뛴 기록은 다시 안 훑인다(자연 소멸, 재시도 없음).
  */
 async function syncProjectRecords(projectRoot: string, projectName: string): Promise<void> {
   const cfg = readGlobalAwlConfig();
@@ -330,11 +336,36 @@ async function syncProjectRecords(projectRoot: string, projectName: string): Pro
   const organization = await deriveOrganizationForSync(projectRoot);
   let cursor = readSyncCursor();
   let stream = cursor.records?.[projectName];
-  const all = readRecords({}).filter((r) => r.project === projectName);
-  const lastSentId = stream?.lastSentId;
-  const startIdx = lastSentId ? all.findIndex((r) => r.id === lastSentId) : -1;
-  const toSend = startIdx === -1 ? all : all.slice(startIdx + 1);
+  // readRecords() 는 최신순(내림차순)이다 — allDesc[0] 이 가장 최근 기록, 끝이 가장 오래됨.
+  const allDesc = readRecords({}).filter((r) => r.project === projectName);
+
+  if (!stream) {
+    // 이 프로젝트의 records 스트림을 처음 추적하는 순간이다 — endpoint 가 방금 켜졌을
+    // 수 있으므로, 지금까지 쌓인 기록을 소급 전송하지 않는다(prototype.md:435 "그
+    // 시점부터 시작한다. 소급 전송 없음"). 커서를 "지금까지는 이미 다룬 것으로" 시드해
+    // 다음 트리거부터 새로 생기는 기록만 나가게 한다. 가장 최근 기록(allDesc[0])을
+    // lastSentId 로 삼는다 — 그보다 새 기록만 다음부터 "새 기록"으로 잡힌다.
+    const newest = allDesc[0];
+    if (newest) {
+      cursor = {
+        ...cursor,
+        records: { ...cursor.records, [projectName]: { lastSentId: String(newest.id) } },
+      };
+      writeSyncCursor(cursor);
+    }
+    return;
+  }
+
+  const lastSentId = stream.lastSentId;
+  const cutIdx = lastSentId ? allDesc.findIndex((r) => r.id === lastSentId) : -1;
+  // lastSentId 보다 최근인 기록은 내림차순 배열에서 그 앞쪽(인덱스가 더 작은 쪽)에
+  // 있다. 오래된 것부터 순서대로 보내야 하므로 뒤집는다.
+  const newerDesc = cutIdx === -1 ? allDesc : allDesc.slice(0, cutIdx);
+  const toSend = [...newerDesc].reverse();
   for (const record of toSend) {
+    if (typeof record.author !== 'string' || record.author.trim() === '') {
+      continue; // author 없는 기록은 건너뛴다 — 커서를 안 움직인다(위 주석 참고).
+    }
     const envelope = buildRecordEnvelope(record, organization);
     const ok = await attemptSend(
       `records:${projectName}`,
