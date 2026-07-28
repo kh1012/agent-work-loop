@@ -37,17 +37,31 @@ export interface BlockedByDeps {
   waitingOn: string[];
 }
 
+/** 게이트에 제시된 완료조건 하나 — state.criteria 에서 찾은 status 를 곁들인다(못 찾으면 undefined, 실패로 단정하지 않는다). */
+export interface GateCriterionEntry {
+  id: string;
+  status?: string;
+}
+
 /**
- * 게이트 1~4 의 기록 상태 (WI-Q AC-03, ADK stage 2a 로 3/4 확장). recorded:false 면
- * 나머지 필드는 없다.
+ * 게이트 1~4 의 기록 상태 (WI-Q AC-03, ADK stage 2a 로 3/4 확장, WI-G19 로 접기/펼치기
+ * 판정용 원본 배열 + folded 로 확장). recorded:false 면 나머지 필드는 없다.
+ *
+ * 접기/펼치기(adk-prototype.md:249-258, adk-reference.md:1393-1464) — "승인을 바꿀 수
+ * 있는 것만 펼친다": presentedExclusions(범위 밖)·reviewFindings(리뷰 지적)는 있으면
+ * 무조건 펼치고, presentedCriteria 는 전부 passed(또는 상태를 모름)면 접는다.
  */
 export interface GateStatus {
   gate: 1 | 2 | 3 | 4;
   recorded: boolean;
   decision?: string;
   at?: string;
-  presentedCriteriaCount?: number;
-  presentedExclusionsCount?: number;
+  presentedCriteria?: GateCriterionEntry[];
+  presentedExclusions?: unknown[];
+  /** 이 게이트가 다룬 완료조건을 지목한 review 기록의 findings (있으면 항상 펼친다). */
+  reviewFindings?: Record<string, unknown>[];
+  /** true = 한 줄로 접힘("N개 통과 ▸"), false = 항목별로 펼침. */
+  folded?: boolean;
   auto?: boolean;
 }
 
@@ -86,25 +100,52 @@ export interface StatusReport {
  * 현재 워크아이템의 게이트 1~4 기록을 찾는다. readRecords 는 최근순이라
  * 같은 게이트 번호가 여러 번 기록됐어도(재승인 등) 첫 번째로 만나는 게 최신이다.
  * gate 레코드가 없어도(대기중) 항상 네 항목(1~4)을 돌려준다 — 계산만 한다.
+ *
+ * criteriaStatus 는 state.criteria 의 id→status 맵(WI-G19) — 게이트가 제시한 완료조건이
+ * 지금 실제로 passed 인지 대조해 접기/펼치기를 판정한다. reviewRecords 는 review 타입
+ * 기록 중 이 게이트가 제시한 완료조건을 하나라도 지목한 것 — findings 를 모아 항상 펼친다.
  */
-function buildGateStatus(records: Record<string, unknown>[]): GateStatus[] {
+function buildGateStatus(
+  records: Record<string, unknown>[],
+  criteriaStatus: Map<string, string>,
+): GateStatus[] {
   const gateRecords = records.filter((r) => r.type === 'gate');
+  const reviewRecords = records.filter((r) => r.type === 'review');
   return ([1, 2, 3, 4] as const).map((gate) => {
     const rec = gateRecords.find((r) => r.gate === gate);
     if (!rec) {
       return { gate, recorded: false };
     }
-    const presentedCriteria = Array.isArray(rec.presentedCriteria) ? rec.presentedCriteria : [];
+    const presentedCriteriaIds = (
+      Array.isArray(rec.presentedCriteria) ? rec.presentedCriteria : []
+    ).map((id) => String(id));
+    const presentedCriteria: GateCriterionEntry[] = presentedCriteriaIds.map((id) => ({
+      id,
+      status: criteriaStatus.get(id),
+    }));
     const presentedExclusions = Array.isArray(rec.presentedExclusions)
       ? rec.presentedExclusions
       : [];
+    const reviewFindings = reviewRecords
+      .filter(
+        (r) =>
+          Array.isArray(r.criteria) &&
+          (r.criteria as unknown[]).some((id) => presentedCriteriaIds.includes(String(id))),
+      )
+      .flatMap((r) => (Array.isArray(r.findings) ? (r.findings as Record<string, unknown>[]) : []));
+    const hasUnresolved = presentedCriteria.some(
+      (item) => item.status !== undefined && item.status !== 'passed',
+    );
+    const folded = presentedExclusions.length === 0 && reviewFindings.length === 0 && !hasUnresolved;
     return {
       gate,
       recorded: true,
       decision: typeof rec.decision === 'string' ? rec.decision : undefined,
       at: typeof rec.at === 'string' ? rec.at : undefined,
-      presentedCriteriaCount: presentedCriteria.length,
-      presentedExclusionsCount: presentedExclusions.length,
+      presentedCriteria,
+      presentedExclusions,
+      reviewFindings,
+      folded,
       auto: typeof rec.auto === 'boolean' ? rec.auto : undefined,
     };
   });
@@ -158,7 +199,13 @@ export function buildStatus(projectRoot: string): StatusReport {
 
   // 게이트 이력은 현재 워크아이템 것만 본다(다른 워크아이템 게이트가 섞이면 안 됨).
   const workitem = typeof state.workitem === 'string' ? state.workitem : null;
-  const gates = buildGateStatus(records.filter((r) => r.workitem === workitem));
+  const criteriaStatus = new Map<string, string>();
+  for (const cr of criteria) {
+    if (typeof cr.id === 'string' && typeof cr.status === 'string') {
+      criteriaStatus.set(cr.id, cr.status);
+    }
+  }
+  const gates = buildGateStatus(records.filter((r) => r.workitem === workitem), criteriaStatus);
 
   return {
     generation: typeof state.generation === 'number' ? state.generation : 1,
@@ -315,11 +362,37 @@ export function renderStatus(report: StatusReport, c: Caps): string {
       continue;
     }
     const when = g.at ? g.at.slice(0, 16).replace('T', ' ') : '';
-    const summary = `완료조건 ${g.presentedCriteriaCount ?? 0}개, 제외 ${g.presentedExclusionsCount ?? 0}건`;
+    const criteria = g.presentedCriteria ?? [];
+    const exclusions = g.presentedExclusions ?? [];
+    const findings = g.reviewFindings ?? [];
     const autoTag = g.auto ? color.dim(' (자동)') : '';
+    // 접힘: 완료조건 개수만 한 줄로("N개 통과 ▸") — 범위 밖/리뷰 지적이 없고 전부
+    // passed(또는 상태 불명)일 때만. 펼침: 항목별로 나열해 "실패나 지적"이 보이게 한다.
+    const foldSummary = g.folded
+      ? `완료조건 ${criteria.length}개 ${s.fold}`
+      : `완료조건 ${criteria.length}개, 제외 ${exclusions.length}건, 리뷰지적 ${findings.length}건`;
     out.push(
-      `    ${s.lastBranch} 게이트 ${g.gate}  ${decisionColored(t, g.decision ?? '')}${autoTag}   ${when}   ${color.dim(summary)}`,
+      `    ${s.lastBranch} 게이트 ${g.gate}  ${decisionColored(t, g.decision ?? '')}${autoTag}   ${when}   ${color.dim(foldSummary)}`,
     );
+    if (!g.folded) {
+      for (const item of criteria) {
+        const marker = item.status === 'passed' ? signal(c, 'ok') : signal(c, 'warn');
+        out.push(
+          `        ${s.vGuide}   ${s.lastBranch} ${marker} ${item.id}${item.status ? color.dim(` (${item.status})`) : ''}`,
+        );
+      }
+      for (const ex of exclusions) {
+        const exObj = ex && typeof ex === 'object' ? (ex as Record<string, unknown>) : null;
+        const id = exObj && typeof exObj.id === 'string' ? exObj.id : String(ex);
+        const reason = exObj && typeof exObj.reason === 'string' ? `  ${color.dim(exObj.reason)}` : '';
+        out.push(`        ${s.vGuide}   ${s.lastBranch} ${signal(c, 'warn')} 범위 밖: ${id}${reason}`);
+      }
+      for (const f of findings) {
+        const what = typeof f.what === 'string' ? f.what : JSON.stringify(f);
+        const evidence = typeof f.evidence === 'string' ? `  ${color.dim(f.evidence)}` : '';
+        out.push(`        ${s.vGuide}   ${s.lastBranch} ${signal(c, 'warn')} 리뷰: ${what}${evidence}`);
+      }
+    }
   }
   return sectionBox(`진행 상황 · ${report.generation}세대`, out, c);
 }

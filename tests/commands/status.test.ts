@@ -235,8 +235,8 @@ describe('게이트 이력 (WI-Q AC-03)', () => {
     expect(g1?.recorded).toBe(true);
     expect(g1?.decision).toBe('approved');
     expect(g1?.at).toBe('2026-07-15T13:44:00Z');
-    expect(g1?.presentedCriteriaCount).toBe(5);
-    expect(g1?.presentedExclusionsCount).toBe(3);
+    expect(g1?.presentedCriteria).toHaveLength(5);
+    expect(g1?.presentedExclusions).toHaveLength(3);
     expect(g1?.auto).toBe(false);
     const g2 = s.gates.find((g) => g.gate === 2);
     expect(g2?.recorded).toBe(false);
@@ -351,6 +351,149 @@ describe('게이트 이력 (WI-Q AC-03)', () => {
     expect(text).toContain('대기중'); // 게이트 2는 아직 없음
     expect(text).toContain('5'); // presentedCriteria 개수
     expect(text).toContain('3'); // exclusion 개수
+  });
+});
+
+describe('게이트 접기/펼치기 판정 (WI-G19)', () => {
+  it('제시된 완료조건이 전부 passed 면 접힌다(▸, 항목별 줄 없음)', () => {
+    const root = tmpProject({
+      phase: 'loop',
+      workitem: 'WI-9',
+      criteria: [
+        { id: 'condition-1', status: 'passed' },
+        { id: 'condition-2', status: 'passed' },
+      ],
+    });
+    tmpHomeWithRecords(root, [
+      {
+        id: '1',
+        at: '2026-07-15T13:44:00Z',
+        type: 'gate',
+        workitem: 'WI-9',
+        gate: 3,
+        decision: 'approved',
+        presentedCriteria: ['condition-1', 'condition-2'],
+      },
+    ]);
+    const s = buildStatus(root);
+    const g3 = s.gates.find((g) => g.gate === 3);
+    expect(g3?.folded).toBe(true);
+    const text = renderStatus(s, { unicode: true, color: false, tty: true });
+    expect(text).toContain('▸');
+    expect(text).not.toContain('condition-1');
+  });
+
+  it('제시된 완료조건 중 하나라도 passed 가 아니면 펼쳐진다(실패/지적, 항목별 줄)', () => {
+    const root = tmpProject({
+      phase: 'loop',
+      workitem: 'WI-9',
+      criteria: [
+        { id: 'condition-1', status: 'passed' },
+        { id: 'condition-2', status: 'blocked' },
+      ],
+    });
+    tmpHomeWithRecords(root, [
+      {
+        id: '1',
+        at: '2026-07-15T13:44:00Z',
+        type: 'gate',
+        workitem: 'WI-9',
+        gate: 3,
+        decision: 'modified',
+        presentedCriteria: ['condition-1', 'condition-2'],
+      },
+    ]);
+    const s = buildStatus(root);
+    const g3 = s.gates.find((g) => g.gate === 3);
+    expect(g3?.folded).toBe(false);
+    const text = renderStatus(s, { unicode: true, color: false, tty: true });
+    expect(text).toContain('condition-1');
+    expect(text).toContain('condition-2 (blocked)');
+  });
+
+  it('presentedExclusions(범위 밖)이 하나라도 있으면 완료조건이 전부 passed 여도 펼쳐진다', () => {
+    const root = tmpProject({
+      phase: 'loop',
+      workitem: 'WI-9',
+      criteria: [{ id: 'condition-1', status: 'passed' }],
+    });
+    tmpHomeWithRecords(root, [
+      {
+        id: '1',
+        at: '2026-07-15T13:44:00Z',
+        type: 'gate',
+        workitem: 'WI-9',
+        gate: 1,
+        decision: 'approved',
+        presentedCriteria: ['condition-1'],
+        presentedExclusions: [{ id: 'finding-1', reason: '다음 라운드로 미룸' }],
+      },
+    ]);
+    const s = buildStatus(root);
+    const g1 = s.gates.find((g) => g.gate === 1);
+    expect(g1?.folded).toBe(false);
+    const text = renderStatus(s, { unicode: true, color: false, tty: true });
+    expect(text).toContain('범위 밖: finding-1');
+    expect(text).toContain('다음 라운드로 미룸');
+  });
+
+  it('review 기록의 findings 가 이 게이트가 제시한 완료조건을 지목하면 펼쳐진다', () => {
+    const root = tmpProject({
+      phase: 'loop',
+      workitem: 'WI-9',
+      criteria: [{ id: 'condition-1', status: 'passed' }],
+    });
+    tmpHomeWithRecords(root, [
+      {
+        id: '1',
+        at: '2026-07-15T13:44:00Z',
+        type: 'gate',
+        workitem: 'WI-9',
+        gate: 3,
+        decision: 'approved',
+        presentedCriteria: ['condition-1'],
+      },
+      {
+        id: '2',
+        at: '2026-07-15T13:30:00Z',
+        type: 'review',
+        workitem: 'WI-9',
+        reviewId: 'r1',
+        criteria: ['condition-1'],
+        findings: [{ severity: 'medium', what: '약한 단언', evidence: 'x.ts:10' }],
+        cheatingDetected: [],
+        verifyPassedBefore: true,
+      },
+    ]);
+    const s = buildStatus(root);
+    const g3 = s.gates.find((g) => g.gate === 3);
+    expect(g3?.folded).toBe(false);
+    expect(g3?.reviewFindings).toHaveLength(1);
+    const text = renderStatus(s, { unicode: true, color: false, tty: true });
+    expect(text).toContain('리뷰: 약한 단언');
+    expect(text).toContain('x.ts:10');
+  });
+
+  it('ASCII 폴백에서는 ▸ 대신 > 를 쓴다', () => {
+    const root = tmpProject({
+      phase: 'loop',
+      workitem: 'WI-9',
+      criteria: [{ id: 'condition-1', status: 'passed' }],
+    });
+    tmpHomeWithRecords(root, [
+      {
+        id: '1',
+        at: '2026-07-15T13:44:00Z',
+        type: 'gate',
+        workitem: 'WI-9',
+        gate: 3,
+        decision: 'approved',
+        presentedCriteria: ['condition-1'],
+      },
+    ]);
+    const text = renderStatus(buildStatus(root), { unicode: false, color: false, tty: false });
+    expect(text).not.toContain('▸');
+    expect(text).toContain('>');
   });
 });
 
