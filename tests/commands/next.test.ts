@@ -5,6 +5,8 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createDoc } from '../../src/commands/doc.js';
 import {
+  MAX_SHOWN_CONSTRAINTS,
+  MAX_SHOWN_FINDINGS,
   checkFindingsFreshness,
   computeNextView,
   resolveCurrentTicketId,
@@ -150,8 +152,53 @@ describe('computeNextView', () => {
 
     const view = computeNextView(p, ticketId);
     expect(view.gateHistory).toEqual([
-      { gate: 2, decision: 'approved', at: '2026-01-01T00:00:00.000Z' },
-      { gate: 3, decision: 'approved', at: '2026-01-02T00:00:00.000Z' },
+      { gate: 2, decision: 'approved', at: '2026-01-01T00:00:00.000Z', retries: 0 },
+      { gate: 3, decision: 'approved', at: '2026-01-02T00:00:00.000Z', retries: 0 },
+    ]);
+  });
+
+  it('같은 게이트가 여러 번 기록되면(재작업) 최신 1건만 남고 retries 로 횟수를 곁들인다(WI-I1, status.ts 와 같은 원칙)', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    const { ticketId } = await specWithOneTicket(p);
+
+    appendRecord(
+      gateRecord({
+        at: '2026-01-01T00:00:00.000Z',
+        gate: 2,
+        layer: 'ticket',
+        ticket: ticketId,
+        decision: 'more-work',
+        presentedCriteria: ['AC-01'],
+      }),
+      p,
+    );
+    appendRecord(
+      gateRecord({
+        at: '2026-01-02T00:00:00.000Z',
+        gate: 2,
+        layer: 'ticket',
+        ticket: ticketId,
+        decision: 'more-work',
+        presentedCriteria: ['AC-01'],
+      }),
+      p,
+    );
+    appendRecord(
+      gateRecord({
+        at: '2026-01-03T00:00:00.000Z',
+        gate: 2,
+        layer: 'ticket',
+        ticket: ticketId,
+        decision: 'approved',
+        presentedCriteria: ['AC-01'],
+      }),
+      p,
+    );
+
+    const view = computeNextView(p, ticketId);
+    expect(view.gateHistory).toEqual([
+      { gate: 2, decision: 'approved', at: '2026-01-03T00:00:00.000Z', retries: 2 },
     ]);
   });
 
@@ -481,5 +528,104 @@ describe('NextView.gateChecklists — 게이트 2/3 도달 계약 (WI-H1)', () =
       'clarification',
       'verification',
     ]);
+  });
+});
+
+describe('토큰 상한 — finding/constraint 대량 누적 스트레스 (WI-I1)', () => {
+  it(`finding 이 ${MAX_SHOWN_FINDINGS}건을 넘으면 최신 ${MAX_SHOWN_FINDINGS}건만 담고 나머지는 findingsTruncated 로 센다`, async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    const { specId, ticketId } = await specWithOneTicket(p);
+
+    const total = MAX_SHOWN_FINDINGS + 25; // 상한을 넉넉히 넘긴다
+    const findings = Array.from({ length: total }, (_, i) => ({
+      id: `finding-${i + 1}`,
+      what: `모듈 ${i + 1} 이관 필요`,
+      where: `src/modules/m${i + 1}.ts:1`,
+      source: 'investigation',
+    }));
+    appendRecord(
+      {
+        id: 'rec_bulk',
+        at: '2026-07-29T00:00:00Z',
+        type: 'audit',
+        project: 'p',
+        specId,
+        scope: '대량 조사',
+        findings,
+      },
+      p,
+    );
+
+    const view = computeNextView(p, ticketId);
+    expect(view.knownFindings).toHaveLength(MAX_SHOWN_FINDINGS);
+    expect(view.findingsTruncated).toBe(total - MAX_SHOWN_FINDINGS);
+    // 가장 먼저 기록된(id 순서상 앞쪽) finding 들이 담긴다 — 유일한 audit 기록 안에서는
+    // 원본 배열 순서 그대로 앞에서부터 자른다.
+    expect(view.knownFindings[0]?.id).toBe('finding-1');
+  });
+
+  it(`finding 이 ${MAX_SHOWN_FINDINGS}건 이하면 잘리지 않는다(findingsTruncated:0)`, async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    const { specId, ticketId } = await specWithOneTicket(p);
+    const findings = Array.from({ length: 5 }, (_, i) => ({ id: `finding-${i + 1}`, what: 'x' }));
+    appendRecord(
+      { id: 'rec_small', at: '2026-07-29T00:00:00Z', type: 'audit', project: 'p', specId, scope: 's', findings },
+      p,
+    );
+
+    const view = computeNextView(p, ticketId);
+    expect(view.knownFindings).toHaveLength(5);
+    expect(view.findingsTruncated).toBe(0);
+  });
+
+  it(`constraint 가 ${MAX_SHOWN_CONSTRAINTS}건을 넘으면 상위 ${MAX_SHOWN_CONSTRAINTS}건만 담고 나머지는 constraintsTruncated 로 센다`, async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    const { ticketId } = await specWithOneTicket(p);
+    const specDir = path.join(p, 'docs', 'specs');
+    const [specFile] = fs.readdirSync(specDir);
+    const specPath = path.join(specDir, specFile as string);
+    const content = fs.readFileSync(specPath, 'utf8');
+    const parsed = parseFrontmatter(content);
+    if (!parsed) {
+      throw new Error('스펙 파싱 실패');
+    }
+    const total = MAX_SHOWN_CONSTRAINTS + 10;
+    const blocks = Array.from(
+      { length: total },
+      (_, i) => `### constraint-${i + 1}\n제약 ${i + 1}\n`,
+    ).join('\n');
+    const body = parsed.body.replace('## Constraints\n', `## Constraints\n\n${blocks}`);
+    fs.writeFileSync(specPath, content.replace(parsed.body, body));
+
+    const view = computeNextView(p, ticketId);
+    expect(view.constraints).toHaveLength(MAX_SHOWN_CONSTRAINTS);
+    expect(view.constraintsTruncated).toBe(total - MAX_SHOWN_CONSTRAINTS);
+  });
+
+  it('게이트 재작업이 아무리 많아도(50회) 게이트당 한 줄만 남는다', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    const { ticketId } = await specWithOneTicket(p);
+    for (let i = 0; i < 50; i++) {
+      appendRecord(
+        gateRecord({
+          at: `2026-01-01T00:${String(i).padStart(2, '0')}:00.000Z`,
+          gate: 2,
+          layer: 'ticket',
+          ticket: ticketId,
+          decision: i === 49 ? 'approved' : 'more-work',
+          presentedCriteria: ['AC-01'],
+        }),
+        p,
+      );
+    }
+
+    const view = computeNextView(p, ticketId);
+    expect(view.gateHistory).toHaveLength(1);
+    expect(view.gateHistory[0]?.retries).toBe(49);
+    expect(view.gateHistory[0]?.decision).toBe('approved');
   });
 });

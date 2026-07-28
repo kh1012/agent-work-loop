@@ -3,7 +3,7 @@ import path from 'node:path';
 import { type FrontmatterData, parseFrontmatter } from '../core/doc-frontmatter.js';
 import { findProjectRoot } from '../core/paths.js';
 import { run } from '../core/runner.js';
-import { type Caps, caps, makeSymbols, signal } from '../core/tty.js';
+import { type Caps, caps, makeColors, makeSymbols, signal } from '../core/tty.js';
 import { type DocType, extractConditionBlocks, extractConstraintBlocks, listDocFiles } from './doc.js';
 import { type SkillSlot, loadProfile, skillRefLabel } from './profile.js';
 import { readRecords } from './record.js';
@@ -113,7 +113,18 @@ export interface GateHistoryEntry {
   gate: number;
   decision: string;
   at: string;
+  /** 이 게이트에 대해 재작업(재기록)된 횟수 — 전체 기록 수 - 1. 0 이면 한 번에 끝남(WI-I1). */
+  retries: number;
 }
+
+/**
+ * finding·constraint 를 이 개수까지만 본문으로 보여주고 나머지는 개수만 요약한다
+ * (WI-I1, 토큰 스트레스 테스트로 확정 — 상한 지점은 실측 성장률 스윕 기준
+ * "정상→주의" 문턱을 살짝 넘는 지점). 관련성으로 거르지 않고 "가장 최근 N개"를
+ * 남긴다 — readRecords 가 이미 at 내림차순이라 자연히 최신순이다.
+ */
+export const MAX_SHOWN_FINDINGS = 25;
+export const MAX_SHOWN_CONSTRAINTS = 15;
 
 /**
  * 같은 스펙의 audit 기록에서 모은 finding(WI-G21, "이미 아는 것을 먼저 준다").
@@ -165,10 +176,16 @@ export interface NextView {
   specTitle: string | null;
   conditionId: string | null;
   conditionText: string | null;
-  /** 스펙의 `## Constraints` 전체(티켓 하나가 아니라 스펙 전체에 걸린다, adk-reference.md:995). */
+  /** 스펙의 `## Constraints` 전체(티켓 하나가 아니라 스펙 전체에 걸린다, adk-reference.md:995) —
+   * MAX_SHOWN_CONSTRAINTS 까지만. */
   constraints: ConstraintRef[];
+  /** constraints 에서 잘려나간 개수(WI-I1). 0 이면 안 잘림. */
+  constraintsTruncated: number;
   gateHistory: GateHistoryEntry[];
+  /** MAX_SHOWN_FINDINGS 까지만(WI-I1, 최신순). */
   knownFindings: KnownFinding[];
+  /** knownFindings 에서 잘려나간 개수. 0 이면 안 잘림. */
+  findingsTruncated: number;
   /** 지금 status 에 해당하는 profile.skills 슬롯 라벨. 매칭 슬롯이 없거나 profile 이 없으면 null. */
   skill: string | null;
   hint: string;
@@ -200,22 +217,37 @@ export function computeNextView(projectRoot: string, ticketId?: string): NextVie
     conditionText = block?.text ?? null;
   }
 
-  const constraints: ConstraintRef[] = spec
+  const allConstraints: ConstraintRef[] = spec
     ? extractConstraintBlocks(spec.body).map((b) => ({ id: b.heading, text: b.text }))
     : [];
+  const constraints = allConstraints.slice(0, MAX_SHOWN_CONSTRAINTS);
+  const constraintsTruncated = Math.max(0, allConstraints.length - MAX_SHOWN_CONSTRAINTS);
 
-  const gateHistory: GateHistoryEntry[] = readRecords(projectRoot, { type: 'gate' })
-    .filter((r) => r.ticket === resolvedTicketId)
-    .map((r) => ({
-      gate: typeof r.gate === 'number' ? r.gate : Number.NaN,
-      decision: typeof r.decision === 'string' ? r.decision : '',
-      at: typeof r.at === 'string' ? r.at : '',
-    }))
-    .sort((a, b) => a.at.localeCompare(b.at));
+  // 게이트 이력: status.ts 의 buildGateStatus 와 같은 원칙(WI-I1) — 게이트당 최신
+  // 기록 1건만 남긴다. readRecords 는 at 내림차순이라 필터링 후 첫 번째가 최신이다.
+  // 재작업(재기록)된 횟수는 카운트만 세서 retries 로 곁들인다 — 몇 번을 다시
+  // 승인/판정해도 출력은 게이트당 한 줄로 고정된다.
+  const ticketGateRecords = readRecords(projectRoot, { type: 'gate' }).filter(
+    (r) => r.ticket === resolvedTicketId,
+  );
+  const gateHistory: GateHistoryEntry[] = [];
+  for (const gate of [1, 2, 3, 4] as const) {
+    const recs = ticketGateRecords.filter((r) => r.gate === gate);
+    if (recs.length === 0) {
+      continue;
+    }
+    const latest = recs[0];
+    gateHistory.push({
+      gate,
+      decision: typeof latest?.decision === 'string' ? latest.decision : '',
+      at: typeof latest?.at === 'string' ? latest.at : '',
+      retries: recs.length - 1,
+    });
+  }
 
   const status = typeof ticket.data.status === 'string' ? ticket.data.status : 'pending';
 
-  const knownFindings: KnownFinding[] = [];
+  const allFindings: KnownFinding[] = [];
   if (specId) {
     for (const r of readRecords(projectRoot, { type: 'audit' })) {
       if (r.specId !== specId) {
@@ -231,7 +263,7 @@ export function computeNextView(projectRoot: string, ticketId?: string): NextVie
         if (typeof item.id !== 'string' || typeof item.what !== 'string') {
           continue;
         }
-        knownFindings.push({
+        allFindings.push({
           id: item.id,
           what: item.what,
           where: typeof item.where === 'string' ? item.where : undefined,
@@ -241,6 +273,8 @@ export function computeNextView(projectRoot: string, ticketId?: string): NextVie
       }
     }
   }
+  const knownFindings = allFindings.slice(0, MAX_SHOWN_FINDINGS);
+  const findingsTruncated = Math.max(0, allFindings.length - MAX_SHOWN_FINDINGS);
 
   const slot = STATUS_TO_SKILL_SLOT[status];
   const profile = slot ? loadProfile(projectRoot).profile : null;
@@ -255,8 +289,10 @@ export function computeNextView(projectRoot: string, ticketId?: string): NextVie
     conditionId,
     conditionText,
     constraints,
+    constraintsTruncated,
     gateHistory,
     knownFindings,
+    findingsTruncated,
     skill,
     hint: hintForStatus(status),
     gateChecklists: GATE_CHECKLISTS,
@@ -303,6 +339,7 @@ const GATE_LABELS: Record<number, string> = {
 };
 
 function renderView(view: NextView, c: Caps): string {
+  const color = makeColors(c.color);
   const lines: string[] = [];
   lines.push(`  ticket   ${view.ticketId}`);
   lines.push(`  spec     ${view.specTitle ?? '(연결된 스펙 없음)'}`);
@@ -325,13 +362,17 @@ function renderView(view: NextView, c: Caps): string {
       lines.push(`      ${l}`);
     }
   }
+  if (view.constraintsTruncated > 0) {
+    lines.push(`    … ${view.constraintsTruncated}건 더 있음 — awl doc lint 로 스펙 원문을 확인하세요`);
+  }
   lines.push('');
   lines.push('  게이트 이력');
   if (view.gateHistory.length === 0) {
     lines.push('    아직 없음');
   } else {
     for (const g of view.gateHistory) {
-      lines.push(`    gate ${g.gate} (${GATE_LABELS[g.gate] ?? '?'})   ${g.decision}   ${g.at}`);
+      const retryNote = g.retries > 0 ? color.dim(`  (재작업 ${g.retries}회)`) : '';
+      lines.push(`    gate ${g.gate} (${GATE_LABELS[g.gate] ?? '?'})   ${g.decision}   ${g.at}${retryNote}`);
     }
   }
   lines.push('');
@@ -344,6 +385,9 @@ function renderView(view: NextView, c: Caps): string {
       const where = f.where ? `  ${f.where}` : '';
       lines.push(`    ${f.id}  ${f.what}${where}${recheck}`);
     }
+  }
+  if (view.findingsTruncated > 0) {
+    lines.push(`    … ${view.findingsTruncated}건 더 있음 — awl records --json 으로 확인하세요`);
   }
   if (view.skill) {
     lines.push('');
