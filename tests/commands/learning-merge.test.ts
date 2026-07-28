@@ -7,11 +7,9 @@ import type { Gotcha } from '../../src/commands/evolve.js';
 import { runLaneNew, runLaneRemove, runLaneSync } from '../../src/commands/lane.js';
 import {
   PARENT_MARKER,
-  archiveIsolatedRecords,
   mergeGotchaLists,
   mergeIsolatedHome,
   mergeIsolatedLearning,
-  mergeIsolatedRecords,
   writeParentMarker,
 } from '../../src/commands/learning-merge.js';
 import { runWorkDone, runWorkNew } from '../../src/commands/work.js';
@@ -198,149 +196,6 @@ describe('mergeIsolatedLearning (fs 병합)', () => {
   });
 });
 
-// --- records 병합/아카이브 ----------------------------------------------------
-
-describe('mergeIsolatedRecords / archiveIsolatedRecords (records 는 gotcha 와 다르게 순수 append 로 병합된다)', () => {
-  function writeRecordLine(root: string, file: string, record: Record<string, unknown>): void {
-    const dir = path.join(root, 'records');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.appendFileSync(path.join(dir, file), `${JSON.stringify(record)}\n`);
-  }
-
-  function readMonthFile(root: string, month: string): string[] {
-    const p = path.join(root, 'records', `${month}.jsonl`);
-    if (!fs.existsSync(p)) {
-      return [];
-    }
-    return fs
-      .readFileSync(p, 'utf8')
-      .split('\n')
-      .filter((l) => l.trim() !== '');
-  }
-
-  it('records 를 at 필드 기준 월 파일로 전역에 재생한다', () => {
-    const home = tmp('awl-iso-');
-    const global = tmp('awl-glob-');
-    writeRecordLine(home, '2026-07.jsonl', {
-      type: 'decision',
-      at: '2026-07-15T00:00:00.000Z',
-      workitem: 'wi-1',
-    });
-    writeRecordLine(home, '2026-07.jsonl', {
-      type: 'decision',
-      at: '2026-08-01T00:00:00.000Z',
-      workitem: 'wi-1',
-    });
-
-    const res = mergeIsolatedRecords(home, global);
-    expect(res.recordsMerged).toBe(2);
-    expect(readMonthFile(global, '2026-07')).toHaveLength(1);
-    expect(readMonthFile(global, '2026-08')).toHaveLength(1);
-  });
-
-  it('전역 기존 records 를 보존하며 append 한다(덮어쓰지 않음)', () => {
-    const home = tmp('awl-iso-');
-    const global = tmp('awl-glob-');
-    writeRecordLine(global, '2026-07.jsonl', {
-      type: 'decision',
-      at: '2026-07-01T00:00:00.000Z',
-      workitem: 'existing',
-    });
-    writeRecordLine(home, '2026-07.jsonl', {
-      type: 'decision',
-      at: '2026-07-15T00:00:00.000Z',
-      workitem: 'wi-1',
-    });
-
-    mergeIsolatedRecords(home, global);
-    const lines = readMonthFile(global, '2026-07');
-    expect(lines).toHaveLength(2);
-    expect(lines.some((l) => l.includes('existing'))).toBe(true);
-    expect(lines.some((l) => l.includes('wi-1'))).toBe(true);
-  });
-
-  it('at 필드가 없거나 깨진 줄은 건너뛴다', () => {
-    const home = tmp('awl-iso-');
-    const global = tmp('awl-glob-');
-    fs.mkdirSync(path.join(home, 'records'), { recursive: true });
-    fs.writeFileSync(
-      path.join(home, 'records', 'x.jsonl'),
-      ['{"broken":', '{"type":"decision"}', ''].join('\n'),
-    );
-
-    const res = mergeIsolatedRecords(home, global);
-    expect(res.recordsMerged).toBe(0);
-  });
-
-  it('blocked 레코드의 diff 파일도 같이 옮긴다(copy-if-absent)', () => {
-    const home = tmp('awl-iso-');
-    const global = tmp('awl-glob-');
-    writeRecordLine(home, '2026-07.jsonl', {
-      type: 'blocked',
-      at: '2026-07-15T00:00:00.000Z',
-      workitem: 'wi-1',
-      diff: 'diffs/2026-07-15-wi-1.patch',
-    });
-    fs.mkdirSync(path.join(home, 'records', 'diffs'), { recursive: true });
-    fs.writeFileSync(
-      path.join(home, 'records', 'diffs', '2026-07-15-wi-1.patch'),
-      'PATCH-CONTENT\n',
-    );
-
-    mergeIsolatedRecords(home, global);
-    expect(
-      fs.readFileSync(path.join(global, 'records', 'diffs', '2026-07-15-wi-1.patch'), 'utf8'),
-    ).toBe('PATCH-CONTENT\n');
-  });
-
-  it('records 가 없으면 0건, 아카이브도 안 만든다', () => {
-    const home = tmp('awl-iso-');
-    const global = tmp('awl-glob-');
-    expect(mergeIsolatedRecords(home, global).recordsMerged).toBe(0);
-    expect(archiveIsolatedRecords(home, global, { project: 'p', lane: 'l' })).toBeNull();
-  });
-
-  it('아카이브는 project/lane 별 스냅샷 파일로 원본 줄을 그대로 남긴다', () => {
-    const home = tmp('awl-iso-');
-    const global = tmp('awl-glob-');
-    writeRecordLine(home, '2026-07.jsonl', {
-      type: 'decision',
-      at: '2026-07-15T00:00:00.000Z',
-      workitem: 'wi-1',
-    });
-
-    const dest = archiveIsolatedRecords(home, global, { project: 'myproj', lane: 'mylane' });
-    expect(dest).not.toBeNull();
-    expect(dest).toContain(path.join('records', 'archive', 'myproj'));
-    expect(dest).toContain('mylane');
-    expect(fs.readFileSync(dest as string, 'utf8')).toContain('wi-1');
-  });
-
-  it('같은 project/lane 로 같은 날 두 번 아카이브하면 덮어쓰지 않고 -2 로 비켜 쓴다', () => {
-    const home = tmp('awl-iso-');
-    const global = tmp('awl-glob-');
-    writeRecordLine(home, '2026-07.jsonl', {
-      type: 'decision',
-      at: '2026-07-15T00:00:00.000Z',
-      workitem: 'first',
-    });
-    const first = archiveIsolatedRecords(home, global, { project: 'p', lane: 'l' });
-
-    // 같은 레인 이름으로 다시 기록이 쌓였다고 가정(레인 재사용 — 같은 날 두 번째 teardown).
-    fs.writeFileSync(path.join(home, 'records', '2026-07.jsonl'), '');
-    writeRecordLine(home, '2026-07.jsonl', {
-      type: 'decision',
-      at: '2026-07-15T00:00:00.000Z',
-      workitem: 'second',
-    });
-    const second = archiveIsolatedRecords(home, global, { project: 'p', lane: 'l' });
-
-    expect(first).not.toBe(second);
-    expect(fs.readFileSync(first as string, 'utf8')).toContain('first');
-    expect(fs.readFileSync(second as string, 'utf8')).toContain('second');
-  });
-});
-
 // --- 목적지 해석(마커) -------------------------------------------------------
 
 describe('mergeIsolatedHome (부모 전역 마커로 목적지 해석, F-07)', () => {
@@ -353,8 +208,6 @@ describe('mergeIsolatedHome (부모 전역 마커로 목적지 해석, F-07)', (
     }
   });
 
-  const META = { project: 'testproj', lane: 'testlane' };
-
   it('마커의 부모 전역으로 병합한다 — teardown 시점 AWL_HOME env 가 달라도', () => {
     const home = tmp('awl-iso-');
     const trueGlobal = tmp('awl-true-');
@@ -364,7 +217,7 @@ describe('mergeIsolatedHome (부모 전역 마커로 목적지 해석, F-07)', (
     // env 는 엉뚱한 곳을 가리켜도 마커가 우선.
     process.env.AWL_HOME = envGlobal;
 
-    const res = mergeIsolatedHome(home, META);
+    const res = mergeIsolatedHome(home);
     expect(res?.gotchasAdded).toBe(1);
     expect(readGotchaFiles(trueGlobal)).toHaveLength(1);
     expect(readGotchaFiles(envGlobal)).toHaveLength(0);
@@ -376,7 +229,7 @@ describe('mergeIsolatedHome (부모 전역 마커로 목적지 해석, F-07)', (
     writeGotchaFile(home, g('G-001', '격리X'));
     process.env.AWL_HOME = envGlobal;
 
-    const res = mergeIsolatedHome(home, META);
+    const res = mergeIsolatedHome(home);
     expect(res?.gotchasAdded).toBe(1);
     expect(readGotchaFiles(envGlobal)).toHaveLength(1);
   });
@@ -384,11 +237,11 @@ describe('mergeIsolatedHome (부모 전역 마커로 목적지 해석, F-07)', (
   it('출발=목적(자기 자신)이면 병합하지 않는다(null)', () => {
     const home = tmp('awl-iso-');
     fs.writeFileSync(path.join(home, PARENT_MARKER), `${home}\n`);
-    expect(mergeIsolatedHome(home, META)).toBeNull();
+    expect(mergeIsolatedHome(home)).toBeNull();
   });
 
   it('격리 home 이 없으면 null', () => {
-    expect(mergeIsolatedHome(path.join(os.tmpdir(), 'awl-does-not-exist-xyz'), META)).toBeNull();
+    expect(mergeIsolatedHome(path.join(os.tmpdir(), 'awl-does-not-exist-xyz'))).toBeNull();
   });
 
   it('writeParentMarker 는 생성 시점 globalRoot() 를 마커에 남긴다', () => {
@@ -441,7 +294,7 @@ describe('teardown 통합 — 격리 학습이 전역으로 이어진다(실제 
     return () => spy.mockRestore();
   }
 
-  it('lane rm: 격리 gotcha 를 전역으로 병합, 전역 기존은 보존, records 는 전역 병합 + 레인 아카이브', async () => {
+  it('lane rm: 격리 gotcha 를 전역으로 병합, 전역 기존은 보존. records 는 심링크라 애초에 project-local 에 실시간으로 있다(WI-G17b, 병합 아님)', async () => {
     const { proj, global } = realGitProject();
     // 전역에 기존 교훈.
     writeGotchaFile(global, g('G-001', '전역기존교훈'));
@@ -458,12 +311,20 @@ describe('teardown 통합 — 격리 학습이 전역으로 이어진다(실제 
     // 생성 시점 마커가 전역을 가리키는지(글루 확인).
     expect(fs.readFileSync(path.join(isoHome, PARENT_MARKER), 'utf8').trim()).toBe(global);
 
+    // records 는 .awl/home 이 아니라 .awl/records 가 main 트리로 심링크돼 있다(WI-G17b).
+    expect(fs.lstatSync(path.join(lanePath, '.awl', 'records')).isSymbolicLink()).toBe(true);
+    expect(fs.realpathSync(path.join(lanePath, '.awl', 'records'))).toBe(
+      fs.realpathSync(path.join(proj, '.awl', 'records')),
+    );
+    expect(
+      JSON.parse(fs.readFileSync(path.join(lanePath, '.awl', 'records-suffix.json'), 'utf8')),
+    ).toEqual({ suffix: 'probe' });
+
     // 격리 세션이 gotcha 를 기록한 상황을 재현(같은 G-001 번호, 다른 내용 = 충돌).
     writeGotchaFile(isoHome, g('G-001', '격리레인교훈'));
-    // 격리 records 도 하나 남긴다 — teardown 에 전역으로 재생 + 아카이브돼야 한다.
-    fs.mkdirSync(path.join(isoHome, 'records'), { recursive: true });
+    // 레인 워크트리 경로로 records 를 쓴다 — 심링크를 거쳐 main 트리 .awl/records 에 실제로 쌓인다.
     fs.writeFileSync(
-      path.join(isoHome, 'records', '2026-07.jsonl'),
+      path.join(lanePath, '.awl', 'records', '2026-07.probe.jsonl'),
       `${JSON.stringify({ type: 'decision', at: '2026-07-15T00:00:00.000Z', workitem: 'probe-wi' })}\n`,
     );
 
@@ -478,21 +339,11 @@ describe('teardown 통합 — 격리 학습이 전역으로 이어진다(실제 
     // 전역 G-001 은 덮이지 않았다.
     expect(gs.find((x) => x.id === 'G-001')?.lesson).toBe('전역기존교훈');
 
-    // records 는 전역 월별 jsonl 로 재생된다(gotcha 와 달리 격리 유지가 아니다).
-    const globalMonthFile = path.join(global, 'records', '2026-07.jsonl');
-    expect(fs.existsSync(globalMonthFile)).toBe(true);
-    expect(fs.readFileSync(globalMonthFile, 'utf8')).toContain('probe-wi');
-
-    // 레인 출처 스냅샷이 project(=디렉토리명)/lane(probe) 별로 아카이브된다.
-    const archiveDir = path.join(global, 'records', 'archive', path.basename(proj));
-    expect(fs.existsSync(archiveDir)).toBe(true);
-    const archiveFiles = fs.readdirSync(archiveDir);
-    expect(archiveFiles.some((f) => f.endsWith('-probe.jsonl'))).toBe(true);
-    const archived = fs.readFileSync(
-      path.join(archiveDir, archiveFiles.find((f) => f.endsWith('-probe.jsonl')) as string),
-      'utf8',
-    );
-    expect(archived).toContain('probe-wi');
+    // 레인(워크트리)이 지워져도 records 는 main 트리에 그대로 남는다 — 심링크 대상은
+    // 워크트리 삭제와 무관하다(병합이 아니라 "애초에 같은 파일"이었다).
+    const laneRecordFile = path.join(proj, '.awl', 'records', '2026-07.probe.jsonl');
+    expect(fs.existsSync(laneRecordFile)).toBe(true);
+    expect(fs.readFileSync(laneRecordFile, 'utf8')).toContain('probe-wi');
   });
 
   it('lane sync(ADK stage 5, WI-C): 레인을 지우지 않고도 그 레인의 gotcha 를 전역에 합친다', async () => {

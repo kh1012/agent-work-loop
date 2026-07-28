@@ -1,17 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { WORKTREES_DIR, globalRoot, parentGlobalRoot } from '../core/paths.js';
+import { WORKTREES_DIR, globalRoot, parentGlobalRoot, recordsDir, recordsSuffixPath } from '../core/paths.js';
 import { run } from '../core/runner.js';
 import { type Caps, caps, feedback, makeColors, sectionBox, signal } from '../core/tty.js';
 import { loadConfig, resolveProjectRoot, writeLocalConfigOverlay } from './config.js';
 import { applyInit, nonInteractiveInputs } from './init.js';
 import {
-  type MergeHomeResult,
   type MergeLearningResult,
   mergeIsolatedHome,
   mergeIsolatedLearning,
 } from './learning-merge.js';
-import { loadProjectName } from './record.js';
 import { loadState, writeState } from './state.js';
 import {
   removeGitWorktree,
@@ -60,6 +58,27 @@ function writeLaneMeta(lanePath: string, meta: LaneMeta): void {
   const p = laneMetaPath(lanePath);
   fs.mkdirSync(path.dirname(p), { recursive: true });
   fs.writeFileSync(p, `${JSON.stringify(meta, null, 2)}\n`);
+}
+
+/**
+ * 레인 워크트리의 .awl/records 를 main 트리의 .awl/records 로 심링크한다(WI-G17b,
+ * adk-reference.md:576-591). config.json/profile.json 의 git 커밋 동기화와 다르다 —
+ * records 는 세션 중 실시간으로 다른 레인/메인에 보여야 하므로 심링크로 즉시 공유하고,
+ * records-suffix.json 으로 이 레인의 파일명 접미사만 남긴다(쓰기 경합 없이 공존).
+ * gotcha/rules 는 그대로 AWL_HOME 격리+명시적 병합을 쓴다(안 건드림, 이미 통과).
+ */
+function linkLaneRecords(root: string, lanePath: string, laneName: string): void {
+  const mainRecords = recordsDir(root);
+  fs.mkdirSync(mainRecords, { recursive: true });
+  const laneRecords = path.join(lanePath, '.awl', 'records');
+  if (fs.existsSync(laneRecords)) {
+    fs.rmSync(laneRecords, { recursive: true, force: true });
+  }
+  fs.symlinkSync(mainRecords, laneRecords, 'dir');
+  fs.writeFileSync(
+    recordsSuffixPath(lanePath),
+    `${JSON.stringify({ suffix: laneName }, null, 2)}\n`,
+  );
 }
 
 /** 레인 메타를 읽는다. 없거나 깨졌으면 null(단계5 이전에 만든 레인 — 크래시하지 않는다). */
@@ -183,6 +202,7 @@ export async function runLaneNew(name: string, description?: string): Promise<vo
   if (baseBranch) {
     writeLaneMeta(lanePath, { baseBranch, port, createdAt: new Date().toISOString() });
   }
+  linkLaneRecords(root, lanePath, laneName);
 
   // 레인 기동 안내(AC-01 c) — export AWL_HOME 은 runWorkNew 가 이미 찍었다(단일 출처,
   // 표면 중복 금지). 여기선 역할 세션이 실행할 파이프라인 스킬 트리거만 얹는다.
@@ -513,15 +533,15 @@ export async function runLaneRemove(name: string, opts: { force?: boolean } = {}
     }
   }
 
-  // 격리(.awl/home) 학습·records 를 전역으로 병합한다 — 워크트리(=.awl/home) 삭제 전에.
+  // 격리(.awl/home) 학습을 전역으로 병합한다 — 워크트리(=.awl/home) 삭제 전에.
   // 안전 검사를 모두 통과해 제거가 확정된 지점이다. gotchas/rules/generations 는 전역으로
-  // 이어지고, records 는 재생(append)되며 레인 출처 스냅샷이 archive/ 에 남는다. state 는
-  // 안 건드린다(격리 유지). 없거나 자기 자신이면 no-op. 병합이 실패하면(전역 쓰기 오류 등)
-  // 깔끔히 중단해 학습을 보존한다 — 삭제 전이라 재시도로 복구된다.
-  let merged: MergeHomeResult | null = null;
+  // 이어진다. records 는 여기서 안 다룬다(WI-G17b — project-local + 심링크 공유로 이미
+  // 실시간 반영돼 있다, 병합할 게 없다). state 는 안 건드린다(격리 유지). 없거나 자기
+  // 자신이면 no-op. 병합이 실패하면(전역 쓰기 오류 등) 깔끔히 중단해 학습을 보존한다 —
+  // 삭제 전이라 재시도로 복구된다.
+  let merged: MergeLearningResult | null = null;
   try {
-    const project = loadProjectName(root) ?? path.basename(root);
-    merged = mergeIsolatedHome(path.join(lanePath, '.awl', 'home'), { project, lane: laneName });
+    merged = mergeIsolatedHome(path.join(lanePath, '.awl', 'home'));
   } catch (e) {
     process.stderr.write(
       `\n${feedback(c, 'error', '격리 학습 전역 병합 실패 — 레인을 보존합니다', e instanceof Error ? e.message : String(e))}\n`,
@@ -550,11 +570,6 @@ export async function runLaneRemove(name: string, opts: { force?: boolean } = {}
   if (merged && (merged.gotchasAdded > 0 || merged.rulesAdded > 0 || merged.generationsAdded > 0)) {
     process.stdout.write(
       `    ${color.dim(`학습 전역 병합  gotcha ${merged.gotchasAdded} · rule ${merged.rulesAdded} · generation ${merged.generationsAdded}`)}\n`,
-    );
-  }
-  if (merged && merged.recordsMerged > 0) {
-    process.stdout.write(
-      `    ${color.dim(`records 전역 병합  ${merged.recordsMerged}건${merged.recordsArchivePath ? ` · 아카이브 ${merged.recordsArchivePath}` : ''}`)}\n`,
     );
   }
 }
