@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { AwlConfig, VerificationEntry } from '../../src/commands/config.js';
 import {
   type VerifyReport,
@@ -18,6 +18,7 @@ import {
   writeVerifyBaseline,
 } from '../../src/commands/verify.js';
 import { tokenize } from '../../src/core/runner.js';
+import { releaseVerifyLock, tryAcquireVerifyLock } from '../../src/core/verify-lock.js';
 
 const NODE = process.execPath;
 
@@ -576,5 +577,44 @@ describe('runRelatedTests (WI-I AC-04) — relatedCmd 있으면 그것만, 없�
     const outcome = await runRelatedTests(config, process.cwd(), ['a.ts']);
     expect(outcome.usedRelatedCmd).toBe(false);
     expect(outcome.result.error).toBe('command_not_found');
+  });
+});
+
+describe('runVerifyChecks — exclusive 배타 락 배선(ADK stage 5, WI-B)', () => {
+  const origHome = process.env.AWL_HOME;
+
+  function tmpHome(): void {
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-verify-exclusive-'));
+  }
+
+  afterEach(() => {
+    if (origHome === undefined) {
+      delete process.env.AWL_HOME;
+    } else {
+      process.env.AWL_HOME = origHome;
+    }
+  });
+
+  it('exclusive 아닌 항목은 락을 전혀 안 건드린다(회귀 없음)', async () => {
+    tmpHome();
+    const report = await runVerifyChecks(
+      [{ name: 'typecheck', cmd: `${NODE} --version` }],
+      process.cwd(),
+      { bail: false },
+    );
+    expect(report.passed).toBe(true);
+    expect(report.results[0]?.error).toBeUndefined();
+  });
+
+  it('exclusive 항목을 실행한 뒤에는 락을 반드시 해제한다(다음 실행이 즉시 잡을 수 있다)', async () => {
+    tmpHome();
+    await runVerifyChecks(
+      [{ name: 'e2e', cmd: `${NODE} --version`, exclusive: true }],
+      process.cwd(),
+      { bail: false },
+    );
+    // 직전 실행이 락을 안 놓았으면 이 acquire 가 실패한다.
+    expect(tryAcquireVerifyLock('e2e', 'probe')).toBe(true);
+    releaseVerifyLock('e2e', 'probe');
   });
 });

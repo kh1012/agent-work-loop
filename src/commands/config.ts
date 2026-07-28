@@ -73,6 +73,9 @@ export interface VerificationEntry {
    * (reference.md:1177 "끄면 기록에 남고 게이트에 표시된다" — 팀 공유 기준이 아니라
    * 개인이 그때그때 끄는 것이라 base 에 있으면 안 된다는 뜻, 검증은 안 하지만 관례다). */
   skip?: boolean;
+  /** 포트 등 못 나누는 자원을 쓰는 검증(예: e2e) — 여러 레인이 동시에 돌려도 이 이름의
+   * 검증만큼은 직렬화한다(ADK stage 5, core/verify-lock.ts). */
+  exclusive?: boolean;
 }
 
 export interface AwlConfig {
@@ -285,6 +288,9 @@ function isVerificationEntry(v: unknown): v is VerificationEntry {
     return false;
   }
   if ('skip' in o && o.skip !== undefined && typeof o.skip !== 'boolean') {
+    return false;
+  }
+  if ('exclusive' in o && o.exclusive !== undefined && typeof o.exclusive !== 'boolean') {
     return false;
   }
   return true;
@@ -652,7 +658,8 @@ export type ConfigKeyKind =
   | 'verifications.scope'
   | 'verifications.level'
   | 'verifications.note'
-  | 'verifications.skip';
+  | 'verifications.skip'
+  | 'verifications.exclusive';
 
 export interface ParsedConfigKey {
   kind: ConfigKeyKind;
@@ -689,6 +696,7 @@ function verificationSettableKeys(config: AwlConfig): string[] {
     `verifications.${v.name}.scope`,
     `verifications.${v.name}.level`,
     `verifications.${v.name}.skip`,
+    `verifications.${v.name}.exclusive`,
   ]);
 }
 
@@ -713,7 +721,9 @@ export function parseConfigKey(key: string): ParsedConfigKey | null {
   if (key === 'protectedFiles') return { kind: 'protectedFiles' };
   if (key === 'feedback.enabled') return { kind: 'feedback.enabled' };
   if (key === 'feedback.path') return { kind: 'feedback.path' };
-  const m = /^verifications\.([\w-]+)(?:\.(cmd|cwd|env|scope|level|note|skip))?$/.exec(key);
+  const m = /^verifications\.([\w-]+)(?:\.(cmd|cwd|env|scope|level|note|skip|exclusive))?$/.exec(
+    key,
+  );
   if (m?.[1]) {
     const field = m[2] ?? 'cmd';
     return { kind: `verifications.${field}` as ConfigKeyKind, verifyName: m[1] };
@@ -994,6 +1004,20 @@ export async function applyConfigValue(
     return { ok: true, message: `verifications.${name}.skip = ${existing.skip}` };
   }
 
+  if (parsed.kind === 'verifications.exclusive') {
+    const v = rawValue.trim().toLowerCase();
+    const truthy = ['true', 'on', '1'];
+    const falsy = ['false', 'off', '0'];
+    if (!truthy.includes(v) && !falsy.includes(v)) {
+      return {
+        ok: false,
+        message: `verifications.${name}.exclusive 는 true/false(또는 on/off, 1/0)만 허용합니다: '${rawValue}'`,
+      };
+    }
+    existing.exclusive = truthy.includes(v);
+    return { ok: true, message: `verifications.${name}.exclusive = ${existing.exclusive}` };
+  }
+
   // parsed.kind === 'verifications.env'
   const v = rawValue.trim();
   if (v === '' || v.toLowerCase() === 'null' || v === '-') {
@@ -1042,6 +1066,9 @@ function renderConfig(config: AwlConfig, c: Caps): string {
     }
     if (entry.skip) {
       out.push(`${s.vGuide}   ${s.lastBranch} skip: true`);
+    }
+    if (entry.exclusive) {
+      out.push(`${s.vGuide}   ${s.lastBranch} exclusive: true`);
     }
   }
   out.push('');
@@ -1452,7 +1479,7 @@ function renderSettableKeys(config: AwlConfig, c: Caps): string {
     if (key === 'feedback.enabled') return String(config.feedback?.enabled ?? false);
     if (key === 'feedback.path')
       return config.feedback?.path || `(기본값) ${DEFAULT_FEEDBACK_PATH}`;
-    const m = /^verifications\.([\w-]+)\.(cmd|cwd|env|scope|level|skip)$/.exec(key);
+    const m = /^verifications\.([\w-]+)\.(cmd|cwd|env|scope|level|skip|exclusive)$/.exec(key);
     if (!m?.[1] || !m[2]) return '';
     const entry = config.verifications.find((v) => v.name === m[1]);
     if (!entry) return '(없음)';
@@ -1461,6 +1488,7 @@ function renderSettableKeys(config: AwlConfig, c: Caps): string {
     if (m[2] === 'env') return entry.env ? JSON.stringify(entry.env) : '(없음)';
     if (m[2] === 'scope') return entry.scope ?? '(없음)';
     if (m[2] === 'level') return entry.level ?? '(없음)';
+    if (m[2] === 'exclusive') return String(entry.exclusive ?? false);
     return String(entry.skip ?? false);
   };
   // ADK stage 4: verifications 이름이 자유라 정적 SETTABLE_KEYS 뒤에 실제 존재하는

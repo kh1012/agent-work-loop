@@ -1,8 +1,10 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { protectedFilesMessage } from '../core/protected-files.js';
 import { CommandNotFoundError, run } from '../core/runner.js';
 import { type Caps, caps, makeColors, sectionBox, signal } from '../core/tty.js';
+import { acquireVerifyLockBlocking, releaseVerifyLock } from '../core/verify-lock.js';
 import { type AwlConfig, type VerificationEntry, requireConfig } from './config.js';
 import { gitDirtyFiles } from './doctor.js';
 import { applyVerificationAttempts, loadState, writeState } from './state.js';
@@ -22,7 +24,7 @@ export interface VerifyResult {
   exitCode: number | null;
   durationMs: number;
   output: string;
-  error?: 'command_not_found' | 'cwd_not_found';
+  error?: 'command_not_found' | 'cwd_not_found' | 'lock_timeout';
   timedOut?: boolean;
   /** config.local.json 이 이 검증을 skip:true 로 껐다(ADK stage 4) — 실행 자체를
    * 안 한다. 실패가 아니라 경고다(report.passed 에 영향 없음, prototype.md:519-524
@@ -72,6 +74,22 @@ export async function runVerifyChecks(
       continue;
     }
 
+    // exclusive(ADK stage 5): 포트 등 못 나누는 자원을 쓰는 검증은 여러 레인이 동시에
+    // 돌려도 이 이름만큼은 직렬화한다 — 락을 못 얻으면(타임아웃) 실패로 기록한다.
+    let lockToken: string | null = null;
+    if (entry.exclusive) {
+      lockToken = randomUUID();
+      const acquired = await acquireVerifyLockBlocking(name, lockToken);
+      if (!acquired) {
+        passed = false;
+        results.push({ name, exitCode: null, durationMs: 0, output: '', error: 'lock_timeout' });
+        if (opts.bail) {
+          break;
+        }
+        continue;
+      }
+    }
+
     try {
       const r = await run({
         cmd: entry.cmd,
@@ -110,6 +128,10 @@ export async function runVerifyChecks(
       if (opts.bail) {
         break;
       }
+    } finally {
+      if (lockToken) {
+        releaseVerifyLock(name, lockToken);
+      }
     }
   }
 
@@ -126,9 +148,11 @@ function renderVerify(report: VerifyReport, c: Caps): string {
         ? `${signal(c, 'error')} 명령 없음`
         : r.error === 'cwd_not_found'
           ? `${signal(c, 'error')} cwd 없음`
-          : isCheckPassed(r)
-            ? `${signal(c, 'ok')} 통과`
-            : `${signal(c, 'error')} 실패`;
+          : r.error === 'lock_timeout'
+            ? `${signal(c, 'error')} 배타 락 대기 시간 초과`
+            : isCheckPassed(r)
+              ? `${signal(c, 'ok')} 통과`
+              : `${signal(c, 'error')} 실패`;
     const dur = r.error || r.skipped ? '' : color.dim(`${r.durationMs}ms`);
     out.push(`${r.name.padEnd(10, ' ')}${mark}  ${dur}`);
   }
