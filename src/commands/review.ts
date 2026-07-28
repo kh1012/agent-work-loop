@@ -159,19 +159,26 @@ export async function assembleReview(
 export type ReviewPackResult = { bundle: ReviewBundle } | { missing: string };
 
 /**
- * 이 티켓의 조건을 지목한 review 기록 중 findings 가 비어있지 않은 것의 수(WI-G24,
- * "왕복"). 지적이 있어야 "다시 고치고 다시 봤다"는 왕복이 성립한다 — 지적 없이
- * 끝난 리뷰는 왕복이 아니다. 저장하지 않고 매번 readRecords 에서 계산한다(D-15,
- * 파생 가능한 값을 별도로 안 쓴다 — countMissing 류와 같은 원칙).
+ * 이 티켓을 지목한 review 기록 중 findings 가 비어있지 않은 것의 수(WI-G24, "왕복").
+ * 지적이 있어야 "다시 고치고 다시 봤다"는 왕복이 성립한다 — 지적 없이 끝난 리뷰는
+ * 왕복이 아니다. 저장하지 않고 매번 readRecords 에서 계산한다(D-15, 파생 가능한
+ * 값을 별도로 안 쓴다 — countMissing 류와 같은 원칙).
+ *
+ * matchIds 는 조건 id 들 + 티켓 자신의 id 를 합친 목록이다(시뮬레이션 발견,
+ * adk-simulation.md 시나리오A) — 기반 티켓(conditions:[])은 지목할 조건 id 가
+ * 원래 없어 조건 id만으로 매칭하면 영원히 0으로 고정돼 "왕복 2회 초과 시 사람
+ * 호출" 안전장치가 기반 티켓에서는 절대 안 켜진다. `review.criteria`(비어있지
+ * 않은 배열이 필수)에 조건 id 가 없는 기반 티켓 리뷰는 티켓 id 자신을 담아
+ * 남기는 관례로 구멍을 막는다.
  */
 export function countReviewRoundTrips(
   reviewRecords: Record<string, unknown>[],
-  conditionIds: string[],
+  matchIds: string[],
 ): number {
   return reviewRecords.filter(
     (r) =>
       Array.isArray(r.criteria) &&
-      (r.criteria as unknown[]).some((id) => conditionIds.includes(String(id))) &&
+      (r.criteria as unknown[]).some((id) => matchIds.includes(String(id))) &&
       Array.isArray(r.findings) &&
       r.findings.length > 0,
   ).length;
@@ -233,8 +240,12 @@ export async function assembleReviewForTicket(
     id,
     text: blocks.find((b) => b.heading === id)?.text ?? null,
   }));
-  if (criteria.length === 0 || criteria.every((c) => c.text === null)) {
-    return { missing: '완료 조건 원문(스펙에서 조건을 찾을 수 없습니다)' };
+  // 기반 티켓(conditions:[])은 조건이 원래 없다 — 그건 재료 부족이 아니라 정상
+  // 상태다(adk-simulation.md 시나리오 A, "재료 조건 없음"도 유효한 리뷰 재료).
+  // "재료 부족"은 conditionIds 가 있는데 스펙에서 그 id 를 못 찾았을 때만 해당한다.
+  const unresolvedIds = criteria.filter((c) => c.text === null).map((c) => c.id);
+  if (unresolvedIds.length > 0) {
+    return { missing: `완료 조건 원문(${unresolvedIds.join(', ')}을(를) 스펙에서 찾을 수 없습니다)` };
   }
 
   const runtime = loadTicketRuntime(cwd, ticketId);
@@ -261,7 +272,10 @@ export async function assembleReviewForTicket(
   }
 
   const context = await gatherReviewContext(cwd, config);
-  const roundTrips = countReviewRoundTrips(readRecords(cwd, { type: 'review' }), conditionIds);
+  const roundTrips = countReviewRoundTrips(readRecords(cwd, { type: 'review' }), [
+    ...conditionIds,
+    ticketId,
+  ]);
 
   return {
     bundle: {

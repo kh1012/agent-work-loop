@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { loadTicketRuntime, writeTicketRuntime } from '../../src/commands/commit.js';
 import type { AwlConfig } from '../../src/commands/config.js';
 import { createDoc } from '../../src/commands/doc.js';
+import { appendRecord } from '../../src/commands/record.js';
 import {
   assembleReview,
   assembleReviewForTicket,
@@ -295,6 +296,81 @@ describe('assembleReviewForTicket — 4게이트 티켓 모델 review pack (WI-G
     expect('missing' in result && result.missing).toContain('완료 조건');
   });
 
+  it('기반 티켓(conditions:[])은 조건이 없는 게 정상이다 — 재료 부족이 아니라 빈 criteria 로 번들이 나온다 (시뮬레이션 발견, adk-simulation.md 시나리오A)', async () => {
+    const dir = makeRepo();
+    const spec = await createDoc('spec', '스펙', dir);
+    const ticket = await createDoc('ticket', '기반 티켓', dir, { spec: spec.id, conditions: [] });
+    writeTicketRuntime(dir, ticket.id, { firstBaseline: git(dir, ['rev-parse', 'HEAD']) });
+    fs.writeFileSync(path.join(dir, 'x.ts'), 'x\n');
+    git(dir, ['add', '-A']);
+    git(dir, ['commit', '-q', '-m', 'x']);
+
+    const result = await assembleReviewForTicket(dir, CONFIG, ticket.id, undefined);
+    expect('bundle' in result).toBe(true);
+    if ('bundle' in result) {
+      expect(result.bundle.criteria).toEqual([]);
+      expect(result.bundle.diff).toContain('x.ts');
+    }
+  });
+
+  it('기반 티켓의 왕복 카운트는 review.criteria 에 담긴 티켓 자신의 id 로 잡힌다(시뮬레이션 발견 회귀 방지)', async () => {
+    const dir = makeRepo();
+    const spec = await createDoc('spec', '스펙', dir);
+    const ticket = await createDoc('ticket', '기반 티켓', dir, { spec: spec.id, conditions: [] });
+    writeTicketRuntime(dir, ticket.id, { firstBaseline: git(dir, ['rev-parse', 'HEAD']) });
+    fs.writeFileSync(path.join(dir, 'x.ts'), 'x\n');
+    git(dir, ['add', '-A']);
+    git(dir, ['commit', '-q', '-m', 'x']);
+    appendRecord(
+      {
+        id: 'rec_1',
+        at: new Date().toISOString(),
+        type: 'review',
+        project: 'p',
+        reviewId: 'rev_1',
+        criteria: [ticket.id], // 조건 id 가 없으니 티켓 자신의 id 를 담는 관례
+        findings: [{ what: '지적' }],
+        cheatingDetected: [],
+        verifyPassedBefore: true,
+      },
+      dir,
+    );
+
+    const result = await assembleReviewForTicket(dir, CONFIG, ticket.id, undefined);
+    expect('bundle' in result).toBe(true);
+    if ('bundle' in result) {
+      expect(result.bundle.roundTrips).toBe(1);
+    }
+  });
+
+  it('조건이 있는데 그중 일부만 스펙에서 못 찾으면 그 id 를 지목해 재료 부족을 반환한다', async () => {
+    const dir = makeRepo();
+    const spec = await createDoc('spec', '스펙', dir);
+    const content = fs.readFileSync(spec.path, 'utf8');
+    const parsed = parseFrontmatter(content);
+    if (!parsed) {
+      throw new Error('스펙 파싱 실패');
+    }
+    const body = parsed.body.replace(
+      '## Conditions\n',
+      '## Conditions\n\n### condition-1\n실재하는 조건\n',
+    );
+    fs.writeFileSync(spec.path, content.replace(parsed.body, body));
+    const ticket = await createDoc('ticket', '티켓', dir, {
+      spec: spec.id,
+      conditions: ['condition-1', 'condition-2-없음'],
+    });
+    writeTicketRuntime(dir, ticket.id, { firstBaseline: git(dir, ['rev-parse', 'HEAD']) });
+    fs.writeFileSync(path.join(dir, 'x.ts'), 'x\n');
+    git(dir, ['add', '-A']);
+    git(dir, ['commit', '-q', '-m', 'x']);
+
+    const result = await assembleReviewForTicket(dir, CONFIG, ticket.id, undefined);
+    expect('missing' in result).toBe(true);
+    expect('missing' in result && result.missing).toContain('condition-2-없음');
+    expect('missing' in result && result.missing).not.toContain('condition-1,');
+  });
+
   it('lastReviewedCommit 이 있으면(재리뷰) firstBaseline 대신 그 지점부터 diff 를 잡는다(WI-G24, 고친 커밋만)', async () => {
     const dir = makeRepo();
     const { ticketId } = await specWithOneTicket(dir);
@@ -355,6 +431,15 @@ describe('countReviewRoundTrips — 순수 계산 (WI-G24)', () => {
 
   it('review 기록이 없으면 0', () => {
     expect(countReviewRoundTrips([], ['condition-1'])).toBe(0);
+  });
+
+  it('기반 티켓(조건 id 없음)도 매칭 목록에 티켓 자신의 id 를 넣으면 왕복이 잡힌다(시뮬레이션 발견 회귀 방지)', () => {
+    const records = [
+      { type: 'review', criteria: ['ticket-1'], findings: [{ what: 'x' }] },
+    ];
+    // 기반 티켓은 conditionIds 가 [] 라 매칭 목록이 [ticketId] 하나뿐이어도 잡혀야 한다.
+    expect(countReviewRoundTrips(records, ['ticket-1'])).toBe(1);
+    expect(countReviewRoundTrips(records, [])).toBe(0); // 매칭 목록이 정말 비면 당연히 0
   });
 });
 
