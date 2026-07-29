@@ -242,3 +242,31 @@ describe('awl-loop 레거시 계약 (명시 전용)', () => {
     });
   });
 });
+
+// 설계 대조 2단계 #14 — prototype.md:365 "auto — 전부 자동".
+// 0.8.11 까지 awl-loop 의 auto 는 semi-auto 와 같았고(게이트1을 항상 물음),
+// awl 은 "네 게이트 전부 자동"이라 두 스킬이 정반대를 말했다.
+describe('auto 모드 계약 — 전부 자동', () => {
+  const claudeAwl = fs.readFileSync(claudeAwlPath, 'utf8');
+  const claudeLoop = fs.readFileSync(claudeLoopPath, 'utf8');
+
+  it('awl-loop 의 auto 는 더는 semi-auto 와 같지 않다', () => {
+    expect(claudeLoop).not.toContain('auto        semi-auto 와 같다');
+    expect(claudeLoop).not.toContain('semi-auto 와 동일하게 취급한다');
+  });
+
+  it('awl-loop 의 auto 는 게이트 1 도 묻지 않는다고 명시한다', () => {
+    expect(claudeLoop).toContain('게이트 1(계획)도 묻지 않는다');
+  });
+
+  it('두 스킬 모두 auto 에서 펼친 요약을 낸다고 말한다', () => {
+    expect(claudeAwl).toContain('펼쳐');
+    expect(claudeLoop).toContain('펼쳐');
+  });
+
+  it('두 스킬 모두 자동 승인을 "auto": true 로 남기라고 요구한다', () => {
+    for (const skill of [claudeAwl, claudeLoop]) {
+      expect(skill).toContain('"auto"');
+    }
+  });
+});
