@@ -9,10 +9,12 @@ import {
   MAX_SHOWN_FINDINGS,
   checkFindingsFreshness,
   computeNextView,
+  computeSpecStageView,
   modeContract,
+  renderSpecStage,
   resolveCurrentTicketId,
 } from '../../src/commands/next.js';
-import { profilePath } from '../../src/commands/profile.js';
+import { defaultProfileSkills, profilePath } from '../../src/commands/profile.js';
 import { appendRecord } from '../../src/commands/record.js';
 import { deriveTickets } from '../../src/commands/tickets.js';
 import { parseFrontmatter } from '../../src/core/doc-frontmatter.js';
@@ -675,5 +677,75 @@ describe('modeContract — 모드가 캐묻기·마감 강도를 정한다', () 
     expect(modeContract('auto').close).toContain('요약');
     expect(modeContract('strict').close).not.toContain('요약만');
     expect(modeContract('semi-auto').close).not.toContain('요약만');
+  });
+});
+
+describe('SpecStageView — 티켓이 없는 스펙 단계 (dogfood-20260730)', () => {
+  it('티켓이 하나도 없으면 던지지 않고 스펙 단계 뷰를 돌려준다', () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    const view = computeSpecStageView(p);
+    expect(view.kind).toBe('spec-stage');
+  });
+
+  it('지금 모드가 요구하는 캐묻기 강도를 담는다 — 캐물어야 할 그 순간에 지침이 0이면 안 된다', () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    fs.mkdirSync(path.join(p, '.awl'), { recursive: true });
+    fs.writeFileSync(path.join(p, '.awl', 'state.json'), JSON.stringify({ loopMode: 'strict' }));
+    const view = computeSpecStageView(p);
+    expect(view.modeContract.mode).toBe('strict');
+    expect(view.modeContract.grill).toBe(modeContract('strict').grill);
+  });
+
+  it('spec·clarification 두 자리의 스킬을 함께 보여준다', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    fs.mkdirSync(path.join(p, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      profilePath(p),
+      JSON.stringify({
+        name: 'test',
+        skills: {
+          ...defaultProfileSkills(),
+          spec: { type: 'external', url: 'https://example.test/grill-with-docs' },
+          clarification: { type: 'external', url: 'https://example.test/grill-me' },
+        },
+      }),
+    );
+    const view = computeSpecStageView(p);
+    expect(view.skills.map((s) => s.slot)).toEqual(['spec', 'clarification']);
+    expect(view.skills[0]?.label).toContain('grill-with-docs');
+    expect(view.skills[1]?.label).toContain('grill-me');
+  });
+
+  it('프로파일이 없으면 스킬 자리를 비운 채로 나머지를 낸다', () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    const view = computeSpecStageView(p);
+    expect(view.skills).toEqual([]);
+    expect(view.modeContract.grill.length).toBeGreaterThan(0);
+  });
+
+  it('아직 티켓이 안 도출된 스펙을 알려준다 — 다음에 무엇을 derive 할지 되묻지 않게', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    await createDoc('spec', '레이어 패널 키보드 조작', p);
+    const view = computeSpecStageView(p);
+    expect(view.pendingSpecs).toHaveLength(1);
+    expect(view.pendingSpecs[0]?.title).toBe('레이어 패널 키보드 조작');
+  });
+
+  it('runNext 가 티켓 없이도 exit 1 로 죽지 않는다', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    fs.mkdirSync(path.join(p, '.awl'), { recursive: true });
+    const out = renderSpecStage(computeSpecStageView(p), {
+      color: false,
+      unicode: false,
+      width: 80,
+    } as never);
+    expect(out).toContain('캐묻기');
+    expect(out).toContain('awl doc new spec');
   });
 });

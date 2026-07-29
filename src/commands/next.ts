@@ -237,6 +237,66 @@ export interface NextView {
   modeContract: ModeContract;
 }
 
+/** 아직 티켓이 하나도 안 도출된 스펙. */
+export interface PendingSpec {
+  id: string;
+  title: string;
+}
+
+/**
+ * 티켓이 하나도 없을 때 내는 뷰. 티켓 뷰와 필드가 겹치지 않으므로 kind 로 구분한다.
+ *
+ * 왜 필요한가: 스킬은 "스펙을 쓰기 전에 awl next 의 모드 절을 보고 그 강도대로
+ * 캐물으라"고 지시하는데, 티켓이 없는 그 시점에 next 가 실패로 끝나면 캐물어야 할
+ * 바로 그 순간에 지침이 0이 된다. 자리는 만들어두고 아무도 안 가리키던 0.8.x 의
+ * grill 과 같은 구멍이라, 실사용(dogfood-20260730)에서 첫 명령에 바로 걸렸다.
+ */
+export interface SpecStageView {
+  kind: 'spec-stage';
+  /** 아직 티켓이 안 도출된 스펙들. 비어 있으면 스펙부터 만들어야 한다. */
+  pendingSpecs: PendingSpec[];
+  /** 이 단계에서 사람이 쓰는 두 자리 — spec(스펙 캐묻기)·clarification(명료화). */
+  skills: { slot: SkillSlot; label: string }[];
+  modeContract: ModeContract;
+}
+
+/** 스펙 단계에서 가리키는 슬롯. 순서가 곧 사람이 지나가는 순서다. */
+const SPEC_STAGE_SLOTS: SkillSlot[] = ['spec', 'clarification'];
+
+/** 티켓이 없을 때의 뷰. throw 하지 않는다 — 이 단계 자체가 정상 상태다. */
+export function computeSpecStageView(projectRoot: string): SpecStageView {
+  const specs = listDocFiles(projectRoot).filter((f) => f.type === 'spec');
+  const derivedSpecIds = new Set(
+    listDocFiles(projectRoot)
+      .filter((f) => f.type === 'ticket')
+      .map((f) => parseFrontmatter(fs.readFileSync(f.path, 'utf8'))?.data)
+      .map((d) => (typeof d?.spec === 'string' ? d.spec : null))
+      .filter((s): s is string => s !== null),
+  );
+
+  const pendingSpecs: PendingSpec[] = [];
+  for (const f of specs) {
+    const data = parseFrontmatter(fs.readFileSync(f.path, 'utf8'))?.data;
+    const id = typeof data?.id === 'string' ? data.id : null;
+    if (!id || derivedSpecIds.has(id)) {
+      continue;
+    }
+    pendingSpecs.push({ id, title: typeof data?.title === 'string' ? data.title : '(제목 없음)' });
+  }
+
+  const profile = loadProfile(projectRoot).profile;
+  const skills = profile
+    ? SPEC_STAGE_SLOTS.map((slot) => ({ slot, label: skillRefLabel(profile.skills[slot]) }))
+    : [];
+
+  return {
+    kind: 'spec-stage',
+    pendingSpecs,
+    skills,
+    modeContract: modeContract(effectiveLoopMode(loadState(projectRoot))),
+  };
+}
+
 /** ticketId 를 생략하면 resolveCurrentTicketId 로 "지금" 티켓을 고른다(WI-H1). */
 export function computeNextView(projectRoot: string, ticketId?: string): NextView {
   const resolvedTicketId = ticketId ?? resolveCurrentTicketId(projectRoot);
@@ -464,6 +524,42 @@ function renderView(view: NextView, c: Caps): string {
   return `\n  ${signal(c, 'ok')} ${view.ticketId}\n\n${lines.join('\n')}\n`;
 }
 
+export function renderSpecStage(view: SpecStageView, c: Caps): string {
+  const lines: string[] = [];
+  lines.push('  단계     스펙 (아직 티켓 없음)');
+  lines.push('');
+  if (view.pendingSpecs.length === 0) {
+    lines.push('  스펙     (없음)');
+  } else {
+    lines.push('  티켓이 아직 없는 스펙');
+    for (const s of view.pendingSpecs) {
+      lines.push(`    ${s.id}  ${s.title}`);
+    }
+  }
+  if (view.skills.length > 0) {
+    lines.push('');
+    for (const s of view.skills) {
+      lines.push(`  skill    ${s.slot}: ${s.label}`);
+    }
+  }
+  const mc = view.modeContract;
+  lines.push('');
+  lines.push(`  모드     ${mc.mode}`);
+  lines.push(`    캐묻기(게이트 1 앞)  ${mc.grill}`);
+  lines.push(`    마감(게이트 4)       ${mc.close}`);
+  lines.push('');
+  lines.push('  다음');
+  if (view.pendingSpecs.length === 0) {
+    lines.push('    awl doc new spec "<제목>" --request "<사용자 원문 그대로>"');
+    lines.push('    → ## Conditions 를 ### condition-N 블록으로 채운다 (EARS 문형)');
+    lines.push('    → awl tickets derive <spec-id>');
+  } else {
+    lines.push(`    awl tickets derive ${view.pendingSpecs[0]?.id}`);
+    lines.push('    (조건이 비어 있으면 awl doc new spec 으로 만든 스펙을 먼저 채우세요)');
+  }
+  return `\n  ${signal(c, 'ok')} 스펙 단계\n\n${lines.join('\n')}\n`;
+}
+
 /** ticketId 를 생략하면 "지금" 티켓을 자동판정한다(WI-H1, resolveCurrentTicketId). */
 export async function runNext(ticketId?: string): Promise<void> {
   const c: Caps = caps();
@@ -473,6 +569,14 @@ export async function runNext(ticketId?: string): Promise<void> {
   } catch (error) {
     process.stderr.write(`\n  ${signal(c, 'error')} ${String(error)}\n`);
     process.exit(1);
+    return;
+  }
+
+  // 티켓이 없는 건 오류가 아니라 스펙 단계다 — 캐묻기 지침이 필요한 바로 그 자리라
+  // 실패로 끝내면 스킬이 볼 게 없어진다(dogfood-20260730). ticket-id 를 직접 준 경우는
+  // 그 티켓을 찾아야 하므로 이 분기를 타지 않는다.
+  if (ticketId === undefined && resolveCurrentTicketId(projectRoot) === null) {
+    process.stdout.write(renderSpecStage(computeSpecStageView(projectRoot), c));
     return;
   }
 
