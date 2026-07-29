@@ -6,6 +6,7 @@ import {
   type AwlProfile,
   SKILL_SLOTS,
   type SkillInstaller,
+  classifySkillLinks,
   defaultProfile,
   defaultProfileSkills,
   emptyProfileSkills,
@@ -407,5 +408,55 @@ describe('defaultProfileSkills — 자리마다 기본 스킬이 붙는다', () 
     for (const ref of Object.values(defaultProfileSkills())) {
       expect(ref).toMatchObject({ type: 'external' });
     }
+  });
+});
+
+// awl doctor 가 "자리가 무엇을 가리키는지, 그게 실제로 있는지"를 본다. 네트워크는 안 탄다.
+describe('classifySkillLinks — 링크 상태 판정 (순수)', () => {
+  const base = (over: Partial<Record<string, unknown>> = {}) => ({
+    name: 'p',
+    skills: { ...emptyProfileSkills(), ...over },
+  });
+  const noneExist = () => false;
+  const allExist = () => true;
+
+  it('빈 자리는 empty — 문제가 아니다(계약만 보고 진행한다)', () => {
+    const links = classifySkillLinks(base(), '/proj', noneExist);
+    expect(links.every((l) => l.status === 'empty')).toBe(true);
+  });
+
+  it('custom 경로가 있으면 present, 없으면 missing', () => {
+    const ref = { type: 'custom' as const, path: '.claude/skills/mine' };
+    expect(classifySkillLinks(base({ spec: ref }), '/proj', allExist)[0]?.status).toBe('present');
+    expect(classifySkillLinks(base({ spec: ref }), '/proj', noneExist)[0]?.status).toBe('missing');
+  });
+
+  it('external 은 URL 형식만 본다 — 도달성은 여기서 판단하지 않는다', () => {
+    const ok = classifySkillLinks(
+      base({ spec: { type: 'external', url: 'https://x/y' } }),
+      '/proj',
+      noneExist,
+    );
+    expect(ok[0]?.status).toBe('external');
+  });
+
+  it('URL 이 아니면 malformed', () => {
+    for (const bad of ['not a url', 'ftp://x/y', '']) {
+      const l = classifySkillLinks(
+        base({ spec: { type: 'external', url: bad } }),
+        '/proj',
+        noneExist,
+      );
+      expect(l[0]?.status, bad).toBe('malformed');
+    }
+  });
+
+  it('기본 프로파일은 전부 external 이고 형식이 맞다', () => {
+    const links = classifySkillLinks(
+      { name: 'p', skills: defaultProfileSkills() },
+      '/proj',
+      noneExist,
+    );
+    expect(links.every((l) => l.status === 'external')).toBe(true);
   });
 });

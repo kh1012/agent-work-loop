@@ -590,3 +590,62 @@ export async function runProfileInstall(sourcePath: string): Promise<void> {
   }
   process.stdout.write(`${sectionBox('프로파일 설치', out, c)}\n`);
 }
+
+// ---------------------------------------------------------------------------
+// 스킬 링크 점검 (awl doctor)
+// ---------------------------------------------------------------------------
+
+export type SkillLinkStatus =
+  /** 자리가 비었다. 계약만 보고 진행한다 — 문제가 아니다. */
+  | 'empty'
+  /** custom 경로가 실제로 있다. */
+  | 'present'
+  /** custom 경로가 가리키는 곳이 없다. 가리키는데 없는 건 실제 문제다. */
+  | 'missing'
+  /** external URL 형식이 맞다. 도달성은 별도 확인이 필요하다. */
+  | 'external'
+  /** external 인데 URL 로 못 읽는다. */
+  | 'malformed';
+
+export interface SkillLink {
+  slot: SkillSlot;
+  status: SkillLinkStatus;
+  /** 사람이 볼 값(경로 또는 URL). empty 면 빈 문자열. */
+  target: string;
+}
+
+/**
+ * 프로파일의 자리별 링크 상태를 낸다(순수 — 네트워크를 타지 않는다).
+ *
+ * custom 은 로컬 경로라 존재 여부를 바로 알 수 있다. external 은 여기서 형식만 보고,
+ * 실제 도달성은 호출부가 `awl doctor --links` 로 따로 확인한다 — doctor 는 스킬이 세션마다
+ * 부르는 명령이라 기본 경로에 네트워크를 넣으면 매번 대가를 치른다.
+ */
+export function classifySkillLinks(
+  profile: AwlProfile,
+  projectRoot: string,
+  exists: (p: string) => boolean,
+): SkillLink[] {
+  const out: SkillLink[] = [];
+  for (const slot of SKILL_SLOTS) {
+    const ref = profile.skills[slot];
+    if (ref === null) {
+      out.push({ slot, status: 'empty', target: '' });
+      continue;
+    }
+    if (ref.type === 'custom') {
+      const abs = path.isAbsolute(ref.path) ? ref.path : path.join(projectRoot, ref.path);
+      out.push({ slot, status: exists(abs) ? 'present' : 'missing', target: ref.path });
+      continue;
+    }
+    let ok = false;
+    try {
+      const u = new URL(ref.url);
+      ok = u.protocol === 'http:' || u.protocol === 'https:';
+    } catch {
+      ok = false;
+    }
+    out.push({ slot, status: ok ? 'external' : 'malformed', target: ref.url });
+  }
+  return out;
+}

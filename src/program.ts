@@ -436,9 +436,10 @@ export function buildProgram(): Command {
     .command('doctor')
     .description('설치와 환경을 점검합니다 (아무것도 고치지 않습니다)')
     .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
-    .action(async (opts: { json?: boolean }) => {
+    .option('--links', '스킬 링크가 실제로 열리는지까지 확인합니다 (네트워크를 씁니다)')
+    .action(async (opts: { json?: boolean; links?: boolean }) => {
       const { runDoctor } = await import('./commands/doctor.js');
-      await runDoctor({ json: opts.json === true });
+      await runDoctor({ json: opts.json === true, links: opts.links === true });
     });
 
   // 사람이 치는 명령: version-check (버전 네 쌍 불일치 검사 — WI-X)

@@ -10,6 +10,7 @@ import {
   rulesDir,
 } from '../core/paths.js';
 import { CommandNotFoundError, run, tokenize } from '../core/runner.js';
+import { type Reachability, checkReachableAll } from '../core/skill-link.js';
 import { readSyncCursor } from '../core/sync.js';
 import {
   type Caps,
@@ -30,7 +31,7 @@ import {
 } from '../core/versions.js';
 import { loadConfig } from './config.js';
 import { codexSkillNames, listRegisteredProjects, stagesMdContent } from './init.js';
-import { type SkillSlot, loadProfile } from './profile.js';
+import { type SkillSlot, classifySkillLinks, loadProfile } from './profile.js';
 import { loadProjectName, readRecords } from './record.js';
 import { loadState, readStateLock } from './state.js';
 import { gatherVersionInputs } from './version-check.js';
@@ -572,9 +573,10 @@ async function collectProject(
   checks: Check[],
   projectRoot: string | null,
   versionResult: VersionCheckResult,
+  opts: DoctorOptions = {},
 ): Promise<void> {
   if (projectRoot) {
-    await collectSingleProject(checks, projectRoot, '이 프로젝트', versionResult);
+    await collectSingleProject(checks, projectRoot, '이 프로젝트', versionResult, opts);
     return;
   }
 
@@ -593,7 +595,7 @@ async function collectProject(
     // versionResult 는 projectRoot 별로 다시 계산해야 한다 — 바깥에서 한 번만(그것도
     // projectRoot=null 로) 계산된 값을 재사용하면 project-vs-engine 대조가 틀어진다.
     const pVersionResult = checkVersions(gatherVersionInputs(p.path));
-    await collectSingleProject(checks, p.path, `프로젝트: ${p.name}`, pVersionResult);
+    await collectSingleProject(checks, p.path, `프로젝트: ${p.name}`, pVersionResult, opts);
   }
 }
 
@@ -602,6 +604,7 @@ async function collectSingleProject(
   projectRoot: string,
   groupLabel: string,
   versionResult: VersionCheckResult,
+  opts: DoctorOptions = {},
 ): Promise<void> {
   // WI-C: 프로젝트를 찾았을 때도 그 경로를 보여준다(예전엔 못 찾았을 때만 보였다).
   checks.push({
@@ -735,6 +738,74 @@ async function collectSingleProject(
         status: 'info',
         value: `${localSlots.length}개: ${localSlots.join(', ')}`,
       });
+    }
+  }
+
+  // 스킬 링크 점검 — 자리마다 무엇을 가리키는지, 그게 실제로 있는지.
+  // 기본은 네트워크를 안 탄다(doctor 는 스킬이 세션마다 부른다). --links 를 주면
+  // external URL 의 도달성까지 확인한다.
+  if (loadedProfile.profile) {
+    const links = classifySkillLinks(loadedProfile.profile, projectRoot, exists);
+    const empty = links.filter((l) => l.status === 'empty');
+    const missing = links.filter((l) => l.status === 'missing');
+    const malformed = links.filter((l) => l.status === 'malformed');
+    const external = links.filter((l) => l.status === 'external');
+
+    for (const l of [...missing, ...malformed]) {
+      checks.push({
+        group: groupLabel,
+        name: `스킬 ${l.slot}`,
+        status: 'warn',
+        value: l.status === 'missing' ? '가리키는 경로 없음' : 'URL 형식 아님',
+        hint: `${l.target} — awl config 로 고치거나 profile.json 에서 비우세요(비면 계약만 보고 진행합니다).`,
+      });
+    }
+    if (empty.length > 0) {
+      checks.push({
+        group: groupLabel,
+        name: '빈 스킬 자리',
+        status: 'info',
+        value: `${empty.length}개: ${empty.map((l) => l.slot).join(', ')}`,
+        hint: '비어 있어도 돕니다 — 그 단계는 계약만 보고 진행합니다.',
+      });
+    }
+
+    if (external.length > 0) {
+      if (opts.links) {
+        const reach = await checkReachableAll(external.map((l) => l.target));
+        const dead = external.filter((l) => reach.get(l.target) === 'not-found');
+        const unknown = external.filter((l) => reach.get(l.target) === 'unknown');
+        for (const l of dead) {
+          checks.push({
+            group: groupLabel,
+            name: `스킬 ${l.slot}`,
+            status: 'warn',
+            value: '링크가 죽었습니다',
+            hint: `${l.target} — 저장소가 경로를 바꿨거나 스킬이 사라졌습니다.`,
+          });
+        }
+        checks.push({
+          group: groupLabel,
+          name: '스킬 링크',
+          status: dead.length > 0 ? 'warn' : 'ok',
+          value: `${external.length - dead.length - unknown.length}/${external.length} 도달${
+            unknown.length > 0 ? ` · ${unknown.length}개 확인 못 함` : ''
+          }`,
+          ...(unknown.length > 0
+            ? {
+                hint: '네트워크가 없거나 느리면 확인 못 함으로 남습니다 — 링크가 죽었다는 뜻은 아닙니다.',
+              }
+            : {}),
+        });
+      } else {
+        checks.push({
+          group: groupLabel,
+          name: '스킬 링크',
+          status: 'info',
+          value: `external ${external.length}개 · 도달성 확인 안 함`,
+          hint: 'awl doctor --links 로 실제로 열리는지까지 확인합니다(네트워크를 씁니다).',
+        });
+      }
     }
   }
 
@@ -1051,7 +1122,12 @@ function findMismatch(result: VersionCheckResult, kind: VersionMismatchKind) {
 }
 
 /** 모든 점검을 수집한다. 결정적이고, 어떤 항목도 크래시하지 않는다. */
-export async function collectChecks(): Promise<DoctorReport> {
+export interface DoctorOptions {
+  /** external 스킬 URL 의 도달성까지 확인한다(네트워크를 쓴다). 기본은 안 한다. */
+  links?: boolean;
+}
+
+export async function collectChecks(opts: DoctorOptions = {}): Promise<DoctorReport> {
   const checks: Check[] = [];
 
   let projectRoot: string | null = null;
@@ -1069,7 +1145,7 @@ export async function collectChecks(): Promise<DoctorReport> {
 
   collectEnv(checks);
   collectGlobal(checks, versionResult, currentProjectName);
-  await collectProject(checks, projectRoot, versionResult);
+  await collectProject(checks, projectRoot, versionResult, opts);
   collectAgents(checks, projectRoot ?? process.cwd(), versionResult);
 
   const problems = checks.filter((c) => c.status === 'missing' || c.status === 'fail');
@@ -1149,8 +1225,8 @@ export function renderText(report: DoctorReport, c: Caps): string {
 }
 
 /** doctor 명령의 실제 실행. 렌더 후 종료 코드를 설정한다. */
-export async function runDoctor(opts: { json: boolean }): Promise<void> {
-  const report = await collectChecks();
+export async function runDoctor(opts: { json: boolean; links?: boolean }): Promise<void> {
+  const report = await collectChecks({ links: opts.links === true });
   if (opts.json) {
     process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
   } else {
