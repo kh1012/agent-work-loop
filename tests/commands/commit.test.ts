@@ -7,11 +7,15 @@ import {
   buildRescueGuidance,
   buildTrailGapWarning,
   checkBaseDrift,
+  findTicketPath,
   isolatedCommit,
+  loadTicketRuntime,
   renderCommitSuccess,
   runCommit,
   startBaseline,
+  ticketRuntimePath,
 } from '../../src/commands/commit.js';
+import { appendRecord } from '../../src/commands/record.js';
 import { getCriterion, loadState } from '../../src/commands/state.js';
 
 function makeRepo(): { dir: string; g: (args: string[]) => string } {
@@ -775,11 +779,11 @@ describe('runCommit — 정상 흐름(워크아이템+gate1 승인)은 트레일
     execFileSync('git', ['add', '-A'], { cwd: proj });
     execFileSync('git', ['commit', '-q', '-m', 'base'], { cwd: proj });
     process.chdir(proj);
-    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-loopok-home-'));
-    process.env.AWL_HOME = home;
-    fs.mkdirSync(path.join(home, 'records'), { recursive: true });
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-loopok-home-'));
+    const recordsDir = path.join(proj, '.awl', 'records');
+    fs.mkdirSync(recordsDir, { recursive: true });
     fs.writeFileSync(
-      path.join(home, 'records', '2026-07.jsonl'),
+      path.join(recordsDir, '2026-07.jsonl'),
       `${JSON.stringify({ id: 'g1', at: '2026-07-18T00:00:00.000Z', type: 'gate', gate: 1, decision: 'approved', workitem, project: 'p' })}\n`,
     );
     return proj;
@@ -880,5 +884,223 @@ describe('runCommit --files — 명시적 커밋 대상 안전장치', () => {
     expect(g(['log', '--oneline'])).not.toContain('섞이면 안 됨');
     expect(fs.existsSync(path.join(dir, 'mine.txt'))).toBe(true);
     expect(fs.existsSync(path.join(dir, 'other-session.txt'))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// awl commit 이 티켓을 인식한다 (ADK stage 2d) — 다형적 디스패치
+// ---------------------------------------------------------------------------
+
+describe('findTicketPath', () => {
+  it('docs/tickets/*.md 의 frontmatter id 와 일치하는 파일을 찾는다', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-findticket-'));
+    fs.mkdirSync(path.join(dir, 'docs', 'tickets'), { recursive: true });
+    const ticketPath = path.join(dir, 'docs', 'tickets', '20260101-000000-x.md');
+    fs.writeFileSync(
+      ticketPath,
+      '---\nid: ticket-abc\nspec: spec-1\nconditions: [condition-1]\ndependencies: []\nstatus: pending\n---\n## Verification\n',
+    );
+    expect(findTicketPath(dir, 'ticket-abc')).toBe(ticketPath);
+  });
+
+  it('없으면 null(레거시 AC 경로 그대로)', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-findticket-'));
+    expect(findTicketPath(dir, 'AC-01')).toBeNull();
+  });
+
+  it('손상된 md 파일이 섞여 있어도 나머지 조회를 막지 않는다', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-findticket-'));
+    fs.mkdirSync(path.join(dir, 'docs', 'tickets'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'docs', 'tickets', 'broken.md'), '이건 frontmatter 가 아님');
+    const goodPath = path.join(dir, 'docs', 'tickets', 'good.md');
+    fs.writeFileSync(goodPath, '---\nid: ticket-good\nstatus: pending\n---\n');
+    expect(findTicketPath(dir, 'ticket-good')).toBe(goodPath);
+  });
+});
+
+describe('runCommit — 티켓 id 다형적 디스패치 (ADK stage 2d)', () => {
+  const origCwd = process.cwd();
+  const origHome = process.env.AWL_HOME;
+
+  afterEach(() => {
+    process.chdir(origCwd);
+    if (origHome === undefined) delete process.env.AWL_HOME;
+    else process.env.AWL_HOME = origHome;
+  });
+
+  function ticketProject(
+    ticketId: string,
+    opts: { activeWorkitem?: string } = {},
+  ): { dir: string; ticketPath: string } {
+    const proj = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-ticket-commit-')));
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: proj });
+    execFileSync('git', ['config', 'user.email', 't@t.com'], { cwd: proj });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: proj });
+    fs.writeFileSync(path.join(proj, 'f.txt'), 'base\n');
+    fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+    fs.mkdirSync(path.join(proj, 'docs', 'tickets'), { recursive: true });
+    const ticketPath = path.join(proj, 'docs', 'tickets', '20260101-000000-t.md');
+    fs.writeFileSync(
+      ticketPath,
+      `---\nid: ${ticketId}\nspec: spec-1\nconditions: [condition-1]\ndependencies: []\nstatus: pending\n---\n## Verification\n`,
+    );
+    if (opts.activeWorkitem) {
+      fs.writeFileSync(
+        path.join(proj, '.awl', 'state.json'),
+        JSON.stringify({ workitem: opts.activeWorkitem, phase: 'awaiting-gate1' }),
+      );
+    }
+    execFileSync('git', ['add', '-A'], { cwd: proj });
+    execFileSync('git', ['commit', '-q', '-m', 'base'], { cwd: proj });
+    process.chdir(proj);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-ticket-commit-home-'));
+    return { dir: proj, ticketPath };
+  }
+
+  it('티켓 --start 는 .awl/tickets/<id>.json 을 만들고 티켓 .md 의 status 는 안 바꾼다', async () => {
+    const ticketId = 'ticket-uuid-1';
+    const { dir, ticketPath } = ticketProject(ticketId);
+
+    await runCommit(ticketId, { start: true });
+
+    const runtime = loadTicketRuntime(dir, ticketId);
+    expect(runtime).toBeDefined();
+    expect(typeof runtime?.baseline).toBe('string');
+    expect(typeof runtime?.snapshot).toBe('string');
+    expect(typeof runtime?.firstBaseline).toBe('string');
+    expect(Array.isArray(runtime?.untrackedAtStart)).toBe(true);
+    expect(runtime).not.toHaveProperty('status'); // status 는 게이트만 바꾼다
+
+    expect(fs.readFileSync(ticketPath, 'utf8')).toContain('status: pending'); // 안 바뀜
+  });
+
+  it('티켓 -m 커밋은 실제로 격리 커밋하고 baseline/snapshot/commit 을 갱신하며 firstBaseline 은 안 바뀐다', async () => {
+    const ticketId = 'ticket-uuid-2';
+    const { dir } = ticketProject(ticketId);
+
+    await runCommit(ticketId, { start: true });
+    const before = loadTicketRuntime(dir, ticketId);
+    fs.writeFileSync(path.join(dir, 'change.txt'), 'work\n');
+
+    await runCommit(ticketId, { message: '작업 완료' });
+
+    const log = execFileSync('git', ['log', '--oneline'], { cwd: dir, encoding: 'utf8' });
+    expect(log).toContain('작업 완료');
+
+    const after = loadTicketRuntime(dir, ticketId);
+    expect(after?.commit).toBeDefined();
+    expect(after?.snapshot).not.toBe(before?.snapshot);
+    expect(after?.firstBaseline).toBe(before?.firstBaseline);
+  });
+
+  it('--start 없이 티켓 -m 커밋을 시도하면 레거시와 같은 형식의 베이스라인 에러가 난다', async () => {
+    const ticketId = 'ticket-uuid-3';
+    ticketProject(ticketId);
+    const stderr: string[] = [];
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((s: unknown) => {
+      stderr.push(String(s));
+      return true;
+    });
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    try {
+      await expect(runCommit(ticketId, { message: 'x' })).rejects.toThrow('exit:1');
+    } finally {
+      stderrSpy.mockRestore();
+      exitSpy.mockRestore();
+    }
+    expect(stderr.join('')).toContain('베이스라인이 없습니다');
+  });
+
+  it('활성 workitem 이 있고 그 gate1 이 미승인이어도 티켓 커밋은 막히지 않는다(이번에 고치는 결함)', async () => {
+    const ticketId = 'ticket-uuid-4';
+    // 활성 workitem 은 있지만 승인된 gate:1 레코드가 없다 — 레거시 AC 커밋이면 여기서 차단된다.
+    const { dir } = ticketProject(ticketId, { activeWorkitem: 'WI-stale' });
+
+    await expect(runCommit(ticketId, { start: true })).resolves.toBeUndefined();
+    expect(loadTicketRuntime(dir, ticketId)).toBeDefined();
+  });
+
+  it('게이트2 승인 기록이 없으면 레거시 문구가 아니라 티켓 전용 경고가 뜬다(차단 아님)', async () => {
+    const ticketId = 'ticket-uuid-5';
+    const { dir } = ticketProject(ticketId);
+    await runCommit(ticketId, { start: true });
+    fs.writeFileSync(path.join(dir, 'change.txt'), 'work\n');
+
+    const errs: string[] = [];
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((s: unknown) => {
+      errs.push(String(s));
+      return true;
+    });
+    try {
+      await runCommit(ticketId, { message: '작업' });
+    } finally {
+      stderrSpy.mockRestore();
+    }
+
+    const out = errs.join('');
+    expect(out).toContain('게이트 2(착수) 승인 기록 없이');
+    expect(out).not.toContain('활성 워크아이템 없이'); // 레거시 문구가 아니다
+  });
+
+  it('게이트2 승인 기록이 있으면 티켓 경고 없이 조용히 커밋한다', async () => {
+    const ticketId = 'ticket-uuid-6';
+    const { dir } = ticketProject(ticketId);
+    appendRecord(
+      {
+        id: 'g2',
+        at: '2026-07-18T00:00:00.000Z',
+        type: 'gate',
+        gate: 2,
+        layer: 'ticket',
+        ticket: ticketId,
+        decision: 'approved',
+        presentedCriteria: ['AC-01'],
+        project: 'p',
+      },
+      dir,
+    );
+
+    await runCommit(ticketId, { start: true });
+    fs.writeFileSync(path.join(dir, 'change.txt'), 'work\n');
+
+    const errs: string[] = [];
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((s: unknown) => {
+      errs.push(String(s));
+      return true;
+    });
+    try {
+      await runCommit(ticketId, { message: '작업' });
+    } finally {
+      stderrSpy.mockRestore();
+    }
+
+    expect(errs.join('')).not.toContain('게이트 2(착수) 승인 기록 없이');
+  });
+
+  it('.awl/tickets/<id>.json 은 다른 커밋의 untracked 스테이징에 안 섞인다(AWL_SELF_PREFIXES)', async () => {
+    const ticketId = 'ticket-uuid-7';
+    const { dir } = ticketProject(ticketId);
+    await runCommit(ticketId, { start: true });
+    expect(fs.existsSync(ticketRuntimePath(dir, ticketId))).toBe(true);
+
+    fs.writeFileSync(path.join(dir, 'mine.txt'), 'mine\n');
+    await runCommit(ticketId, { message: '내 변경만' });
+
+    const committed = execFileSync('git', ['show', '--name-only', '--format=', 'HEAD'], {
+      cwd: dir,
+      encoding: 'utf8',
+    });
+    expect(committed).toContain('mine.txt');
+    expect(committed).not.toContain('.awl/tickets/');
+  });
+
+  it('레거시 AC 문자열은 여전히 state.criteria[] 경로를 그대로 쓴다(회귀 확인)', async () => {
+    const { dir } = ticketProject('ticket-uuid-8'); // 티켓은 있지만 이번엔 안 씀
+    await runCommit('AC-legacy', { start: true });
+    const crit = getCriterion(loadState(dir), 'AC-legacy');
+    expect(crit?.status).toBe('in_progress'); // 레거시 경로만 status 를 쓴다
+    expect(fs.existsSync(ticketRuntimePath(dir, 'AC-legacy'))).toBe(false);
   });
 });

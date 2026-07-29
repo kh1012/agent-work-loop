@@ -15,7 +15,14 @@ export function runChangelogDraft(opts: { workitem?: string; json?: boolean }): 
     );
     process.exit(1);
   }
-  const records = readRecords({ workitem });
+  if (!root) {
+    process.stderr.write(
+      `\n  ${signal(caps(), 'error')} 프로젝트 루트를 찾을 수 없습니다. awl init 을 실행하세요.\n`,
+    );
+    process.exit(1);
+    return;
+  }
+  const records = readRecords(root, { workitem });
   const details = (record: (typeof records)[number]): Record<string, unknown> =>
     record.data && typeof record.data === 'object' ? (record.data as Record<string, unknown>) : {};
   const gate2 = records.some((r) => {

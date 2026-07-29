@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { applyInit, nonInteractiveInputs } from '../../src/commands/init.js';
+import { applyInit, nonInteractiveInputs, stagesMdContent } from '../../src/commands/init.js';
 import { applyLocalUpdate, applyUpdate, runUpdate } from '../../src/commands/update.js';
 
 const origHome = process.env.AWL_HOME;
@@ -91,7 +91,7 @@ describe('applyLocalUpdate — 등록된 프로젝트 전부 재동기화 (awl-u
     expect(applyLocalUpdate('0.0.1', '2026-01-02T00:00:00.000Z')).toEqual([]);
   });
 
-  it('등록된 프로젝트의 config.engineVersion 이 낡았으면 갱신하고 status:updated 를 낸다', () => {
+  it('등록된 프로젝트의 skills-version 마커가 낡았으면 갱신하고 status:updated 를 낸다(ADK 0.8.0: config.json 은 안 건드림)', () => {
     const home = tmp('awl-update-local-home-');
     seedEngineDir(home);
     process.env.AWL_HOME = home;
@@ -104,16 +104,17 @@ describe('applyLocalUpdate — 등록된 프로젝트 전부 재동기화 (awl-u
     applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
 
     // 마커만 낡은 버전으로 되돌려 "engine 이 그 사이 갱신됐다"를 재현한다.
-    const configPath = path.join(proj, '.awl', 'config.json');
-    const cfg = readJson(configPath) as Record<string, unknown>;
-    fs.writeFileSync(configPath, JSON.stringify({ ...cfg, engineVersion: '0.0.1' }));
+    const skillsVerPath = path.join(proj, '.awl', 'skills-version.json');
+    fs.writeFileSync(skillsVerPath, JSON.stringify({ claude: '0.0.1' }));
 
     const results = applyLocalUpdate(engineVersion, '2026-01-02T00:00:00.000Z');
     expect(results).toHaveLength(1);
     const [r] = results;
     expect(r?.status).toBe('updated');
     expect(r?.skills).toEqual(['claude']);
-    expect((readJson(configPath) as Record<string, unknown>).engineVersion).toBe(engineVersion);
+    expect((readJson(skillsVerPath) as Record<string, unknown>).claude).toBe(engineVersion);
+    const configPath = path.join(proj, '.awl', 'config.json');
+    expect(readJson(configPath) as Record<string, unknown>).not.toHaveProperty('engineVersion');
   });
 
   it('이미 최신인 프로젝트는 status:up-to-date 를 낸다', () => {
@@ -131,6 +132,26 @@ describe('applyLocalUpdate — 등록된 프로젝트 전부 재동기화 (awl-u
     const results = applyLocalUpdate(engineVersion, '2026-01-02T00:00:00.000Z');
     expect(results).toHaveLength(1);
     expect(results[0]?.status).toBe('up-to-date');
+  });
+
+  it('낡은 stages.md 는 awl update --local(applyLocalUpdate) 이 최신으로 재생성한다(ADK stage 1)', () => {
+    const home = tmp('awl-update-local-home-');
+    seedEngineDir(home);
+    process.env.AWL_HOME = home;
+    applyUpdate();
+    const engineVersion = readEngineVersion(home);
+
+    const proj = tmp('awl-update-local-proj-');
+    const inputs = nonInteractiveInputs(proj);
+    applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
+
+    const stagesMdPath = path.join(proj, '.awl', 'stages.md');
+    fs.writeFileSync(stagesMdPath, '낡은 내용\n');
+    expect(fs.readFileSync(stagesMdPath, 'utf8')).not.toBe(stagesMdContent());
+
+    applyLocalUpdate(engineVersion, '2026-01-02T00:00:00.000Z');
+
+    expect(fs.readFileSync(stagesMdPath, 'utf8')).toBe(stagesMdContent());
   });
 
   it('등록된 프로젝트의 경로가 사라졌으면 죽지 않고 status:skipped 로 건너뛴다', () => {
@@ -163,16 +184,15 @@ describe('runUpdate — 스코프 기본값 (awl-update-local AC-02)', () => {
     const inputs = nonInteractiveInputs(proj);
     inputs.skills = { claude: true, codex: false };
     applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
-    const configPath = path.join(proj, '.awl', 'config.json');
-    const cfg = readJson(configPath) as Record<string, unknown>;
-    fs.writeFileSync(configPath, JSON.stringify({ ...cfg, engineVersion: '0.0.1' }));
+    const skillsVerPath = path.join(proj, '.awl', 'skills-version.json');
+    fs.writeFileSync(skillsVerPath, JSON.stringify({ claude: '0.0.1' }));
 
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     runUpdate();
     stdoutSpy.mockRestore();
 
-    // --local/--all 을 안 줬으니 프로젝트 config 는 그대로 낡은 채여야 한다.
-    expect((readJson(configPath) as Record<string, unknown>).engineVersion).toBe('0.0.1');
+    // --local/--all 을 안 줬으니 프로젝트 skills-version 마커는 그대로 낡은 채여야 한다.
+    expect((readJson(skillsVerPath) as Record<string, unknown>).claude).toBe('0.0.1');
     expect(engineVersion).not.toBe('0.0.1'); // 전역 엔진 자체는 실제 갱신됐다(비교용 sanity).
   });
 
@@ -186,15 +206,14 @@ describe('runUpdate — 스코프 기본값 (awl-update-local AC-02)', () => {
     const inputs = nonInteractiveInputs(proj);
     inputs.skills = { claude: true, codex: false };
     applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
-    const configPath = path.join(proj, '.awl', 'config.json');
-    const cfg = readJson(configPath) as Record<string, unknown>;
-    fs.writeFileSync(configPath, JSON.stringify({ ...cfg, engineVersion: '0.0.1' }));
+    const skillsVerPath = path.join(proj, '.awl', 'skills-version.json');
+    fs.writeFileSync(skillsVerPath, JSON.stringify({ claude: '0.0.1' }));
 
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     runUpdate({ local: true });
     stdoutSpy.mockRestore();
 
-    expect((readJson(configPath) as Record<string, unknown>).engineVersion).not.toBe('0.0.1');
+    expect((readJson(skillsVerPath) as Record<string, unknown>).claude).not.toBe('0.0.1');
   });
 
   it('--all 을 주면 전역과 등록된 프로젝트를 모두 갱신한다', () => {
@@ -207,15 +226,14 @@ describe('runUpdate — 스코프 기본값 (awl-update-local AC-02)', () => {
     const inputs = nonInteractiveInputs(proj);
     inputs.skills = { claude: true, codex: false };
     applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
-    const configPath = path.join(proj, '.awl', 'config.json');
-    const cfg = readJson(configPath) as Record<string, unknown>;
-    fs.writeFileSync(configPath, JSON.stringify({ ...cfg, engineVersion: '0.0.1' }));
+    const skillsVerPath = path.join(proj, '.awl', 'skills-version.json');
+    fs.writeFileSync(skillsVerPath, JSON.stringify({ claude: '0.0.1' }));
 
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     runUpdate({ all: true });
     stdoutSpy.mockRestore();
 
-    expect((readJson(configPath) as Record<string, unknown>).engineVersion).not.toBe('0.0.1');
+    expect((readJson(skillsVerPath) as Record<string, unknown>).claude).not.toBe('0.0.1');
   });
 
   it('--all 은 Codex의 옛 Claude 스킬 symlink를 실제 디렉터리로 마이그레이션한다', () => {
@@ -234,10 +252,6 @@ describe('runUpdate — 스코프 기본값 (awl-update-local AC-02)', () => {
     fs.writeFileSync(path.join(claudeSkill, 'sentinel.txt'), 'keep the Claude target\n');
     fs.rmSync(codexSkill, { recursive: true });
     fs.symlinkSync(path.relative(path.dirname(codexSkill), claudeSkill), codexSkill, 'dir');
-
-    const configPath = path.join(proj, '.awl', 'config.json');
-    const cfg = readJson(configPath) as Record<string, unknown>;
-    fs.writeFileSync(configPath, JSON.stringify({ ...cfg, engineVersion: '0.7.1' }));
 
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     runUpdate({ all: true });

@@ -417,6 +417,8 @@ export interface Symbols {
   flowLine: string;
   /** 스파인 세션 종료 — 세션당 정확히 한 번, 맨 아래, 뒤에 아무 것도 안 붙는다. */
   flowEnd: string;
+  /** 접힌 항목 — "펼치면 더 있다"는 표시(게이트 화면 접기/펼치기, ADK 0.8.0). */
+  fold: string;
 }
 
 const UNICODE_SYMBOLS: Symbols = {
@@ -445,6 +447,7 @@ const UNICODE_SYMBOLS: Symbols = {
   flowActive: '◆',
   flowLine: '│',
   flowEnd: '└',
+  fold: '▸',
 };
 
 const ASCII_SYMBOLS: Symbols = {
@@ -469,6 +472,7 @@ const ASCII_SYMBOLS: Symbols = {
   flowActive: '>',
   flowLine: '|',
   flowEnd: '+',
+  fold: '>',
 };
 
 /** 능력에 맞는 기호 세트를 고른다. */

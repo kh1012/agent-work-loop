@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   acquireStateLock,
+  effectiveLoopMode,
   getCriterion,
   loadState,
   mergeState,
@@ -227,6 +228,68 @@ describe('runStateSet — phase:loop 전환에 게이트 1 기록 요구 (WI-Q A
 
     exitSpy.mockRestore();
     stderrSpy.mockRestore();
+  });
+});
+
+describe('loopMode — 루프 모드(ADK 0.8.0 단계 2 "모드")', () => {
+  const origCwd = process.cwd();
+
+  afterEach(() => {
+    process.chdir(origCwd);
+  });
+
+  function project(): string {
+    const root = fs.realpathSync(tmp());
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    writeState(root, { workitem: 'WI-Q' });
+    process.chdir(root);
+    return root;
+  }
+
+  it('effectiveLoopMode — 필드가 없으면 semi-auto(기본값)', () => {
+    expect(effectiveLoopMode({})).toBe('semi-auto');
+  });
+
+  it('effectiveLoopMode — 알 수 없는 값이면 semi-auto 로 안전하게 폴백', () => {
+    expect(effectiveLoopMode({ loopMode: 'yolo' })).toBe('semi-auto');
+  });
+
+  it('effectiveLoopMode — strict/auto 는 그대로 읽힌다', () => {
+    expect(effectiveLoopMode({ loopMode: 'strict' })).toBe('strict');
+    expect(effectiveLoopMode({ loopMode: 'auto' })).toBe('auto');
+  });
+
+  it('effectiveLoopMode — 기존 파이프라인 게이트-밀도 mode 필드(gate-medium 등)와 안 섞인다', () => {
+    // state.json 은 이미 mode 를 파이프라인 게이트-밀도 등급으로 쓴다(D-15, 자유
+    // top-level 필드) — loopMode 는 이름이 달라 이 값과 절대 충돌하지 않는다.
+    expect(effectiveLoopMode({ mode: 'gate-medium' })).toBe('semi-auto');
+  });
+
+  it('runStateSet — loopMode 를 정해진 3값 중 하나로 저장한다', () => {
+    const root = project();
+    runStateSet('{"loopMode":"strict"}');
+    expect(loadState(root).loopMode).toBe('strict');
+  });
+
+  it('runStateSet — 알 수 없는 loopMode 값은 거부하고 state 를 안 바꾼다', () => {
+    const root = project();
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    expect(() => runStateSet('{"loopMode":"yolo"}')).toThrow('exit:1');
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('loopMode'))).toBe(true);
+    expect(loadState(root).loopMode).toBeUndefined();
+
+    exitSpy.mockRestore();
+    stderrSpy.mockRestore();
+  });
+
+  it('runStateSet — 기존 mode(게이트-밀도) 필드는 loopMode 검증과 무관하게 그대로 통과한다', () => {
+    const root = project();
+    runStateSet('{"mode":"gate-medium"}');
+    expect(loadState(root).mode).toBe('gate-medium');
   });
 });
 

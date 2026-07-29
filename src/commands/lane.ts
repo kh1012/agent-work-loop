@@ -1,12 +1,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { WORKTREES_DIR } from '../core/paths.js';
+import { WORKTREES_DIR, globalRoot, parentGlobalRoot } from '../core/paths.js';
 import { run } from '../core/runner.js';
 import { type Caps, caps, feedback, makeColors, sectionBox, signal } from '../core/tty.js';
 import { loadConfig, resolveProjectRoot, writeLocalConfigOverlay } from './config.js';
 import { applyInit, nonInteractiveInputs } from './init.js';
-import { type MergeHomeResult, mergeIsolatedHome } from './learning-merge.js';
-import { loadProjectName } from './record.js';
+import {
+  type MergeLearningResult,
+  mergeIsolatedHome,
+  mergeIsolatedLearning,
+} from './learning-merge.js';
 import { loadState, writeState } from './state.js';
 import {
   removeGitWorktree,
@@ -29,6 +32,68 @@ const PIPELINE_TRIGGERS = [
   '/awl-pipeline-exec  |  $awl-pipeline-exec',
   '/awl-pipeline-review  |  $awl-pipeline-review',
 ];
+
+// ---------------------------------------------------------------------------
+// 레인 메타 (ADK stage 5) — 기준 브랜치 + 포트 오프셋. .awl/lane-meta.json 에
+// 레인 워크트리 로컬로 둔다(untracked, .awl/* 블랭킷 무시가 자동 커버 — state.json
+// 과 같은 층위). "레인을 열 때 서 있던 브랜치"는 lane rm 이 쓰는 "그 순간의 root
+// HEAD"와 다르다 — 시점을 고정해 게이트4 병합 제안(WI-D)이 정확한 대상을 가리키게 한다.
+// ---------------------------------------------------------------------------
+
+export interface LaneMeta {
+  /** 레인을 열 때 root(메인 트리)가 서 있던 브랜치. 게이트4 병합 제안의 대상. */
+  baseBranch: string;
+  /** 정보성 포트 오프셋 — awl 이 강제로 주입하지 않는다, 참고용 숫자만 준다. */
+  port: number;
+  createdAt: string;
+}
+
+const BASE_PORT = 3000;
+
+function laneMetaPath(lanePath: string): string {
+  return path.join(lanePath, '.awl', 'lane-meta.json');
+}
+
+function writeLaneMeta(lanePath: string, meta: LaneMeta): void {
+  const p = laneMetaPath(lanePath);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, `${JSON.stringify(meta, null, 2)}\n`);
+}
+
+/** 레인 메타를 읽는다. 없거나 깨졌으면 null(단계5 이전에 만든 레인 — 크래시하지 않는다). */
+export function readLaneMeta(lanePath: string): LaneMeta | null {
+  try {
+    const raw = JSON.parse(fs.readFileSync(laneMetaPath(lanePath), 'utf8')) as Record<
+      string,
+      unknown
+    >;
+    if (
+      typeof raw.baseBranch === 'string' &&
+      typeof raw.port === 'number' &&
+      typeof raw.createdAt === 'string'
+    ) {
+      return { baseBranch: raw.baseBranch, port: raw.port, createdAt: raw.createdAt };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** root 의 현재 브랜치. detached 등으로 못 읽으면 null(크래시하지 않는다). */
+async function currentBranch(root: string): Promise<string | null> {
+  const r = await run({
+    cmd: 'git',
+    args: ['rev-parse', '--abbrev-ref', 'HEAD'],
+    cwd: root,
+    timeoutMs: 10_000,
+  });
+  if (r.exitCode !== 0) {
+    return null;
+  }
+  const branch = r.stdout.trim();
+  return branch && branch !== 'HEAD' ? branch : null;
+}
 
 function requireRoot(): string {
   const root = resolveProjectRoot();
@@ -88,6 +153,13 @@ export async function runLaneNew(name: string, description?: string): Promise<vo
 
   const inheritedFeedback = loadConfig(root).config?.feedback;
 
+  // 레인 메타 캡처(ADK stage 5, WI-A) — worktree 를 만들기 전에 root 의 "지금" 브랜치와
+  // 기존 레인 개수를 본다. base branch 는 시점을 고정해야 의미가 있다(lane rm 이 쓰는
+  // "그 순간의 root HEAD"와 다르다 — 나중에 root 브랜치가 바뀌어도 이 값은 안 바뀐다).
+  const baseBranch = await currentBranch(root);
+  const existingLaneCount = (await collectLanes(root)).length;
+  const port = BASE_PORT + existingLaneCount;
+
   // 원시경로 재사용(AC-01) — worktree + isolated home + 스킬 재설치 + export AWL_HOME
   // 안내 + orphan 롤백을 runWorkNew 가 전부 처리한다. lane 은 이 위에 얇게 얹는다.
   await runWorkNew(name, description, { worktree: true, isolated: true });
@@ -106,10 +178,21 @@ export async function runLaneNew(name: string, description?: string): Promise<vo
     project: laneName,
     ...(inheritedFeedback ? { feedback: { ...inheritedFeedback } } : {}),
   });
+  if (baseBranch) {
+    writeLaneMeta(lanePath, { baseBranch, port, createdAt: new Date().toISOString() });
+  }
+  // records 심링크+접미사(WI-G17b/c)는 runWorkNew({worktree:true, ...}) 가 이미 했다
+  // (work.ts linkIsolatedRecords, --isolated 여부와 무관하게 워크트리마다 적용) — lane
+  // 은 그 원시경로를 그대로 재사용할 뿐 별도 처리가 없다.
 
   // 레인 기동 안내(AC-01 c) — export AWL_HOME 은 runWorkNew 가 이미 찍었다(단일 출처,
   // 표면 중복 금지). 여기선 역할 세션이 실행할 파이프라인 스킬 트리거만 얹는다.
   process.stdout.write(`\n${feedback(c, 'ok', `레인 준비  ${color.bold(laneName)}`)}\n`);
+  if (baseBranch) {
+    process.stdout.write(
+      `    ${color.dim(`기준 브랜치: ${baseBranch} · 포트 오프셋(참고용): ${port}`)}\n`,
+    );
+  }
   process.stdout.write(`    ${color.dim('이 레인의 역할 세션에서 스킬 트리거를 실행하세요:')}\n`);
   for (const t of PIPELINE_TRIGGERS) {
     process.stdout.write(`      ${color.dim(t)}\n`);
@@ -120,6 +203,9 @@ export interface LaneInfo {
   name: string;
   path: string;
   branch: string;
+  /** ADK stage 5 — 단계5 이전에 만든 레인은 lane-meta.json 이 없어 undefined. */
+  baseBranch?: string;
+  port?: number;
 }
 
 /**
@@ -181,15 +267,20 @@ export async function unmergedCommitCount(root: string, branch: string): Promise
   return Number.isNaN(n) ? null : n;
 }
 
-/** awl/도구가 워크트리에 만드는 산출물 경로(진짜 WIP 아님, worktreeUntracked 에서 제외). */
-const AWL_INTERNAL_DIRS = new Set(['.awl', '.awl-worktrees', '.claude']);
+/**
+ * awl/도구가 워크트리에 만드는 산출물 최상위 경로(진짜 WIP 아님, worktreeUntracked 에서
+ * 제외). 디렉토리(.awl 등)와 단일 루트 파일(CLAUDE.md/AGENTS.md — 스킬 설치가 프로젝트에
+ * 처음 만드는 참조 파일, ADK stage 1) 둘 다 담는다.
+ */
+const AWL_INTERNAL_PATHS = new Set(['.awl', '.awl-worktrees', '.claude', 'CLAUDE.md', 'AGENTS.md']);
 
 /**
  * 레인 워크트리의 genuine untracked 파일(미add 신규)을 조사한다(AC-01, F-01). work done
  * 과 공유하는 worktreeDirtyTracked 는 --untracked-files=no 라 이걸 못 본다 — lane rm 은
  * 워크트리를 통째로 파기하므로 미커밋 신규 파일도 손실이다. awl 자신의 산출물
  * (.awl/(·.awl/home/ 포함) state·verify-baseline·isolated records, .awl-worktrees/, lane new 가
- * 재설치하는 .claude/)은 WIP 가 아니므로 제외한다(G-034: 도구 산출물은 도구 필터로 무시).
+ * 재설치하는 .claude/, 스킬 설치가 처음 만드는 CLAUDE.md/AGENTS.md)은 WIP 가 아니므로
+ * 제외한다(G-034: 도구 산출물은 도구 필터로 무시).
  *
  * remove(awl-uninstall-reset AC-03)도 이 안전망을 그대로 재사용한다 — export.
  */
@@ -207,7 +298,7 @@ export async function worktreeUntracked(
     .split('\n')
     .map((l) => l.trim())
     .filter(Boolean)
-    .filter((f) => !AWL_INTERNAL_DIRS.has(f.split('/')[0] ?? ''));
+    .filter((f) => !AWL_INTERNAL_PATHS.has(f.split('/')[0] ?? ''));
   return { untracked: files.length > 0, count: files.length, first: files[0] };
 }
 
@@ -243,7 +334,13 @@ export async function collectLanes(root: string): Promise<LaneInfo[]> {
       continue;
     }
     const p = path.join(base, e.name);
-    lanes.push({ name: e.name, path: p, branch: branchOf(branches, p) ?? '(detached)' });
+    const meta = readLaneMeta(p);
+    lanes.push({
+      name: e.name,
+      path: p,
+      branch: branchOf(branches, p) ?? '(detached)',
+      ...(meta ? { baseBranch: meta.baseBranch, port: meta.port } : {}),
+    });
   }
   lanes.sort((a, b) => a.name.localeCompare(b.name));
   return lanes;
@@ -268,6 +365,10 @@ export function renderLaneList(lanes: LaneInfo[], c: Caps): string {
   for (const l of lanes) {
     out.push(`${color.bold(l.name.padEnd(nameWidth, ' '))}${color.dim(l.branch)}`);
     out.push(`  ${color.dim(l.path)}`);
+    // ADK stage 5 — 단계5 이전 레인(lane-meta.json 없음)은 이 줄 자체가 생략된다.
+    if (l.baseBranch) {
+      out.push(`  ${color.dim(`기준 브랜치: ${l.baseBranch} · 포트: ${l.port}`)}`);
+    }
   }
   return sectionBox('레인', out, c);
 }
@@ -288,6 +389,66 @@ export function laneRegistryRoot(root: string): string {
   const marker = `${path.sep}${WORKTREES_DIR}${path.sep}`;
   const index = resolved.indexOf(marker);
   return index === -1 ? resolved : resolved.slice(0, index);
+}
+
+/**
+ * awl lane sync <name> — 레인을 지우지 않고, 그 레인이 격리 홈에 쌓은 학습(gotchas/
+ * rules/generations)만 지금 전역으로 합친다(ADK stage 5, WI-C). "레인 A가 남기면
+ * 레인 B가 읽을 수 있다"를 teardown(lane rm) 전에도 성립시킨다 — 사람/스킬이 명시적으로
+ * 부를 때만(항상-전역-쓰기는 새 전역 동시쓰기 락을 요구하는데, 그건 아직 없다,
+ * learning-merge.ts 주석 참고).
+ *
+ * `mergeIsolatedHome`(lane rm 이 쓰는 전체 병합)이 아니라 `mergeIsolatedLearning`만
+ * 부른다 — records 병합(mergeIsolatedRecords)은 dedup 없이 순수 append 라 여러 번
+ * 부르면 전역에 중복이 쌓인다(레인 생애 동안 딱 한 번, teardown 때만 안전). gotchas/
+ * rules/generations 는 전부 content 기준 dedup 이라 몇 번을 다시 불러도 안전하다 —
+ * sync 를 여러 번 불러도, 나중에 lane rm 이 다시 병합해도 중복이 안 생긴다.
+ */
+export async function runLaneSync(name: string): Promise<void> {
+  const root = requireRoot();
+  const c = caps();
+  const color = makeColors(c.color);
+  const laneName = sanitizeForGit(name);
+  if (!laneName) {
+    process.stderr.write(`\n${feedback(c, 'error', '레인 이름을 입력하세요')}\n`);
+    process.exit(1);
+  }
+  const lanePath = path.join(root, WORKTREES_DIR, laneName);
+  if (!fs.existsSync(lanePath)) {
+    process.stderr.write(
+      `\n${feedback(c, 'error', `레인을 찾을 수 없습니다: ${laneName}`, 'awl lane ls 로 현존 레인을 확인하세요')}\n`,
+    );
+    process.exit(1);
+  }
+
+  const isolatedHome = path.join(lanePath, '.awl', 'home');
+  if (!fs.existsSync(isolatedHome)) {
+    process.stdout.write(
+      `\n${feedback(c, 'info', `레인 ${color.bold(laneName)} 은 격리 홈이 없습니다`, '합칠 학습이 없습니다(격리 없이 만든 레인이거나 아직 아무것도 안 남겼습니다)')}\n`,
+    );
+    return;
+  }
+  const toRoot = parentGlobalRoot(isolatedHome) ?? globalRoot();
+  if (path.resolve(isolatedHome) === path.resolve(toRoot)) {
+    process.stdout.write(
+      `\n${feedback(c, 'info', `레인 ${color.bold(laneName)} 은 이미 전역 홈을 씁니다`, '합칠 게 없습니다')}\n`,
+    );
+    return;
+  }
+
+  let result: MergeLearningResult;
+  try {
+    result = mergeIsolatedLearning(isolatedHome, toRoot);
+  } catch (e) {
+    process.stderr.write(
+      `\n${feedback(c, 'error', '학습 병합 실패 — 레인은 그대로입니다', e instanceof Error ? e.message : String(e))}\n`,
+    );
+    process.exit(1);
+  }
+  process.stdout.write(`\n${feedback(c, 'ok', `레인 ${color.bold(laneName)} 의 학습을 전역에 합쳤습니다`)}\n`);
+  process.stdout.write(
+    `    ${color.dim(`교훈 ${result.gotchasAdded}개 · 규칙 ${result.rulesAdded}개 · 세대 ${result.generationsAdded}개`)}\n`,
+  );
 }
 
 /**
@@ -353,15 +514,15 @@ export async function runLaneRemove(name: string, opts: { force?: boolean } = {}
     }
   }
 
-  // 격리(.awl/home) 학습·records 를 전역으로 병합한다 — 워크트리(=.awl/home) 삭제 전에.
+  // 격리(.awl/home) 학습을 전역으로 병합한다 — 워크트리(=.awl/home) 삭제 전에.
   // 안전 검사를 모두 통과해 제거가 확정된 지점이다. gotchas/rules/generations 는 전역으로
-  // 이어지고, records 는 재생(append)되며 레인 출처 스냅샷이 archive/ 에 남는다. state 는
-  // 안 건드린다(격리 유지). 없거나 자기 자신이면 no-op. 병합이 실패하면(전역 쓰기 오류 등)
-  // 깔끔히 중단해 학습을 보존한다 — 삭제 전이라 재시도로 복구된다.
-  let merged: MergeHomeResult | null = null;
+  // 이어진다. records 는 여기서 안 다룬다(WI-G17b — project-local + 심링크 공유로 이미
+  // 실시간 반영돼 있다, 병합할 게 없다). state 는 안 건드린다(격리 유지). 없거나 자기
+  // 자신이면 no-op. 병합이 실패하면(전역 쓰기 오류 등) 깔끔히 중단해 학습을 보존한다 —
+  // 삭제 전이라 재시도로 복구된다.
+  let merged: MergeLearningResult | null = null;
   try {
-    const project = loadProjectName(root) ?? path.basename(root);
-    merged = mergeIsolatedHome(path.join(lanePath, '.awl', 'home'), { project, lane: laneName });
+    merged = mergeIsolatedHome(path.join(lanePath, '.awl', 'home'));
   } catch (e) {
     process.stderr.write(
       `\n${feedback(c, 'error', '격리 학습 전역 병합 실패 — 레인을 보존합니다', e instanceof Error ? e.message : String(e))}\n`,
@@ -390,11 +551,6 @@ export async function runLaneRemove(name: string, opts: { force?: boolean } = {}
   if (merged && (merged.gotchasAdded > 0 || merged.rulesAdded > 0 || merged.generationsAdded > 0)) {
     process.stdout.write(
       `    ${color.dim(`학습 전역 병합  gotcha ${merged.gotchasAdded} · rule ${merged.rulesAdded} · generation ${merged.generationsAdded}`)}\n`,
-    );
-  }
-  if (merged && merged.recordsMerged > 0) {
-    process.stdout.write(
-      `    ${color.dim(`records 전역 병합  ${merged.recordsMerged}건${merged.recordsArchivePath ? ` · 아카이브 ${merged.recordsArchivePath}` : ''}`)}\n`,
     );
   }
 }

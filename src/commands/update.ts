@@ -75,15 +75,15 @@ export function applyLocalUpdate(engineVersion: string, now: string): ProjectSyn
       continue;
     }
     const synced = syncExistingInstall(p.path, engineVersion, now);
-    // configUpdated 만 신뢰한다 — installClaudeSkill/installCodexSkill 은 내용이 같아도
-    // 항상 무조건 재복사하고 성공만 알리므로, synced.skills 는 "스킬을 쓴다"는 뜻이지
-    // "이번에 실제로 바뀌었다"는 뜻이 아니다(F-2와 같은 함정). config.engineVersion 은
-    // syncExistingInstall/applyInit 이 스킬 재설치와 항상 같이 쓰는 유일한 마커라, 이미
-    // 목표 버전과 같다면 그 스킬 내용도 이미 그 버전 그대로라고 신뢰할 수 있다.
+    // skillsStale 만 신뢰한다 — synced.skills 는 재설치된 스킬 이름 목록일 뿐(내용이
+    // 같아도 항상 무조건 재복사되므로 "스킬을 쓴다"는 뜻이지 "이번에 실제로 낡았다"는
+    // 뜻이 아니다, F-2와 같은 함정). skillsStale 은 재설치 전 skills-version.json
+    // 스탬프가 실제로 engineVersion 과 달랐는지를 본다(예전 config.engineVersion 이
+    // 하던 역할을 이제 이 필드가 한다).
     results.push({
       name: p.name,
       path: p.path,
-      status: synced.configUpdated ? 'updated' : 'up-to-date',
+      status: synced.skillsStale ? 'updated' : 'up-to-date',
       skills: synced.skills,
     });
   }

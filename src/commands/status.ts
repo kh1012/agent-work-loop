@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { type FrontmatterData, parseFrontmatter } from '../core/doc-frontmatter.js';
 import { WORKTREES_DIR } from '../core/paths.js';
 import { run } from '../core/runner.js';
 import {
@@ -16,6 +17,7 @@ import {
   stringWidth,
 } from '../core/tty.js';
 import { multiProjectFooter, resolveProjectScope } from './config.js';
+import { listDocFiles } from './doc.js';
 import { archiveAllLanes } from './pipeline-archive.js';
 import { readRecords } from './record.js';
 import { loadState } from './state.js';
@@ -35,15 +37,76 @@ export interface BlockedByDeps {
   waitingOn: string[];
 }
 
-/** 게이트 1/2 의 기록 상태 (WI-Q AC-03). recorded:false 면 나머지 필드는 없다. */
+/** 게이트에 제시된 완료조건 하나 — state.criteria 에서 찾은 status 를 곁들인다(못 찾으면 undefined, 실패로 단정하지 않는다). */
+export interface GateCriterionEntry {
+  id: string;
+  status?: string;
+}
+
+/**
+ * 게이트 1~4 의 기록 상태 (WI-Q AC-03, ADK stage 2a 로 3/4 확장, WI-G19 로 접기/펼치기
+ * 판정용 원본 배열 + folded 로 확장). recorded:false 면 나머지 필드는 없다.
+ *
+ * 접기/펼치기(adk-prototype.md:249-258, adk-reference.md:1393-1464) — "승인을 바꿀 수
+ * 있는 것만 펼친다": presentedExclusions(범위 밖)·reviewFindings(리뷰 지적)는 있으면
+ * 무조건 펼치고, presentedCriteria 는 전부 passed(또는 상태를 모름)면 접는다.
+ */
 export interface GateStatus {
-  gate: 1 | 2;
+  gate: 1 | 2 | 3 | 4;
   recorded: boolean;
   decision?: string;
   at?: string;
-  presentedCriteriaCount?: number;
-  presentedExclusionsCount?: number;
+  presentedCriteria?: GateCriterionEntry[];
+  presentedExclusions?: unknown[];
+  /** 이 게이트가 다룬 완료조건을 지목한 review 기록의 findings (있으면 항상 펼친다). */
+  reviewFindings?: Record<string, unknown>[];
+  /** true = 한 줄로 접힘("N개 통과 ▸"), false = 항목별로 펼침. */
+  folded?: boolean;
   auto?: boolean;
+  /** 게이트4 가 auto:true 로 기록됐을 때만 채운다(WI-H4, "auto 모드는 게이트4 에서 펼친 요약만 낸다"). */
+  requestSummary?: RequestSummary;
+}
+
+/** 게이트4(요청 닫기)가 auto 로 기록됐을 때 펼치는 요청 전체 요약(WI-H4). */
+export interface RequestSummary {
+  totalTickets: number;
+  completedTickets: number;
+  conditionsTotal: number;
+  /** 이 스펙에 속한 티켓들(+게이트4 자신)의 게이트 기록 중 auto:true 인 것의 수. */
+  autoApprovalCount: number;
+}
+
+/**
+ * specId 에 속한 티켓들(docs/tickets/*.md 의 spec 필드로 연결)을 모아 완료/조건/
+ * 자동승인 집계를 낸다. 순수 조회 — 판단하지 않는다(개수만 센다).
+ */
+function buildRequestSummary(projectRoot: string, specId: string): RequestSummary {
+  const ticketDocs = listDocFiles(projectRoot)
+    .filter((f) => f.type === 'ticket')
+    .map((f) => {
+      try {
+        return parseFrontmatter(fs.readFileSync(f.path, 'utf8'))?.data;
+      } catch {
+        return undefined;
+      }
+    })
+    .filter((d): d is FrontmatterData => d !== undefined)
+    .filter((d) => d.spec === specId);
+
+  const totalTickets = ticketDocs.length;
+  const completedTickets = ticketDocs.filter((t) => t.status === 'done').length;
+  const conditionsTotal = ticketDocs.reduce(
+    (sum, t) => sum + (Array.isArray(t.conditions) ? t.conditions.length : 0),
+    0,
+  );
+  const ticketIds = new Set(ticketDocs.map((t) => String(t.id)));
+  const autoApprovalCount = readRecords(projectRoot, { type: 'gate' }).filter(
+    (r) =>
+      r.auto === true &&
+      (r.spec === specId || (typeof r.ticket === 'string' && ticketIds.has(r.ticket))),
+  ).length;
+
+  return { totalTickets, completedTickets, conditionsTotal, autoApprovalCount };
 }
 
 /**
@@ -78,29 +141,65 @@ export interface StatusReport {
 }
 
 /**
- * 현재 워크아이템의 게이트 1/2 기록을 찾는다. readRecords 는 최근순이라
+ * 현재 워크아이템의 게이트 1~4 기록을 찾는다. readRecords 는 최근순이라
  * 같은 게이트 번호가 여러 번 기록됐어도(재승인 등) 첫 번째로 만나는 게 최신이다.
- * gate 레코드가 없어도(대기중) 항상 두 항목(1, 2)을 돌려준다 — 계산만 한다.
+ * gate 레코드가 없어도(대기중) 항상 네 항목(1~4)을 돌려준다 — 계산만 한다.
+ *
+ * criteriaStatus 는 state.criteria 의 id→status 맵(WI-G19) — 게이트가 제시한 완료조건이
+ * 지금 실제로 passed 인지 대조해 접기/펼치기를 판정한다. reviewRecords 는 review 타입
+ * 기록 중 이 게이트가 제시한 완료조건을 하나라도 지목한 것 — findings 를 모아 항상 펼친다.
+ * projectRoot 는 게이트4 가 auto 로 기록됐을 때만 requestSummary 를 계산하려고 받는다
+ * (WI-H4) — 나머지 게이트/워크아이템은 이 조회를 안 탄다.
  */
-function buildGateStatus(records: Record<string, unknown>[]): GateStatus[] {
+function buildGateStatus(
+  projectRoot: string,
+  records: Record<string, unknown>[],
+  criteriaStatus: Map<string, string>,
+): GateStatus[] {
   const gateRecords = records.filter((r) => r.type === 'gate');
-  return ([1, 2] as const).map((gate) => {
+  const reviewRecords = records.filter((r) => r.type === 'review');
+  return ([1, 2, 3, 4] as const).map((gate) => {
     const rec = gateRecords.find((r) => r.gate === gate);
     if (!rec) {
       return { gate, recorded: false };
     }
-    const presentedCriteria = Array.isArray(rec.presentedCriteria) ? rec.presentedCriteria : [];
+    const presentedCriteriaIds = (
+      Array.isArray(rec.presentedCriteria) ? rec.presentedCriteria : []
+    ).map((id) => String(id));
+    const presentedCriteria: GateCriterionEntry[] = presentedCriteriaIds.map((id) => ({
+      id,
+      status: criteriaStatus.get(id),
+    }));
     const presentedExclusions = Array.isArray(rec.presentedExclusions)
       ? rec.presentedExclusions
       : [];
+    const reviewFindings = reviewRecords
+      .filter(
+        (r) =>
+          Array.isArray(r.criteria) &&
+          (r.criteria as unknown[]).some((id) => presentedCriteriaIds.includes(String(id))),
+      )
+      .flatMap((r) => (Array.isArray(r.findings) ? (r.findings as Record<string, unknown>[]) : []));
+    const hasUnresolved = presentedCriteria.some(
+      (item) => item.status !== undefined && item.status !== 'passed',
+    );
+    const folded = presentedExclusions.length === 0 && reviewFindings.length === 0 && !hasUnresolved;
+    const auto = typeof rec.auto === 'boolean' ? rec.auto : undefined;
+    const requestSummary =
+      gate === 4 && auto === true && typeof rec.spec === 'string'
+        ? buildRequestSummary(projectRoot, rec.spec)
+        : undefined;
     return {
       gate,
       recorded: true,
       decision: typeof rec.decision === 'string' ? rec.decision : undefined,
       at: typeof rec.at === 'string' ? rec.at : undefined,
-      presentedCriteriaCount: presentedCriteria.length,
-      presentedExclusionsCount: presentedExclusions.length,
-      auto: typeof rec.auto === 'boolean' ? rec.auto : undefined,
+      presentedCriteria,
+      presentedExclusions,
+      reviewFindings,
+      folded,
+      auto,
+      requestSummary,
     };
   });
 }
@@ -140,7 +239,7 @@ export function buildStatus(projectRoot: string): StatusReport {
     : [];
   const count = (s: string): number => criteria.filter((c) => c.status === s).length;
 
-  const records = readRecords();
+  const records = readRecords(projectRoot);
   const byType: Record<string, number> = {};
   for (const r of records) {
     const t = String(r.type);
@@ -153,7 +252,17 @@ export function buildStatus(projectRoot: string): StatusReport {
 
   // 게이트 이력은 현재 워크아이템 것만 본다(다른 워크아이템 게이트가 섞이면 안 됨).
   const workitem = typeof state.workitem === 'string' ? state.workitem : null;
-  const gates = buildGateStatus(records.filter((r) => r.workitem === workitem));
+  const criteriaStatus = new Map<string, string>();
+  for (const cr of criteria) {
+    if (typeof cr.id === 'string' && typeof cr.status === 'string') {
+      criteriaStatus.set(cr.id, cr.status);
+    }
+  }
+  const gates = buildGateStatus(
+    projectRoot,
+    records.filter((r) => r.workitem === workitem),
+    criteriaStatus,
+  );
 
   return {
     generation: typeof state.generation === 'number' ? state.generation : 1,
@@ -310,11 +419,45 @@ export function renderStatus(report: StatusReport, c: Caps): string {
       continue;
     }
     const when = g.at ? g.at.slice(0, 16).replace('T', ' ') : '';
-    const summary = `완료조건 ${g.presentedCriteriaCount ?? 0}개, 제외 ${g.presentedExclusionsCount ?? 0}건`;
+    const criteria = g.presentedCriteria ?? [];
+    const exclusions = g.presentedExclusions ?? [];
+    const findings = g.reviewFindings ?? [];
     const autoTag = g.auto ? color.dim(' (자동)') : '';
+    // 접힘: 완료조건 개수만 한 줄로("N개 통과 ▸") — 범위 밖/리뷰 지적이 없고 전부
+    // passed(또는 상태 불명)일 때만. 펼침: 항목별로 나열해 "실패나 지적"이 보이게 한다.
+    const foldSummary = g.folded
+      ? `완료조건 ${criteria.length}개 ${s.fold}`
+      : `완료조건 ${criteria.length}개, 제외 ${exclusions.length}건, 리뷰지적 ${findings.length}건`;
     out.push(
-      `    ${s.lastBranch} 게이트 ${g.gate}  ${decisionColored(t, g.decision ?? '')}${autoTag}   ${when}   ${color.dim(summary)}`,
+      `    ${s.lastBranch} 게이트 ${g.gate}  ${decisionColored(t, g.decision ?? '')}${autoTag}   ${when}   ${color.dim(foldSummary)}`,
     );
+    if (!g.folded) {
+      for (const item of criteria) {
+        const marker = item.status === 'passed' ? signal(c, 'ok') : signal(c, 'warn');
+        out.push(
+          `        ${s.vGuide}   ${s.lastBranch} ${marker} ${item.id}${item.status ? color.dim(` (${item.status})`) : ''}`,
+        );
+      }
+      for (const ex of exclusions) {
+        const exObj = ex && typeof ex === 'object' ? (ex as Record<string, unknown>) : null;
+        const id = exObj && typeof exObj.id === 'string' ? exObj.id : String(ex);
+        const reason = exObj && typeof exObj.reason === 'string' ? `  ${color.dim(exObj.reason)}` : '';
+        out.push(`        ${s.vGuide}   ${s.lastBranch} ${signal(c, 'warn')} 범위 밖: ${id}${reason}`);
+      }
+      for (const f of findings) {
+        const what = typeof f.what === 'string' ? f.what : JSON.stringify(f);
+        const evidence = typeof f.evidence === 'string' ? `  ${color.dim(f.evidence)}` : '';
+        out.push(`        ${s.vGuide}   ${s.lastBranch} ${signal(c, 'warn')} 리뷰: ${what}${evidence}`);
+      }
+    }
+    // auto 모드가 게이트4 에서 펼치는 요청 전체 요약(WI-H4, adk-prototype.md:365
+    // "auto 전부 자동. 게이트 4 에서 펼친 요약만 낸다") — folded 여부와 무관하게 항상 보인다.
+    if (g.requestSummary) {
+      const rs = g.requestSummary;
+      out.push(
+        `        ${s.vGuide}   ${s.lastBranch} ${color.dim(`완료 티켓 ${rs.completedTickets}/${rs.totalTickets}개 · 조건 ${rs.conditionsTotal}개 · 자동승인 ${rs.autoApprovalCount}회`)}`,
+      );
+    }
   }
   return sectionBox(`진행 상황 · ${report.generation}세대`, out, c);
 }
@@ -331,6 +474,12 @@ export interface PipelineLane {
   status: PipelineStatus;
   execState: ExecState;
   reviewState: ReviewState;
+  /**
+   * <name> 이 실제 티켓 id 와 일치하면 그 티켓의 status(pending/implementing/reviewing/
+   * done/blocked, ADK stage 2e). 일치하지 않으면(지금 모든 자유이름 항목) null — 선택
+   * 필드라 pipelineLanes() 의 기존 생성부는 안 건드려도 된다(렌더링 시점 보강, withTicketStatus).
+   */
+  ticketStatus?: string | null;
 }
 
 /**
@@ -423,6 +572,34 @@ export function readDirNames(dir: string): string[] {
 }
 
 /**
+ * <ticketId> 가 그 root(레인 자신) 의 docs/tickets/*.md 프론트매터 id 와 일치하면 그
+ * 티켓의 status 를 돌려준다(ADK stage 2e). .tasks/plan/<name>.md 의 <name> 자리를
+ * 티켓 id 로 쓰면 별도 연결 필드 없이 자연스럽게 이어진다는 설계 — pipelineLanes 의
+ * 판정(파일명만 봄)과는 분리된 렌더링 시점 보강일 뿐이다. 못 찾거나 손상됐으면 null.
+ */
+export function resolveTicketStatus(root: string, ticketId: string): string | null {
+  for (const file of listDocFiles(root)) {
+    if (file.type !== 'ticket') {
+      continue;
+    }
+    try {
+      const parsed = parseFrontmatter(fs.readFileSync(file.path, 'utf8'));
+      if (parsed?.data.id === ticketId) {
+        return typeof parsed.data.status === 'string' ? parsed.data.status : null;
+      }
+    } catch {
+      // 손상된 파일 하나가 조회를 막지 않는다.
+    }
+  }
+  return null;
+}
+
+/** pipelineLanes 결과에 티켓 상태를 얹는다(렌더링 전용 보강, ADK stage 2e — 판정 로직과 분리). */
+function withTicketStatus(root: string, lanes: PipelineLane[]): PipelineLane[] {
+  return lanes.map((lane) => ({ ...lane, ticketStatus: resolveTicketStatus(root, lane.name) }));
+}
+
+/**
  * 한 레인(워크트리)의 workitem 롤업(pipeline-status-view AC-01). name 은 레인
  * (`.awl-worktrees/<name>`) 디렉토리명, workitems 는 그 레인의 .tasks/ 를
  * pipelineLanes 로 판정한 결과다. 기존 PipelineLane({name,status})은 workitem 하나다.
@@ -452,11 +629,15 @@ export function collectPipelineLaneGroups(root: string): PipelineLaneGroup[] {
     if (!e.isDirectory()) {
       continue;
     }
-    const tasks = path.join(base, e.name, '.tasks');
-    const workitems = pipelineLanes(
-      readDirNames(path.join(tasks, 'plan')),
-      readDirNames(path.join(tasks, 'exec')),
-      readDirNames(path.join(tasks, 'review')),
+    const laneRoot = path.join(base, e.name);
+    const tasks = path.join(laneRoot, '.tasks');
+    const workitems = withTicketStatus(
+      laneRoot,
+      pipelineLanes(
+        readDirNames(path.join(tasks, 'plan')),
+        readDirNames(path.join(tasks, 'exec')),
+        readDirNames(path.join(tasks, 'review')),
+      ),
     );
     groups.push({ name: e.name, workitems });
   }
@@ -474,10 +655,13 @@ function mainTreeGroup(root: string): PipelineLaneGroup {
   const tasks = path.join(root, '.tasks');
   return {
     name: 'main',
-    workitems: pipelineLanes(
-      readDirNames(path.join(tasks, 'plan')),
-      readDirNames(path.join(tasks, 'exec')),
-      readDirNames(path.join(tasks, 'review')),
+    workitems: withTicketStatus(
+      root,
+      pipelineLanes(
+        readDirNames(path.join(tasks, 'plan')),
+        readDirNames(path.join(tasks, 'exec')),
+        readDirNames(path.join(tasks, 'review')),
+      ),
     ),
   };
 }
@@ -495,6 +679,10 @@ function tableColWidth(header: string, values: string[]): number {
  * 안전하게 패딩한다. 상태 열은 statusBadge(색 있음)를 쓰므로 패딩하지 않고 행의 마지막에
  * 둔다 — padEndDisplay 는 ANSI 를 인지하지 않아 색 있는 문자열에 쓰면 폭이 깨진다(기존 코드
  * 관행 그대로 유지, 별도 구분선은 그리지 않는다 — 헤더+정렬만으로 표로 읽힌다).
+ *
+ * "티켓" 열(ADK stage 2e)은 <name> 이 실제 티켓 id 와 일치하는 행이 하나라도 있을 때만
+ * 나타난다 — 아무도 티켓 기반 이름을 안 쓰면(지금 모든 기존 사용) 예전 표와 시각적으로
+ * 구분이 안 될 만큼 조용하다.
  */
 export function renderPipelineGroups(groups: PipelineLaneGroup[], c: Caps): string {
   const color = makeColors(c.color);
@@ -514,10 +702,22 @@ export function renderPipelineGroups(groups: PipelineLaneGroup[], c: Caps): stri
     'REVIEW',
     all.map((w) => w.reviewState),
   );
+  const showTicketColumn = all.some((w) => w.ticketStatus != null);
+  const ticketWidth = showTicketColumn
+    ? tableColWidth(
+        '티켓',
+        all.map((w) => w.ticketStatus ?? '-'),
+      )
+    : 0;
 
-  const out: string[] = [
-    `  ${padEndDisplay('워크아이템', nameWidth)}  ${padEndDisplay('EXEC', execWidth)}  ${padEndDisplay('REVIEW', reviewWidth)}  상태`,
-  ];
+  const header = [
+    `  ${padEndDisplay('워크아이템', nameWidth)}`,
+    padEndDisplay('EXEC', execWidth),
+    padEndDisplay('REVIEW', reviewWidth),
+    ...(showTicketColumn ? [padEndDisplay('티켓', ticketWidth)] : []),
+    '상태',
+  ].join('  ');
+  const out: string[] = [header];
   groups.forEach((g, i) => {
     if (i > 0) {
       out.push('');
@@ -528,9 +728,14 @@ export function renderPipelineGroups(groups: PipelineLaneGroup[], c: Caps): stri
       return;
     }
     for (const w of g.workitems) {
-      out.push(
-        `  ${padEndDisplay(w.name, nameWidth)}  ${padEndDisplay(w.execState, execWidth)}  ${padEndDisplay(w.reviewState, reviewWidth)}  ${statusBadge(c, w.status)} ${w.status}`,
-      );
+      const row = [
+        `  ${padEndDisplay(w.name, nameWidth)}`,
+        padEndDisplay(w.execState, execWidth),
+        padEndDisplay(w.reviewState, reviewWidth),
+        ...(showTicketColumn ? [padEndDisplay(w.ticketStatus ?? '-', ticketWidth)] : []),
+        `${statusBadge(c, w.status)} ${w.status}`,
+      ].join('  ');
+      out.push(row);
     }
   });
   return sectionBox(`파이프라인 ${groups.length}개 레인`, out, c);

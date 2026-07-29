@@ -12,8 +12,22 @@ import {
   step,
 } from '../core/flow.js';
 import { resolveGitLayout } from '../core/git-layout.js';
-import { engineDir, globalRoot, isInsideWorktreesDir, projectsFile } from '../core/paths.js';
+import {
+  type GlobalAwlConfig,
+  seedAuthorFromGitConfig,
+  writeGlobalAwlConfig,
+} from '../core/global-config.js';
+import {
+  engineDir,
+  globalConfigPath,
+  globalRoot,
+  isInsideWorktreesDir,
+  projectsFile,
+} from '../core/paths.js';
 import { runInteractiveSelect } from '../core/select.js';
+import type { AwlConfig, VerificationEntry } from './config.js';
+import { migrateLegacyVerify } from './config.js';
+import { ensureProfile } from './profile.js';
 import {
   type Caps,
   type Colors,
@@ -42,30 +56,15 @@ import {
 // 타입
 // ---------------------------------------------------------------------------
 
-export type VerifyEntry = { cmd: string; cwd?: string; env?: Record<string, string> } | null;
-
-export interface VerifyMap {
-  typecheck: VerifyEntry;
-  lint: VerifyEntry;
-  test: VerifyEntry;
-  e2e: VerifyEntry;
-}
-
+/** ADK stage 4: config.ts 의 AwlConfig/VerificationEntry 를 그대로 쓴다 — 예전엔
+ * 여기서 독립적으로 중복 선언해 두 파일이 어긋날 수 있었다(verify→verifications
+ * 마이그레이션 계기로 정리). */
 export interface InitInputs {
   project: string;
   mainLanguage: string[];
   character: string;
-  verify: VerifyMap;
+  verifications: VerificationEntry[];
   skills: { claude: boolean; codex: boolean };
-}
-
-export interface AwlConfig {
-  project: string;
-  mainLanguage: string[];
-  character: string;
-  engineVersion: string;
-  verify: VerifyMap;
-  protectedFiles?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -382,15 +381,16 @@ export function splitEnv(script: string): { cmd: string; env?: Record<string, st
   return Object.keys(env).length > 0 ? { cmd: rest, env } : { cmd: rest };
 }
 
-/** package.json scripts 와 설정 파일에서 검증 명령을 감지한다. */
-export function detectVerify(cwd: string): VerifyMap {
+/** package.json scripts 와 설정 파일에서 검증 명령을 감지한다(ADK stage 4: 감지된
+ * 것만 배열 항목으로 — 4개 고정 슬롯이 아니다). */
+export function detectVerify(cwd: string): VerificationEntry[] {
   const pkg = readJson(path.join(cwd, 'package.json'));
   const scripts: Record<string, unknown> =
     pkg && typeof pkg === 'object' && typeof (pkg as Record<string, unknown>).scripts === 'object'
       ? ((pkg as Record<string, Record<string, unknown>>).scripts ?? {})
       : {};
 
-  const pick = (names: string[]): VerifyEntry => {
+  const pick = (names: string[]): { cmd: string; env?: Record<string, string> } | null => {
     for (const n of names) {
       const v = scripts[n];
       if (typeof v === 'string' && v.trim() !== '') {
@@ -402,13 +402,17 @@ export function detectVerify(cwd: string): VerifyMap {
 
   const hasTsconfig = exists(path.join(cwd, 'tsconfig.json'));
 
-  return {
-    typecheck:
-      pick(['typecheck', 'type-check', 'tsc']) ?? (hasTsconfig ? { cmd: 'tsc --noEmit' } : null),
-    lint: pick(['lint']),
-    test: pick(['test']),
-    e2e: pick(['e2e', 'test:e2e']),
-  };
+  const out: VerificationEntry[] = [];
+  const typecheck =
+    pick(['typecheck', 'type-check', 'tsc']) ?? (hasTsconfig ? { cmd: 'tsc --noEmit' } : null);
+  if (typecheck) out.push({ name: 'typecheck', ...typecheck });
+  const lint = pick(['lint']);
+  if (lint) out.push({ name: 'lint', ...lint });
+  const test = pick(['test']);
+  if (test) out.push({ name: 'test', ...test });
+  const e2e = pick(['e2e', 'test:e2e']);
+  if (e2e) out.push({ name: 'e2e', ...e2e });
+  return out;
 }
 
 /**
@@ -433,9 +437,9 @@ export function detectWorkspacePackages(cwd: string): string[] {
   return [...dirs].sort();
 }
 
-/** 4개 검증 항목이 전부 비어있는가(루트에서 아무 신호도 못 찾음 — 판단이 애매한 경우). */
-function isVerifyEmpty(v: VerifyMap): boolean {
-  return !v.typecheck && !v.lint && !v.test && !v.e2e;
+/** 검증 항목이 전부 비어있는가(루트에서 아무 신호도 못 찾음 — 판단이 애매한 경우). */
+function isVerifyEmpty(v: VerificationEntry[]): boolean {
+  return v.length === 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -443,18 +447,12 @@ function isVerifyEmpty(v: VerifyMap): boolean {
 // ---------------------------------------------------------------------------
 
 /** 입력으로부터 .awl/config.json 객체를 만든다. */
-export function buildConfig(inputs: InitInputs, engineVersion: string): AwlConfig {
+export function buildConfig(inputs: InitInputs): AwlConfig {
   return {
     project: inputs.project,
     mainLanguage: inputs.mainLanguage,
     character: inputs.character,
-    engineVersion,
-    verify: {
-      typecheck: inputs.verify.typecheck,
-      lint: inputs.verify.lint,
-      test: inputs.verify.test,
-      e2e: inputs.verify.e2e,
-    },
+    verifications: inputs.verifications,
   };
 }
 
@@ -476,6 +474,67 @@ export function packageEngineDir(): string {
 
 export function isGlobalInstalled(): boolean {
   return exists(globalRoot());
+}
+
+function emptyGlobalConfig(author: string): GlobalAwlConfig {
+  // sync 는 스키마만 미리 갖춘다 — 실제 전송 로직은 ADK stage 3 대상이라 여기서
+  // endpoint 를 채우거나 호출하지 않는다.
+  return { author, sync: { records: { endpoint: '', token: '' }, feedback: { endpoint: '' } } };
+}
+
+/**
+ * author 를 대화형으로 묻는다(promptVerifyLocation 과 같은 패턴 — rl 을 주입받아
+ * 순수 로직만 테스트 가능하게 한다). Enter 만 치면 seed 값 그대로, 값을 입력하면
+ * 그 값을 돌려준다.
+ */
+export async function promptAuthorInteractive(
+  rl: readline.Interface,
+  seed: string,
+  c: Caps,
+): Promise<string> {
+  process.stdout.write(
+    `${flowConnector(c)}\n${flowActiveNode(
+      '작성자',
+      ['기록에 남을 이메일입니다. ~/.awl/config.json 에 저장되고, 저장소마다 다시 묻지 않습니다.'],
+      c,
+    )}\n`,
+  );
+  const shown = seed || '(없음)';
+  const answer = (await ask(rl, `${flowConnector(c)}  author [${shown}]: `)).trim();
+  return answer || seed;
+}
+
+/**
+ * ~/.awl/config.json(전역, author·sync)이 없을 때만 만든다 — 사람마다 평생 한 번.
+ * 게이팅은 이 파일 자체의 존재 여부로 한다. isGlobalInstalled()(=~/.awl 디렉토리
+ * 존재)를 재사용하면 이미 ~/.awl 이 있는 기존 사용자에게 author 프롬프트가
+ * 영원히 안 뜨는 버그가 생긴다(ADK stage 1).
+ *
+ * promptInteractively=false(--yes)면 git config user.email 시드값으로 조용히
+ * 만든다 — 실패해도(git 없음 등) 빈 문자열로 진행하며 절대 막지 않는다.
+ */
+export async function ensureGlobalAwlConfig(opts: {
+  promptInteractively: boolean;
+  c: Caps;
+}): Promise<void> {
+  if (exists(globalConfigPath())) {
+    return;
+  }
+  const seed = await seedAuthorFromGitConfig(process.cwd());
+  if (!opts.promptInteractively) {
+    writeGlobalAwlConfig(emptyGlobalConfig(seed));
+    return;
+  }
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const flow = openFlow('전역 설정 · 최초 1회', opts.c);
+  try {
+    const author = await promptAuthorInteractive(rl, seed, opts.c);
+    selectStep(flow, `author: ${author || '(없음)'}`);
+    writeGlobalAwlConfig(emptyGlobalConfig(author));
+  } finally {
+    rl.close();
+    closeFlow(flow);
+  }
 }
 
 /**
@@ -531,36 +590,139 @@ export function writeState(projectRoot: string, now: string): string {
 }
 
 /**
- * .gitignore 에 awl 이 관리하는 항목을 추가한다. 이미 있는 항목은 건너뛴다.
- *  - `.awl/state.json`: 로컬 루프 상태(팀과 공유하지 않는다).
- *  - `.awl/verify-baseline.json`: work new 가 잡는 검증 베이스라인(로컬 전용). init 이
- *    미리 안 넣으면 나중에 verify 가 추가하면서 .gitignore 를 미커밋으로 남기고, 첫
- *    `awl commit` 이 그 변경을 "남의 것"으로 오인해 제외한다 — 그래서 init 이 한 번에 넣는다.
- *  - `.awl-worktrees/`: awl 이 `work new --worktree` 로 만드는 워크트리. gitignore 하지 않으면
- *    그 안의 파일들이 `commit --start` 의 untracked 스냅샷에 박혀 state.json 을 폭증시킨다
- *    (피드백 F-1 근원 차단 — commit.ts 의 코드 레벨 필터와 이중 방어).
- *  - `.awl/home/`: awl 이 `work new --isolated` 로 만드는 워크아이템 전용 records home.
- *    `.awl-worktrees/` 와 같은 이유로 이중 방어한다(commit self-filter + gitignore).
- * 하나라도 새로 추가하면 'added', 전부 이미 있으면 'exists' 를 돌려준다.
+ * `docs/CONTEXT.md` 스켈레톤 — 없으면 만든다(ADK stage 1 용어집). `awl doc lint`
+ * 가 이 파일의 `- 쓰지 않음:` 목록을 검사 대상으로 삼으므로, init 시점에 항상
+ * 대상 파일이 있게 해둔다. doc.ts 는 여기서 만든 이 함수를 그대로 가져다 쓴다
+ * (반대로 init.ts 가 doc.ts 를 가져오면 doc.ts→config.ts→init.ts 순환 참조가 된다).
+ */
+export function ensureContextMd(projectRoot: string): 'added' | 'exists' {
+  const p = path.join(projectRoot, 'docs', 'CONTEXT.md');
+  if (exists(p)) {
+    return 'exists';
+  }
+  writeFileEnsuringDir(
+    p,
+    [
+      '# CONTEXT.md',
+      '',
+      '용어를 정의합니다. 섹션 하나가 용어 하나입니다.',
+      '',
+      '## 예시 용어',
+      '설명.',
+      '',
+      '- 쓰지 않음: 대체하지 않을 동의어',
+      '- 코드: `Identifier`',
+      '',
+    ].join('\n'),
+  );
+  return 'added';
+}
+
+/**
+ * `.awl/stages.md` 내용 — ADK 단계 계약 표. 정적이다(스테이지 2에서 실제 게이트/티켓
+ * 파이프라인이 재배선되면 이 표도 갱신된다). untracked(WI-2의 `.awl/*` 화이트리스트가
+ * 이미 커버) — 항상 지금 설치된 엔진 버전 기준 최신이다.
+ */
+export function stagesMdContent(): string {
+  return [
+    '# .awl/stages.md',
+    '',
+    '이 파일은 awl 이 생성합니다. 직접 고치지 마세요 — `awl update`/`awl doctor` 가 다시 씁니다.',
+    '',
+    '| 단계 | 입력 | 출력 | 끝났다는 판정 |',
+    '|---|---|---|---|',
+    '| investigation | 조건 · 기존 finding | finding 목록 + file:line | 조건을 건드리는 경로가 전부 목록에 있는가 |',
+    '| clarification | 코드 · 계획 | 정한 것 목록 또는 "없음" | 코드로 답할 수 있는 질문이 안 남았는가 |',
+    '| implement | 조건 · finding | 커밋 | 검증이 통과하는가 |',
+    '',
+  ].join('\n');
+}
+
+/** `.awl/stages.md` 를 (재)생성한다 — 매번 무조건 덮어쓴다(정적 내용이라 diff 감지가 불필요). */
+export function writeStagesMd(projectRoot: string): string {
+  const p = path.join(projectRoot, '.awl', 'stages.md');
+  writeFileEnsuringDir(p, stagesMdContent());
+  return p;
+}
+
+const AWL_STAGES_START = '<!-- awl-stages:start -->';
+const AWL_STAGES_END = '<!-- awl-stages:end -->';
+
+function claudeMdStagesSnippet(): string {
+  return [AWL_STAGES_START, '@.awl/stages.md', AWL_STAGES_END].join('\n');
+}
+
+/**
+ * CLAUDE.md 가 `.awl/stages.md` 를 참조하게 한다(마커 블록, 파일 끝에 둔다 — AGENTS.md
+ * 패치와 같은 자리). CLAUDE.md 는 커밋되는 파일이라 계약 표 자체를 박지 않고 참조만
+ * 남긴다 — 원본(stages.md)이 매번 최신으로 재생성되므로 CLAUDE.md 는 안 건드려도 된다.
+ */
+export function upsertClaudeMdStagesRef(projectRoot: string): void {
+  const p = path.join(projectRoot, 'CLAUDE.md');
+  const current = exists(p) ? fs.readFileSync(p, 'utf8') : '';
+  const next = upsertMarkedBlock(
+    current,
+    AWL_STAGES_START,
+    AWL_STAGES_END,
+    claudeMdStagesSnippet(),
+  );
+  if (next !== current) {
+    fs.writeFileSync(p, next);
+  }
+}
+
+const AWL_GITIGNORE_START = '# awl:start';
+const AWL_GITIGNORE_END = '# awl:end';
+
+/**
+ * `.awl/*` 를 통째로 무시하고 커밋해야 하는 파일만 화이트리스트로 되살린다(ADK
+ * stage 1 — 허용목록 방식). 새 파일이 `.awl/` 아래 생겨도 gitignore 를 안 고쳐도
+ * 항상 untracked 다. 거부목록(개별 라인 추가)이었던 예전 방식은 파일이 늘 때마다
+ * 한 줄씩 추가해야 했고, 빠뜨리면 그대로 유출됐다.
+ */
+function awlGitignoreBlock(): string {
+  return [
+    AWL_GITIGNORE_START,
+    '.awl/*',
+    '!.awl/config.json',
+    '!.awl/profile.json',
+    AWL_GITIGNORE_END,
+  ].join('\n');
+}
+
+/**
+ * .gitignore 에 awl 이 관리하는 항목을 반영한다.
+ *  - `.awl/*` 화이트리스트 블록을 파일 맨 위에 둔다 — 사람이 손으로 얹은 예외보다
+ *    항상 앞에 있어야 이후에 추가되는 어떤 예외도 이긴다.
+ *  - `.awl-worktrees/`: `.awl/` 바깥이라 위 블록이 못 덮는다. awl 이 `work new
+ *    --worktree` 로 만드는 워크트리다. gitignore 하지 않으면 그 안의 파일들이
+ *    `commit --start` 의 untracked 스냅샷에 박혀 state.json 을 폭증시킨다(피드백
+ *    F-1 근원 차단 — commit.ts 의 코드 레벨 필터와 이중 방어). 블록 밖의 개별
+ *    라인으로 계속 유지한다.
+ * 하나라도 새로 반영하면 'added', 전부 이미 있으면 'exists' 를 돌려준다.
  */
 export function ensureGitignore(projectRoot: string): 'added' | 'exists' {
   const gi = path.join(projectRoot, '.gitignore');
-  const targets = [
-    '.awl/state.json',
-    '.awl/verify-baseline.json',
-    '.awl/state.lock',
-    '.awl-worktrees/',
-    '.awl/home/',
-  ];
-  let content = exists(gi) ? fs.readFileSync(gi, 'utf8') : '';
-  const has = (t: string): boolean => content.split(/\r?\n/).some((line) => line.trim() === t);
-  const missing = targets.filter((t) => !has(t));
-  if (missing.length === 0) {
-    return 'exists';
-  }
-  for (const target of missing) {
+  const original = exists(gi) ? fs.readFileSync(gi, 'utf8') : '';
+
+  let content = upsertMarkedBlock(
+    original,
+    AWL_GITIGNORE_START,
+    AWL_GITIGNORE_END,
+    awlGitignoreBlock(),
+    {
+      position: 'top',
+    },
+  );
+
+  const hasWorktreesLine = content.split(/\r?\n/).some((line) => line.trim() === '.awl-worktrees/');
+  if (!hasWorktreesLine) {
     const prefix = content.length > 0 && !content.endsWith('\n') ? '\n' : '';
-    content = `${content}${prefix}${target}\n`;
+    content = `${content}${prefix}.awl-worktrees/\n`;
+  }
+
+  if (content === original) {
+    return 'exists';
   }
   fs.writeFileSync(gi, content);
   return 'added';
@@ -706,19 +868,39 @@ export function codexSkillLabel(names: string[] = codexSkillNames()): string {
   return `Codex (.agents/skills/ 에 ${names.length}개 스킬 + AGENTS.md)`;
 }
 
+/**
+ * 마커 블록(startMarker...endMarker)을 최신 snippet 으로 교체하고, 없으면
+ * 추가한다. position: 'end'(기본)는 파일 끝에 붙인다(AGENTS.md 등 안내문 성격).
+ * position: 'top'은 파일 맨 앞에 둔다(gitignore 등 — 사람이 손으로 얹은 예외보다
+ * 항상 앞에 있어야 이후 예외가 이긴다).
+ */
+export function upsertMarkedBlock(
+  current: string,
+  startMarker: string,
+  endMarker: string,
+  snippet: string,
+  opts: { position?: 'top' | 'end' } = {},
+): string {
+  const start = current.indexOf(startMarker);
+  const end = start >= 0 ? current.indexOf(endMarker, start) : -1;
+  if (start >= 0 && end >= 0) {
+    const blockEnd = end + endMarker.length;
+    return `${current.slice(0, start)}${snippet.trimEnd()}${current.slice(blockEnd)}`;
+  }
+  if (opts.position === 'top') {
+    const trimmed = snippet.trimEnd();
+    return current.length === 0 ? `${trimmed}\n` : `${trimmed}\n\n${current}`;
+  }
+  const prefix = current.length > 0 && !current.endsWith('\n') ? '\n' : '';
+  return `${current}${prefix}${current.length > 0 ? '\n' : ''}${snippet}`;
+}
+
 const AWL_AGENTS_START = '<!-- awl-loop:start -->';
 const AWL_AGENTS_END = '<!-- awl-loop:end -->';
 
 /** 기존 awl 마커 블록은 최신 snippet으로 교체하고, 없으면 파일 끝에 추가한다. */
 function upsertAwlAgentsBlock(current: string, snippet: string): string {
-  const start = current.indexOf(AWL_AGENTS_START);
-  const end = start >= 0 ? current.indexOf(AWL_AGENTS_END, start) : -1;
-  if (start >= 0 && end >= 0) {
-    const blockEnd = end + AWL_AGENTS_END.length;
-    return `${current.slice(0, start)}${snippet.trimEnd()}${current.slice(blockEnd)}`;
-  }
-  const prefix = current.length > 0 && !current.endsWith('\n') ? '\n' : '';
-  return `${current}${prefix}${current.length > 0 ? '\n' : ''}${snippet}`;
+  return upsertMarkedBlock(current, AWL_AGENTS_START, AWL_AGENTS_END, snippet);
 }
 
 /**
@@ -802,26 +984,33 @@ export function writeSkillsVersionStamp(
 }
 
 /**
- * 이미 설정된 프로젝트를 재실행(그대로 쓰기)할 때 버전 마커를 설치된 엔진에 맞춰
- * 동기화한다(피드백 F-2). `config.engineVersion` 과 이미 설치된 스킬의
+ * 이미 설정된 프로젝트를 재실행(그대로 쓰기)할 때 이미 설치된 스킬의
  * `skills-version.json` 을 갱신하고, 스킬 파일 자체도 재설치해 "마커만 올리고 내용은
- * 옛날" 인 거짓 동기화를 피한다. claude 스킬을 쓰는 프로젝트면 엔진에 나중 추가된
- * 스킬도 함께 설치한다(업그레이드 경로) — claude 를 안 쓰는 프로젝트엔 새로 깔지
- * 않는다. 반환값은 무엇을 동기화했는지 — 로그용.
+ * 옛날" 인 거짓 동기화를 피한다(피드백 F-2). config.json 은 버전을 안 박으므로
+ * (ADK 0.8.0 설계 — 저장소는 engineVersion 필드를 안 갖는다) 여기서 안 건드린다.
+ * claude 스킬을 쓰는 프로젝트면 엔진에 나중 추가된 스킬도 함께 설치한다(업그레이드
+ * 경로) — claude 를 안 쓰는 프로젝트엔 새로 깔지 않는다. 반환값은 무엇을
+ * 동기화했는지 — 로그용.
+ *
+ * `skillsStale` 은 재설치 *전* skills-version.json 스탬프가 실제로 engineVersion 과
+ * 달랐는지를 말한다 — `skills`(재설치된 이름 목록)와 다르다. installClaudeSkill/
+ * installCodexSkill 은 내용이 같아도 항상 무조건 재복사하고 성공만 알리므로,
+ * `skills.length>0` 은 "스킬을 쓴다"는 뜻이지 "이번에 실제로 낡았었다"는 뜻이
+ * 아니다(F-2와 같은 함정 — 예전엔 config.engineVersion 이 이 판단의 유일한
+ * 마커였는데, 그 필드를 없앤 대신 skills-version.json 의 재설치 전 값으로 같은
+ * 판단을 한다).
  */
 export function syncExistingInstall(
   projectRoot: string,
   engineVersion: string,
   now: string,
-): { configUpdated: boolean; skills: string[]; registrationSkipped: boolean } {
-  // 1) config.engineVersion 만 엔진에 맞춘다(나머지 필드는 팀 설정이므로 보존).
-  let configUpdated = false;
+): { skills: string[]; skillsStale: boolean; registrationSkipped: boolean } {
   const configPath = path.join(projectRoot, '.awl', 'config.json');
   const raw = readJson(configPath) as Record<string, unknown> | null;
-  if (raw && raw.engineVersion !== engineVersion) {
-    writeFileEnsuringDir(configPath, `${JSON.stringify({ ...raw, engineVersion }, null, 2)}\n`);
-    configUpdated = true;
-  }
+
+  // profile.json 이 없는 기존 설치(단계 4 이전 저장소)를 여기서 백필한다 — 있으면
+  // ensureProfile 이 아무것도 안 건드린다.
+  ensureProfile(projectRoot, typeof raw?.project === 'string' ? raw.project : path.basename(projectRoot));
 
   // applyInit(처음부터 다시)만 registerProject 를 불렀다 — "그대로 쓴다"/--yes 재실행은
   // config 를 이미 있는 것으로 간주해 레지스트리를 건드리지 않았다. 그래서 awl remove
@@ -840,19 +1029,26 @@ export function syncExistingInstall(
   //    것은 새로 설치한다(업그레이드 경로: 기존 사용자가 재실행만으로 새 파이프라인
   //    스킬을 받는다). claude 를 아예 안 쓰는 프로젝트(codex-only 등)에는 새로 깔지
   //    않는다 — "그대로" 경로가 스킬 사용 여부(config 결정)를 뒤집지 않게 한다.
-  const skills: string[] = [];
   const claudeInUse = claudeSkillNames().some((name) =>
     exists(path.join(projectRoot, '.claude', 'skills', name)),
   );
-  if (claudeInUse && installClaudeSkill(projectRoot)) {
-    skills.push('claude');
-  }
   const agentsMd = path.join(projectRoot, 'AGENTS.md');
   const codexInstalled =
     (exists(agentsMd) && fs.readFileSync(agentsMd, 'utf8').includes('awl-loop:start')) ||
     codexSkillNames().some((name) =>
       exists(path.join(projectRoot, '.agents', 'skills', name, 'SKILL.md')),
     );
+
+  // 재설치 전 스탬프를 먼저 본다 — writeSkillsVersionStamp 가 아래에서 이 값을 덮어쓰기 전.
+  const priorStamp = readJson(skillsVersionPath(projectRoot)) as Record<string, unknown> | null;
+  const skillsStale =
+    (claudeInUse && priorStamp?.claude !== engineVersion) ||
+    (codexInstalled && priorStamp?.codex !== engineVersion);
+
+  const skills: string[] = [];
+  if (claudeInUse && installClaudeSkill(projectRoot)) {
+    skills.push('claude');
+  }
   if (codexInstalled && installCodexSkill(projectRoot)) {
     skills.push('codex');
   }
@@ -862,7 +1058,17 @@ export function syncExistingInstall(
     engineVersion,
   );
 
-  return { configUpdated, skills, registrationSkipped };
+  // stages.md 는 항상 최신 엔진 버전 기준으로 재생성한다(untracked) — 재실행마다
+  // 무조건 덮어써 "awl 을 업데이트하면 stages.md 가 새 버전으로 재생성되어야 한다"를
+  // 만족시킨다. CLAUDE.md 참조는 Claude Code 를 쓰는 프로젝트에만 만든다(applyInit 과
+  // 같은 이유 — Codex-only 프로젝트에 낯선 루트 파일을 남기지 않는다).
+  writeStagesMd(projectRoot);
+  ensureContextMd(projectRoot);
+  if (claudeInUse) {
+    upsertClaudeMdStagesRef(projectRoot);
+  }
+
+  return { skills, skillsStale: Boolean(skillsStale), registrationSkipped };
 }
 
 function countEntries(dir: string): number {
@@ -893,7 +1099,7 @@ export function nonInteractiveInputs(projectRoot: string): InitInputs {
     project: path.basename(projectRoot),
     mainLanguage: detectLanguages(projectRoot),
     character: '',
-    verify: detectVerify(projectRoot),
+    verifications: detectVerify(projectRoot),
     skills,
   };
 }
@@ -923,8 +1129,11 @@ export function applyInit(
   opts: { preserveState?: boolean; skipGitignore?: boolean; installPushGuard?: boolean } = {},
 ): InitResult {
   const g = scaffoldGlobal();
-  const config = buildConfig(inputs, g.engineVersion);
+  const config = buildConfig(inputs);
   const configPath = writeConfig(projectRoot, config);
+  // profile.json 이 이미 있으면 안 건드린다(ensureProfile) — lane/work new --worktree
+  // 도 applyInit()을 재사용하는데, 팀이 고른 스킬 설정을 레인 만들 때마다 지우면 안 된다.
+  ensureProfile(projectRoot, inputs.project);
   const existingStatePath = path.join(projectRoot, '.awl', 'state.json');
   const statePath =
     opts.preserveState && exists(existingStatePath)
@@ -957,6 +1166,20 @@ export function applyInit(
     g.engineVersion,
   );
 
+  writeStagesMd(projectRoot);
+  // docs/CONTEXT.md 는 여기서 안 만든다 — applyInit()은 lane.ts(`work new
+  // --worktree`/`lane new`)도 재사용하는데, 거기서 만들면 실제 내용이 없는(빈)
+  // CONTEXT.md 가 레인 워크트리마다 새로 untracked 로 생겨 lane rm 의 WIP 안전망을
+  // 매번 건드린다(CLAUDE.md 와 달리 CONTEXT.md 는 사람이 채워가는 진짜 산출물이라
+  // "awl 이 만들었으니 버려도 된다" 취급을 하면 안 된다). 그래서 runInit/
+  // syncExistingInstall(사람이 직접 여는 awl init/update 경로)에서만 부른다.
+  // CLAUDE.md 참조는 AGENTS.md 와 같은 원칙 — Claude Code 를 쓰는 프로젝트에만 만든다.
+  // (lane.ts 의 AWL_INTERNAL_PATHS 가 CLAUDE.md/AGENTS.md 를 awl 산출물로 이미 인식하지만,
+  // 그래도 안 쓰는 에이전트의 루트 파일을 굳이 새로 만들 이유는 없다.)
+  if (claudeInstalled) {
+    upsertClaudeMdStagesRef(projectRoot);
+  }
+
   return {
     globalCreated: g.created,
     engineVersion: g.engineVersion,
@@ -984,21 +1207,25 @@ function stepBox(step: string, title: string, lines: string[], c: Caps): string 
   return sectionBox(`${step}${c.unicode ? ' · ' : ' - '}${title}`, lines, c, WIDTH - 4);
 }
 
-const VERIFY_LABELS: Record<keyof VerifyMap, string> = {
+/** 알려진 이름의 한글 라벨(ADK stage 4 이전부터 있던 4개) — 나머지는 이름 그대로 보여준다. */
+const KNOWN_VERIFY_LABELS: Record<string, string> = {
   typecheck: '타입체크',
   lint: '린트',
   test: '테스트',
   e2e: 'E2E',
 };
 
+function verifyLabel(name: string): string {
+  return KNOWN_VERIFY_LABELS[name] ?? name;
+}
+
 /** 표시 폭(한글=2) 기준으로 오른쪽을 공백으로 채운다. */
-function verifyLines(v: VerifyMap): string[] {
-  const keys = Object.keys(VERIFY_LABELS) as (keyof VerifyMap)[];
-  const labelWidth = Math.max(...keys.map((k) => stringWidth(VERIFY_LABELS[k]))) + 2;
-  return keys.map((k) => {
-    const entry = v[k];
-    return `  ${padEndDisplay(VERIFY_LABELS[k], labelWidth)}${entry ? entry.cmd : '(없음)'}`;
-  });
+function verifyLines(v: VerificationEntry[]): string[] {
+  if (v.length === 0) {
+    return ['  (감지된 검증 명령이 없습니다)'];
+  }
+  const labelWidth = Math.max(...v.map((e) => stringWidth(verifyLabel(e.name)))) + 2;
+  return v.map((e) => `  ${padEndDisplay(verifyLabel(e.name), labelWidth)}${e.cmd}`);
 }
 
 /**
@@ -1006,7 +1233,7 @@ function verifyLines(v: VerifyMap): string[] {
  * 가 모노레포에서 패키지를 다시 골랐을 때(화면 재구성) 둘 다 이 함수로 만든다
  * (리뷰 지적 AC-09: 예전엔 리터럴 배열이 두 곳에 복사돼 있어 고치면 한쪽만 바뀌었다).
  */
-export function verifyStepLines(v: VerifyMap): string[] {
+export function verifyStepLines(v: VerificationEntry[]): string[] {
   return [
     'package.json 등에서 찾았습니다. 맞으면 Enter, 고치려면 새로 입력.',
     '',
@@ -1323,7 +1550,7 @@ export async function selectMulti(
 }
 
 export interface VerifyLocationResult {
-  verify: VerifyMap;
+  verify: VerificationEntry[];
   /** 패키지를 골랐으면 그 상대경로. verify 각 항목의 cwd 로 쓴다. */
   cwd?: string;
 }
@@ -1336,7 +1563,7 @@ export interface VerifyLocationResult {
 export async function promptVerifyLocation(
   rl: readline.Interface,
   projectRoot: string,
-  rootVerify: VerifyMap,
+  rootVerify: VerificationEntry[],
   color: Colors,
 ): Promise<VerifyLocationResult> {
   const packages = detectWorkspacePackages(projectRoot);
@@ -1345,7 +1572,7 @@ export async function promptVerifyLocation(
   }
   if (!isVerifyEmpty(rootVerify)) {
     process.stdout.write(
-      `\n  ${color.dim(`모노레포입니다(${packages.length}개 패키지). 특정 패키지만 검증하려면 나중에 awl config set verify.*.cwd 로 지정하세요.`)}\n`,
+      `\n  ${color.dim(`모노레포입니다(${packages.length}개 패키지). 특정 패키지만 검증하려면 나중에 awl config set verifications.*.cwd 로 지정하세요.`)}\n`,
     );
     return { verify: rootVerify };
   }
@@ -1365,22 +1592,22 @@ export async function promptVerifyLocation(
 }
 
 /**
- * cwd 가 있으면 verify 의 null 아닌 모든 항목에 적용한다(그 자리에서 수정하고
- * 그대로 돌려준다). 사용자가 각 항목의 명령을 새로 입력해 바꾼 뒤에 호출해도
- * 안전하다 — 순서와 무관하게 그 시점의 verify 스냅샷 전체에 적용되기 때문이다.
+ * cwd 가 있으면 verify 배열의 모든 항목에 적용한다(그 자리에서 수정하고 그대로
+ * 돌려준다). 사용자가 각 항목의 명령을 새로 입력해 바꾼 뒤에 호출해도 안전하다 —
+ * 순서와 무관하게 그 시점의 verify 스냅샷 전체에 적용되기 때문이다.
  * (리뷰 지적: 예전엔 interactiveInputs 안에 인라인으로만 있어 테스트가 전혀
  * 없었다. 별도 함수로 뽑아 직접 테스트한다 — 인자를 mutate 하므로 순수 함수는
  * 아니다. 반환값은 편의상 같은 참조다.)
  */
-export function applyVerifyCwd(verify: VerifyMap, cwd: string | undefined): VerifyMap {
+export function applyVerifyCwd(
+  verify: VerificationEntry[],
+  cwd: string | undefined,
+): VerificationEntry[] {
   if (!cwd) {
     return verify;
   }
-  for (const k of Object.keys(verify) as (keyof VerifyMap)[]) {
-    const entry = verify[k];
-    if (entry) {
-      entry.cwd = cwd;
-    }
+  for (const entry of verify) {
+    entry.cwd = cwd;
   }
   return verify;
 }
@@ -1460,14 +1687,30 @@ async function interactiveInputs(
     process.stdout.write(
       `${flowConnector(c)}\n${flowActiveNode('검증 명령어', verifyStepLines(verify), c)}\n`,
     );
-    for (const k of Object.keys(VERIFY_LABELS) as (keyof VerifyMap)[]) {
-      const cur = verify[k];
+    // 자동 감지 여부와 무관하게 4개 잘 알려진 이름은 항상 물어본다(감지 못 했어도
+    // 손으로 채울 수 있어야 한다 — ADK stage 4 이전과 같은 UX). 그 외 이름을
+    // 새로 추가하려면 init 이후 awl config set verifications.<name>.cmd 를 쓴다.
+    for (const name of Object.keys(KNOWN_VERIFY_LABELS)) {
+      const idx = verify.findIndex((v) => v.name === name);
+      const cur = idx >= 0 ? verify[idx] : undefined;
       const shown = cur ? cur.cmd : '(없음)';
       const answer = (
-        await ask(prompt(), `${flowConnector(c)}  ${VERIFY_LABELS[k]} [${shown}]: `)
+        await ask(prompt(), `${flowConnector(c)}  ${verifyLabel(name)} [${shown}]: `)
       ).trim();
-      if (answer !== '') {
-        verify[k] = answer.toLowerCase() === '없음' || answer === '-' ? null : splitEnv(answer);
+      if (answer === '') {
+        continue;
+      }
+      if (answer.toLowerCase() === '없음' || answer === '-') {
+        if (idx >= 0) {
+          verify.splice(idx, 1);
+        }
+        continue;
+      }
+      const next = { name, ...splitEnv(answer) };
+      if (idx >= 0) {
+        verify[idx] = { ...verify[idx], ...next };
+      } else {
+        verify.push(next);
       }
     }
     applyVerifyCwd(verify, located.cwd);
@@ -1526,7 +1769,10 @@ async function interactiveInputs(
 
     // 세션은 여기서 닫지 않는다 — 결과 렌더링(commitResultFlow)까지 같은 스파인에
     // 커밋한 뒤 호출부가 closeFlow 한다.
-    return { inputs: { project, mainLanguage, character, verify, skills }, session: flow };
+    return {
+      inputs: { project, mainLanguage, character, verifications: verify, skills },
+      session: flow,
+    };
   } finally {
     session.rl?.close();
   }
@@ -1542,24 +1788,25 @@ async function handleExistingConfig(
 ): Promise<void> {
   const raw = readJson(path.join(projectRoot, '.awl', 'config.json'));
   const config = raw as Partial<AwlConfig> | null;
+  // ADK stage 4: 파일을 직접(loadConfig 안 거치고) 읽으므로 옛 verify(4키 고정
+  // 객체) shape 일 수 있다 — migrateLegacyVerify 로 여기서도 흡수한다.
+  const rawObj = raw as Record<string, unknown> | null;
+  const existingVerifications: VerificationEntry[] = Array.isArray(rawObj?.verifications)
+    ? (rawObj?.verifications as VerificationEntry[])
+    : typeof rawObj?.verify === 'object' && rawObj.verify !== null
+      ? migrateLegacyVerify(rawObj.verify as Record<string, unknown>)
+      : [];
   scaffoldGlobal();
   const installedVer = installedEngineVersion();
 
-  const engineNote =
-    installedVer && config?.engineVersion
-      ? installedVer === config.engineVersion
-        ? `(설치됨: ${installedVer}  일치)`
-        : `(설치됨: ${installedVer}  불일치 -> '그대로 쓴다'를 고르면 동기화됩니다)`
-      : '';
   const summaryLines = [
     '.awl/config.json 이 이미 있습니다. 팀원이 설정해두었군요.',
     '',
     `프로젝트   ${config?.project ?? '(없음)'}`,
     `주 언어    ${config?.mainLanguage?.join(', ') || '(없음)'}`,
     `성격       ${config?.character || '(없음)'}`,
-    `엔진       ${config?.engineVersion ?? '(없음)'}   ${engineNote}`,
-    ...(config?.verify
-      ? ['', ...verifyLines(config.verify as VerifyMap).map((l) => `검증  ${l.trim()}`)]
+    ...(existingVerifications.length > 0
+      ? ['', ...verifyLines(existingVerifications).map((l) => `검증  ${l.trim()}`)]
       : []),
     '',
     '이 설정을 그대로 쓰시겠습니까?',
@@ -1581,9 +1828,9 @@ async function handleExistingConfig(
 
   if (choice === 0) {
     const synced = syncExistingInstall(projectRoot, installedVer ?? 'unknown', now);
-    if (synced.configUpdated || synced.skills.length > 0) {
+    if (synced.skills.length > 0) {
       process.stdout.write(
-        `\n  설정을 그대로 씁니다. 버전 마커를 ${installedVer ?? '엔진'} 로 동기화했습니다${synced.skills.length ? ` (스킬: ${synced.skills.join(', ')})` : ''}.\n`,
+        `\n  설정을 그대로 씁니다. 스킬을 ${installedVer ?? '엔진'} 기준으로 재설치했습니다 (${synced.skills.join(', ')}).\n`,
       );
     } else {
       process.stdout.write('\n  설정을 그대로 씁니다. 이미 최신입니다.\n');
@@ -1596,23 +1843,37 @@ async function handleExistingConfig(
     return;
   }
   if (choice === 1) {
-    const verify = (config?.verify as VerifyMap) ?? detectVerify(projectRoot);
-    for (const k of Object.keys(VERIFY_LABELS) as (keyof VerifyMap)[]) {
-      const cur = verify[k];
+    const verify =
+      existingVerifications.length > 0 ? existingVerifications : detectVerify(projectRoot);
+    for (const name of Object.keys(KNOWN_VERIFY_LABELS)) {
+      const idx = verify.findIndex((v) => v.name === name);
+      const cur = idx >= 0 ? verify[idx] : undefined;
       const shown = cur ? cur.cmd : '(없음)';
-      const answer = (await ask(rl, `  ${VERIFY_LABELS[k]} [${shown}]: `)).trim();
-      if (answer !== '') {
-        verify[k] = answer.toLowerCase() === '없음' || answer === '-' ? null : splitEnv(answer);
+      const answer = (await ask(rl, `  ${verifyLabel(name)} [${shown}]: `)).trim();
+      if (answer === '') {
+        continue;
+      }
+      if (answer.toLowerCase() === '없음' || answer === '-') {
+        if (idx >= 0) {
+          verify.splice(idx, 1);
+        }
+        continue;
+      }
+      const next = { name, ...splitEnv(answer) };
+      if (idx >= 0) {
+        verify[idx] = { ...verify[idx], ...next };
+      } else {
+        verify.push(next);
       }
     }
     const merged: InitInputs = {
       project: config?.project ?? path.basename(projectRoot),
       mainLanguage: config?.mainLanguage ?? [],
       character: config?.character ?? '',
-      verify,
+      verifications: verify,
       skills: { claude: false, codex: false },
     };
-    writeConfig(projectRoot, buildConfig(merged, installedVer ?? 'unknown'));
+    writeConfig(projectRoot, buildConfig(merged));
     process.stdout.write('\n  검증 명령어를 갱신했습니다.\n');
     return;
   }
@@ -1621,6 +1882,7 @@ async function handleExistingConfig(
   rl.close();
   const { inputs, session } = await interactiveInputs(projectRoot, isGlobalInstalled(), c);
   const result = applyInit(projectRoot, inputs, now, { installPushGuard: pushGuard });
+  ensureContextMd(projectRoot);
   commitResultFlow(session, result, inputs, c);
   closeFlow(session);
 }
@@ -1830,14 +2092,18 @@ export async function runInit(opts: { yes: boolean; pushGuard?: boolean }): Prom
   const now = new Date().toISOString();
   const configExists = exists(path.join(projectRoot, '.awl', 'config.json'));
 
+  // 전역 설정(author)은 이 저장소의 .awl/config.json 존재 여부와 무관하게, 사람마다
+  // 평생 한 번만 묻는다 — 그래서 4개 실행 분기가 갈라지기 전에 독립적으로 처리한다.
+  await ensureGlobalAwlConfig({ promptInteractively: !opts.yes, c });
+
   if (opts.yes) {
     if (configExists) {
       const engine = scaffoldGlobal();
       const hook = pushGuard ? installSafetyHook(projectRoot) : { installed: false };
       const synced = syncExistingInstall(projectRoot, engine.engineVersion, now);
       const syncNote =
-        synced.configUpdated || synced.skills.length > 0
-          ? `\n  ${signal(c, 'ok')} 버전 마커를 ${engine.engineVersion} 로 동기화했습니다${synced.skills.length ? ` (스킬: ${synced.skills.join(', ')})` : ''}.`
+        synced.skills.length > 0
+          ? `\n  ${signal(c, 'ok')} 스킬을 ${engine.engineVersion} 기준으로 재설치했습니다 (${synced.skills.join(', ')}).`
           : '';
       const worktreeNote = synced.registrationSkipped
         ? `\n  ${makeColors(c.color).dim('이 위치는 레인 워크트리입니다(.awl-worktrees 하위) — 전역 프로젝트 목록에는 등록하지 않습니다. 부모 프로젝트에서 awl lane rm/awl remove로 관리하세요.')}`
@@ -1849,6 +2115,7 @@ export async function runInit(opts: { yes: boolean; pushGuard?: boolean }): Prom
     }
     const inputs = nonInteractiveInputs(projectRoot);
     const result = applyInit(projectRoot, inputs, now, { installPushGuard: pushGuard });
+    ensureContextMd(projectRoot);
     process.stdout.write(`${renderResult(result, inputs, c)}\n`);
     return;
   }
@@ -1882,6 +2149,7 @@ export async function runInit(opts: { yes: boolean; pushGuard?: boolean }): Prom
   }
   const { inputs, session } = await interactiveInputs(chosenRoot, isGlobalInstalled(), c);
   const result = applyInit(chosenRoot, inputs, now, { installPushGuard: pushGuard });
+  ensureContextMd(chosenRoot);
   commitResultFlow(session, result, inputs, c);
   closeFlow(session);
 }

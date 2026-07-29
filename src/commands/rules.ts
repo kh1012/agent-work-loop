@@ -17,7 +17,10 @@ export interface Rule {
   scope?: string;
   applies: string;
   counter: string;
-  violations: number;
+  /** 이 제약이 실제로 몇 번 걸렸나(ADK stage 6). 검사기/리뷰어가 잡을 때마다 늘어난다. */
+  hits: number;
+  /** 어느 기록(교훈)에서 왔나(ADK stage 6) — buildRuleFile 이 이미 써왔던 값을 이제 읽는다. */
+  source?: string;
   createdAt?: string;
   body: string;
   file: string;
@@ -56,12 +59,17 @@ export function parseRuleFile(
       `${file}: counter 없음 (필수 — 반증 조건 없는 규칙은 검증 불가능한 신념이 됩니다)`,
     );
   }
+  // hits 를 우선 읽고, 없으면 레거시 필드명 violations 로 폴백한다(purely-additive
+  // 마이그레이션 — config.ts 의 migrateLegacyVerify 와 같은 원칙, 실사용 중인 규칙
+  // 파일이 있을 가능성을 배제 못 하므로 읽기 쪽만 하위호환한다).
+  const hits = data.hits !== undefined ? Number(data.hits) : Number(data.violations ?? 0);
   const rule: Rule = {
     id: data.id ?? path.basename(file, '.md'),
     scope: data.scope || undefined,
     applies: data.applies ?? '',
     counter: data.counter ?? '',
-    violations: data.violations ? Number(data.violations) : 0,
+    hits: Number.isFinite(hits) ? hits : 0,
+    source: data.source || undefined,
     createdAt: data.createdAt,
     body: (m[2] ?? '').trim(),
     file,
@@ -229,7 +237,7 @@ export function buildRuleFile(
     ...(opts.scope ? [`scope: ${opts.scope}`] : []),
     `applies: ${opts.applies}`,
     `counter: ${opts.counter}`,
-    'violations: 0',
+    'hits: 0',
     `createdAt: ${createdAt}`,
     `source: ${gotcha.id}`,
     '---',
@@ -314,4 +322,74 @@ export function runRulesPromote(
   } finally {
     releaseLock();
   }
+}
+
+// ---------------------------------------------------------------------------
+// hit — 제약 위반 카운트 (ADK stage 6). awl 은 위반을 스스로 탐지하지 않는다
+// (verify.ts 는 불투명한 셸 명령 실행기, D-30) — 탐지한 쪽(검사기 스크립트·리뷰
+// 레코드 저장 경로)이 "이 규칙이 걸렸다"고 알려주면 awl 은 세기만 한다.
+// ---------------------------------------------------------------------------
+
+/** frontmatter 의 hits(또는 레거시 violations) 줄을 새 값으로 바꾼다. 순수 함수. */
+export function writeRuleHitsIntoText(text: string, hits: number): string {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(text);
+  if (!m) {
+    return text;
+  }
+  const frontLines = (m[1] ?? '').split(/\r?\n/);
+  let replaced = false;
+  const newFrontLines = frontLines.map((line) => {
+    if (/^(hits|violations):\s*/.test(line)) {
+      replaced = true;
+      return `hits: ${hits}`;
+    }
+    return line;
+  });
+  if (!replaced) {
+    newFrontLines.push(`hits: ${hits}`);
+  }
+  return `---\n${newFrontLines.join('\n')}\n---\n${m[2] ?? ''}`;
+}
+
+/** 규칙 파일 경로. */
+function ruleFilePath(id: string): string {
+  return path.join(activeRulesDir(), `${id}.md`);
+}
+
+/**
+ * 규칙 id 의 hits 를 1 증가시키고 파일에 반영한다. 갱신된 Rule 을 돌려준다.
+ * 규칙 파일이 없으면 던진다(CLI 쪽에서 잡아 에러 메시지로 바꾼다).
+ */
+export function incrementRuleHits(id: string): Rule {
+  const file = ruleFilePath(id);
+  let text: string;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch {
+    throw new Error(`규칙 ${id} 을(를) 찾을 수 없습니다: ${file}`);
+  }
+  const { rule } = parseRuleFile(text, `${id}.md`);
+  if (!rule) {
+    throw new Error(`규칙 ${id} 파일을 파싱할 수 없습니다(frontmatter 없음): ${file}`);
+  }
+  const hits = rule.hits + 1;
+  fs.writeFileSync(file, writeRuleHitsIntoText(text, hits));
+  return { ...rule, hits };
+}
+
+export function runRulesHit(id: string, opts: { json?: boolean } = {}): void {
+  let rule: Rule;
+  try {
+    rule = incrementRuleHits(id);
+  } catch (err) {
+    process.stderr.write(`\n  ${signal(caps(), 'error')} ${(err as Error).message}\n`);
+    process.exit(1);
+  }
+  if (opts.json) {
+    process.stdout.write(`${JSON.stringify(rule, null, 2)}\n`);
+    return;
+  }
+  const c = caps();
+  const color = makeColors(c.color);
+  process.stdout.write(`\n  ${color.green('hit')} ${rule.id} — hits ${rule.hits}\n`);
 }

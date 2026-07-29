@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runCommit } from '../../src/commands/commit.js';
+import { resolveProjectRoot } from '../../src/commands/config.js';
 import { hasApprovedGate1, runRecord } from '../../src/commands/record.js';
 import { loadState, runStateSet } from '../../src/commands/state.js';
 import { runWorkNew } from '../../src/commands/work.js';
@@ -121,7 +122,9 @@ describe('게이트 1 흐름 — awaiting-gate1 파이프라인 데드락 방지
   });
 
   // 게이트 통과 판정을 phase 문자열이 아니라 "승인된 gate:1 레코드"로 한다(0.6.3, 적대검증).
-  const gateCb = { requireGateForLoop: (wi: string | undefined) => hasApprovedGate1(wi) };
+  const gateCb = {
+    requireGateForLoop: (wi: string | undefined) => hasApprovedGate1(wi, resolveProjectRoot()),
+  };
 
   it('게이트1에서 rejected 된 계획은 state set phase=loop 도 commit 도 통과시키지 않는다 (적대검증 HIGH)', async () => {
     const proj = realProject();

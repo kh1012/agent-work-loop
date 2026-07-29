@@ -11,7 +11,7 @@ SKILL.md 본문에서 조건부·저빈도로 분류된 섹션의 상세. 매 �
   → 3회 도달하면 "막힘 처리".
 - **절차적 실수** = 내가 도구를 잘못 썼다 (git 오조작, 포트 충돌, 스크립트 인자 전달 실패 등).
   → `proceduralErrors` +1. **고치고 계속한다.** `attempts` 는 올리지 않는다.
-  → `awl state set --json '{"criteria":[{"id":"<AC>","proceduralErrors":N}]}'`
+  → `awl state set --json '{"criteria":[{"id":"<condition-ID>","proceduralErrors":N}]}'`
 - **환경 문제** = 검증 환경을 신뢰할 수 없다 (전체 스위트가 대량 실패, 무관한 테스트가 깨짐 등).
   → **먼저 환경을 의심한다.** 동시 편집, 포트 충돌, 스크립트 인자 전달 실패를 배제한다.
   → 배제한 뒤에야 코드 결함으로 결론짓는다. 이건 게이트 대상이 아니다. 자율적으로 처리한다.
@@ -29,16 +29,37 @@ SKILL.md 본문에서 조건부·저빈도로 분류된 섹션의 상세. 매 �
 
 ---
 
-### 완료 조건 3개마다 리뷰
+### 완료 조건 3개마다 — 기본은 자가 검증, `--review` 를 켰을 때만 서브에이전트 (ADK 0.8.0 단계 2)
 
-- `awl review AC-xx..AC-yy --json` 으로 자료를 조립한다. 조립 결과에 `reviewId`(새로 발급, `rev_` 접두어)가 포함된다.
+`--review` 플래그는 SKILL.md의 "리뷰 모드"에서 이미 파싱됐다 — 여기서는 두 경우의 절차만 다룬다.
+
+**`--review` 켜짐 — 서브에이전트 교차 검증**
+
+- `awl review condition-xx..condition-yy --json` 으로 자료를 조립한다. 조립 결과에 `reviewId`(새로 발급, `rev_` 접두어)가 포함된다.
 - **리뷰어를 서브에이전트로 호출한다. 구현자의 대화 맥락을 넘기지 마라.** (아래 "리뷰어" 참고)
 - 리뷰어의 지적은 **새 완료 조건으로 편입**한다. 리뷰어는 코드를 고치지 않는다. 편입한 완료 조건의 `awl record criteria` 항목에 `becameCriterion` 자유 필드로 `"<reviewId> finding #1"` 처럼 원래 지적을 가리키는 값을 남겨, 나중에 어느 리뷰 지적이 어느 완료 조건이 됐는지 역추적할 수 있게 한다.
-- **판정을 받으면 바로 기록한다**: `awl record review --json '{"reviewId":"<번들의 reviewId>","criteria":["AC-xx","AC-yy"],"findings":[{"severity":"medium","what":"...","evidence":"파일:줄"}],"cheatingDetected":[],"verifyPassedBefore":true}'`.
+- **판정을 받으면 바로 기록한다**: `awl record review --json '{"reviewId":"<번들의 reviewId>","criteria":["condition-xx","condition-yy"],"findings":[{"severity":"medium","what":"...","evidence":"파일:줄"}],"cheatingDetected":[],"verifyPassedBefore":true}'`.
   - `criteria` 는 비어있지 않은 배열(리뷰한 완료 조건 ID들).
   - `findings`/`cheatingDetected` 는 지적·부정행위가 없으면 빈 배열이어도 된다 — 다만 반드시 **배열**이어야 한다(문자열로 뭉치지 마라, 빈 배열도 정당한 결과다).
   - `verifyPassedBefore` 는 이 리뷰 **직전**에 `awl verify` 가 이미 통과 상태였는지를 적는다. `true` 인 채로 `findings` 가 비어있지 않으면 "기계 검증은 통과했는데 리뷰가 실사고를 잡았다"는 이 시스템의 가장 강한 증거가 된다 — 아래 "narrative" 의 `reviewer-caught` 와 짝을 이룬다.
   - 이걸 빼먹으면 `awl evolve`/`awl metrics` 의 `reviewRejects` 지표가 조용히 0으로 샌다(WI-P 소급 발견 — 리뷰를 실제로 돌리고도 이 한 줄을 빼먹은 채 워크아이템을 닫을 뻔했다). `awl record gate` 로 gate:2 를 기록할 때 완료 조건 3개 이상이 통과했는데 review 기록이 하나도 없으면 경고도 뜬다(WI-S).
+
+**기본 — 자가 검증(서브에이전트 없음)**
+
+같은 세션이 만들고 같은 세션이 확인한다. 서브에이전트를 띄우지 않는다.
+
+- **할 수 있는 것**: 조건 ↔ 검증 ↔ 커밋 대응(완료조건마다 해당 커밋이 실제로 있는가), 규칙 위반(`awl rules --json`에 걸리는 게 없는가), 부존재 탐지 — 방금 만든 완료조건의 커밋을 임시로 되돌려보고(`git stash`/`git revert --no-commit` 등, 실제로 되돌리지 않아도 diff만 잠깐 없애고 봐도 된다) 그 상태에서도 테스트가 통과하면 그 테스트는 아무것도 안 재고 있다는 뜻이다 — 되돌린 뒤 원상복구한다.
+- **할 수 없는 것**: "이 구현이 적절한가", "놓친 경우가 있는가" 같은 판단 — 이건 신선한 눈이 필요해 자가 검증으로 못 잡는다. `--review` 를 켜야 잡힌다.
+- 자가 검증에서 뭔가 걸리면 그 자리에서 고치고, 걸리지 않으면 그냥 다음 완료조건으로 넘어간다 — 별도로 기록을 남기지 않는다(형식화된 self-check 기록 스키마는 아직 없다 — checklist.md 단계2 절 참고, 별도 라운드).
+
+**4게이트 티켓 모델(`docs/tickets/*.md`)을 쓸 때는 `--review` 켜짐 절차가 다르다 (WI-G24).** 이 스킬은 아직 레거시 2게이트 흐름이 기본이라(SKILL.md "모드" 절 참고, "아직 게이트 3·4 를 안 쓰는 레거시 2게이트 흐름") 아래는 4게이트 티켓 모델로 작업 중일 때만 해당한다:
+
+- `awl review condition-xx..condition-yy --json` 대신 `awl review pack <ticket-id> --json` 을 쓴다. 리뷰어에게 재료를 준다는 목적은 같다 — diff 기준점을 `.awl/tickets/<id>.json` 런타임에서 자동으로 잡아준다는 점만 다르다.
+- **재료 부족**: 리뷰어가 넘겨받은 재료로 판단할 수 없으면(`{"missing": "<무엇>"}` 이 돌아오면 — 티켓을 못 찾음/스펙에서 조건 원문을 못 찾음/베이스라인 이후 diff 가 없음) 그 자리에서 멈추고 사람에게 알린다. 억지로 진행하지 않는다.
+- **기반 티켓과 기능 티켓을 다르게 스케줄한다**: 완료 조건이 없는 티켓(`conditions: []`, 리팩터/도구 정비 등 다른 조건에 안 묶인 기반 작업)은 끝나는 즉시 그 자리에서 `review pack` 을 돌린다. 완료 조건이 있는 기능 티켓은 몇 개를 모아서(기존 "완료 조건 3개마다"와 같은 리듬) 돈다.
+- **재리뷰는 고친 커밋만 본다.** `review pack` 을 성공적으로 호출하면 그 시점 HEAD 가 `lastReviewedCommit` 으로 자동 저장된다 — 다음 재리뷰 호출은 자동으로 그 지점부터의 diff만 받는다(직접 계산할 필요 없다). 지적 이전 코드를 다시 훑지 않는다.
+- **왕복이 2회를 넘으면 사람을 부른다.** `review pack` 결과의 `roundTrips`(findings 가 있었던 재리뷰 횟수)가 3 이상이면(사람용 렌더에도 `[!] 2회를 넘었습니다` 로 표시된다) 계속 자율로 반복하지 말고 `AskUserQuestion` 으로 사람에게 알린다 — 같은 지적이 반복된다는 건 접근 자체가 잘못됐을 신호다.
+- **기반 티켓을 리뷰할 때는 `criteria` 에 지목할 완료 조건 id 가 없다** — `conditions: []` 라 당연하다. 이때는 `awl record review` 의 `criteria` 에 그 **티켓 자신의 id** 를 담는다(예: `"criteria":["ticket-1"]`). `criteria` 는 비어있지 않은 배열이 필수라 빈 배열을 못 쓰고, 티켓 id 를 안 담으면 왕복 카운트가 이 티켓과 안 이어져 "왕복 2회 초과" 안전장치가 기반 티켓에서는 영원히 안 켜진다(시뮬레이션 발견).
 
 ---
 
@@ -89,7 +110,7 @@ awl evolve --collect --workitem <WI>
   → 교훈을 추출한다 (판단):
       - blocked 의 tried/lesson 에서 "무엇이 실패했는가"를 재사용 가능한 문장으로
       - 프로젝트 이름 없이, 완료 조건 ID 없이, 다음에도 쓸 수 있게
-      - 나쁜 예: "AC-03에서 ComponentOverlay 수정이 실패했다"
+      - 나쁜 예: "condition-3에서 ComponentOverlay 수정이 실패했다"
       - 좋은 예: "축을 파라미터로 빼기 전에 오버레이 좌표계가 축에 의존하는지 먼저 확인한다"
   → 기존 gotcha(existingGotchas)와 같으면 sameAs 를 붙인다
 awl evolve --record --json '{"lesson":"...","context":"...","source":{...},"sameAs":"G-003"}'

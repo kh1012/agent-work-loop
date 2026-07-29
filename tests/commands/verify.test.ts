@@ -1,10 +1,12 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
-import type { AwlConfig, VerifyMap } from '../../src/commands/config.js';
+import { afterEach, describe, expect, it } from 'vitest';
+import type { AwlConfig, VerificationEntry } from '../../src/commands/config.js';
 import {
   type VerifyReport,
+  applyChangedScope,
   buildVerifyBaseline,
   compareSinceBaseline,
   isCheckPassed,
@@ -18,6 +20,7 @@ import {
   writeVerifyBaseline,
 } from '../../src/commands/verify.js';
 import { tokenize } from '../../src/core/runner.js';
+import { releaseVerifyLock, tryAcquireVerifyLock } from '../../src/core/verify-lock.js';
 
 const NODE = process.execPath;
 
@@ -30,8 +33,26 @@ function tmpProjectWithSubdir(): { root: string; sub: string } {
   return { root, sub };
 }
 
-function vmap(partial: Partial<VerifyMap>): VerifyMap {
-  return { typecheck: null, lint: null, test: null, e2e: null, ...partial };
+type LegacyVerifyMap = {
+  typecheck?: { cmd: string; cwd?: string; env?: Record<string, string> } | null;
+  lint?: { cmd: string; cwd?: string; env?: Record<string, string> } | null;
+  test?: { cmd: string; cwd?: string; env?: Record<string, string> } | null;
+  e2e?: { cmd: string; cwd?: string; env?: Record<string, string> } | null;
+};
+
+/** ADK stage 4: 예전 4키 고정 객체 리터럴을 그대로 쓸 수 있게, null 항목은 배열에서
+ * 빼고 나머지만 순서대로(typecheck/lint/test/e2e) VerificationEntry[] 로 만든다 —
+ * 대부분의 기존 테스트가 이 헬퍼 호출 모양을 그대로 재사용한다. */
+function vmap(partial: LegacyVerifyMap): VerificationEntry[] {
+  const merged = { typecheck: null, lint: null, test: null, e2e: null, ...partial };
+  const out: VerificationEntry[] = [];
+  for (const name of ['typecheck', 'lint', 'test', 'e2e'] as const) {
+    const entry = merged[name];
+    if (entry) {
+      out.push({ name, ...entry });
+    }
+  }
+  return out;
 }
 
 describe('runVerifyChecks', () => {
@@ -50,6 +71,129 @@ describe('runVerifyChecks', () => {
     expect(report.results[0]?.exitCode).toBe(0);
     expect(report.results[1]?.exitCode).toBe(1);
     expect(report.passed).toBe(false);
+  });
+
+  it('skip:true 인 검증은 실행하지 않고 skipped:"local" 로 남긴다 — 실패가 아니라 경고다(ADK stage 4)', async () => {
+    const report = await runVerifyChecks(
+      [
+        { name: 'typecheck', cmd: `${NODE} --version` },
+        { name: 'e2e', cmd: `${NODE} -e "process.exit(1)"`, skip: true },
+      ],
+      process.cwd(),
+      { bail: false },
+    );
+    expect(report.results).toEqual([
+      {
+        name: 'typecheck',
+        exitCode: 0,
+        durationMs: expect.any(Number),
+        output: expect.any(String),
+        timedOut: false,
+      },
+      { name: 'e2e', exitCode: null, durationMs: 0, output: '', skipped: 'local' },
+    ]);
+    // skip 만 있고 진짜 실패는 없으니 passed 는 true 여야 한다 — 끄는 건 실패가 아니다.
+    expect(report.passed).toBe(true);
+  });
+
+  it('skip:true 인 검증은 cmd 가 실행 불가능한 값이어도(빈 cwd 등) 절대 안 건드린다', async () => {
+    const report = await runVerifyChecks(
+      [{ name: 'e2e', cmd: 'awl_no_such_tool_zzz .', cwd: '/no/such/dir', skip: true }],
+      process.cwd(),
+      { bail: false },
+    );
+    expect(report.results).toEqual([
+      { name: 'e2e', exitCode: null, durationMs: 0, output: '', skipped: 'local' },
+    ]);
+  });
+
+  it('level 을 안 주면 ticket/request 무관하게 전부 돈다(하위호환)', async () => {
+    const report = await runVerifyChecks(
+      [
+        { name: 'typecheck', cmd: `${NODE} --version` },
+        { name: 'e2e', cmd: `${NODE} --version`, level: 'request' },
+      ],
+      process.cwd(),
+      { bail: false },
+    );
+    expect(report.results.map((r) => r.name)).toEqual(['typecheck', 'e2e']);
+  });
+
+  it('level:"ticket" 을 주면 level:request 인 검증은 걸러진다(WI-G15)', async () => {
+    const report = await runVerifyChecks(
+      [
+        { name: 'typecheck', cmd: `${NODE} --version` },
+        { name: 'e2e', cmd: `${NODE} --version`, level: 'request' },
+      ],
+      process.cwd(),
+      { bail: false, level: 'ticket' },
+    );
+    expect(report.results.map((r) => r.name)).toEqual(['typecheck']);
+  });
+
+  it('level:"request" 를 주면 level 없는(기본 ticket) 검증은 걸러지고 level:request 만 돈다(WI-G15)', async () => {
+    const report = await runVerifyChecks(
+      [
+        { name: 'typecheck', cmd: `${NODE} --version` },
+        { name: 'e2e', cmd: `${NODE} --version`, level: 'request' },
+      ],
+      process.cwd(),
+      { bail: false, level: 'request' },
+    );
+    expect(report.results.map((r) => r.name)).toEqual(['e2e']);
+  });
+
+  function gitRepoWithDirtyFile(): string {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-verify-scope-')));
+    execFileSync('git', ['init', '-q'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@t.com'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    fs.writeFileSync(path.join(root, 'changed.ts'), 'x\n');
+    execFileSync('git', ['add', '.'], { cwd: root });
+    execFileSync('git', ['commit', '-q', '-m', 'base'], { cwd: root });
+    fs.writeFileSync(path.join(root, 'changed.ts'), 'y\n'); // 커밋 이후 수정 — dirty
+    return root;
+  }
+
+  it('scope:"changed" 는 변경 파일을 명령 뒤에 붙여 실행한다(WI-G15)', async () => {
+    const root = gitRepoWithDirtyFile();
+    const report = await runVerifyChecks(
+      [{ name: 'lint', cmd: `${NODE} -e "console.log(process.argv.join(','))"`, scope: 'changed' }],
+      root,
+      { bail: false },
+    );
+    expect(report.results[0]?.output).toContain('changed.ts');
+    expect(report.results[0]?.exitCode).toBe(0);
+  });
+
+  it('scope:"changed" 인데 변경 파일이 없으면(clean) 실행하지 않고 skipped:"no-changed-files" 로 남긴다', async () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-verify-scope-clean-')));
+    execFileSync('git', ['init', '-q'], { cwd: root });
+    execFileSync('git', ['config', 'user.email', 't@t.com'], { cwd: root });
+    execFileSync('git', ['config', 'user.name', 't'], { cwd: root });
+    fs.writeFileSync(path.join(root, 'f.ts'), 'x\n');
+    execFileSync('git', ['add', '.'], { cwd: root });
+    execFileSync('git', ['commit', '-q', '-m', 'base'], { cwd: root });
+
+    const report = await runVerifyChecks(
+      [{ name: 'lint', cmd: 'awl_no_such_tool_zzz .', scope: 'changed' }],
+      root,
+      { bail: false },
+    );
+    expect(report.results).toEqual([
+      { name: 'lint', exitCode: null, durationMs: 0, output: '', skipped: 'no-changed-files' },
+    ]);
+    expect(report.passed).toBe(true); // 볼 게 없으면 실패가 아니다.
+  });
+
+  it('scope 가 없거나 "all" 이면 지금처럼 변경 파일 무관하게 전체 명령 그대로 돈다(하위호환)', async () => {
+    const root = gitRepoWithDirtyFile();
+    const report = await runVerifyChecks(
+      [{ name: 'lint', cmd: `${NODE} -e "console.log(process.argv.join(','))"` }],
+      root,
+      { bail: false },
+    );
+    expect(report.results[0]?.output).not.toContain('changed.ts');
   });
 
   it('결과는 유효한 JSON 으로 직렬화/파싱된다(스킬이 파싱함)', async () => {
@@ -489,14 +633,25 @@ describe('substituteRelatedCmd (WI-I AC-04)', () => {
   });
 });
 
+describe('applyChangedScope (scope:changed, WI-G15)', () => {
+  it('{files} 자리표시자가 있으면 substituteRelatedCmd 와 같은 방식으로 치환한다', () => {
+    expect(applyChangedScope('eslint {files}', ['a.ts', 'b.ts'])).toBe(
+      'eslint "a.ts" "b.ts"',
+    );
+  });
+
+  it('{files} 가 없으면 변경 파일 목록을 뒤에 그대로 붙인다', () => {
+    expect(applyChangedScope('eslint .', ['a.ts', 'b.ts'])).toBe('eslint . "a.ts" "b.ts"');
+  });
+});
+
 describe('runRelatedTests (WI-I AC-04) — relatedCmd 있으면 그것만, 없으면 전체 test 로 폴백', () => {
   function baseConfig(overrides: Partial<AwlConfig> = {}): AwlConfig {
     return {
       project: 'p',
       mainLanguage: ['typescript'],
       character: '',
-      engineVersion: '0.0.0',
-      verify: { typecheck: null, lint: null, test: null, e2e: null },
+      verifications: [],
       ...overrides,
     };
   }
@@ -512,7 +667,7 @@ describe('runRelatedTests (WI-I AC-04) — relatedCmd 있으면 그것만, 없�
   });
 
   it('relatedCmd 가 없으면 전체 test 체크로 폴백한다(무음 스킵 금지)', async () => {
-    const config = baseConfig({ verify: vmap({ test: { cmd: `${NODE} --version` } }) });
+    const config = baseConfig({ verifications: vmap({ test: { cmd: `${NODE} --version` } }) });
     const outcome = await runRelatedTests(config, process.cwd(), ['a.ts']);
     expect(outcome.usedRelatedCmd).toBe(false);
     expect(outcome.result.name).toBe('test');
@@ -524,5 +679,44 @@ describe('runRelatedTests (WI-I AC-04) — relatedCmd 있으면 그것만, 없�
     const outcome = await runRelatedTests(config, process.cwd(), ['a.ts']);
     expect(outcome.usedRelatedCmd).toBe(false);
     expect(outcome.result.error).toBe('command_not_found');
+  });
+});
+
+describe('runVerifyChecks — exclusive 배타 락 배선(ADK stage 5, WI-B)', () => {
+  const origHome = process.env.AWL_HOME;
+
+  function tmpHome(): void {
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-verify-exclusive-'));
+  }
+
+  afterEach(() => {
+    if (origHome === undefined) {
+      delete process.env.AWL_HOME;
+    } else {
+      process.env.AWL_HOME = origHome;
+    }
+  });
+
+  it('exclusive 아닌 항목은 락을 전혀 안 건드린다(회귀 없음)', async () => {
+    tmpHome();
+    const report = await runVerifyChecks(
+      [{ name: 'typecheck', cmd: `${NODE} --version` }],
+      process.cwd(),
+      { bail: false },
+    );
+    expect(report.passed).toBe(true);
+    expect(report.results[0]?.error).toBeUndefined();
+  });
+
+  it('exclusive 항목을 실행한 뒤에는 락을 반드시 해제한다(다음 실행이 즉시 잡을 수 있다)', async () => {
+    tmpHome();
+    await runVerifyChecks(
+      [{ name: 'e2e', cmd: `${NODE} --version`, exclusive: true }],
+      process.cwd(),
+      { bail: false },
+    );
+    // 직전 실행이 락을 안 놓았으면 이 acquire 가 실패한다.
+    expect(tryAcquireVerifyLock('e2e', 'probe')).toBe(true);
+    releaseVerifyLock('e2e', 'probe');
   });
 });

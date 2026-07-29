@@ -1,11 +1,14 @@
 /**
  * 버전 불일치 검사 (WI-X).
  *
- * 어긋날 수 있는 버전이 네 쌍이다:
+ * 어긋날 수 있는 버전이 세 쌍이다:
  *   1. build              — package.json vs engine/version.json (패키지 소스, 빌드 시점)
  *   2. binary-vs-engine   — 실행 바이너리(package.json) vs 설치된 엔진(~/.awl/engine)
- *   3. project-vs-engine  — 프로젝트 config.engineVersion vs 설치된 엔진
- *   4. {claude,codex}-skill-vs-engine — 설치된 스킬(.awl/skills-version.json) vs 설치된 엔진
+ *   3. {claude,codex}-skill-vs-engine — 설치된 스킬(.awl/skills-version.json) vs 설치된 엔진
+ *
+ * project-vs-engine(config.json 에 engineVersion 을 박아 비교하던 쌍)은 ADK 0.8.0 설계
+ * ("저장소는 버전을 안 박는다")에 맞춰 제거했다 — skill-vs-engine 두 쌍이 "이 프로젝트가
+ * 낡은 스킬을 쓰고 있다"는 실질적으로 같은 신호를 이미 낸다.
  *
  * 순수 함수. 값을 못 구했으면(null) 그 쌍은 검사하지 않는다 — 크래시하지 않는다.
  */
@@ -14,7 +17,6 @@ export interface VersionInputs {
   packageVersion: string;
   engineSourceVersion: string | null;
   installedEngineVersion: string | null;
-  projectEngineVersion: string | null;
   installedSkillVersions: { claude: string | null; codex: string | null };
   /** npm 레지스트리에서 조회한 최신 배포 버전(null=미조회/조회실패). AC-01(npm-registry.ts)의 결과값. */
   npmLatestVersion: string | null;
@@ -23,7 +25,6 @@ export interface VersionInputs {
 export type VersionMismatchKind =
   | 'build'
   | 'binary-vs-engine'
-  | 'project-vs-engine'
   | 'claude-skill-vs-engine'
   | 'codex-skill-vs-engine';
 
@@ -133,19 +134,6 @@ export function checkVersions(inputs: VersionInputs): VersionCheckResult {
       a: inputs.packageVersion,
       b: inputs.installedEngineVersion,
       hint: '설치된 엔진(~/.awl/engine)이 실행 바이너리와 다릅니다. awl update 로 엔진을 갱신하세요.',
-    });
-  }
-
-  if (
-    inputs.projectEngineVersion !== null &&
-    inputs.installedEngineVersion !== null &&
-    inputs.projectEngineVersion !== inputs.installedEngineVersion
-  ) {
-    mismatches.push({
-      kind: 'project-vs-engine',
-      a: inputs.projectEngineVersion,
-      b: inputs.installedEngineVersion,
-      hint: `이 프로젝트는 ${inputs.projectEngineVersion} 기준으로 설정됐으나 엔진은 ${inputs.installedEngineVersion}입니다. awl init --yes 로 프로젝트·스킬 버전을 엔진에 맞춰 동기화하세요.`,
     });
   }
 

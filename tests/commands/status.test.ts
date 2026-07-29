@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createDoc } from '../../src/commands/doc.js';
 import {
   type StatusReport,
   buildStatus,
@@ -12,6 +13,7 @@ import {
   pipelineLanes,
   renderPipelineGroups,
   renderStatus,
+  resolveTicketStatus,
   runStatus,
 } from '../../src/commands/status.js';
 import { visibleWidth } from '../../src/core/tty.js';
@@ -35,10 +37,9 @@ function tmpProject(state: unknown): string {
   return root;
 }
 
-function tmpHomeWithRecords(records: Record<string, unknown>[]): void {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-home-'));
-  process.env.AWL_HOME = home;
-  const dir = path.join(home, 'records');
+function tmpHomeWithRecords(root: string, records: Record<string, unknown>[]): void {
+  process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-home-'));
+  const dir = path.join(root, '.awl', 'records');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
     path.join(dir, '2026-07.jsonl'),
@@ -60,7 +61,7 @@ describe('buildStatus', () => {
         { id: 'AC-05', status: 'pending' },
       ],
     });
-    tmpHomeWithRecords([
+    tmpHomeWithRecords(root, [
       { id: '1', at: '2026-07-14T10:00:00Z', type: 'attempt', result: 'passed', what: 'x' },
       { id: '2', at: '2026-07-14T09:00:00Z', type: 'blocked', what: 'y' },
       { id: '3', at: '2026-07-14T08:00:00Z', type: 'audit', scope: 'z' },
@@ -206,7 +207,7 @@ describe('renderStatus (AC-01 사람용)', () => {
 describe('게이트 이력 (WI-Q AC-03)', () => {
   it('buildStatus 가 gate:1/gate:2 레코드를 읽어 게이트 상태를 낸다', () => {
     const root = tmpProject({ phase: 'loop', workitem: 'WI-9', criteria: [] });
-    tmpHomeWithRecords([
+    tmpHomeWithRecords(root, [
       {
         id: '1',
         at: '2026-07-15T13:44:00Z',
@@ -230,22 +231,64 @@ describe('게이트 이력 (WI-Q AC-03)', () => {
       },
     ]);
     const s = buildStatus(root);
-    expect(s.gates).toHaveLength(2);
+    expect(s.gates).toHaveLength(4); // ADK stage 2a: 게이트 3/4 로 확장
     const g1 = s.gates.find((g) => g.gate === 1);
     expect(g1?.recorded).toBe(true);
     expect(g1?.decision).toBe('approved');
     expect(g1?.at).toBe('2026-07-15T13:44:00Z');
-    expect(g1?.presentedCriteriaCount).toBe(5);
-    expect(g1?.presentedExclusionsCount).toBe(3);
+    expect(g1?.presentedCriteria).toHaveLength(5);
+    expect(g1?.presentedExclusions).toHaveLength(3);
     expect(g1?.auto).toBe(false);
     const g2 = s.gates.find((g) => g.gate === 2);
     expect(g2?.recorded).toBe(false);
+    const g3 = s.gates.find((g) => g.gate === 3);
+    expect(g3?.recorded).toBe(false);
+    const g4 = s.gates.find((g) => g.gate === 4);
+    expect(g4?.recorded).toBe(false);
+  });
+
+  it('게이트 3/4(ADK stage 2a) 레코드도 게이트 1/2 와 동일하게 읽힌다', () => {
+    const root = tmpProject({ phase: 'loop', workitem: 'WI-9', criteria: [] });
+    tmpHomeWithRecords(root, [
+      {
+        id: '1',
+        at: '2026-07-15T14:00:00Z',
+        type: 'gate',
+        workitem: 'WI-9',
+        gate: 3,
+        layer: 'ticket',
+        ticket: 'ticket-1',
+        decision: 'approved',
+        presentedCriteria: ['AC-01'],
+        auto: true,
+      },
+      {
+        id: '2',
+        at: '2026-07-15T15:00:00Z',
+        type: 'gate',
+        workitem: 'WI-9',
+        gate: 4,
+        layer: 'request',
+        spec: 'spec-1',
+        decision: 'merge',
+        presentedCriteria: ['AC-01'],
+      },
+    ]);
+    const s = buildStatus(root);
+    expect(s.gates).toHaveLength(4);
+    const g3 = s.gates.find((g) => g.gate === 3);
+    expect(g3?.recorded).toBe(true);
+    expect(g3?.decision).toBe('approved');
+    expect(g3?.auto).toBe(true);
+    const g4 = s.gates.find((g) => g.gate === 4);
+    expect(g4?.recorded).toBe(true);
+    expect(g4?.decision).toBe('merge');
   });
 
   it('게이트 decision 을 상태값으로 색코딩한다 — approved=green, rejected=red (cli-visual-consistency AC-04)', () => {
     const mk = (decision: string) => {
       const root = tmpProject({ phase: 'loop', workitem: 'WI-9', criteria: [] });
-      tmpHomeWithRecords([
+      tmpHomeWithRecords(root, [
         {
           id: '1',
           at: '2026-07-15T13:44:00Z',
@@ -264,7 +307,7 @@ describe('게이트 이력 (WI-Q AC-03)', () => {
 
   it('같은 게이트 번호로 여러 번 기록되면(재승인 등) 가장 최근 것을 쓴다', () => {
     const root = tmpProject({ phase: 'loop', workitem: 'WI-9', criteria: [] });
-    tmpHomeWithRecords([
+    tmpHomeWithRecords(root, [
       {
         id: '1',
         at: '2026-07-15T14:00:00Z',
@@ -291,7 +334,7 @@ describe('게이트 이력 (WI-Q AC-03)', () => {
 
   it('renderStatus 가 사람용 텍스트로 게이트 이력을 보여준다', () => {
     const root = tmpProject({ phase: 'loop', workitem: 'WI-9', criteria: [] });
-    tmpHomeWithRecords([
+    tmpHomeWithRecords(root, [
       {
         id: '1',
         at: '2026-07-15T13:44:00Z',
@@ -309,6 +352,303 @@ describe('게이트 이력 (WI-Q AC-03)', () => {
     expect(text).toContain('대기중'); // 게이트 2는 아직 없음
     expect(text).toContain('5'); // presentedCriteria 개수
     expect(text).toContain('3'); // exclusion 개수
+  });
+});
+
+describe('게이트 접기/펼치기 판정 (WI-G19)', () => {
+  it('제시된 완료조건이 전부 passed 면 접힌다(▸, 항목별 줄 없음)', () => {
+    const root = tmpProject({
+      phase: 'loop',
+      workitem: 'WI-9',
+      criteria: [
+        { id: 'condition-1', status: 'passed' },
+        { id: 'condition-2', status: 'passed' },
+      ],
+    });
+    tmpHomeWithRecords(root, [
+      {
+        id: '1',
+        at: '2026-07-15T13:44:00Z',
+        type: 'gate',
+        workitem: 'WI-9',
+        gate: 3,
+        decision: 'approved',
+        presentedCriteria: ['condition-1', 'condition-2'],
+      },
+    ]);
+    const s = buildStatus(root);
+    const g3 = s.gates.find((g) => g.gate === 3);
+    expect(g3?.folded).toBe(true);
+    const text = renderStatus(s, { unicode: true, color: false, tty: true });
+    expect(text).toContain('▸');
+    expect(text).not.toContain('condition-1');
+  });
+
+  it('제시된 완료조건 중 하나라도 passed 가 아니면 펼쳐진다(실패/지적, 항목별 줄)', () => {
+    const root = tmpProject({
+      phase: 'loop',
+      workitem: 'WI-9',
+      criteria: [
+        { id: 'condition-1', status: 'passed' },
+        { id: 'condition-2', status: 'blocked' },
+      ],
+    });
+    tmpHomeWithRecords(root, [
+      {
+        id: '1',
+        at: '2026-07-15T13:44:00Z',
+        type: 'gate',
+        workitem: 'WI-9',
+        gate: 3,
+        decision: 'modified',
+        presentedCriteria: ['condition-1', 'condition-2'],
+      },
+    ]);
+    const s = buildStatus(root);
+    const g3 = s.gates.find((g) => g.gate === 3);
+    expect(g3?.folded).toBe(false);
+    const text = renderStatus(s, { unicode: true, color: false, tty: true });
+    expect(text).toContain('condition-1');
+    expect(text).toContain('condition-2 (blocked)');
+  });
+
+  it('presentedExclusions(범위 밖)이 하나라도 있으면 완료조건이 전부 passed 여도 펼쳐진다', () => {
+    const root = tmpProject({
+      phase: 'loop',
+      workitem: 'WI-9',
+      criteria: [{ id: 'condition-1', status: 'passed' }],
+    });
+    tmpHomeWithRecords(root, [
+      {
+        id: '1',
+        at: '2026-07-15T13:44:00Z',
+        type: 'gate',
+        workitem: 'WI-9',
+        gate: 1,
+        decision: 'approved',
+        presentedCriteria: ['condition-1'],
+        presentedExclusions: [{ id: 'finding-1', reason: '다음 라운드로 미룸' }],
+      },
+    ]);
+    const s = buildStatus(root);
+    const g1 = s.gates.find((g) => g.gate === 1);
+    expect(g1?.folded).toBe(false);
+    const text = renderStatus(s, { unicode: true, color: false, tty: true });
+    expect(text).toContain('범위 밖: finding-1');
+    expect(text).toContain('다음 라운드로 미룸');
+  });
+
+  it('review 기록의 findings 가 이 게이트가 제시한 완료조건을 지목하면 펼쳐진다', () => {
+    const root = tmpProject({
+      phase: 'loop',
+      workitem: 'WI-9',
+      criteria: [{ id: 'condition-1', status: 'passed' }],
+    });
+    tmpHomeWithRecords(root, [
+      {
+        id: '1',
+        at: '2026-07-15T13:44:00Z',
+        type: 'gate',
+        workitem: 'WI-9',
+        gate: 3,
+        decision: 'approved',
+        presentedCriteria: ['condition-1'],
+      },
+      {
+        id: '2',
+        at: '2026-07-15T13:30:00Z',
+        type: 'review',
+        workitem: 'WI-9',
+        reviewId: 'r1',
+        criteria: ['condition-1'],
+        findings: [{ severity: 'medium', what: '약한 단언', evidence: 'x.ts:10' }],
+        cheatingDetected: [],
+        verifyPassedBefore: true,
+      },
+    ]);
+    const s = buildStatus(root);
+    const g3 = s.gates.find((g) => g.gate === 3);
+    expect(g3?.folded).toBe(false);
+    expect(g3?.reviewFindings).toHaveLength(1);
+    const text = renderStatus(s, { unicode: true, color: false, tty: true });
+    expect(text).toContain('리뷰: 약한 단언');
+    expect(text).toContain('x.ts:10');
+  });
+
+  it('ASCII 폴백에서는 ▸ 대신 > 를 쓴다', () => {
+    const root = tmpProject({
+      phase: 'loop',
+      workitem: 'WI-9',
+      criteria: [{ id: 'condition-1', status: 'passed' }],
+    });
+    tmpHomeWithRecords(root, [
+      {
+        id: '1',
+        at: '2026-07-15T13:44:00Z',
+        type: 'gate',
+        workitem: 'WI-9',
+        gate: 3,
+        decision: 'approved',
+        presentedCriteria: ['condition-1'],
+      },
+    ]);
+    const text = renderStatus(buildStatus(root), { unicode: false, color: false, tty: false });
+    expect(text).not.toContain('▸');
+    expect(text).toContain('>');
+  });
+});
+
+describe('게이트4 auto 요청 요약 (WI-H4, adk-prototype.md:365 "auto 는 게이트4 에서 펼친 요약만 낸다")', () => {
+  async function makeSpecWithTickets(
+    root: string,
+    ticketStatuses: string[],
+    conditionsPerTicket: string[][],
+  ): Promise<{ specId: string; ticketIds: string[] }> {
+    const spec = await createDoc('spec', '요약 대상 스펙', root);
+    const ticketIds: string[] = [];
+    for (let i = 0; i < ticketStatuses.length; i++) {
+      const ticket = await createDoc('ticket', `티켓 ${i}`, root, {
+        spec: spec.id,
+        conditions: conditionsPerTicket[i] ?? [],
+      });
+      const content = fs
+        .readFileSync(ticket.path, 'utf8')
+        .replace(/^status: .+$/m, `status: ${ticketStatuses[i]}`);
+      fs.writeFileSync(ticket.path, content);
+      ticketIds.push(ticket.id);
+    }
+    return { specId: spec.id, ticketIds };
+  }
+
+  it('게이트4 가 auto:true 로 기록되면 완료티켓/조건/자동승인 횟수를 집계한다', async () => {
+    const root = tmpProject({ phase: 'loop', workitem: null, criteria: [] });
+    const { specId, ticketIds } = await makeSpecWithTickets(
+      root,
+      ['done', 'done', 'pending'],
+      [['condition-1'], ['condition-1', 'condition-2'], ['condition-1']],
+    );
+    tmpHomeWithRecords(root, [
+      {
+        id: '1',
+        at: '2026-07-28T10:00:00Z',
+        type: 'gate',
+        workitem: null,
+        gate: 2,
+        layer: 'ticket',
+        ticket: ticketIds[0],
+        decision: 'approved',
+        presentedCriteria: [],
+        auto: true,
+      },
+      {
+        id: '2',
+        at: '2026-07-28T10:01:00Z',
+        type: 'gate',
+        workitem: null,
+        gate: 3,
+        layer: 'ticket',
+        ticket: ticketIds[0],
+        decision: 'approved',
+        presentedCriteria: [],
+        auto: true,
+      },
+      {
+        id: '3',
+        at: '2026-07-28T10:02:00Z',
+        type: 'gate',
+        workitem: null,
+        gate: 3,
+        layer: 'ticket',
+        ticket: ticketIds[1],
+        decision: 'approved',
+        presentedCriteria: [],
+        auto: false, // 사람이 직접 승인 — 자동승인 카운트에 안 들어간다
+      },
+      {
+        id: '4',
+        at: '2026-07-28T10:03:00Z',
+        type: 'gate',
+        workitem: null,
+        gate: 4,
+        layer: 'request',
+        spec: specId,
+        decision: 'merge',
+        presentedCriteria: [],
+        auto: true,
+      },
+    ]);
+
+    const s = buildStatus(root);
+    const g4 = s.gates.find((g) => g.gate === 4);
+    expect(g4?.requestSummary).toEqual({
+      totalTickets: 3,
+      completedTickets: 2,
+      conditionsTotal: 4, // 티켓별 조건 1+2+1
+      autoApprovalCount: 3, // gate2(t0)+gate3(t0)+gate4 자신 — gate3(t1)은 auto:false
+    });
+  });
+
+  it('게이트4 가 auto:false(사람이 직접 승인)면 requestSummary 가 없다', async () => {
+    const root = tmpProject({ phase: 'loop', workitem: null, criteria: [] });
+    const spec = await createDoc('spec', '스펙', root);
+    tmpHomeWithRecords(root, [
+      {
+        id: '1',
+        at: '2026-07-28T10:00:00Z',
+        type: 'gate',
+        workitem: null,
+        gate: 4,
+        layer: 'request',
+        spec: spec.id,
+        decision: 'merge',
+        presentedCriteria: [],
+        auto: false,
+      },
+    ]);
+    const s = buildStatus(root);
+    expect(s.gates.find((g) => g.gate === 4)?.requestSummary).toBeUndefined();
+  });
+
+  it('게이트4 가 spec 필드 없이 기록됐으면(레거시) requestSummary 를 안 만든다(크래시 아님)', async () => {
+    const root = tmpProject({ phase: 'loop', workitem: null, criteria: [] });
+    tmpHomeWithRecords(root, [
+      {
+        id: '1',
+        at: '2026-07-28T10:00:00Z',
+        type: 'gate',
+        workitem: null,
+        gate: 4,
+        layer: 'request',
+        decision: 'merge',
+        presentedCriteria: [],
+        auto: true,
+      },
+    ]);
+    const s = buildStatus(root);
+    expect(s.gates.find((g) => g.gate === 4)?.requestSummary).toBeUndefined();
+  });
+
+  it('renderStatus 가 완료 티켓/조건/자동승인 횟수를 사람용 텍스트로 보여준다', async () => {
+    const root = tmpProject({ phase: 'loop', workitem: null, criteria: [] });
+    const { specId } = await makeSpecWithTickets(root, ['done'], [['condition-1']]);
+    tmpHomeWithRecords(root, [
+      {
+        id: '1',
+        at: '2026-07-28T10:00:00Z',
+        type: 'gate',
+        workitem: null,
+        gate: 4,
+        layer: 'request',
+        spec: specId,
+        decision: 'merge',
+        presentedCriteria: [],
+        auto: true,
+      },
+    ]);
+    const text = renderStatus(buildStatus(root), { unicode: false, color: false, tty: false });
+    expect(text).toContain('완료 티켓 1/1개');
+    expect(text).toContain('조건 1개');
+    expect(text).toContain('자동승인 1회');
   });
 });
 
@@ -642,10 +982,22 @@ describe('collectPipelineLaneGroups — 교차 레인 롤업(pipeline-status-vie
     const fe = groups.find((g) => g.name === 'fe');
     // 그룹핑이 레인별로 되지 않고 평탄화되면 workitems 중첩이 깨져 RED.
     expect(be?.workitems).toEqual([
-      { name: 'migrate', status: 'complete', execState: 'verified', reviewState: 'passed' },
+      {
+        name: 'migrate',
+        status: 'complete',
+        execState: 'verified',
+        reviewState: 'passed',
+        ticketStatus: null, // <name> 이 실제 티켓 id 와 일치하지 않으므로(ADK stage 2e)
+      },
     ]);
     expect(fe?.workitems).toEqual([
-      { name: 'login', status: 'executing', execState: 'in_progress', reviewState: 'waiting' },
+      {
+        name: 'login',
+        status: 'executing',
+        execState: 'in_progress',
+        reviewState: 'waiting',
+        ticketStatus: null,
+      },
     ]);
   });
 
@@ -797,10 +1149,22 @@ describe('runStatus --pipeline 교차 레인(pipeline-status-view AC-02/03)', ()
     // 교차 레인 구조: lanes[].workitems[]. 평탄 {name,status} 로 새면 workitems 가 없어 RED.
     const by = Object.fromEntries(j.lanes.map((g: { name: string }) => [g.name, g]));
     expect(by.fe.workitems).toEqual([
-      { name: 'login', status: 'executing', execState: 'in_progress', reviewState: 'waiting' },
+      {
+        name: 'login',
+        status: 'executing',
+        execState: 'in_progress',
+        reviewState: 'waiting',
+        ticketStatus: null,
+      },
     ]);
     expect(by.be.workitems).toEqual([
-      { name: 'migrate', status: 'complete', execState: 'verified', reviewState: 'passed' },
+      {
+        name: 'migrate',
+        status: 'complete',
+        execState: 'verified',
+        reviewState: 'passed',
+        ticketStatus: null,
+      },
     ]);
   });
 
@@ -821,7 +1185,13 @@ describe('runStatus --pipeline 교차 레인(pipeline-status-view AC-02/03)', ()
     );
     // 레인(fe)이 생겨도 메인이 통째 숨으면 안 된다 — main 그룹이 존재하고 실작업을 담는다.
     expect(byName.main.workitems).toEqual([
-      { name: 'alpha', status: 'pending', execState: 'pending', reviewState: 'waiting' },
+      {
+        name: 'alpha',
+        status: 'pending',
+        execState: 'pending',
+        reviewState: 'waiting',
+        ticketStatus: null,
+      },
     ]);
     // 빈 레인도 명확히 표기(workitems 빈 배열).
     expect(byName.fe.workitems).toEqual([]);
@@ -866,7 +1236,13 @@ describe('runStatus --pipeline 교차 레인(pipeline-status-view AC-02/03)', ()
       {
         name: 'main',
         workitems: [
-          { name: 'freshwi', status: 'pending', execState: 'pending', reviewState: 'waiting' },
+          {
+            name: 'freshwi',
+            status: 'pending',
+            execState: 'pending',
+            reviewState: 'waiting',
+            ticketStatus: null,
+          },
         ],
       },
     ]);
@@ -915,7 +1291,13 @@ describe('runStatus --pipeline --archive (pipeline-archive-cleanup AC-05/06)', (
     const j = JSON.parse(capture(() => void runStatus({ json: true, pipeline: true })));
     const main = j.lanes.find((l: { name: string }) => l.name === 'main');
     expect(main.workitems).toEqual([
-      { name: 'old', status: 'complete', execState: 'verified', reviewState: 'passed' },
+      {
+        name: 'old',
+        status: 'complete',
+        execState: 'verified',
+        reviewState: 'passed',
+        ticketStatus: null,
+      },
     ]);
     expect(j.archived).toBeUndefined();
     expect(fs.existsSync(execFile)).toBe(true); // 파일도 그대로.
@@ -1084,5 +1466,154 @@ describe('runStatus — cwd 밖(config-anywhere-fallback)', () => {
     expect(buf).toContain('gamma');
     expect(buf).toContain(a);
     expect(buf).toContain('cd ');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// .tasks/plan/<name>.md 의 <name> 이 티켓 id 일 때 티켓을 원천으로 삼는다 (ADK stage 2e)
+// ---------------------------------------------------------------------------
+
+function seedTicket(root: string, ticketId: string, status = 'pending'): string {
+  const dir = path.join(root, 'docs', 'tickets');
+  fs.mkdirSync(dir, { recursive: true });
+  const ticketPath = path.join(dir, `20260101-000000-${ticketId.slice(0, 8)}.md`);
+  fs.writeFileSync(
+    ticketPath,
+    `---\nid: ${ticketId}\nspec: spec-1\nconditions: [condition-1]\ndependencies: []\nstatus: ${status}\n---\n## Verification\n`,
+  );
+  return ticketPath;
+}
+
+describe('resolveTicketStatus (ADK stage 2e)', () => {
+  it('docs/tickets/*.md 의 frontmatter id 와 일치하면 그 status 를 돌려준다', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-ticket-status-')));
+    seedTicket(root, 'ticket-uuid-1', 'implementing');
+    expect(resolveTicketStatus(root, 'ticket-uuid-1')).toBe('implementing');
+  });
+
+  it('일치하는 티켓이 없으면 null', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-ticket-status-')));
+    expect(resolveTicketStatus(root, 'no-such-ticket')).toBeNull();
+  });
+
+  it('docs/tickets/ 디렉터리 자체가 없어도 크래시하지 않고 null', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-ticket-status-')));
+    expect(resolveTicketStatus(root, 'anything')).toBeNull();
+  });
+
+  it('손상된 md 파일이 섞여 있어도 나머지 조회를 막지 않는다', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-ticket-status-')));
+    fs.mkdirSync(path.join(root, 'docs', 'tickets'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'docs', 'tickets', 'broken.md'), '깨진 파일');
+    seedTicket(root, 'ticket-uuid-2', 'done');
+    expect(resolveTicketStatus(root, 'ticket-uuid-2')).toBe('done');
+  });
+});
+
+describe('collectPipelineLaneGroups/mainTreeGroup 이 <name> 을 티켓으로도 인식한다 (ADK stage 2e)', () => {
+  const origCwd = process.cwd();
+  afterEach(() => process.chdir(origCwd));
+
+  it('<name> 이 실제 티켓 id 와 일치하면 workitem 에 ticketStatus 가 붙는다(메인 트리, mainTreeGroup 경유)', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-plv-ticket-')));
+    seedTicket(root, 'ticket-uuid-3', 'reviewing');
+    fs.mkdirSync(path.join(root, '.tasks', 'plan'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.tasks', 'exec'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.tasks', 'review'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.tasks', 'plan', 'ticket-uuid-3.taken.md'), '');
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    process.chdir(root);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-plv-ticket-home-'));
+
+    let buf = '';
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((c: unknown) => {
+      buf += String(c);
+      return true;
+    });
+    try {
+      void runStatus({ json: true, pipeline: true });
+    } finally {
+      spy.mockRestore();
+    }
+    const j = JSON.parse(buf);
+    const main = j.lanes.find((l: { name: string }) => l.name === 'main');
+    expect(main.workitems[0].ticketStatus).toBe('reviewing');
+  });
+
+  it('레인(워크트리)마다 자기 root 기준으로 티켓을 찾는다 — 다른 레인의 티켓은 안 섞인다', async () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-plv-ticket2-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    // 메인 트리에만 티켓이 있다.
+    seedTicket(root, 'ticket-uuid-4', 'implementing');
+    seedLane(root, 'fe', { plan: ['ticket-uuid-4.taken.md'], exec: [], review: [] });
+    process.chdir(root);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-plv-ticket2-home-'));
+
+    const j = JSON.parse(
+      (() => {
+        let buf = '';
+        const spy = vi.spyOn(process.stdout, 'write').mockImplementation((c: unknown) => {
+          buf += String(c);
+          return true;
+        });
+        try {
+          void runStatus({ json: true, pipeline: true });
+        } finally {
+          spy.mockRestore();
+        }
+        return buf;
+      })(),
+    );
+    const fe = j.lanes.find((l: { name: string }) => l.name === 'fe');
+    // fe 레인 자신의 docs/tickets/ 에는 이 티켓이 없다(메인 트리에만 있다) — null 이어야 한다.
+    expect(fe.workitems[0].ticketStatus).toBeNull();
+  });
+
+  it('awl status --pipeline 텍스트 렌더는 <name> 이 티켓과 일치할 때만 "티켓" 열을 보여준다', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-plv-ticket3-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    seedTicket(root, 'ticket-uuid-5', 'implementing');
+    fs.mkdirSync(path.join(root, '.tasks', 'plan'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.tasks', 'exec'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.tasks', 'review'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.tasks', 'plan', 'ticket-uuid-5.taken.md'), '');
+    process.chdir(root);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-plv-ticket3-home-'));
+
+    let buf = '';
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((c: unknown) => {
+      buf += String(c);
+      return true;
+    });
+    try {
+      void runStatus({ json: false, pipeline: true });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(buf).toContain('티켓');
+    expect(buf).toContain('implementing');
+  });
+
+  it('아무 workitem 도 티켓과 안 일치하면(지금 모든 기존 사용) "티켓" 열 자체가 안 보인다', () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-plv-ticket4-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.tasks', 'plan'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.tasks', 'exec'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.tasks', 'review'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.tasks', 'plan', 'freeform-name.taken.md'), '');
+    process.chdir(root);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-plv-ticket4-home-'));
+
+    let buf = '';
+    const spy = vi.spyOn(process.stdout, 'write').mockImplementation((c: unknown) => {
+      buf += String(c);
+      return true;
+    });
+    try {
+      void runStatus({ json: false, pipeline: true });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(buf).not.toContain('  티켓  ');
   });
 });

@@ -14,6 +14,7 @@ import {
   projectStatePath,
   projectsFile,
   recordsDir,
+  recordsSuffixPath,
   rulesDir,
   templatesDir,
 } from '../../src/core/paths.js';
@@ -54,7 +55,18 @@ describe('globalRoot / AWL_HOME 재정의', () => {
     const tmp = makeTmpDir('awl-home-');
     process.env.AWL_HOME = tmp;
     expect(engineDir()).toBe(path.join(path.resolve(tmp), 'engine'));
-    expect(recordsDir()).toBe(path.join(path.resolve(tmp), 'records'));
+  });
+});
+
+describe('recordsDir / recordsSuffixPath — project-local (WI-G17a)', () => {
+  it('AWL_HOME 과 무관하게 projectRoot 아래 .awl/records 를 가리킨다', () => {
+    const proj = makeTmpDir('awl-proj-');
+    expect(recordsDir(proj)).toBe(path.join(proj, '.awl', 'records'));
+  });
+
+  it('recordsSuffixPath 는 projectRoot 아래 .awl/records-suffix.json 을 가리킨다', () => {
+    const proj = makeTmpDir('awl-proj-');
+    expect(recordsSuffixPath(proj)).toBe(path.join(proj, '.awl', 'records-suffix.json'));
   });
 });
 
@@ -66,7 +78,6 @@ describe('전역 하위 경로 조합', () => {
   it('각 디렉토리를 globalRoot 아래 올바른 이름으로 조합한다', () => {
     const root = globalRoot();
     expect(engineDir()).toBe(path.join(root, 'engine'));
-    expect(recordsDir()).toBe(path.join(root, 'records'));
     expect(gotchasDir()).toBe(path.join(root, 'gotchas'));
     expect(legacyDeltasDir()).toBe(path.join(root, 'deltas'));
     expect(rulesDir()).toBe(path.join(root, 'rules'));

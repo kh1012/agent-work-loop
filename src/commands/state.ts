@@ -13,6 +13,30 @@ export function statePath(projectRoot: string): string {
 }
 
 /**
+ * 루프 모드(ADK 0.8.0 단계 2 "모드"). 스킬 호출부(예: --strict/--auto)가 정하고
+ * state.json 의 레인 단위 상태로 둔다 — awl 은 이 값을 저장·검증만 한다(판단은 스킬).
+ *
+ * strict     네 게이트에서 다 멈춘다 — 지금까지의 awl-loop 기본 동작과 같다(항상 물음)
+ * semi-auto  게이트 2·3 을 자동 승인한다 — 기본값(필드가 아예 없어도 이걸로 본다)
+ * auto       전부 자동. 게이트 4 에서 펼친 요약만 낸다
+ *
+ * 필드 이름은 `loopMode`다(`mode` 아님) — state.json 은 이미 `mode` 를 파이프라인
+ * 게이트-밀도 등급('gate-high'/'gate-medium'/'gate-low', mergeState 의 D-15 자유
+ * top-level 필드 테스트 참고)으로 쓰고 있어, 같은 이름을 재사용하면 어휘가 겹친다.
+ */
+export const LOOP_MODES = ['strict', 'semi-auto', 'auto'] as const;
+export type LoopMode = (typeof LOOP_MODES)[number];
+
+function isLoopMode(v: unknown): v is LoopMode {
+  return typeof v === 'string' && (LOOP_MODES as readonly string[]).includes(v);
+}
+
+/** state.loopMode 가 없거나 알 수 없는 값이면 기본값 semi-auto 로 본다. */
+export function effectiveLoopMode(state: Record<string, unknown>): LoopMode {
+  return isLoopMode(state.loopMode) ? state.loopMode : 'semi-auto';
+}
+
+/**
  * 워크아이템 레지스트리(workitems) 필드가 있는지 보장한다(WI-D).
  *
  * 최상위 workitem/phase/loop/criteria 는 건드리지 않는다 — 계속 "현재 워크아이템의
@@ -354,6 +378,7 @@ export function runStateSet(jsonPatch: string, opts: RunStateSetOpts = {}): void
   // (단일 해제 경로), process.exit 로 인한 락 누수를 구조적으로 없앤다(리뷰 지적).
   let gateRejected = false;
   let workitemRejected = false;
+  let modeRejected = false;
   let activeWorkitem: string | undefined;
   try {
     const current = loadState(root);
@@ -364,7 +389,11 @@ export function runStateSet(jsonPatch: string, opts: RunStateSetOpts = {}): void
     if (!workitemRejected && p.phase === 'loop' && opts.requireGateForLoop) {
       gateRejected = !opts.requireGateForLoop(activeWorkitem);
     }
-    if (!workitemRejected && !gateRejected) {
+    // loopMode 는 정해진 3값 중 하나여야 한다(ADK 0.8.0 단계 2 "모드") — 잘못된 값이
+    // 조용히 저장돼 나중에 semi-auto 로 오인되는 것을 막는다.
+    modeRejected =
+      !workitemRejected && !gateRejected && 'loopMode' in p && !isLoopMode(p.loopMode);
+    if (!workitemRejected && !gateRejected && !modeRejected) {
       const merged = mergeState(current, p);
       writeState(root, merged);
       process.stdout.write(`${JSON.stringify(merged, null, 2)}\n`);
@@ -381,6 +410,12 @@ export function runStateSet(jsonPatch: string, opts: RunStateSetOpts = {}): void
   if (gateRejected) {
     process.stderr.write(
       '\n  게이트 1 승인 기록이 없습니다. awl record gate 로 계획을 승인(approved)한 뒤 다시 시도하세요.\n',
+    );
+    process.exit(1);
+  }
+  if (modeRejected) {
+    process.stderr.write(
+      `\n  loopMode 는 ${LOOP_MODES.join(' / ')} 중 하나여야 합니다.\n`,
     );
     process.exit(1);
   }

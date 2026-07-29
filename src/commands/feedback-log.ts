@@ -1,5 +1,19 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import { redactAbsolutePaths } from '../core/redact.js';
 import { type Caps, caps, makeColors, sectionBox, signal } from '../core/tty.js';
-import { readRecords } from './record.js';
+import { loadConfig, resolveProjectRoot } from './config.js';
+import { listRegisteredProjects } from './init.js';
+import {
+  AWL_FEEDBACK_AREAS,
+  AWL_FEEDBACK_SEVERITIES,
+  appendRecord,
+  buildRecord,
+  newRecordId,
+  readRecords,
+  resolveEffectiveAuthor,
+  syncFeedback,
+} from './record.js';
 
 /**
  * awl feedback-log — awl 도구 자체에 대해 이미 남겨진 피드백(awl-feedback 기록)을
@@ -12,7 +26,10 @@ import { readRecords } from './record.js';
  * 2회 이상 반복된 area 를 강조하는 것까지가 awl 의 몫이다(반복이 곧 우선순위 신호).
  * 번역(패치로 바꾸기)은 사람 + LLM 이 한다.
  *
- * ~/.awl 의 기록을 읽으므로 어느 폴더에서 실행하든 내용은 같다(프로젝트 무관).
+ * records 는 project-local(.awl/records/) 이라(WI-G17a) 프로젝트 무관 집계를
+ * ~/.awl/projects.json 에 등록된 프로젝트 전부를 순회해 재구성한다 — awl-feedback
+ * 은 도구 자체의 아픈 점이라 어느 프로젝트에서 나왔든 한데 모아 봐야 값어치가 있다
+ * (records 저장 위치와 무관하게 이 명령의 "프로젝트 무관" 의도는 그대로 지킨다).
  */
 
 /** 심각도 정렬 순위 (high 가 먼저 온다). */
@@ -39,9 +56,25 @@ export interface FeedbackReport {
   prioritized: string[];
 }
 
-/** awl-feedback 기록을 읽어 필터를 적용한다(프로젝트 무관, ~/.awl 전역). */
+/** 등록된 프로젝트 전부의 records/ 를 훑어 awl-feedback 만 모은다(프로젝트 무관 집계). */
+function readAwlFeedbackAcrossProjects(): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  for (const p of listRegisteredProjects()) {
+    if (!fs.existsSync(p.path)) {
+      continue;
+    }
+    for (const r of readRecords(p.path)) {
+      if (r.type === 'awl-feedback') {
+        out.push(r);
+      }
+    }
+  }
+  return out;
+}
+
+/** awl-feedback 기록을 읽어 필터를 적용한다(프로젝트 무관 — 등록된 프로젝트 전부 집계). */
 export function loadAwlFeedback(filter: FeedbackFilter = {}): Record<string, unknown>[] {
-  let records = readRecords().filter((r) => r.type === 'awl-feedback');
+  let records = readAwlFeedbackAcrossProjects();
   if (filter.area) {
     records = records.filter((r) => r.area === filter.area);
   }
@@ -156,4 +189,72 @@ export function runFeedbackLog(opts: {
     return;
   }
   process.stdout.write(`${renderFeedbackLog(report, caps())}\n`);
+}
+
+/**
+ * awl feedback "<text>" — 사람이 awl 도구 자체에 대해 짧게 남기는 단축 쓰기 명령.
+ * `awl record awl-feedback --json '{...}'`(구조화 기록)과 core/auto-feedback.ts
+ * (CLI 크래시 자동수집)에 이어 세 번째 쓰기 경로다 — source:'manual' 로 자동수집과
+ * 구분한다(둘 다 awl-feedback 레코드라 형태는 같지만 누가 남겼는지가 다르다).
+ *
+ * 활성 워크아이템을 요구하지 않는다(awl record 의 일반 강제와 다름) — 도구가
+ * 불편했던 순간은 어느 워크아이템 중이든, 심지어 워크아이템 밖에서도 남길 수
+ * 있어야 한다(자동수집도 같은 원칙: core/auto-feedback.ts 참고).
+ */
+export async function runFeedback(
+  text: string,
+  opts: { area?: string; impact?: string; severity?: string } = {},
+): Promise<void> {
+  const c = caps();
+  if (text.trim() === '') {
+    process.stderr.write(`\n  ${signal(c, 'error')} 내용을 입력하세요: awl feedback "무엇이 아팠나"\n`);
+    process.exit(1);
+    return;
+  }
+  const area = opts.area ?? '기타';
+  if (!(AWL_FEEDBACK_AREAS as readonly string[]).includes(area)) {
+    process.stderr.write(
+      `\n  ${signal(c, 'error')} --area 는 다음 중 하나여야 합니다: ${AWL_FEEDBACK_AREAS.join(', ')}\n`,
+    );
+    process.exit(1);
+    return;
+  }
+  const severity = opts.severity ?? 'low';
+  if (!(AWL_FEEDBACK_SEVERITIES as readonly string[]).includes(severity)) {
+    process.stderr.write(
+      `\n  ${signal(c, 'error')} --severity 는 다음 중 하나여야 합니다: ${AWL_FEEDBACK_SEVERITIES.join(', ')}\n`,
+    );
+    process.exit(1);
+    return;
+  }
+
+  const projectRoot = resolveProjectRoot();
+  if (!projectRoot) {
+    process.stderr.write(
+      `\n  ${signal(c, 'error')} 프로젝트 루트를 찾을 수 없습니다. awl init 을 실행하세요.\n`,
+    );
+    process.exit(1);
+    return;
+  }
+  const { config } = loadConfig(projectRoot);
+
+  const home = os.homedir();
+  const what = redactAbsolutePaths(text, home, projectRoot);
+  const impact = redactAbsolutePaths(opts.impact ?? text, home, projectRoot);
+
+  const { record, missing } = buildRecord(
+    'awl-feedback',
+    { area, what, impact, severity, source: 'manual' },
+    { project: config?.project, id: newRecordId(), at: new Date().toISOString(), author: resolveEffectiveAuthor(projectRoot) },
+  );
+  if (!record) {
+    process.stderr.write(
+      `\n  ${signal(c, 'error')} 기록을 거부했습니다. 빠진 필수 필드: ${missing.join(', ')}\n`,
+    );
+    process.exit(1);
+    return;
+  }
+  appendRecord(record, projectRoot);
+  await syncFeedback(projectRoot, record);
+  process.stdout.write(`\n  ${signal(c, 'ok')} 피드백을 남겼습니다. (area: ${area})\n`);
 }

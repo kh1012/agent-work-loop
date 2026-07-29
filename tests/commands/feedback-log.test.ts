@@ -1,19 +1,30 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildFeedbackReport,
   isInvalidSince,
   loadAwlFeedback,
   renderFeedbackLog,
+  runFeedback,
 } from '../../src/commands/feedback-log.js';
 
 const origHome = process.env.AWL_HOME;
 const ASCII = { unicode: false, color: false, tty: false };
 
+/**
+ * awl-feedback 은 프로젝트 무관 집계라(WI-G17a 후속) records 를 project-local 로
+ * 쓰고 그 프로젝트를 ~/.awl/projects.json 에 등록해야 loadAwlFeedback 이 찾는다.
+ */
 function seedRecords(records: Record<string, unknown>[]): void {
-  const dir = path.join(process.env.AWL_HOME as string, 'records');
+  const home = process.env.AWL_HOME as string;
+  const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-fb-proj-'));
+  fs.writeFileSync(
+    path.join(home, 'projects.json'),
+    JSON.stringify([{ name: 'p', path: proj }]),
+  );
+  const dir = path.join(proj, '.awl', 'records');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
     path.join(dir, '2026-07.jsonl'),
@@ -140,6 +151,135 @@ describe('loadAwlFeedback — 필터 (BC-04)', () => {
     expect(isInvalidSince('이상한값')).toBe(true);
     expect(isInvalidSince('2026-07-01')).toBe(false);
     expect(isInvalidSince(undefined)).toBe(false);
+  });
+});
+
+describe('runFeedback — awl feedback "<text>" (WI-G18)', () => {
+  const origCwd = process.cwd();
+  const origHome = process.env.AWL_HOME;
+
+  afterEach(() => {
+    process.chdir(origCwd);
+    if (origHome === undefined) {
+      delete process.env.AWL_HOME;
+    } else {
+      process.env.AWL_HOME = origHome;
+    }
+  });
+
+  function project(): string {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-feedback-cli-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, '.awl', 'config.json'),
+      JSON.stringify({ project: 'p', mainLanguage: 'other', verify: {} }),
+    );
+    process.chdir(root);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-feedback-cli-home-'));
+    return root;
+  }
+
+  function mockExit() {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    return { exitSpy, stderrSpy };
+  }
+
+  function readFeedbackRecords(root: string): Record<string, unknown>[] {
+    const dir = path.join(root, '.awl', 'records');
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl'));
+    const out: Record<string, unknown>[] = [];
+    for (const f of files) {
+      const lines = fs
+        .readFileSync(path.join(dir, f), 'utf8')
+        .trim()
+        .split('\n')
+        .filter(Boolean);
+      for (const l of lines) {
+        out.push(JSON.parse(l));
+      }
+    }
+    return out;
+  }
+
+  it('빈 text 는 거부한다', async () => {
+    project();
+    const { exitSpy } = mockExit();
+    await expect(runFeedback('  ')).rejects.toThrow('exit:1');
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('허용되지 않은 --area 는 거부한다', async () => {
+    project();
+    const { exitSpy } = mockExit();
+    await expect(runFeedback('x', { area: '없는area' })).rejects.toThrow('exit:1');
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('허용되지 않은 --severity 는 거부한다', async () => {
+    project();
+    const { exitSpy } = mockExit();
+    await expect(runFeedback('x', { severity: '없는sev' })).rejects.toThrow('exit:1');
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('프로젝트 루트를 못 찾으면 거부한다', async () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-feedback-noproj-')));
+    process.chdir(root);
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-feedback-noproj-home-'));
+    const { exitSpy } = mockExit();
+    await expect(runFeedback('x')).rejects.toThrow('exit:1');
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('기본값(area:기타, severity:low, source:manual)으로 project-local records 에 남긴다', async () => {
+    const root = project();
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    await runFeedback('버튼이 안 눌려요');
+    stdoutSpy.mockRestore();
+    const records = readFeedbackRecords(root);
+    expect(records).toHaveLength(1);
+    expect(records[0]?.type).toBe('awl-feedback');
+    expect(records[0]?.area).toBe('기타');
+    expect(records[0]?.severity).toBe('low');
+    expect(records[0]?.source).toBe('manual');
+    expect(records[0]?.what).toBe('버튼이 안 눌려요');
+  });
+
+  it('--area/--impact/--severity 를 그대로 반영한다', async () => {
+    const root = project();
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    await runFeedback('커밋 메시지가 이상해요', {
+      area: 'commit',
+      impact: '리뷰가 헷갈림',
+      severity: 'high',
+    });
+    stdoutSpy.mockRestore();
+    const records = readFeedbackRecords(root);
+    expect(records[0]?.area).toBe('commit');
+    expect(records[0]?.impact).toBe('리뷰가 헷갈림');
+    expect(records[0]?.severity).toBe('high');
+  });
+
+  it('활성 워크아이템(state.json) 없이도 남길 수 있다 (awl record 의 일반 강제와 다름)', async () => {
+    const root = project();
+    expect(fs.existsSync(path.join(root, '.awl', 'state.json'))).toBe(false);
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    await runFeedback('워크아이템 밖에서도 됨');
+    stdoutSpy.mockRestore();
+    expect(readFeedbackRecords(root)).toHaveLength(1);
+  });
+
+  it('자동수집(source:auto)과 사람 입력(source:manual)이 구분된다', async () => {
+    const root = project();
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    await runFeedback('사람이 남김');
+    stdoutSpy.mockRestore();
+    const records = readFeedbackRecords(root);
+    expect(records[0]?.source).toBe('manual');
+    expect(records[0]?.source).not.toBe('auto');
   });
 });
 

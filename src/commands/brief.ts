@@ -281,7 +281,7 @@ export async function runBrief(opts: BriefCliOpts): Promise<void> {
     return;
   }
 
-  const dayRecords = recordsInKstDay(readRecords(), project, range);
+  const dayRecords = recordsInKstDay(readRecords(root), project, range);
   const { commits, changedFiles } = await gitLogInRange(root, range);
   const state = loadState(root);
   const criteria = Array.isArray(state.criteria)

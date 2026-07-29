@@ -28,20 +28,24 @@ describe('awl-feedback — records/ 에 저장, gotchas/ 와 분리 (AC-03)', ()
   });
 
   it('appendRecord(awl-feedback) 는 records/ 에 쓰고 gotchas/ 는 안 건드린다', () => {
-    appendRecord({
-      id: 'x1',
-      at: '2026-07-16T00:00:00Z',
-      project: 'p',
-      type: 'awl-feedback',
-      area: 'commit',
-      what: 'a',
-      impact: 'b',
-      severity: 'high',
-    });
+    const root = process.env.AWL_HOME as string;
+    appendRecord(
+      {
+        id: 'x1',
+        at: '2026-07-16T00:00:00Z',
+        project: 'p',
+        type: 'awl-feedback',
+        area: 'commit',
+        what: 'a',
+        impact: 'b',
+        severity: 'high',
+      },
+      root,
+    );
     // records/ 에 type:awl-feedback 가 있다.
-    const files = fs.readdirSync(recordsDir()).filter((f) => f.endsWith('.jsonl'));
+    const files = fs.readdirSync(recordsDir(root)).filter((f) => f.endsWith('.jsonl'));
     expect(files.length).toBeGreaterThan(0);
-    const content = fs.readFileSync(path.join(recordsDir(), files[0] as string), 'utf8');
+    const content = fs.readFileSync(path.join(recordsDir(root), files[0] as string), 'utf8');
     expect(content).toContain('"type":"awl-feedback"');
     // gotchas/ 는 안 만들어졌거나 비어있다(승격되지 않는다).
     const gDir = gotchasDir();

@@ -3,8 +3,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
 import { type FlowSession, closeFlow, openFlow, step } from '../core/flow.js';
-import { findDotGitPath, worktreeLocalConfigPath } from '../core/git-layout.js';
-import { findProjectRoot } from '../core/paths.js';
+import { mergeByName } from '../core/config-merge.js';
+import { findDotGitPath } from '../core/git-layout.js';
+import { readGlobalAwlConfig } from '../core/global-config.js';
+import { findProjectRoot, globalConfigPath } from '../core/paths.js';
 import { CommandNotFoundError, run } from '../core/runner.js';
 import {
   type Caps,
@@ -37,7 +39,8 @@ import {
  * 그 자리에서 멈추고 무엇이 문제인지 알려준다. WI-2의 paths/runner/tty 를 쓴다.
  */
 
-/** cwd 는 프로젝트 루트 기준 상대 경로다(절대 경로도 허용하되 config set 이 경고한다). */
+/** cwd 는 프로젝트 루트 기준 상대 경로다(절대 경로도 허용하되 config set 이 경고한다).
+ * ADK stage 4 이전의 옛 shape(4개 고정 키 객체) — migrateLegacyVerify 의 입력 전용으로만 쓴다. */
 export type VerifyEntry = { cmd: string; cwd?: string; env?: Record<string, string> } | null;
 
 export interface VerifyMap {
@@ -47,12 +50,47 @@ export interface VerifyMap {
   e2e: VerifyEntry;
 }
 
+/** 옛 verify(4키 고정 객체)를 순회할 때 쓰는 순서 — migrateLegacyVerify 전용. */
+const LEGACY_VERIFY_ORDER: (keyof VerifyMap)[] = ['typecheck', 'lint', 'test', 'e2e'];
+
+/**
+ * 검증 하나(ADK stage 4). `verify`(4키 고정 객체)를 대체한다 — 이름이 자유롭고
+ * (reference.md:838 "a11y, perf, security 를 넣어도 된다"), scope/level 로 언제·얼마나
+ * 넓게 돌지 표현한다(reference.md:841-853). 배열인 이유는 순서가 계약이기 때문이다
+ * (reference.md:827-836 "싼 것부터 돌려서 빨리 실패해야 한다").
+ */
+export interface VerificationEntry {
+  name: string;
+  cmd: string;
+  cwd?: string;
+  env?: Record<string, string>;
+  /** all(기본)=전체, changed=변경한 파일에서 나온 실패만(reference.md:841-842). */
+  scope?: 'all' | 'changed';
+  /** ticket(기본)=티켓마다, request=요청을 닫을 때 한 번(reference.md:844-845). */
+  level?: 'ticket' | 'request';
+  note?: string;
+  /** 로컬(config.local.json)에서만 의미 있다 — base 에 skip:true 를 박아두지 않는다
+   * (reference.md:1177 "끄면 기록에 남고 게이트에 표시된다" — 팀 공유 기준이 아니라
+   * 개인이 그때그때 끄는 것이라 base 에 있으면 안 된다는 뜻, 검증은 안 하지만 관례다). */
+  skip?: boolean;
+  /** 포트 등 못 나누는 자원을 쓰는 검증(예: e2e) — 여러 레인이 동시에 돌려도 이 이름의
+   * 검증만큼은 직렬화한다(ADK stage 5, core/verify-lock.ts). */
+  exclusive?: boolean;
+}
+
 export interface AwlConfig {
   project: string;
   mainLanguage: string[];
   character: string;
-  engineVersion: string;
-  verify: VerifyMap;
+  /**
+   * 이 저장소가 정한 author(전역 ~/.awl/config.json 의 author 를 덮는다,
+   * adk-prototype.md:117 "저장소가 덮으려면 .awl/config.json 이나 config.local.json 에
+   * 쓰면 된다"). 없으면 전역 author 로 폴백한다(record.ts resolveEffectiveAuthor).
+   */
+  author?: string;
+  /** ADK stage 4: verify(4키 고정 객체) → verifications(자유 이름 배열). loadConfig 가
+   * 옛 shape 을 읽을 때 자동으로 이 배열로 변환한다(migrateLegacyVerify). */
+  verifications: VerificationEntry[];
   /** doctor 가 세어서 감지한 파일명 컨벤션(WI-I AC-01) — 정보성, 강제 아님. */
   namingConvention?: string;
   /** awl verify --related 가 쓸 명령 템플릿(WI-I AC-04). {files} 는 변경 파일 목록으로 치환된다. */
@@ -63,6 +101,34 @@ export interface AwlConfig {
    * 전역 기본으로 켜진다. path 미설정 시 DEFAULT_FEEDBACK_PATH 를 쓴다.
    */
   feedback?: { enabled: boolean; path?: string };
+  /**
+   * awl CLI 자신의 미처리 예외를 awl-feedback 으로 자동 기록할지(ADK stage 6,
+   * core/auto-feedback.ts). 기본 켜짐 — 끄려면 명시적으로 false. 위 `feedback`(세션
+   * 피드백 모드, 완전히 다른 기능)과 이름이 겹치지 않게 분리했다.
+   */
+  autoFeedback?: boolean;
+}
+
+/** 옛 verify(4키 고정 객체) shape 을 verifications 배열로 변환한다(ADK stage 4 하위호환).
+ * 파일은 안 고친다 — loadConfig 가 메모리상에서만 변환한다. 이미 설치된 모든 프로젝트가
+ * 지금 이 옛 shape 이므로(이 저장소 자신 포함) 강제로 다시 쓰게 하면 즉시 깨진다. */
+export function migrateLegacyVerify(rv: Record<string, unknown>): VerificationEntry[] {
+  const out: VerificationEntry[] = [];
+  for (const name of LEGACY_VERIFY_ORDER) {
+    const entry = rv[name];
+    if (entry && typeof entry === 'object') {
+      const e = entry as Record<string, unknown>;
+      if (typeof e.cmd === 'string') {
+        out.push({
+          name,
+          cmd: e.cmd,
+          ...(typeof e.cwd === 'string' ? { cwd: e.cwd } : {}),
+          ...(e.env && typeof e.env === 'object' ? { env: e.env as Record<string, string> } : {}),
+        });
+      }
+    }
+  }
+  return out;
 }
 
 /**
@@ -89,6 +155,9 @@ export interface ConfigSources {
   project: ConfigSource;
   'feedback.enabled': ConfigSource;
   'feedback.path': ConfigSource;
+  author: ConfigSource;
+  /** 검증 이름별 출처 — local overlay 가 그 이름을 하나라도 건드렸으면 'local'. */
+  verifications: Record<string, ConfigSource>;
 }
 
 export interface LocalConfigOverlay {
@@ -97,16 +166,34 @@ export interface LocalConfigOverlay {
     enabled?: boolean;
     path?: string;
   };
+  /** 이 저장소 config.json 의 author 를 이 환경에서만 덮는다(전역→저장소→local). */
+  author?: string;
+  /**
+   * base(config.json) 의 verifications 를 name 으로 지목해 부분적으로 덮는다(mergeByName,
+   * ADK stage 4) — skip 을 켜거나 cmd/cwd/env 를 개인 사정으로 바꾸는 통로다. base 에
+   * 없는 이름을 지목하면 무시된다(새 검증을 몰래 추가하는 통로가 아니다).
+   */
+  verifications?: Partial<VerificationEntry>[];
 }
 
 const BASE_SOURCES: ConfigSources = {
   project: 'base',
   'feedback.enabled': 'base',
   'feedback.path': 'base',
+  author: 'base',
+  verifications: {},
 };
 
-/** 검증 명령의 순서. 이 순서로 실행/표시한다. */
-export const VERIFY_ORDER: (keyof VerifyMap)[] = ['typecheck', 'lint', 'test', 'e2e'];
+/**
+ * `.awl/config.local.json` — untracked, 개인 오버라이드(ADK stage 4). `.awl/*` 가
+ * 이미 gitignore 블랭킷으로 무시되므로(단계 1 허용목록 패턴) 별도 처리 없이 안전하다.
+ * 예전엔 `.git/worktrees/<name>/awl/config.local.json`(git 메타데이터 안)에 있었는데,
+ * `.awl/*` 가 안전하게 gitignore되기 전의 방어적 선택으로 보인다 — 이제 그 전제가
+ * 사라졌고 문서(reference.md:673)가 명시한 위치와도 다르므로 여기로 통합한다.
+ */
+export function localConfigOverlayPath(projectRoot: string): string {
+  return path.join(projectRoot, '.awl', 'config.local.json');
+}
 
 /** 프로젝트 루트를 해석한다(.git/.awl 을 위로 탐색). 못 찾으면 null. */
 export function resolveProjectRoot(cwd: string = process.cwd()): string | null {
@@ -186,6 +273,44 @@ function isVerifyEntry(v: unknown): v is VerifyEntry {
   return true;
 }
 
+const VERIFICATION_SCOPES = ['all', 'changed'];
+const VERIFICATION_LEVELS = ['ticket', 'request'];
+
+function isVerificationEntry(v: unknown): v is VerificationEntry {
+  if (typeof v !== 'object' || v === null) {
+    return false;
+  }
+  const o = v as Record<string, unknown>;
+  if (typeof o.name !== 'string' || o.name.trim() === '') {
+    return false;
+  }
+  if (typeof o.cmd !== 'string') {
+    return false;
+  }
+  if ('cwd' in o && o.cwd !== undefined && typeof o.cwd !== 'string') {
+    return false;
+  }
+  if ('env' in o && o.env !== undefined && (typeof o.env !== 'object' || o.env === null)) {
+    return false;
+  }
+  if ('scope' in o && o.scope !== undefined && !VERIFICATION_SCOPES.includes(o.scope as string)) {
+    return false;
+  }
+  if ('level' in o && o.level !== undefined && !VERIFICATION_LEVELS.includes(o.level as string)) {
+    return false;
+  }
+  if ('note' in o && o.note !== undefined && typeof o.note !== 'string') {
+    return false;
+  }
+  if ('skip' in o && o.skip !== undefined && typeof o.skip !== 'boolean') {
+    return false;
+  }
+  if ('exclusive' in o && o.exclusive !== undefined && typeof o.exclusive !== 'boolean') {
+    return false;
+  }
+  return true;
+}
+
 /** config 객체의 스키마를 검증한다. 문제 목록을 반환한다(빈 배열이면 통과). */
 export function validateConfig(obj: unknown): string[] {
   const errors: string[] = [];
@@ -197,24 +322,39 @@ export function validateConfig(obj: unknown): string[] {
   if (typeof o.project !== 'string' || o.project.trim() === '') {
     errors.push('project 가 없습니다 (문자열 필수)');
   }
-  if (typeof o.engineVersion !== 'string') {
-    errors.push('engineVersion 이 없습니다 (문자열 필수)');
-  }
-  if (typeof o.verify !== 'object' || o.verify === null) {
-    errors.push('verify 가 없습니다 (객체 필수)');
-  } else {
+  // ADK stage 4: verifications(배열)가 있으면 그걸 검증하고, 없으면 옛 verify(4키
+  // 고정 객체, 하위호환)를 검증한다. 둘 다 없으면 에러 — loadConfig 가 어느 쪽이든
+  // migrateLegacyVerify 로 verifications 를 채워야 하므로 최소 하나는 있어야 한다.
+  if (Array.isArray(o.verifications)) {
+    const seen = new Set<string>();
+    for (const entry of o.verifications) {
+      if (!isVerificationEntry(entry)) {
+        errors.push('verifications 항목 형식 오류 ({ "name", "cmd", ... } 이어야 함)');
+        continue;
+      }
+      if (seen.has(entry.name)) {
+        errors.push(`verifications 에 이름이 중복됩니다: ${entry.name}`);
+      }
+      seen.add(entry.name);
+    }
+  } else if (typeof o.verify === 'object' && o.verify !== null) {
     const v = o.verify as Record<string, unknown>;
-    for (const k of VERIFY_ORDER) {
+    for (const k of LEGACY_VERIFY_ORDER) {
       if (k in v && !isVerifyEntry(v[k])) {
         errors.push(`verify.${k} 형식 오류 (null 또는 { "cmd": "..." })`);
       }
     }
+  } else {
+    errors.push('verifications 가 없습니다 (배열 필수)');
   }
   if (
     'protectedFiles' in o &&
     (!Array.isArray(o.protectedFiles) || !o.protectedFiles.every((p) => typeof p === 'string'))
   ) {
     errors.push('protectedFiles 형식 오류 (문자열 배열)');
+  }
+  if ('author' in o && o.author !== undefined && typeof o.author !== 'string') {
+    errors.push('author 형식 오류 (문자열)');
   }
   if ('feedback' in o && o.feedback !== undefined) {
     if (typeof o.feedback !== 'object' || o.feedback === null) {
@@ -250,7 +390,7 @@ export function validateLocalConfigOverlay(obj: unknown): string[] {
   }
   const overlay = obj as Record<string, unknown>;
   for (const key of Object.keys(overlay)) {
-    if (key !== 'project' && key !== 'feedback') {
+    if (key !== 'project' && key !== 'feedback' && key !== 'verifications' && key !== 'author') {
       errors.push(`local config overlay의 지원하지 않는 키: ${key}`);
     }
   }
@@ -259,6 +399,9 @@ export function validateLocalConfigOverlay(obj: unknown): string[] {
     (typeof overlay.project !== 'string' || overlay.project.trim() === '')
   ) {
     errors.push('local config overlay project 형식 오류 (비어 있지 않은 문자열 필수)');
+  }
+  if ('author' in overlay && (typeof overlay.author !== 'string' || overlay.author.trim() === '')) {
+    errors.push('local config overlay author 형식 오류 (비어 있지 않은 문자열 필수)');
   }
   if ('feedback' in overlay) {
     if (
@@ -279,6 +422,52 @@ export function validateLocalConfigOverlay(obj: unknown): string[] {
       }
       if ('path' in feedback && typeof feedback.path !== 'string') {
         errors.push('local config overlay feedback.path 형식 오류 (문자열 필수)');
+      }
+    }
+  }
+  if ('verifications' in overlay) {
+    if (!Array.isArray(overlay.verifications)) {
+      errors.push('local config overlay verifications 형식 오류 (배열 필수)');
+    } else {
+      for (const [i, v] of overlay.verifications.entries()) {
+        if (typeof v !== 'object' || v === null) {
+          errors.push(`local config overlay verifications[${i}] 형식 오류 (객체 필수)`);
+          continue;
+        }
+        const vo = v as Record<string, unknown>;
+        if (typeof vo.name !== 'string' || vo.name.trim() === '') {
+          errors.push(`local config overlay verifications[${i}].name 형식 오류 (문자열 필수)`);
+        }
+        if ('cmd' in vo && vo.cmd !== undefined && typeof vo.cmd !== 'string') {
+          errors.push(`local config overlay verifications[${i}].cmd 형식 오류 (문자열)`);
+        }
+        if ('cwd' in vo && vo.cwd !== undefined && typeof vo.cwd !== 'string') {
+          errors.push(`local config overlay verifications[${i}].cwd 형식 오류 (문자열)`);
+        }
+        if (
+          'env' in vo &&
+          vo.env !== undefined &&
+          (typeof vo.env !== 'object' || vo.env === null)
+        ) {
+          errors.push(`local config overlay verifications[${i}].env 형식 오류 (객체)`);
+        }
+        if ('scope' in vo && vo.scope !== undefined && vo.scope !== 'all' && vo.scope !== 'changed') {
+          errors.push(`local config overlay verifications[${i}].scope 형식 오류 ('all'|'changed')`);
+        }
+        if (
+          'level' in vo &&
+          vo.level !== undefined &&
+          vo.level !== 'ticket' &&
+          vo.level !== 'request'
+        ) {
+          errors.push(`local config overlay verifications[${i}].level 형식 오류 ('ticket'|'request')`);
+        }
+        if ('note' in vo && vo.note !== undefined && typeof vo.note !== 'string') {
+          errors.push(`local config overlay verifications[${i}].note 형식 오류 (문자열)`);
+        }
+        if ('skip' in vo && vo.skip !== undefined && typeof vo.skip !== 'boolean') {
+          errors.push(`local config overlay verifications[${i}].skip 형식 오류 (boolean)`);
+        }
       }
     }
   }
@@ -325,14 +514,20 @@ export function loadConfig(projectRoot: string): ConfigResult {
     return baseResult(null, errors);
   }
   const raw = parsed as Record<string, unknown>;
-  const rv = raw.verify as Record<string, unknown>;
+  // ADK stage 4: verifications(배열)가 있으면 그대로, 없으면 옛 verify(4키 고정
+  // 객체)를 메모리상에서 변환한다(하위호환 — 이 저장소 자신을 포함해 이미 설치된
+  // 모든 프로젝트가 지금 옛 shape 이다, 파일은 여기서 안 고친다).
+  const verifications: VerificationEntry[] = Array.isArray(raw.verifications)
+    ? (raw.verifications as VerificationEntry[])
+    : typeof raw.verify === 'object' && raw.verify !== null
+      ? migrateLegacyVerify(raw.verify as Record<string, unknown>)
+      : [];
   const config: AwlConfig = {
     project: raw.project as string,
     mainLanguage: Array.isArray(raw.mainLanguage)
       ? raw.mainLanguage.filter((v): v is string => typeof v === 'string')
       : [],
     character: typeof raw.character === 'string' ? raw.character : '',
-    engineVersion: raw.engineVersion as string,
     ...(typeof raw.namingConvention === 'string' ? { namingConvention: raw.namingConvention } : {}),
     ...(typeof raw.relatedCmd === 'string' ? { relatedCmd: raw.relatedCmd } : {}),
     ...(Array.isArray(raw.protectedFiles)
@@ -350,22 +545,14 @@ export function loadConfig(projectRoot: string): ConfigResult {
           },
         }
       : {}),
-    verify: {
-      typecheck: (rv.typecheck ?? null) as VerifyEntry,
-      lint: (rv.lint ?? null) as VerifyEntry,
-      test: (rv.test ?? null) as VerifyEntry,
-      e2e: (rv.e2e ?? null) as VerifyEntry,
-    },
+    ...(typeof raw.autoFeedback === 'boolean' ? { autoFeedback: raw.autoFeedback } : {}),
+    ...(typeof raw.author === 'string' && raw.author.trim() !== '' ? { author: raw.author } : {}),
+    verifications,
   };
   if (!findDotGitPath(projectRoot)) {
     return baseResult(config, []);
   }
-  let overlayPath: string;
-  try {
-    overlayPath = worktreeLocalConfigPath(projectRoot);
-  } catch (error) {
-    return baseResult(null, [`local config overlay 경로 오류: ${String(error)}`]);
-  }
+  const overlayPath = localConfigOverlayPath(projectRoot);
   if (!fs.existsSync(overlayPath)) {
     return baseResult(config, [], overlayPath);
   }
@@ -397,6 +584,7 @@ export function loadConfig(projectRoot: string): ConfigResult {
   const effective: AwlConfig = {
     ...config,
     ...(overlay.project ? { project: overlay.project } : {}),
+    ...(overlay.author ? { author: overlay.author } : {}),
     ...(config.feedback || overlay.feedback
       ? {
           feedback: {
@@ -409,11 +597,20 @@ export function loadConfig(projectRoot: string): ConfigResult {
           },
         }
       : {}),
+    verifications: mergeByName(config.verifications, overlay.verifications),
   };
+  const verificationSources: Record<string, ConfigSource> = {};
+  for (const v of overlay.verifications ?? []) {
+    if (typeof v.name === 'string' && config.verifications.some((b) => b.name === v.name)) {
+      verificationSources[v.name] = 'local';
+    }
+  }
   const sources: ConfigSources = {
     project: overlay.project === undefined ? 'base' : 'local',
     'feedback.enabled': overlay.feedback?.enabled === undefined ? 'base' : 'local',
     'feedback.path': overlay.feedback?.path === undefined ? 'base' : 'local',
+    author: overlay.author === undefined ? 'base' : 'local',
+    verifications: verificationSources,
   };
   return baseResult(effective, [], overlayPath, sources, config);
 }
@@ -476,13 +673,19 @@ export type ConfigKeyKind =
   | 'protectedFiles'
   | 'feedback.enabled'
   | 'feedback.path'
-  | 'verify.cmd'
-  | 'verify.cwd'
-  | 'verify.env';
+  | 'verifications.cmd'
+  | 'verifications.cwd'
+  | 'verifications.env'
+  | 'verifications.scope'
+  | 'verifications.level'
+  | 'verifications.note'
+  | 'verifications.skip'
+  | 'verifications.exclusive';
 
 export interface ParsedConfigKey {
   kind: ConfigKeyKind;
-  verifyName?: keyof VerifyMap;
+  /** ADK stage 4: verifications 는 이름이 자유라 keyof 로 못 좁힌다. */
+  verifyName?: string;
 }
 
 /** mainLanguage 로 알려진 값. 자유값도 허용하되 이 목록에 없으면 경고한다. */
@@ -491,7 +694,9 @@ export const KNOWN_LANGUAGES = ['typescript', 'javascript', 'python'];
 /** namingConvention 으로 알려진 값(doctor 가 감지하는 값과 일치). 자유값도 허용. */
 export const KNOWN_NAMING_CONVENTIONS = ['kebab-case', 'camelCase', 'snake_case', 'PascalCase'];
 
-/** 사람이 보는 전체 설정 가능 키 목록(순서 고정). */
+/** 사람이 보는 설정 가능 키 목록 중 정적인 부분(순서 고정). verifications.<name>.* 는
+ * 이름이 자유(ADK stage 4)라 정적으로 못 나열한다 — renderSettableKeys/runConfigSet 이
+ * 실제 config.verifications 를 보고 동적으로 붙인다. */
 export const SETTABLE_KEYS: string[] = [
   'project',
   'mainLanguage',
@@ -501,10 +706,23 @@ export const SETTABLE_KEYS: string[] = [
   'protectedFiles',
   'feedback.enabled',
   'feedback.path',
-  ...VERIFY_ORDER.flatMap((n) => [`verify.${n}.cmd`, `verify.${n}.cwd`, `verify.${n}.env`]),
 ];
 
-/** config set 의 키 문자열을 해석한다. `verify.<name>`(접미사 없음)은 `.cmd` 로 취급한다(하위 호환). */
+/** 존재하는 verifications 이름들로 동적 키 목록(`verifications.<name>.<field>`)을 만든다. */
+function verificationSettableKeys(config: AwlConfig): string[] {
+  return config.verifications.flatMap((v) => [
+    `verifications.${v.name}.cmd`,
+    `verifications.${v.name}.cwd`,
+    `verifications.${v.name}.env`,
+    `verifications.${v.name}.scope`,
+    `verifications.${v.name}.level`,
+    `verifications.${v.name}.skip`,
+    `verifications.${v.name}.exclusive`,
+  ]);
+}
+
+/** config set 의 키 문자열을 해석한다. `verifications.<name>`(접미사 없음)은 `.cmd` 로
+ * 취급한다(하위호환 — 예전 `verify.<name>` 관례와 같은 자리). 이름은 자유 문자열이다. */
 export function parseConfigKey(key: string): ParsedConfigKey | null {
   if (key === 'project') {
     return { kind: 'project' };
@@ -524,18 +742,12 @@ export function parseConfigKey(key: string): ParsedConfigKey | null {
   if (key === 'protectedFiles') return { kind: 'protectedFiles' };
   if (key === 'feedback.enabled') return { kind: 'feedback.enabled' };
   if (key === 'feedback.path') return { kind: 'feedback.path' };
-  const names = VERIFY_ORDER.join('|');
-  const cmdMatch = new RegExp(`^verify\\.(${names})(?:\\.cmd)?$`).exec(key);
-  if (cmdMatch?.[1]) {
-    return { kind: 'verify.cmd', verifyName: cmdMatch[1] as keyof VerifyMap };
-  }
-  const cwdMatch = new RegExp(`^verify\\.(${names})\\.cwd$`).exec(key);
-  if (cwdMatch?.[1]) {
-    return { kind: 'verify.cwd', verifyName: cwdMatch[1] as keyof VerifyMap };
-  }
-  const envMatch = new RegExp(`^verify\\.(${names})\\.env$`).exec(key);
-  if (envMatch?.[1]) {
-    return { kind: 'verify.env', verifyName: envMatch[1] as keyof VerifyMap };
+  const m = /^verifications\.([\w-]+)(?:\.(cmd|cwd|env|scope|level|note|skip|exclusive))?$/.exec(
+    key,
+  );
+  if (m?.[1]) {
+    const field = m[2] ?? 'cmd';
+    return { kind: `verifications.${field}` as ConfigKeyKind, verifyName: m[1] };
   }
   return null;
 }
@@ -708,12 +920,12 @@ export async function applyConfigValue(
     return { ok: true, message: `feedback.path = ${v}${warn}` };
   }
 
-  const name = parsed.verifyName as keyof VerifyMap;
+  const name = parsed.verifyName as string;
 
-  if (parsed.kind === 'verify.cmd') {
+  if (parsed.kind === 'verifications.cmd') {
     const entry = parseVerifyValue(rawValue);
-    // cmd 만 바꿀 때는 이미 설정된 cwd 를 보존한다 — 그리고 존재 확인도 그 cwd 로 한다.
-    const prevCwd = config.verify[name]?.cwd;
+    const idx = config.verifications.findIndex((v) => v.name === name);
+    const prevCwd = idx >= 0 ? config.verifications[idx]?.cwd : undefined;
     if (entry) {
       const check = await verifyCommandExists(entry, resolveCwd(projectRoot, prevCwd));
       if (!check.ok && !opts.force) {
@@ -723,23 +935,38 @@ export async function applyConfigValue(
         };
       }
     }
-    config.verify[name] = entry ? { ...entry, ...(prevCwd ? { cwd: prevCwd } : {}) } : null;
-    return { ok: true, message: `verify.${name}.cmd = ${entry ? entry.cmd : 'null'}` };
+    if (!entry) {
+      // 빈 값/null — 이 이름의 항목을 배열에서 제거한다(예전엔 슬롯을 null 로 채워
+      // "없음"을 표현했는데, 배열에선 항목 자체를 지우는 게 동등하다).
+      if (idx >= 0) {
+        config.verifications.splice(idx, 1);
+      }
+      return { ok: true, message: `verifications.${name}.cmd = null (항목 제거)` };
+    }
+    const next: VerificationEntry = { ...entry, name, ...(prevCwd ? { cwd: prevCwd } : {}) };
+    if (idx >= 0) {
+      // 기존 필드(scope/level/note/skip)는 cmd 만 바뀔 때 보존한다.
+      config.verifications[idx] = { ...config.verifications[idx], ...next };
+    } else {
+      config.verifications.push(next);
+    }
+    return { ok: true, message: `verifications.${name}.cmd = ${entry.cmd}` };
   }
 
-  const existing = config.verify[name];
+  const idx = config.verifications.findIndex((v) => v.name === name);
+  const existing = idx >= 0 ? config.verifications[idx] : undefined;
   if (!existing) {
     return {
       ok: false,
-      message: `verify.${name} 이 설정되어 있지 않습니다. 먼저 cmd 를 설정하세요: awl config set verify.${name}.cmd "..."`,
+      message: `verifications.${name} 이 설정되어 있지 않습니다. 먼저 cmd 를 설정하세요: awl config set verifications.${name}.cmd "..."`,
     };
   }
 
-  if (parsed.kind === 'verify.cwd') {
+  if (parsed.kind === 'verifications.cwd') {
     const v = rawValue.trim();
     if (v === '' || v.toLowerCase() === 'null' || v === '-') {
       existing.cwd = undefined;
-      return { ok: true, message: `verify.${name}.cwd = (없음)` };
+      return { ok: true, message: `verifications.${name}.cwd = (없음)` };
     }
     const abs = resolveCwd(projectRoot, v) as string;
     const dirExists = fs.existsSync(abs) && fs.statSync(abs).isDirectory();
@@ -757,14 +984,66 @@ export async function applyConfigValue(
       warn += `\n경고: 디렉토리가 없습니다: ${abs} (강제 저장)`;
     }
     existing.cwd = v;
-    return { ok: true, message: `verify.${name}.cwd = ${v}${warn}` };
+    return { ok: true, message: `verifications.${name}.cwd = ${v}${warn}` };
   }
 
-  // parsed.kind === 'verify.env'
+  if (parsed.kind === 'verifications.scope') {
+    const v = rawValue.trim();
+    if (v !== 'all' && v !== 'changed') {
+      return { ok: false, message: `verifications.${name}.scope 는 all/changed 만 허용합니다.` };
+    }
+    existing.scope = v;
+    return { ok: true, message: `verifications.${name}.scope = ${v}` };
+  }
+
+  if (parsed.kind === 'verifications.level') {
+    const v = rawValue.trim();
+    if (v !== 'ticket' && v !== 'request') {
+      return { ok: false, message: `verifications.${name}.level 은 ticket/request 만 허용합니다.` };
+    }
+    existing.level = v;
+    return { ok: true, message: `verifications.${name}.level = ${v}` };
+  }
+
+  if (parsed.kind === 'verifications.note') {
+    const v = rawValue.trim();
+    existing.note = v === '' ? undefined : v;
+    return { ok: true, message: `verifications.${name}.note = ${v || '(비움)'}` };
+  }
+
+  if (parsed.kind === 'verifications.skip') {
+    const v = rawValue.trim().toLowerCase();
+    const truthy = ['true', 'on', '1'];
+    const falsy = ['false', 'off', '0'];
+    if (!truthy.includes(v) && !falsy.includes(v)) {
+      return {
+        ok: false,
+        message: `verifications.${name}.skip 은 true/false(또는 on/off, 1/0)만 허용합니다: '${rawValue}'`,
+      };
+    }
+    existing.skip = truthy.includes(v);
+    return { ok: true, message: `verifications.${name}.skip = ${existing.skip}` };
+  }
+
+  if (parsed.kind === 'verifications.exclusive') {
+    const v = rawValue.trim().toLowerCase();
+    const truthy = ['true', 'on', '1'];
+    const falsy = ['false', 'off', '0'];
+    if (!truthy.includes(v) && !falsy.includes(v)) {
+      return {
+        ok: false,
+        message: `verifications.${name}.exclusive 는 true/false(또는 on/off, 1/0)만 허용합니다: '${rawValue}'`,
+      };
+    }
+    existing.exclusive = truthy.includes(v);
+    return { ok: true, message: `verifications.${name}.exclusive = ${existing.exclusive}` };
+  }
+
+  // parsed.kind === 'verifications.env'
   const v = rawValue.trim();
   if (v === '' || v.toLowerCase() === 'null' || v === '-') {
     existing.env = undefined;
-    return { ok: true, message: `verify.${name}.env = (없음)` };
+    return { ok: true, message: `verifications.${name}.env = (없음)` };
   }
   let parsedEnv: unknown;
   try {
@@ -776,7 +1055,7 @@ export async function applyConfigValue(
     return { ok: false, message: 'env 는 JSON 객체여야 합니다 (예: {"NODE_ENV":"test"})' };
   }
   existing.env = parsedEnv as Record<string, string>;
-  return { ok: true, message: `verify.${name}.env = ${v}` };
+  return { ok: true, message: `verifications.${name}.env = ${v}` };
 }
 
 function renderConfig(config: AwlConfig, c: Caps): string {
@@ -785,26 +1064,36 @@ function renderConfig(config: AwlConfig, c: Caps): string {
   const out: string[] = [];
   out.push(`${s.branch} 주 언어  ${config.mainLanguage.join(', ') || '(없음)'}`);
   out.push(`${s.branch} 성격     ${config.character || '(없음)'}`);
-  out.push(`${s.branch} 엔진     ${config.engineVersion}`);
   const feedbackOn = config.feedback?.enabled ?? false;
   out.push(`${s.branch} 피드백   ${feedbackOn ? '켜짐' : '꺼짐'}`);
   out.push(
     `${s.vGuide}   ${s.lastBranch} 경로: ${color.dim(config.feedback?.path || `(기본값) ${DEFAULT_FEEDBACK_PATH}`)}`,
   );
   out.push('');
-  for (const k of VERIFY_ORDER) {
-    const entry = config.verify[k];
-    out.push(`${s.branch} ${k.padEnd(10, ' ')}${entry ? entry.cmd : '(없음)'}`);
-    if (entry?.cwd) {
+  for (const entry of config.verifications) {
+    out.push(`${s.branch} ${entry.name.padEnd(10, ' ')}${entry.cmd}`);
+    if (entry.cwd) {
       out.push(`${s.vGuide}   ${s.lastBranch} cwd: ${entry.cwd}`);
     }
-    if (entry?.env && Object.keys(entry.env).length > 0) {
+    if (entry.env && Object.keys(entry.env).length > 0) {
       out.push(`${s.vGuide}   ${s.lastBranch} env: ${JSON.stringify(entry.env)}`);
+    }
+    if (entry.scope) {
+      out.push(`${s.vGuide}   ${s.lastBranch} scope: ${entry.scope}`);
+    }
+    if (entry.level) {
+      out.push(`${s.vGuide}   ${s.lastBranch} level: ${entry.level}`);
+    }
+    if (entry.skip) {
+      out.push(`${s.vGuide}   ${s.lastBranch} skip: true`);
+    }
+    if (entry.exclusive) {
+      out.push(`${s.vGuide}   ${s.lastBranch} exclusive: true`);
     }
   }
   out.push('');
   out.push(
-    `${s.lastBranch} ${color.dim('명령을 바꾸려면: awl config set verify.lint.cmd "biome check ."')}`,
+    `${s.lastBranch} ${color.dim('명령을 바꾸려면: awl config set verifications.lint.cmd "biome check ."')}`,
   );
   out.push(`    ${color.dim('직접 편집도 됩니다: .awl/config.json')}`);
   return sectionBox(`${config.project} 설정`, out, c);
@@ -820,7 +1109,7 @@ export function writeLocalConfigOverlay(projectRoot: string, overlay: LocalConfi
   if (errors.length > 0) {
     throw new Error(errors.join('; '));
   }
-  const overlayPath = worktreeLocalConfigPath(projectRoot);
+  const overlayPath = localConfigOverlayPath(projectRoot);
   const parent = path.dirname(overlayPath);
   fs.mkdirSync(parent, { recursive: true });
   const tempPath = path.join(parent, `.config.local.${process.pid}-${randomUUID()}.tmp`);
@@ -849,11 +1138,18 @@ async function editVerifyCommands(
   c: Caps,
   flow: FlowSession,
 ): Promise<void> {
+  const detected = detectVerify(projectRoot);
   process.stdout.write(
-    `${flowConnector(c)}\n${flowActiveNode('검증 명령어', verifyStepLines(detectVerify(projectRoot)), c)}\n`,
+    `${flowConnector(c)}\n${flowActiveNode('검증 명령어', verifyStepLines(detected), c)}\n`,
   );
-  for (const name of VERIFY_ORDER) {
-    const cur = config.verify[name];
+  // ADK stage 4: 이름이 자유라 정적 4개 대신, 이미 설정된 이름 + 자동 감지된 이름을
+  // 합친 목록을 하나씩 물어본다(중복 제거, 순서는 기존 항목 먼저).
+  const names = [
+    ...config.verifications.map((v) => v.name),
+    ...detected.map((v) => v.name).filter((n) => !config.verifications.some((v) => v.name === n)),
+  ];
+  for (const name of names) {
+    const cur = config.verifications.find((v) => v.name === name);
     const shown = cur ? cur.cmd : '(없음)';
     const answer = (await ask(rl, `${flowConnector(c)}  ${name} [${shown}]: `)).trim();
     if (answer === '') {
@@ -862,7 +1158,7 @@ async function editVerifyCommands(
     const outcome = await applyConfigValue(
       config,
       projectRoot,
-      { kind: 'verify.cmd', verifyName: name },
+      { kind: 'verifications.cmd', verifyName: name },
       answer,
       { force: false },
     );
@@ -1053,7 +1349,80 @@ export async function interactiveEditMenu(
  * (init 의 buildScreens 를 재사용한다. 화면을 새로 만들지 않는다).
  * TTY 가 아니면(파이프/CI) 조회만 하고 끝낸다.
  */
-export async function runConfig(opts: { json?: boolean } = {}): Promise<void> {
+/**
+ * `awl config --show-origin` — 값별로 어디서 왔는지 보여준다(reference.md:1300-1311).
+ * 전역(~/.awl/config.json, author·sync) → 저장소(.awl/config.json) → 개인
+ * (.awl/config.local.json) 순 — git 이 같은 문제를 이미 풀었다.
+ */
+function renderShowOrigin(loaded: ConfigResult, config: AwlConfig, c: Caps): string {
+  const color = makeColors(c.color);
+  const rows: { key: string; value: string; source: string }[] = [];
+
+  const global = readGlobalAwlConfig();
+  const overlaySourceForAuthor = loaded.overlayPath ?? loaded.basePath;
+  if (config.author) {
+    // 저장소(base) 나 local 이 전역 author 를 덮었다(adk-prototype.md:117).
+    rows.push({
+      key: 'author',
+      value: config.author,
+      source: loaded.sources.author === 'local' ? overlaySourceForAuthor : loaded.basePath,
+    });
+  } else if (global?.author) {
+    rows.push({ key: 'author', value: global.author, source: globalConfigPath() });
+  }
+  if (global?.sync?.records?.endpoint) {
+    rows.push({
+      key: 'sync.records.endpoint',
+      value: global.sync.records.endpoint,
+      source: globalConfigPath(),
+    });
+  }
+  if (global?.sync?.feedback?.endpoint) {
+    rows.push({
+      key: 'sync.feedback.endpoint',
+      value: global.sync.feedback.endpoint,
+      source: globalConfigPath(),
+    });
+  }
+
+  const overlaySource = loaded.overlayPath ?? loaded.basePath;
+  rows.push({
+    key: 'project',
+    value: config.project,
+    source: loaded.sources.project === 'local' ? overlaySource : loaded.basePath,
+  });
+  rows.push({
+    key: 'feedback.enabled',
+    value: String(config.feedback?.enabled ?? false),
+    source: loaded.sources['feedback.enabled'] === 'local' ? overlaySource : loaded.basePath,
+  });
+  if (config.feedback?.path !== undefined) {
+    rows.push({
+      key: 'feedback.path',
+      value: config.feedback.path,
+      source: loaded.sources['feedback.path'] === 'local' ? overlaySource : loaded.basePath,
+    });
+  }
+  for (const v of config.verifications) {
+    rows.push({
+      key: `verifications.${v.name}.cmd`,
+      value: v.cmd,
+      source: loaded.sources.verifications[v.name] === 'local' ? overlaySource : loaded.basePath,
+    });
+  }
+
+  const keyWidth = Math.max(...rows.map((r) => r.key.length)) + 2;
+  const valueWidth = Math.max(...rows.map((r) => r.value.length)) + 2;
+  const out = rows.map(
+    (r) =>
+      `  ${r.key.padEnd(keyWidth, ' ')}${r.value.padEnd(valueWidth, ' ')}${color.dim(r.source)}`,
+  );
+  return out.join('\n');
+}
+
+export async function runConfig(
+  opts: { json?: boolean; showOrigin?: boolean } = {},
+): Promise<void> {
   const scope = resolveProjectScope();
   if (scope.mode === 'multi' && scope.projects) {
     const c = caps();
@@ -1101,6 +1470,10 @@ export async function runConfig(opts: { json?: boolean } = {}): Promise<void> {
     );
     return;
   }
+  if (opts.showOrigin === true) {
+    process.stdout.write(`${renderShowOrigin(loaded, config, caps())}\n`);
+    return;
+  }
   const c = caps();
   process.stdout.write(`${renderConfig(config, c)}\n`);
 
@@ -1134,21 +1507,28 @@ function renderSettableKeys(config: AwlConfig, c: Caps): string {
     if (key === 'feedback.enabled') return String(config.feedback?.enabled ?? false);
     if (key === 'feedback.path')
       return config.feedback?.path || `(기본값) ${DEFAULT_FEEDBACK_PATH}`;
-    const m = /^verify\.(typecheck|lint|test|e2e)\.(cmd|cwd|env)$/.exec(key);
+    const m = /^verifications\.([\w-]+)\.(cmd|cwd|env|scope|level|skip|exclusive)$/.exec(key);
     if (!m?.[1] || !m[2]) return '';
-    const entry = config.verify[m[1] as keyof VerifyMap];
+    const entry = config.verifications.find((v) => v.name === m[1]);
     if (!entry) return '(없음)';
     if (m[2] === 'cmd') return entry.cmd;
     if (m[2] === 'cwd') return entry.cwd ?? '(없음)';
-    return entry.env ? JSON.stringify(entry.env) : '(없음)';
+    if (m[2] === 'env') return entry.env ? JSON.stringify(entry.env) : '(없음)';
+    if (m[2] === 'scope') return entry.scope ?? '(없음)';
+    if (m[2] === 'level') return entry.level ?? '(없음)';
+    if (m[2] === 'exclusive') return String(entry.exclusive ?? false);
+    return String(entry.skip ?? false);
   };
-  const keyWidth = Math.max(...SETTABLE_KEYS.map((k) => k.length)) + 2;
+  // ADK stage 4: verifications 이름이 자유라 정적 SETTABLE_KEYS 뒤에 실제 존재하는
+  // 이름으로 동적 키를 붙인다.
+  const allKeys = [...SETTABLE_KEYS, ...verificationSettableKeys(config)];
+  const keyWidth = Math.max(...allKeys.map((k) => k.length)) + 2;
   const out: string[] = ['', '  설정 가능한 키', ''];
-  for (const key of SETTABLE_KEYS) {
+  for (const key of allKeys) {
     out.push(`    ${key.padEnd(keyWidth, ' ')}${color.dim(currentOf(key))}`);
   }
   out.push('');
-  out.push(`  ${color.dim('예: awl config set verify.lint.cmd "biome check ."')}`);
+  out.push(`  ${color.dim('예: awl config set verifications.lint.cmd "biome check ."')}`);
   return out.join('\n');
 }
 
@@ -1207,7 +1587,7 @@ export async function runConfigSet(
     process.stderr.write(
       `\n  ${signal(caps(), 'error')} 지원하지 않는 키입니다: ${key}\n\n  설정 가능한 키:\n`,
     );
-    for (const k of SETTABLE_KEYS) {
+    for (const k of [...SETTABLE_KEYS, ...verificationSettableKeys(config)]) {
       process.stderr.write(`    ${k}\n`);
     }
     process.exit(1);
@@ -1219,11 +1599,21 @@ export async function runConfigSet(
     return;
   }
 
+  const LOCAL_VERIFICATION_KINDS: ConfigKeyKind[] = [
+    'verifications.cmd',
+    'verifications.cwd',
+    'verifications.env',
+    'verifications.scope',
+    'verifications.level',
+    'verifications.note',
+    'verifications.skip',
+  ];
   if (
     opts.local === true &&
     parsed.kind !== 'project' &&
     parsed.kind !== 'feedback.enabled' &&
-    parsed.kind !== 'feedback.path'
+    parsed.kind !== 'feedback.path' &&
+    !LOCAL_VERIFICATION_KINDS.includes(parsed.kind)
   ) {
     process.stderr.write(
       `\n  ${signal(caps(), 'error')} local config에서 지원하지 않는 키입니다: ${key}\n`,
@@ -1236,6 +1626,37 @@ export async function runConfigSet(
     );
     process.exit(1);
   }
+  // local 오버라이드는 base 에 이미 있는 검증만 조정한다 — 새 검증을 로컬에서 몰래
+  // 만들면 mergeByName 이 다음 로드 때 조용히 버려서 사용자가 혼란스럽다(config-merge.ts).
+  if (
+    opts.local === true &&
+    LOCAL_VERIFICATION_KINDS.includes(parsed.kind) &&
+    !(loaded.base ?? loaded.config).verifications.some((v) => v.name === parsed.verifyName)
+  ) {
+    process.stderr.write(
+      `\n  ${signal(caps(), 'error')} local config는 이미 있는 검증만 조정합니다 — '${parsed.verifyName}'은 base(config.json)에 없습니다.\n` +
+        `  새 검증을 추가하려면: awl config set verifications.${parsed.verifyName}.cmd "..."\n`,
+    );
+    process.exit(1);
+  }
+
+  // local 에서 cmd 를 비워 검증을 지우는 건 막는다 — "끈다"는 항상 skip:true 로
+  // 남겨야 게이트에 경고로 보인다(reference.md:1177). cmd=null 삭제는 base 에만 있다.
+  if (opts.local === true && parsed.kind === 'verifications.cmd' && parseVerifyValue(value) === null) {
+    process.stderr.write(
+      `\n  ${signal(caps(), 'error')} local config에서 검증을 끄려면 skip 을 쓰세요: awl config set --local verifications.${parsed.verifyName}.skip true\n`,
+    );
+    process.exit(1);
+  }
+
+  // 새 검사를 base 에 처음 추가하는 순간인지 미리 잰다(applyConfigValue 가 config
+  // 를 바로 mutate 하므로 호출 전에 확인해야 한다) — reference.md:869-876 "이 검사를
+  // 처음 넣습니까? ... scope: changed 로 시작하면 이번 변경분만 봅니다."
+  const isNewVerification =
+    opts.local !== true &&
+    parsed.kind === 'verifications.cmd' &&
+    parseVerifyValue(value) !== null &&
+    !(loaded.base ?? loaded.config).verifications.some((v) => v.name === parsed.verifyName);
 
   const outcome = await applyConfigValue(config, projectRoot, parsed, value, {
     force: opts.force,
@@ -1244,14 +1665,57 @@ export async function runConfigSet(
     process.stderr.write(`\n  ${signal(caps(), 'error')} ${outcome.message}\n`);
     process.exit(1);
   }
+
+  const interactive = process.stdin.isTTY === true && process.stdout.isTTY === true;
+  if (isNewVerification && interactive) {
+    const entry = config.verifications.find((v) => v.name === parsed.verifyName);
+    if (entry) {
+      const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+      try {
+        const answer = await new Promise<string>((resolve) => {
+          rl.question(
+            `\n  이 검사(${entry.name})를 처음 추가합니다. 기존 코드에서 실패가 많이 나올 수 있습니다.\n` +
+              '  scope: changed 로 시작하면 이번 변경분만 봅니다. (Y/n) ',
+            resolve,
+          );
+        });
+        if (answer.trim().toLowerCase() !== 'n') {
+          entry.scope = 'changed';
+        }
+      } finally {
+        rl.close();
+      }
+    }
+  }
+
   if (opts.local === true) {
-    const overlayPath = worktreeLocalConfigPath(projectRoot);
+    const overlayPath = localConfigOverlayPath(projectRoot);
     let overlay: LocalConfigOverlay = {};
     if (fs.existsSync(overlayPath)) {
       overlay = JSON.parse(fs.readFileSync(overlayPath, 'utf8')) as LocalConfigOverlay;
     }
     if (parsed.kind === 'project') {
       overlay.project = config.project;
+    } else if (LOCAL_VERIFICATION_KINDS.includes(parsed.kind)) {
+      const name = parsed.verifyName as string;
+      const field: keyof VerificationEntry =
+        parsed.kind === 'verifications.cmd'
+          ? 'cmd'
+          : parsed.kind === 'verifications.cwd'
+            ? 'cwd'
+            : parsed.kind === 'verifications.env'
+              ? 'env'
+              : parsed.kind === 'verifications.scope'
+                ? 'scope'
+                : parsed.kind === 'verifications.level'
+                  ? 'level'
+                  : parsed.kind === 'verifications.note'
+                    ? 'note'
+                    : 'skip';
+      const updated = config.verifications.find((v) => v.name === name);
+      const verifications = (overlay.verifications ?? []).filter((v) => v.name !== name);
+      verifications.push({ name, [field]: updated?.[field] } as Partial<VerificationEntry>);
+      overlay.verifications = verifications;
     } else {
       let feedback = { ...overlay.feedback };
       if (parsed.kind === 'feedback.enabled') {

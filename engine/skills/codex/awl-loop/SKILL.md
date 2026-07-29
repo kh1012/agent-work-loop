@@ -79,7 +79,7 @@ goal -> investigate -> design -> clarify -> spike -> criteria
 - Record verified findings as an array with stable IDs:
 
 ```bash
-awl record audit --json '{"scope":"...","findings":[{"id":"F-01","what":"...","severity":"high"}]}'
+awl record audit --json '{"scope":"...","findings":[{"id":"finding-1","what":"...","where":"file:line","source":"investigation","severity":"high"}]}'
 ```
 
 - Distinguish checked from unchecked facts. Record every finding before deciding whether it is in scope.
@@ -102,8 +102,8 @@ awl record audit --json '{"scope":"...","findings":[{"id":"F-01","what":"...","s
 - Write criteria and state:
 
 ```bash
-awl record criteria --json '{"items":[{"id":"AC-01","조건":"...","범위":"...","검증":"awl verify","addresses":["F-01"]}]}'
-awl state set --json '{"phase":"awaiting-gate1","criteria":[{"id":"AC-01","status":"pending","attempts":0,"proceduralErrors":0,"addresses":["F-01"]}]}'
+awl record criteria --json '{"items":[{"id":"condition-1","조건":"...","범위":"...","검증":"awl verify","addresses":["finding-1"]}]}'
+awl state set --json '{"phase":"awaiting-gate1","criteria":[{"id":"condition-1","status":"pending","attempts":0,"proceduralErrors":0,"addresses":["finding-1"]}]}'
 ```
 
 ### Gate 1: approval before edits
@@ -116,7 +116,7 @@ Present criteria, dependencies, and every finding excluded from all `addresses` 
 - Immediately record the response:
 
 ```bash
-awl record gate --json '{"gate":1,"decision":"approved","presentedCriteria":["AC-01"],"presentedExclusions":[]}'
+awl record gate --json '{"gate":1,"decision":"approved","presentedCriteria":["condition-1"],"presentedExclusions":[]}'
 ```
 
 Do not enter loop phase until this record succeeds.
@@ -127,11 +127,11 @@ For each unblocked criterion:
 
 ```text
 awl state get
-awl commit --start <AC-ID>
+awl commit --start <condition-ID>
 write a failing test first
 implement the smallest change
 awl verify --json
-  pass -> awl commit <AC-ID> -m "..."
+  pass -> awl commit <condition-ID> -m "..."
           awl record attempt --json '{...}'
   fail -> classify and retry with a different approach
 ```

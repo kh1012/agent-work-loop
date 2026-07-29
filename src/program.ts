@@ -90,12 +90,12 @@ function renderExamplesCard(c: Caps): string {
     {
       label: '완료조건 게이트',
       examples: [
-        { cmd: 'awl commit AC-01 --start', note: '구현 시작 시 베이스라인부터 잡는다' },
+        { cmd: 'awl commit condition-1 --start', note: '구현 시작 시 베이스라인부터 잡는다' },
         {
-          cmd: 'awl commit AC-01 -m "완료 조건 설명"',
-          note: '<criterion> 자리엔 완료조건 ID(AC-01)',
+          cmd: 'awl commit condition-1 -m "완료 조건 설명"',
+          note: '<criterion> 자리엔 완료조건 ID(condition-1)',
         },
-        { cmd: 'awl review AC-01..AC-03', note: '<range> 자리엔 완료조건 범위' },
+        { cmd: 'awl review condition-1..condition-3', note: '<range> 자리엔 완료조건 범위' },
       ],
     },
     {
@@ -666,10 +666,11 @@ export function buildProgram(): Command {
   const config = program
     .command('config')
     .description('이 프로젝트의 설정을 봅니다 (TTY 면 수정도)')
-    .option('--json', 'effective 설정과 base/local source를 JSON으로 출력합니다');
-  config.action(async (opts: { json?: boolean }) => {
+    .option('--json', 'effective 설정과 base/local source를 JSON으로 출력합니다')
+    .option('--show-origin', '값별로 전역/저장소/개인 중 어디서 왔는지 보여줍니다');
+  config.action(async (opts: { json?: boolean; showOrigin?: boolean }) => {
     const { runConfig } = await import('./commands/config.js');
-    await runConfig({ json: opts.json === true });
+    await runConfig({ json: opts.json === true, showOrigin: opts.showOrigin === true });
   });
   config
     .command('set [key] [value]')
@@ -689,6 +690,22 @@ export function buildProgram(): Command {
         });
       },
     );
+
+  // 사람이 치는 명령: profile (이 저장소의 공유 가능한 스킬 선택을 봅니다, ADK stage 4)
+  const profile = program
+    .command('profile')
+    .description('이 프로젝트의 프로파일(스킬 선택)을 봅니다');
+  profile.action(async () => {
+    const { runProfile } = await import('./commands/profile.js');
+    await runProfile();
+  });
+  profile
+    .command('install <path>')
+    .description('공유 프로파일을 받습니다 (config.json은 안 건드리고, 설치 안 된 스킬만 받습니다)')
+    .action(async (sourcePath: string) => {
+      const { runProfileInstall } = await import('./commands/profile.js');
+      await runProfileInstall(sourcePath);
+    });
 
   // 사람이 치는 명령: work (워크아이템 여러 개를 오간다, WI-D)
   const work = program.command('work').description('이 프로젝트의 워크아이템을 관리합니다');
@@ -794,6 +811,125 @@ export function buildProgram(): Command {
       const { runLaneRemove } = await import('./commands/lane.js');
       await runLaneRemove(name, { force: opts.force === true });
     });
+  lane
+    .command('sync <name>')
+    .description('레인을 지우지 않고, 그 레인이 쌓은 학습(교훈·규칙)만 지금 전역에 합칩니다')
+    .action(async (name: string) => {
+      const { runLaneSync } = await import('./commands/lane.js');
+      await runLaneSync(name);
+    });
+
+  // 사람이 치는 명령: doc (ADK 문서 — spec/ticket/decision, ADK stage 1)
+  const doc = program.command('doc').description('ADK 문서(spec/ticket/decision)를 관리합니다');
+  doc
+    .command('new <type> <title...>')
+    .description('스펙/티켓/결정 스켈레톤을 만듭니다 (type: spec, ticket, decision)')
+    .option('--spec <id>', '(ticket 전용) 소속 스펙 id')
+    .option(
+      '--dependencies <ids>',
+      '(ticket 전용) 먼저 끝나야 하는 티켓 id들, 쉼표로 구분 — 의존이 곧 구현 순서',
+    )
+    .option('--supersedes <id>', '(decision 전용) 대체하는 이전 결정 id')
+    .option('--request <text>', '(spec 전용) 사용자가 던진 원문 그대로 — Request 절에 인용으로 들어간다')
+    .action(
+      async (
+        type: string,
+        titleParts: string[],
+        opts: { spec?: string; dependencies?: string; supersedes?: string; request?: string },
+      ) => {
+        if (type !== 'spec' && type !== 'ticket' && type !== 'decision') {
+          process.stderr.write(
+            `\n  ${signal(caps(), 'error')} type 은 spec, ticket, decision 중 하나여야 합니다: ${type}\n`,
+          );
+          process.exit(1);
+          return;
+        }
+        const { runDocNew } = await import('./commands/doc.js');
+        await runDocNew(type, titleParts, {
+          spec: opts.spec,
+          dependencies: opts.dependencies
+            ? opts.dependencies.split(',').map((s) => s.trim()).filter((s) => s !== '')
+            : undefined,
+          supersedes: opts.supersedes,
+          request: opts.request,
+        });
+      },
+    );
+  doc
+    .command('lint [path]')
+    .description(
+      'EARS 문형·질적 표현·파일경로·파일명·용어집을 검사합니다 (path 생략 시 docs/ 전체)',
+    )
+    .action(async (targetPath: string | undefined) => {
+      const { runDocLint } = await import('./commands/doc.js');
+      await runDocLint(targetPath);
+    });
+  doc
+    .command('related')
+    .description('같은 domain 의 이전 스펙과 gotcha 를 보여줍니다(스펙 단계 시작 시 참고)')
+    .requiredOption('--domain <domain>', '찾을 domain 값')
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .action(async (opts: { domain: string; json?: boolean }) => {
+      const { runDocRelated } = await import('./commands/doc.js');
+      await runDocRelated(opts.domain, { json: opts.json === true });
+    });
+
+  // 사람이 치는 명령: tickets (스펙 조건 → 티켓 도출, ADK stage 2a)
+  const tickets = program.command('tickets').description('스펙에서 티켓을 도출합니다');
+  tickets
+    .command('derive <spec-id>')
+    .description(
+      '스펙의 조건 하나당 티켓 파일 하나를 기계적으로 만듭니다(이미 도출된 조건은 건너뜁니다)',
+    )
+    .action(async (specId: string) => {
+      const { runDeriveTickets } = await import('./commands/tickets.js');
+      await runDeriveTickets(specId);
+    });
+
+  // 사람이 치는 명령: next (티켓의 지금 상태 + 다음 할 일 조립, ADK stage 2c, 읽기 전용)
+  // ticket-id 생략 시 "지금" 티켓을 자동판정한다(WI-H1) — 얇은 오케스트레이션 스킬이
+  // 인자 없이 부르는 게 기본 사용법이다(adk-prototype.md:330 "목표를 받으면 `awl next` 를 호출한다").
+  program
+    .command('next [ticket-id]')
+    .description('티켓의 조건·제약·게이트 이력·다음 할 일을 조립해 보여줍니다(읽기 전용, 생략하면 지금 티켓 자동판정)')
+    .action(async (ticketId: string | undefined) => {
+      const { runNext } = await import('./commands/next.js');
+      await runNext(ticketId);
+    });
+
+  // 사람이 치는 명령: stages (파이프라인 전체 조립, ADK stage 2, 읽기 전용)
+  program
+    .command('stages')
+    .description('요청 층/티켓 층 파이프라인 전체를 보여줍니다(--short 는 다섯 줄만)')
+    .option('--short', '다섯 단계 이름만 보여줍니다')
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .action(async (opts: { short?: boolean; json?: boolean }) => {
+      const { runStages } = await import('./commands/stages.js');
+      await runStages({ short: opts.short === true, json: opts.json === true });
+    });
+
+  // 사람이 치는 명령: tokens (티켓별·단계별 토큰 사용량, ADK stage 5, 읽기 전용)
+  program
+    .command('tokens [ticket-id]')
+    .description('티켓의 기록 시간창을 세션 로그 usage 와 엮어 단계별 토큰 사용량을 보여줍니다(읽기 전용)')
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .option('--lanes', '레인별 합계와 총합을 보여줍니다(ticket-id 대신)')
+    .action(async (ticketId: string | undefined, opts: { json?: boolean; lanes?: boolean }) => {
+      if (opts.lanes) {
+        const { runTokensByLane } = await import('./commands/tokens.js');
+        await runTokensByLane({ json: opts.json === true });
+        return;
+      }
+      if (!ticketId) {
+        process.stderr.write(
+          `\n  ${signal(caps(), 'error')} ticket-id 를 주거나 --lanes 를 쓰세요.\n`,
+        );
+        process.exit(1);
+        return;
+      }
+      const { runTokens } = await import('./commands/tokens.js');
+      await runTokens(ticketId, { json: opts.json === true });
+    });
 
   // 사람이 치는 명령: records (기록 조회, 사람이 읽는 목록)
   program
@@ -850,6 +986,14 @@ export function buildProgram(): Command {
         });
       },
     );
+  rules
+    .command('hit <id>')
+    .description('이 규칙이 걸렸다고 알립니다 — hits 를 1 늘립니다 (검사기/사람이 실행)')
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .action(async (id: string, opts: { json?: boolean }) => {
+      const { runRulesHit } = await import('./commands/rules.js');
+      runRulesHit(id, { json: opts.json === true });
+    });
 
   // 사람이 치는 명령: gotchas (아직 규칙이 되지 않은 교훈, WI-O — 예전 이름 deltas 를 개명함)
   program
@@ -859,6 +1003,18 @@ export function buildProgram(): Command {
     .action(async (opts: { json?: boolean }) => {
       const { runGotchas } = await import('./commands/gotchas.js');
       runGotchas({ json: opts.json === true });
+    });
+
+  // 사람이 치는 명령: backlog (정리 신호, ADK stage 6). awl 은 판단하지 않는다 — 3회
+  // 반복된 승격 후보를 세고 보여줄 뿐, 무엇을 승격할지는 사람이 정한다.
+  program
+    .command('backlog')
+    .description('정리 신호를 봅니다 — 3회 반복된 승격 후보, hits 0인 규칙')
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .option('--reset', '정리를 마쳤다고 표시합니다(커서를 지금 시각으로 갱신)')
+    .action(async (opts: { json?: boolean; reset?: boolean }) => {
+      const { runBacklog } = await import('./commands/backlog.js');
+      runBacklog({ json: opts.json === true, reset: opts.reset === true });
     });
 
   // 사람이 치는 명령: metrics (세대별 프록시 지표 추세, WI-P)
@@ -891,6 +1047,20 @@ export function buildProgram(): Command {
           since: opts.since,
           json: opts.json === true,
         });
+      },
+    );
+
+  // 사람이 치는 명령: feedback (awl 도구 자체에 짧게 남기는 단축 쓰기, ADK stage 6)
+  program
+    .command('feedback <text>')
+    .description('awl 도구 자체가 아팠던 점을 짧게 남깁니다 (awl-feedback 기록, source:manual)')
+    .option('--area <area>', 'commit, review, gate, verify, state, init, cli, 기타 중 하나(기본: 기타)')
+    .option('--impact <text>', '영향(생략하면 text 를 그대로 씁니다)')
+    .option('--severity <sev>', 'high/medium/low 중 하나(기본: low)')
+    .action(
+      async (text: string, opts: { area?: string; impact?: string; severity?: string }) => {
+        const { runFeedback } = await import('./commands/feedback-log.js');
+        await runFeedback(text, opts);
       },
     );
 
@@ -963,15 +1133,39 @@ export function buildProgram(): Command {
     );
 
   // 사람이 치는 명령: review (리뷰어에게 넘길 자료 조립 — awl 은 리뷰하지 않는다)
+  // "pack <ticket-id>" 는 4게이트 티켓 모델 전용 경로다(WI-G23) — 첫 인자가 'pack'
+  // 이면 두 번째 인자를 티켓 id 로, 아니면 첫 인자를 그대로 AC-range 로 다룬다.
+  // 레거시 `awl review AC-01..AC-03` 호출을 한 글자도 안 바꾸려고 별도 서브커맨드
+  // 그룹 대신 이 방식을 골랐다(SKILL.md/reference.md 가 이미 이 형태를 예시로 쓴다).
   program
-    .command('review <range>')
-    .description('리뷰어에게 넘길 자료를 조립합니다 (provenance 포함)')
+    .command('review <rangeOrPack> [ticketId]')
+    .description(
+      '리뷰어에게 넘길 자료를 조립합니다 (provenance 포함). "pack <ticket-id>" 로 4게이트 티켓 모델도 지원합니다',
+    )
     .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
-    .option('--base <ref>', 'diff 기준 (기본은 완료 조건 baseline)')
-    .action(async (range: string, opts: { json?: boolean; base?: string }) => {
-      const { runReview } = await import('./commands/review.js');
-      await runReview(range, { json: opts.json === true, base: opts.base });
-    });
+    .option('--base <ref>', 'diff 기준 (기본은 완료 조건/티켓 baseline)')
+    .action(
+      async (
+        rangeOrPack: string,
+        ticketId: string | undefined,
+        opts: { json?: boolean; base?: string },
+      ) => {
+        if (rangeOrPack === 'pack') {
+          if (!ticketId) {
+            process.stderr.write(
+              `\n  ${signal(caps(), 'error')} awl review pack <ticket-id> 처럼 티켓 id 를 주세요.\n`,
+            );
+            process.exit(1);
+            return;
+          }
+          const { runReviewPack } = await import('./commands/review.js');
+          await runReviewPack(ticketId, { json: opts.json === true, base: opts.base });
+          return;
+        }
+        const { runReview } = await import('./commands/review.js');
+        await runReview(rangeOrPack, { json: opts.json === true, base: opts.base });
+      },
+    );
 
   // 스킬이 치는 명령(숨김): record
   // 타입·필수필드 표(RECORD_TYPES_HELP_TABLE, exec-tooling-friction AC-04)는
@@ -1012,6 +1206,10 @@ export function buildProgram(): Command {
       '--related',
       '변경된 파일에 관련된 테스트만 실행합니다(relatedCmd 필요, 없으면 전체 테스트로 폴백)',
     )
+    .option(
+      '--level <level>',
+      'ticket 또는 request 레벨 검증만 골라 돕니다(안 주면 레벨 무관하게 전부)',
+    )
     .action(
       async (opts: {
         json?: boolean;
@@ -1019,7 +1217,15 @@ export function buildProgram(): Command {
         sinceBaseline?: boolean;
         related?: boolean;
         force?: boolean;
+        level?: string;
       }) => {
+        if (opts.level !== undefined && opts.level !== 'ticket' && opts.level !== 'request') {
+          process.stderr.write(
+            `\n  ${signal(caps(), 'error')} --level 은 ticket 또는 request 여야 합니다: ${opts.level}\n`,
+          );
+          process.exit(1);
+          return;
+        }
         const { runVerify } = await import('./commands/verify.js');
         await runVerify({
           json: opts.json === true,
@@ -1027,6 +1233,7 @@ export function buildProgram(): Command {
           sinceBaseline: opts.sinceBaseline === true,
           related: opts.related === true,
           force: opts.force === true,
+          level: opts.level,
         });
       },
     );
@@ -1057,13 +1264,14 @@ export function buildProgram(): Command {
     .action(async (opts: { json: string; workitem?: string }) => {
       const { runStateSet } = await import('./commands/state.js');
       const { hasApprovedGate1 } = await import('./commands/record.js');
+      const { resolveProjectRoot } = await import('./commands/config.js');
       runStateSet(opts.json, {
         workitem: opts.workitem,
         // phase:'loop' 로의 전이는 이 워크아이템에 "승인된" 게이트1 레코드가 있을
         // 때만 허용한다(0.6.3, 적대검증 발견). 예전엔 gate:1 레코드의 존재만 봐서
         // (decision 무관) 사람이 REJECT 한 계획도 루프에 진입할 수 있었다.
-        // hasApprovedGate1 이 workitem falsy 도 fail-closed 로 처리한다.
-        requireGateForLoop: (workitem) => hasApprovedGate1(workitem),
+        // hasApprovedGate1 이 workitem falsy 도, 프로젝트 루트를 못 찾아도 fail-closed.
+        requireGateForLoop: (workitem) => hasApprovedGate1(workitem, resolveProjectRoot()),
       });
     });
 

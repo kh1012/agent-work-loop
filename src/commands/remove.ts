@@ -9,7 +9,6 @@ import {
   lockFile,
   npmVersionCachePath,
   projectsFile,
-  recordsDir,
   rulesDir,
   templatesDir,
 } from '../core/paths.js';
@@ -252,7 +251,7 @@ export function scanProjectLocal(root: string): RemoveItem[] {
 
   const dotAwl = path.join(root, '.awl');
   push({
-    category: '.awl/ (config·state·skills-version·verify-baseline·state.lock·home)',
+    category: '.awl/ (config·state·skills-version·verify-baseline·state.lock·home·records)',
     kind: 'dir',
     path: dotAwl,
     present: exists(dotAwl),
@@ -349,7 +348,6 @@ export function scanGlobal(): RemoveItem[] {
     });
   };
   push('engine/', engineDir());
-  push('records/', recordsDir());
   push('gotchas/', gotchasDir());
   push('rules/', rulesDir());
   push('generations/', path.join(globalRoot(), 'generations'));

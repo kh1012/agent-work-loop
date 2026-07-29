@@ -11,6 +11,7 @@ import {
   detectRecordTrailGap,
   renderText,
 } from '../../src/commands/doctor.js';
+import { stagesMdContent } from '../../src/commands/init.js';
 import { stringWidth } from '../../src/core/tty.js';
 
 const ASCII = { unicode: false, color: false, tty: false };
@@ -53,7 +54,6 @@ function makeInstalledProject(): string {
     path.join(proj, '.awl', 'config.json'),
     JSON.stringify({
       project: 'doctor-test',
-      engineVersion: '0.0.0',
       verify: {
         test: { cmd: 'node --version', env: { NODE_ENV: 'test' } },
         lint: { cmd: 'nonexistent_tool_zzz .' },
@@ -110,7 +110,6 @@ describe('collectChecks — 설치됨 흉내', () => {
     expect(find(report.checks, '규칙')?.value).toBe('1개');
     expect(find(report.checks, '프로젝트')?.value).toBe('2개');
     expect(find(report.checks, 'config.json')?.status).toBe('ok');
-    expect(find(report.checks, '엔진 버전 일치')?.status).toBe('ok');
 
     // 검증 명령: node 는 존재(ok), 없는 명령은 missing 으로 구분
     expect(find(report.checks, '검증: test')?.status).toBe('ok');
@@ -138,7 +137,7 @@ describe('collectChecks — 설치됨 흉내', () => {
 
   it('effective config와 base/local source 경로를 함께 보고한다', async () => {
     const projectRoot = process.cwd();
-    const overlayPath = path.join(projectRoot, '.git', 'awl', 'config.local.json');
+    const overlayPath = path.join(projectRoot, '.awl', 'config.local.json');
     fs.mkdirSync(path.dirname(overlayPath), { recursive: true });
     fs.writeFileSync(
       overlayPath,
@@ -153,6 +152,25 @@ describe('collectChecks — 설치됨 흉내', () => {
     expect(source?.value).toContain('config.local.json');
     expect(source?.hint).toContain('project=local');
     expect(source?.hint).toContain('effective project=doctor-lane');
+  });
+
+  it('stages.md 가 없으면 warn 하고 awl update --local 을 안내한다(ADK stage 1)', async () => {
+    const report = await collectChecks();
+    expect(find(report.checks, 'stages.md')).toMatchObject({ status: 'warn', value: '없음' });
+    expect(find(report.checks, 'stages.md')?.hint).toContain('awl update --local');
+  });
+
+  it('stages.md 가 엔진 산출물과 같으면 ok, 다르면(낡음) warn 한다(ADK stage 1)', async () => {
+    const proj = process.cwd();
+    fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
+    fs.writeFileSync(path.join(proj, '.awl', 'stages.md'), stagesMdContent());
+
+    const okReport = await collectChecks();
+    expect(find(okReport.checks, 'stages.md')).toMatchObject({ status: 'ok', value: '최신' });
+
+    fs.writeFileSync(path.join(proj, '.awl', 'stages.md'), '낡은 내용\n');
+    const staleReport = await collectChecks();
+    expect(find(staleReport.checks, 'stages.md')).toMatchObject({ status: 'warn', value: '낡음' });
   });
 
   it('검증 명령 확인은 빠르다(전체 테스트를 돌리지 않는다)', async () => {
@@ -185,10 +203,10 @@ describe('collectChecks — 설치됨 흉내', () => {
   });
 
   it('최근 활동(records 시각 + state mtime)을 info 로 표시한다 (concurrency-1 AC-02)', async () => {
-    const home = process.env.AWL_HOME as string;
-    fs.mkdirSync(path.join(home, 'records'), { recursive: true });
+    const recordsDir = path.join(process.cwd(), '.awl', 'records');
+    fs.mkdirSync(recordsDir, { recursive: true });
     fs.writeFileSync(
-      path.join(home, 'records', '2026-07.jsonl'),
+      path.join(recordsDir, '2026-07.jsonl'),
       `${JSON.stringify({ id: 'rec_x', at: '2026-07-16T10:30:00.000Z', type: 'audit' })}\n`,
     );
     fs.writeFileSync(
@@ -224,6 +242,141 @@ describe('collectChecks — 설치됨 흉내', () => {
   });
 });
 
+describe('collectChecks — sync 섹션 (ADK stage 3, prototype.md:419-430)', () => {
+  beforeEach(() => {
+    process.env.AWL_HOME = makeInstalledHome();
+    process.chdir(makeInstalledProject());
+  });
+
+  it('endpoint 가 없으면 info · "없음"으로 표시하고 전송이 꺼져 있음을 안내한다', async () => {
+    const report = await collectChecks();
+    const endpoint = find(report.checks, 'endpoint');
+    expect(endpoint?.status).toBe('info');
+    expect(endpoint?.value).toBe('없음');
+    expect(endpoint?.hint).toContain('전송이 꺼져 있습니다');
+    expect(find(report.checks, '상태')).toBeUndefined(); // endpoint 없으면 상태 행 자체가 없다
+  });
+
+  it('endpoint 가 있고 실패 기록이 없으면 ok · "정상"으로 표시한다', async () => {
+    fs.writeFileSync(
+      path.join(process.env.AWL_HOME as string, 'config.json'),
+      JSON.stringify({ sync: { records: { endpoint: 'http://localhost:9999' } } }),
+    );
+    const report = await collectChecks();
+    expect(find(report.checks, 'endpoint')?.status).toBe('ok');
+    expect(find(report.checks, 'endpoint')?.value).toBe('http://localhost:9999');
+    expect(find(report.checks, '상태')?.status).toBe('ok');
+    expect(find(report.checks, '상태')?.value).toBe('정상');
+  });
+
+  it('endpoint 가 있고 백오프 중이면 warn · 재시도 사유와 미전송 건수를 보여준다', async () => {
+    fs.writeFileSync(
+      path.join(process.env.AWL_HOME as string, 'config.json'),
+      JSON.stringify({ sync: { records: { endpoint: 'http://localhost:9999' } } }),
+    );
+    fs.writeFileSync(
+      path.join(process.env.AWL_HOME as string, 'sync-cursor.json'),
+      JSON.stringify({
+        // records 커서는 프로젝트별로 나뉜다(ADK stage 3) — makeInstalledProject() 가
+        // .awl/config.json 에 적어두는 project 이름과 같은 키라야 doctor 가 찾는다.
+        records: {
+          'doctor-test': {
+            backoffIndex: 1,
+            pendingCount: 12,
+            lastFailureReason: 'ECONNREFUSED',
+          },
+        },
+      }),
+    );
+    const report = await collectChecks();
+    const status = find(report.checks, '상태');
+    expect(status?.status).toBe('warn');
+    expect(status?.value).toContain('재시도 중');
+    expect(status?.value).toContain('ECONNREFUSED');
+    expect(status?.hint).toContain('미전송 12건');
+    // warn 이어도 doctor 종료코드(problems)에는 안 걸린다(prototype.md:432 "꺼짐은 고장이 아니다").
+    const problems = report.checks.filter((c) => c.status === 'missing' || c.status === 'fail');
+    expect(problems.some((c) => c.name === '상태')).toBe(false);
+  });
+});
+
+describe('collectChecks — 게이트 가시성: 로컬 skip 경고 · 로컬 스킬 정보 (ADK stage 4, prototype.md:519-524)', () => {
+  beforeEach(() => {
+    process.env.AWL_HOME = makeInstalledHome();
+    process.chdir(makeInstalledProject());
+  });
+
+  it('config.local.json 이 skip:true 로 끈 검증이 있으면 warn 으로 이름을 보여준다', async () => {
+    fs.writeFileSync(
+      path.join(process.cwd(), '.awl', 'config.local.json'),
+      JSON.stringify({ verifications: [{ name: 'test', skip: true }] }),
+    );
+
+    const report = await collectChecks();
+    const check = find(report.checks, '로컬에서 건너뛴 검증');
+
+    expect(check?.status).toBe('warn');
+    expect(check?.value).toContain('test');
+  });
+
+  it('config.local.json 이 없으면(또는 skip 없으면) 그 체크 자체가 없다', async () => {
+    const report = await collectChecks();
+    expect(find(report.checks, '로컬에서 건너뛴 검증')).toBeUndefined();
+  });
+
+  it('config.json 의 verifications 에 exclusive:true 가 있으면 info 로 이름을 보여준다(WI-G10)', async () => {
+    const root = process.cwd();
+    const configPath = path.join(root, '.awl', 'config.json');
+    const raw = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    raw.verifications = [{ name: 'e2e', cmd: 'npm run e2e', exclusive: true }];
+    fs.writeFileSync(configPath, JSON.stringify(raw));
+
+    const report = await collectChecks();
+    const check = find(report.checks, 'exclusive 검증');
+
+    expect(check?.status).toBe('info');
+    expect(check?.value).toContain('e2e');
+  });
+
+  it('exclusive 검증이 없으면 그 체크 자체가 없다', async () => {
+    const report = await collectChecks();
+    expect(find(report.checks, 'exclusive 검증')).toBeUndefined();
+  });
+
+  it('profile.local.json 이 스킬을 바꾸면 info 로 슬롯 이름을 보여준다(경고 아님 — 문제가 아니라 사실)', async () => {
+    const root = process.cwd();
+    fs.writeFileSync(
+      path.join(root, '.awl', 'profile.json'),
+      JSON.stringify({
+        name: 'doctor-test',
+        skills: {
+          spec: null,
+          investigation: null,
+          clarification: null,
+          spike: null,
+          implement: null,
+          review: null,
+        },
+      }),
+    );
+    fs.writeFileSync(
+      path.join(root, '.awl', 'profile.local.json'),
+      JSON.stringify({ skills: { implement: { type: 'custom', path: '.claude/skills/my-tdd' } } }),
+    );
+
+    const report = await collectChecks();
+    const check = find(report.checks, '로컬 스킬 설정');
+
+    expect(check?.status).toBe('info');
+    expect(check?.value).toContain('implement');
+  });
+
+  it('profile.json 자체가 없으면(단계 4 이전 저장소) 로컬 스킬 체크는 조용히 생략된다(doctor 는 아무것도 안 고친다)', async () => {
+    const report = await collectChecks();
+    expect(find(report.checks, '로컬 스킬 설정')).toBeUndefined();
+  });
+});
+
 describe('collectChecks — 프로젝트 루트/브랜치 표시 (WI-C)', () => {
   beforeEach(() => {
     process.env.AWL_HOME = makeInstalledHome();
@@ -247,7 +400,6 @@ describe('collectChecks — 프로젝트 루트/브랜치 표시 (WI-C)', () => 
       path.join(proj, '.awl', 'config.json'),
       JSON.stringify({
         project: 'doctor-cwd',
-        engineVersion: '0.0.0',
         verify: { typecheck: null, lint: null, test: null, e2e: null },
       }),
     );
@@ -317,7 +469,6 @@ describe('collectChecks — verify.*.cwd 점검 (WI-B, 모노레포)', () => {
       path.join(proj, '.awl', 'config.json'),
       JSON.stringify({
         project: 'doctor-cwd',
-        engineVersion: '0.0.0',
         verify: { test: { cmd: 'node --version', cwd: 'packages/app' }, lint: null, e2e: null },
       }),
     );
@@ -335,7 +486,6 @@ describe('collectChecks — verify.*.cwd 점검 (WI-B, 모노레포)', () => {
       path.join(proj, '.awl', 'config.json'),
       JSON.stringify({
         project: 'doctor-cwd',
-        engineVersion: '0.0.0',
         verify: { test: { cmd: 'node --version', cwd: 'no/such/dir' }, lint: null, e2e: null },
       }),
     );
@@ -357,7 +507,6 @@ describe('collectChecks — verify.*.cwd 점검 (WI-B, 모노레포)', () => {
       path.join(proj, '.awl', 'config.json'),
       JSON.stringify({
         project: 'doctor-cwd',
-        engineVersion: '0.0.0',
         verify: { test: { cmd: 'node --version', cwd: 'not-a-dir.txt' }, lint: null, e2e: null },
       }),
     );
@@ -426,25 +575,9 @@ describe('renderText — 정렬과 출력', () => {
   });
 });
 
-describe('collectChecks — 버전 4쌍 (WI-X)', () => {
+describe('collectChecks — 버전 3쌍 (WI-X, ADK 0.8.0: project-vs-engine 제거)', () => {
   beforeEach(() => {
     process.env.AWL_HOME = makeInstalledHome(); // engine 0.0.0
-  });
-
-  it('프로젝트 config.engineVersion 이 설치된 엔진과 다르면 엔진 버전 일치가 warn 이고 [!] 힌트에 awl init --yes 를 안내한다', async () => {
-    const proj = tmp('awl-proj-');
-    makeGitMetadata(proj);
-    fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
-    fs.writeFileSync(
-      path.join(proj, '.awl', 'config.json'),
-      JSON.stringify({ project: 'doctor-version', engineVersion: '0.0.1', verify: {} }),
-    );
-    process.chdir(proj);
-
-    const report = await collectChecks();
-    const check = find(report.checks, '엔진 버전 일치');
-    expect(check?.status).toBe('warn');
-    expect(check?.hint).toContain('awl init --yes');
   });
 
   it('스킬 미설치면 Claude/Codex 스킬 버전 둘 다 warn', async () => {
@@ -531,7 +664,6 @@ describe('collectChecks — 워킹트리 더러움 점검 (WI-F, 환경이 준 g
     fs.writeFileSync(
       path.join(proj, '.awl', 'config.json'),
       JSON.stringify({
-        engineVersion: '0.0.0',
         verify: { typecheck: null, lint: null, test: null, e2e: null },
       }),
     );
@@ -829,7 +961,6 @@ describe('collectChecks — record 트레일 공백 표면화 (record-trail-guar
       path.join(proj, '.awl', 'config.json'),
       JSON.stringify({
         project: 'trailproj',
-        engineVersion: '0.0.0',
         verify: { typecheck: null, lint: null, test: null, e2e: null },
       }),
     );
@@ -866,10 +997,10 @@ describe('collectChecks — record 트레일 공백 표면화 (record-trail-guar
 
   it('이 프로젝트의 gate/attempt record 가 있으면 경고를 내지 않는다 (트레일 존재)', async () => {
     const proj = realGitProjectNoWorkitem();
-    const home = process.env.AWL_HOME as string;
-    fs.mkdirSync(path.join(home, 'records'), { recursive: true });
+    const recordsDir = path.join(proj, '.awl', 'records');
+    fs.mkdirSync(recordsDir, { recursive: true });
     fs.writeFileSync(
-      path.join(home, 'records', '2026-07.jsonl'),
+      path.join(recordsDir, '2026-07.jsonl'),
       `${JSON.stringify({ id: 'r1', at: '2026-07-18T00:00:00.000Z', type: 'gate', gate: 1, project: 'trailproj' })}\n`,
     );
     process.chdir(proj);
@@ -880,11 +1011,13 @@ describe('collectChecks — record 트레일 공백 표면화 (record-trail-guar
 
   it('다른 project 의 gate/attempt record 는 이 프로젝트 경고를 억제하지 않는다 (r.project 필터 방향, AC-05)', async () => {
     const proj = realGitProjectNoWorkitem(); // config.project = 'trailproj'
-    const home = process.env.AWL_HOME as string;
-    fs.mkdirSync(path.join(home, 'records'), { recursive: true });
-    // 전역 공유 records 에 '다른 프로젝트'의 gate record 만 있다 — trailproj 트레일을 억제하면 안 된다.
+    const recordsDir = path.join(proj, '.awl', 'records');
+    fs.mkdirSync(recordsDir, { recursive: true });
+    // records 는 project-local(WI-G17a) 이라 실제로는 이 프로젝트 파일이지만, project 필드가
+    // 여전히 필터에 쓰이므로(D-15, 무해한 이중 확인) 필드값만 다른 프로젝트로 남겨 그 필터
+    // 방향을 확인한다 — trailproj 트레일을 억제하면 안 된다.
     fs.writeFileSync(
-      path.join(home, 'records', '2026-07.jsonl'),
+      path.join(recordsDir, '2026-07.jsonl'),
       `${JSON.stringify({ id: 'r1', at: '2026-07-18T00:00:00.000Z', type: 'gate', gate: 1, project: 'otherproj' })}\n`,
     );
     process.chdir(proj);

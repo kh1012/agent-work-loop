@@ -27,13 +27,7 @@ function freshConfig(): AwlConfig {
     project: 'maxflow',
     mainLanguage: ['javascript'], // WI-A 가 고칠 오판 시나리오를 흉내낸다
     character: '',
-    engineVersion: '0.1.0',
-    verify: {
-      typecheck: { cmd: 'tsc --noEmit' },
-      lint: null,
-      test: null,
-      e2e: null,
-    },
+    verifications: [{ name: 'typecheck', cmd: 'tsc --noEmit' }],
   };
 }
 
@@ -53,7 +47,7 @@ function makeGitMetadata(root: string): string {
 }
 
 function writeLocalOverlay(root: string, value: unknown): string {
-  const overlayPath = path.join(root, '.git', 'awl', 'config.local.json');
+  const overlayPath = path.join(root, '.awl', 'config.local.json');
   fs.mkdirSync(path.dirname(overlayPath), { recursive: true });
   fs.writeFileSync(overlayPath, `${JSON.stringify(value, null, 2)}\n`);
   return overlayPath;
@@ -68,8 +62,17 @@ const VALID = JSON.stringify({
 });
 
 describe('validateConfig', () => {
-  it('정상 config 는 통과(빈 오류)', () => {
+  it('정상 config 는 통과(빈 오류, 옛 verify shape)', () => {
     expect(validateConfig(JSON.parse(VALID))).toEqual([]);
+  });
+
+  it('verifications(새 shape) 도 통과한다', () => {
+    const errors = validateConfig({
+      project: 'x',
+      engineVersion: '0.0.0',
+      verifications: [{ name: 'lint', cmd: 'eslint .', scope: 'changed', skip: true }],
+    });
+    expect(errors).toEqual([]);
   });
 
   it('project 가 없으면 거부', () => {
@@ -77,7 +80,7 @@ describe('validateConfig', () => {
     expect(errors.some((e) => e.includes('project'))).toBe(true);
   });
 
-  it('verify 항목 형식이 틀리면 잡는다', () => {
+  it('verify(옛 shape) 항목 형식이 틀리면 잡는다', () => {
     const errors = validateConfig({
       project: 'x',
       engineVersion: '0.0.0',
@@ -85,16 +88,41 @@ describe('validateConfig', () => {
     });
     expect(errors.some((e) => e.includes('verify.lint'))).toBe(true);
   });
+
+  it('verifications(새 shape) 항목 형식이 틀리면 잡는다', () => {
+    const errors = validateConfig({
+      project: 'x',
+      engineVersion: '0.0.0',
+      verifications: [{ name: 'lint' }], // cmd 없음
+    });
+    expect(errors.some((e) => e.includes('verifications'))).toBe(true);
+  });
+
+  it('verifications 이름이 중복되면 잡는다', () => {
+    const errors = validateConfig({
+      project: 'x',
+      engineVersion: '0.0.0',
+      verifications: [
+        { name: 'lint', cmd: 'a' },
+        { name: 'lint', cmd: 'b' },
+      ],
+    });
+    expect(errors.some((e) => e.includes('중복'))).toBe(true);
+  });
+
+  it('verify 도 verifications 도 없으면 거부', () => {
+    const errors = validateConfig({ project: 'x', engineVersion: '0.0.0' });
+    expect(errors.some((e) => e.includes('verifications'))).toBe(true);
+  });
 });
 
 describe('loadConfig', () => {
-  it('정상 파일을 로드하고 verify 를 정규화한다', () => {
+  it('정상 파일을 로드하고 verify(옛 shape)를 verifications 배열로 변환한다', () => {
     const root = projectWithConfig(VALID);
     const { config, errors } = loadConfig(root);
     expect(errors).toEqual([]);
     expect(config?.project).toBe('maxflow');
-    expect(config?.verify.typecheck).toEqual({ cmd: 'tsc --noEmit' });
-    expect(config?.verify.e2e).toBeNull();
+    expect(config?.verifications).toEqual([{ name: 'typecheck', cmd: 'tsc --noEmit' }]);
   });
 
   it('JSON 이 깨지면 대략적인 줄 번호를 알려준다', () => {
@@ -132,10 +160,8 @@ describe('loadConfig', () => {
 
     expect(loaded.errors).toEqual([]);
     expect(loaded.basePath).toBe(path.join(root, '.awl', 'config.json'));
-    expect(loaded.overlayPath).toBe(
-      path.join(fs.realpathSync(path.join(root, '.git')), 'awl', 'config.local.json'),
-    );
-    expect(fs.realpathSync(overlayPath)).toBe(loaded.overlayPath);
+    expect(loaded.overlayPath).toBe(path.join(root, '.awl', 'config.local.json'));
+    expect(fs.realpathSync(overlayPath)).toBe(fs.realpathSync(loaded.overlayPath as string));
     expect(loaded.config).toMatchObject({
       project: 'lane-project',
       character: 'upstream character',
@@ -170,6 +196,63 @@ describe('loadConfig', () => {
     expect(loaded.config).toBeNull();
     expect(loaded.errors[0]).toContain('config.json JSON 파싱 오류');
     expect(loaded.errors.join('\n')).not.toContain('local config overlay');
+  });
+
+  describe('local overlay의 verifications 병합(ADK stage 4, mergeByName)', () => {
+    function projectWithVerifications(): string {
+      const root = projectWithConfig(
+        JSON.stringify({
+          project: 'maxflow',
+          mainLanguage: ['typescript'],
+          character: '',
+          engineVersion: '0.7.3',
+          verifications: [
+            { name: 'typecheck', cmd: 'tsc --noEmit' },
+            { name: 'e2e', cmd: 'playwright test' },
+          ],
+        }),
+      );
+      makeGitMetadata(root);
+      return root;
+    }
+
+    it('e2e 하나만 skip 해도 typecheck 는 그대로다(배열 통째 교체 아님)', () => {
+      const root = projectWithVerifications();
+      writeLocalOverlay(root, { verifications: [{ name: 'e2e', skip: true }] });
+
+      const loaded = loadConfig(root);
+
+      expect(loaded.config?.verifications).toEqual([
+        { name: 'typecheck', cmd: 'tsc --noEmit' },
+        { name: 'e2e', cmd: 'playwright test', skip: true },
+      ]);
+      expect(loaded.sources.verifications).toEqual({ e2e: 'local' });
+    });
+
+    it('local 이 cmd 를 바꾸면 그 필드만 덮는다(누구는 pnpm, 누구는 npm)', () => {
+      const root = projectWithVerifications();
+      writeLocalOverlay(root, { verifications: [{ name: 'typecheck', cmd: 'pnpm exec tsc' }] });
+
+      const loaded = loadConfig(root);
+
+      expect(loaded.config?.verifications).toEqual([
+        { name: 'typecheck', cmd: 'pnpm exec tsc' },
+        { name: 'e2e', cmd: 'playwright test' },
+      ]);
+    });
+
+    it('base 에 없는 이름을 local 이 가리키면 무시한다', () => {
+      const root = projectWithVerifications();
+      writeLocalOverlay(root, { verifications: [{ name: 'ghost', skip: true }] });
+
+      const loaded = loadConfig(root);
+
+      expect(loaded.config?.verifications).toEqual([
+        { name: 'typecheck', cmd: 'tsc --noEmit' },
+        { name: 'e2e', cmd: 'playwright test' },
+      ]);
+      expect(loaded.sources.verifications).toEqual({});
+    });
   });
 });
 
@@ -210,7 +293,7 @@ describe('config JSON/source output and local writes', () => {
     const report = JSON.parse(stdout) as Record<string, unknown>;
     expect(report).toMatchObject({
       basePath: path.join(root, '.awl', 'config.json'),
-      overlayPath: path.join(root, '.git', 'awl', 'config.local.json'),
+      overlayPath: path.join(root, '.awl', 'config.local.json'),
       effective: { project: 'lane', feedback: { enabled: true } },
       sources: {
         project: 'local',
@@ -232,7 +315,7 @@ describe('config JSON/source output and local writes', () => {
     await runConfigSet('feedback.path', '/lane/feedback', { force: false, local: true });
 
     expect(fs.readFileSync(basePath, 'utf8')).toBe(before);
-    const overlayPath = path.join(root, '.git', 'awl', 'config.local.json');
+    const overlayPath = path.join(root, '.awl', 'config.local.json');
     expect(JSON.parse(fs.readFileSync(overlayPath, 'utf8'))).toEqual({
       project: 'lane',
       feedback: { enabled: true, path: '/lane/feedback' },
@@ -240,6 +323,165 @@ describe('config JSON/source output and local writes', () => {
     expect(
       fs.readdirSync(path.dirname(overlayPath)).filter((name) => name.includes('.tmp')),
     ).toEqual([]);
+  });
+
+  it('config set --local verifications.<name>.skip 은 base 를 안 바꾸고 overlay 에 name+skip 만 남긴다', async () => {
+    const root = gitProject();
+    process.chdir(root);
+    const basePath = path.join(root, '.awl', 'config.json');
+    const before = fs.readFileSync(basePath, 'utf8');
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    await runConfigSet('verifications.typecheck.skip', 'true', { force: false, local: true });
+
+    expect(fs.readFileSync(basePath, 'utf8')).toBe(before);
+    const overlayPath = path.join(root, '.awl', 'config.local.json');
+    expect(JSON.parse(fs.readFileSync(overlayPath, 'utf8'))).toEqual({
+      verifications: [{ name: 'typecheck', skip: true }],
+    });
+    const loaded = loadConfig(root);
+    expect(loaded.config?.verifications).toEqual([
+      { name: 'typecheck', cmd: 'tsc --noEmit', skip: true },
+    ]);
+  });
+
+  it('config set --local verifications.<없는이름>.skip 은 base 에 없다고 거부한다', async () => {
+    const root = gitProject();
+    process.chdir(root);
+    let stderr = '';
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
+      stderr += String(chunk);
+      return true;
+    });
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as typeof process.exit);
+
+    await expect(
+      runConfigSet('verifications.ghost.skip', 'true', { force: false, local: true }),
+    ).rejects.toThrow('exit:1');
+    expect(stderr).toContain('base(config.json)에 없습니다');
+    expect(fs.existsSync(path.join(root, '.awl', 'config.local.json'))).toBe(false);
+  });
+
+  it('config set --local verifications.<name>.cmd 를 빈 값으로 주면(삭제 시도) skip 을 쓰라고 안내하며 거부한다', async () => {
+    const root = gitProject();
+    process.chdir(root);
+    let stderr = '';
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
+      stderr += String(chunk);
+      return true;
+    });
+    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as typeof process.exit);
+
+    await expect(
+      runConfigSet('verifications.typecheck.cmd', '', { force: false, local: true }),
+    ).rejects.toThrow('exit:1');
+    expect(stderr).toContain('skip');
+    expect(fs.existsSync(path.join(root, '.awl', 'config.local.json'))).toBe(false);
+  });
+
+  it('author 는 저장소(config.json) → local(config.local.json) 순으로 전역을 덮는다(WI-G13)', async () => {
+    const root = gitProject();
+    const basePath = path.join(root, '.awl', 'config.json');
+    const base = JSON.parse(fs.readFileSync(basePath, 'utf8'));
+    fs.writeFileSync(basePath, JSON.stringify({ ...base, author: 'repo@example.com' }));
+
+    let loaded = loadConfig(root);
+    expect(loaded.config?.author).toBe('repo@example.com');
+    expect(loaded.sources.author).toBe('base');
+
+    writeLocalOverlay(root, { author: 'local@example.com' });
+    loaded = loadConfig(root);
+    expect(loaded.config?.author).toBe('local@example.com');
+    expect(loaded.sources.author).toBe('local');
+  });
+
+  it('비-TTY 에서 새 검사를 추가하면 묻지 않고 scope 를 안 건드린다(WI-G15 후속 — CI/스킬 호출부 하위호환)', async () => {
+    const root = gitProject();
+    process.chdir(root);
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    await runConfigSet('verifications.a11y.cmd', `${process.execPath} --version`, {
+      force: false,
+    });
+
+    const loaded = loadConfig(root);
+    expect(loaded.config?.verifications.find((v) => v.name === 'a11y')).toMatchObject({
+      name: 'a11y',
+    });
+    expect(loaded.config?.verifications.find((v) => v.name === 'a11y')?.scope).toBeUndefined();
+  });
+
+  it('이미 있는 검사의 cmd 만 바꿀 때는 새 검사 취급을 안 한다(scope 안 건드림)', async () => {
+    const root = gitProject();
+    process.chdir(root);
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    await runConfigSet('verifications.typecheck.scope', 'changed', { force: false });
+
+    await runConfigSet('verifications.typecheck.cmd', `${process.execPath} --version`, {
+      force: false,
+    });
+
+    const loaded = loadConfig(root);
+    expect(loaded.config?.verifications.find((v) => v.name === 'typecheck')?.scope).toBe(
+      'changed',
+    ); // cmd 만 갱신됐어도 기존 scope 는 보존(applyConfigValue 의 기존 동작)되고, 새로 물어보지도 않는다.
+  });
+
+  it('config --show-origin 은 값별 출처(전역/저장소/개인)를 보여준다', async () => {
+    const root = gitProject();
+    writeLocalOverlay(root, { verifications: [{ name: 'typecheck', skip: true }] });
+    process.chdir(root);
+    let stdout = '';
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+      stdout += String(chunk);
+      return true;
+    });
+
+    await runConfig({ showOrigin: true });
+
+    expect(stdout).toContain('verifications.typecheck.cmd');
+    expect(stdout).toContain(path.join(root, '.awl', 'config.local.json'));
+    expect(stdout).toContain('project');
+    expect(stdout).toContain(path.join(root, '.awl', 'config.json'));
+  });
+
+  it('config --show-origin 은 저장소가 author 를 덮으면 전역이 아니라 저장소 config.json 을 출처로 보여준다(WI-G13)', async () => {
+    const origHome = process.env.AWL_HOME;
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-cfg-home-'));
+    try {
+      fs.mkdirSync(process.env.AWL_HOME, { recursive: true });
+      fs.writeFileSync(
+        path.join(process.env.AWL_HOME, 'config.json'),
+        JSON.stringify({ author: 'global@example.com' }),
+      );
+      const root = gitProject();
+      const basePath = path.join(root, '.awl', 'config.json');
+      const base = JSON.parse(fs.readFileSync(basePath, 'utf8'));
+      fs.writeFileSync(basePath, JSON.stringify({ ...base, author: 'repo@example.com' }));
+      process.chdir(root);
+
+      let stdout = '';
+      vi.spyOn(process.stdout, 'write').mockImplementation((chunk: unknown) => {
+        stdout += String(chunk);
+        return true;
+      });
+
+      await runConfig({ showOrigin: true });
+
+      expect(stdout).toContain('repo@example.com');
+      expect(stdout).not.toContain('global@example.com');
+      expect(stdout).toContain(basePath);
+    } finally {
+      if (origHome === undefined) {
+        delete process.env.AWL_HOME;
+      } else {
+        process.env.AWL_HOME = origHome;
+      }
+    }
   });
 
   it.each([
@@ -264,7 +506,7 @@ describe('config JSON/source output and local writes', () => {
       'exit:1',
     );
     expect(stderr).toMatch(withGit ? /local.*지원|지원.*local/i : /git.*worktree/i);
-    expect(fs.existsSync(path.join(root, '.git', 'awl', 'config.local.json'))).toBe(false);
+    expect(fs.existsSync(path.join(root, '.awl', 'config.local.json'))).toBe(false);
   });
 
   it.each([
@@ -275,7 +517,6 @@ describe('config JSON/source output and local writes', () => {
           fs.mkdtempSync(path.join(os.tmpdir(), 'awl-cfg-empty-gitdir-')),
         );
         fs.writeFileSync(path.join(root, '.git'), `gitdir: ${gitDir}\n`);
-        return gitDir;
       },
     },
     {
@@ -290,23 +531,25 @@ describe('config JSON/source output and local writes', () => {
         fs.writeFileSync(path.join(gitDir, 'HEAD'), 'ref: refs/heads/main\n');
         fs.writeFileSync(path.join(gitDir, 'commondir'), `${commonDir}\n`);
         fs.writeFileSync(path.join(root, '.git'), `gitdir: ${gitDir}\n`);
-        return gitDir;
       },
     },
-  ])('$name scope는 local overlay를 만들기 전에 거부한다', async ({ arrange }) => {
+    // 예전엔 overlay 경로 자체를 resolveGitLayout(git 메타데이터 상세 검증)으로 구했었기 때문에
+    // 깨진/빈 gitdir 이면 경로 계산부터 실패해 쓰기가 거부됐다. 이제 .awl/config.local.json 은
+    // .git 존재 여부(findDotGitPath, lstat 만)만 보고 git 메타데이터 내용은 안 본다 — 그래서
+    // 이 두 시나리오는 더는 거부 사유가 아니다(ADK stage 4, 로컬 오버라이드가 git 내부 구조와
+    // 무관해졌다는 게 이번 변경의 요점이다). "$name" 은 이제 정상적으로 써진다는 걸 확인한다.
+  ])('$name 이어도(.git 파일은 있음) local overlay를 정상적으로 쓴다', async ({ arrange }) => {
     const root = fs.realpathSync(projectWithConfig(VALID));
-    const gitDir = arrange(root);
+    arrange(root);
     process.chdir(root);
-    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
-      throw new Error(`exit:${code}`);
-    }) as typeof process.exit);
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
 
-    await expect(
-      runConfigSet('project', 'unexpected-write', { force: false, local: true }),
-    ).rejects.toThrow('exit:1');
-    expect(fs.existsSync(path.join(gitDir, 'awl', 'config.local.json'))).toBe(false);
-    expect(fs.existsSync(path.join(gitDir, 'awl'))).toBe(false);
+    await runConfigSet('project', 'unexpected-write', { force: false, local: true });
+
+    const overlayPath = path.join(root, '.awl', 'config.local.json');
+    expect(JSON.parse(fs.readFileSync(overlayPath, 'utf8'))).toEqual({
+      project: 'unexpected-write',
+    });
   });
 });
 
@@ -333,30 +576,52 @@ describe('parseConfigKey — 지원하는 모든 키 (Part 0-4)', () => {
     expect(parseConfigKey('character')).toEqual({ kind: 'character' });
   });
 
-  it('verify.<name>.cmd/.cwd/.env', () => {
-    expect(parseConfigKey('verify.lint.cmd')).toEqual({ kind: 'verify.cmd', verifyName: 'lint' });
-    expect(parseConfigKey('verify.lint.cwd')).toEqual({ kind: 'verify.cwd', verifyName: 'lint' });
-    expect(parseConfigKey('verify.lint.env')).toEqual({ kind: 'verify.env', verifyName: 'lint' });
+  it('verifications.<name>.cmd/.cwd/.env/.scope/.level/.skip (ADK stage 4, 이름은 자유)', () => {
+    expect(parseConfigKey('verifications.lint.cmd')).toEqual({
+      kind: 'verifications.cmd',
+      verifyName: 'lint',
+    });
+    expect(parseConfigKey('verifications.lint.cwd')).toEqual({
+      kind: 'verifications.cwd',
+      verifyName: 'lint',
+    });
+    expect(parseConfigKey('verifications.lint.env')).toEqual({
+      kind: 'verifications.env',
+      verifyName: 'lint',
+    });
+    expect(parseConfigKey('verifications.a11y.scope')).toEqual({
+      kind: 'verifications.scope',
+      verifyName: 'a11y',
+    });
+    expect(parseConfigKey('verifications.e2e.level')).toEqual({
+      kind: 'verifications.level',
+      verifyName: 'e2e',
+    });
+    expect(parseConfigKey('verifications.lint.skip')).toEqual({
+      kind: 'verifications.skip',
+      verifyName: 'lint',
+    });
   });
 
-  it('verify.<name> (접미사 없음)은 하위 호환으로 .cmd 취급', () => {
-    expect(parseConfigKey('verify.test')).toEqual({ kind: 'verify.cmd', verifyName: 'test' });
+  it('verifications.<name> (접미사 없음)은 하위 호환으로 .cmd 취급', () => {
+    expect(parseConfigKey('verifications.test')).toEqual({
+      kind: 'verifications.cmd',
+      verifyName: 'test',
+    });
   });
 
   it('알 수 없는 키는 null', () => {
     expect(parseConfigKey('nope')).toBeNull();
-    expect(parseConfigKey('verify.nope.cmd')).toBeNull();
   });
 
-  it('SETTABLE_KEYS 는 protectedFiles 를 포함한 모든 설정 키를 노출한다', () => {
-    expect(SETTABLE_KEYS).toContain('verify.lint.cwd');
-    expect(SETTABLE_KEYS).toContain('verify.e2e.env');
+  it('SETTABLE_KEYS 는 정적 키만 노출한다(verifications.* 는 이름이 자유라 동적으로 붙는다)', () => {
     expect(SETTABLE_KEYS).toContain('namingConvention');
     expect(SETTABLE_KEYS).toContain('relatedCmd');
     expect(SETTABLE_KEYS).toContain('protectedFiles');
     expect(SETTABLE_KEYS).toContain('feedback.enabled');
     expect(SETTABLE_KEYS).toContain('feedback.path');
-    expect(SETTABLE_KEYS.length).toBe(8 + 4 * 3);
+    expect(SETTABLE_KEYS).not.toContain('verify.lint.cwd');
+    expect(SETTABLE_KEYS.length).toBe(8);
   });
 });
 
@@ -589,81 +854,97 @@ describe('applyConfigValue — 키마다 검증 규칙이 다르다', () => {
     expect(result.config?.feedback).toBeUndefined();
   });
 
-  it('verify.cmd: 실제 존재하는 명령이면 통과하고 저장한다', async () => {
+  function findVerification(config: AwlConfig, name: string) {
+    return config.verifications.find((v) => v.name === name);
+  }
+
+  it('verifications.cmd: 실제 존재하는 명령이면 통과하고 저장한다(존재하지 않는 이름은 새로 만든다)', async () => {
     const config = freshConfig();
     const outcome = await applyConfigValue(
       config,
       '/tmp',
-      { kind: 'verify.cmd', verifyName: 'lint' },
+      { kind: 'verifications.cmd', verifyName: 'lint' },
       NODE,
       { force: false },
     );
     expect(outcome.ok).toBe(true);
-    expect(config.verify.lint?.cmd).toBe(NODE);
+    expect(findVerification(config, 'lint')?.cmd).toBe(NODE);
   });
 
-  it('verify.cmd: 없는 명령은 거부(--force 없이)', async () => {
+  it('verifications.cmd: 없는 명령은 거부(--force 없이)', async () => {
     const config = freshConfig();
     const outcome = await applyConfigValue(
       config,
       '/tmp',
-      { kind: 'verify.cmd', verifyName: 'lint' },
+      { kind: 'verifications.cmd', verifyName: 'lint' },
       'awl_no_such_tool_zzz .',
       { force: false },
     );
     expect(outcome.ok).toBe(false);
-    expect(config.verify.lint).toBeNull(); // 저장 안 됨
+    expect(findVerification(config, 'lint')).toBeUndefined(); // 저장 안 됨
   });
 
-  it('verify.cmd: --force 면 없는 명령도 저장한다', async () => {
+  it('verifications.cmd: --force 면 없는 명령도 저장한다', async () => {
     const config = freshConfig();
     const outcome = await applyConfigValue(
       config,
       '/tmp',
-      { kind: 'verify.cmd', verifyName: 'lint' },
+      { kind: 'verifications.cmd', verifyName: 'lint' },
       'awl_no_such_tool_zzz .',
       { force: true },
     );
     expect(outcome.ok).toBe(true);
-    expect(config.verify.lint?.cmd).toBe('awl_no_such_tool_zzz .');
+    expect(findVerification(config, 'lint')?.cmd).toBe('awl_no_such_tool_zzz .');
   });
 
-  it('verify.cwd: 존재하는 디렉토리(프로젝트 루트 기준 상대경로)를 저장한다', async () => {
+  it('verifications.cmd: 빈 값이면 그 이름의 항목을 배열에서 제거한다', async () => {
+    const config = freshConfig();
+    const outcome = await applyConfigValue(
+      config,
+      '/tmp',
+      { kind: 'verifications.cmd', verifyName: 'typecheck' },
+      '',
+      { force: false },
+    );
+    expect(outcome.ok).toBe(true);
+    expect(findVerification(config, 'typecheck')).toBeUndefined();
+  });
+
+  it('verifications.cwd: 존재하는 디렉토리(프로젝트 루트 기준 상대경로)를 저장한다', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-cwd-'));
     fs.mkdirSync(path.join(root, 'packages', 'app'), { recursive: true });
     const config = freshConfig();
-    config.verify.typecheck = { cmd: 'tsc --noEmit' };
     const outcome = await applyConfigValue(
       config,
       root,
-      { kind: 'verify.cwd', verifyName: 'typecheck' },
+      { kind: 'verifications.cwd', verifyName: 'typecheck' },
       'packages/app',
       { force: false },
     );
     expect(outcome.ok).toBe(true);
-    expect(config.verify.typecheck?.cwd).toBe('packages/app');
+    expect(findVerification(config, 'typecheck')?.cwd).toBe('packages/app');
   });
 
-  it('verify.cwd: 없는 디렉토리는 거부(--force 없이)', async () => {
+  it('verifications.cwd: 없는 디렉토리는 거부(--force 없이)', async () => {
     const config = freshConfig();
     const outcome = await applyConfigValue(
       config,
       '/tmp',
-      { kind: 'verify.cwd', verifyName: 'typecheck' },
+      { kind: 'verifications.cwd', verifyName: 'typecheck' },
       'no/such/dir',
       { force: false },
     );
     expect(outcome.ok).toBe(false);
-    expect(config.verify.typecheck?.cwd).toBeUndefined();
+    expect(findVerification(config, 'typecheck')?.cwd).toBeUndefined();
   });
 
-  it('verify.cwd: 절대경로는 허용하되 경고한다', async () => {
+  it('verifications.cwd: 절대경로는 허용하되 경고한다', async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-cwd-'));
     const config = freshConfig();
     const outcome = await applyConfigValue(
       config,
       '/tmp',
-      { kind: 'verify.cwd', verifyName: 'typecheck' },
+      { kind: 'verifications.cwd', verifyName: 'typecheck' },
       root,
       { force: false },
     );
@@ -672,61 +953,107 @@ describe('applyConfigValue — 키마다 검증 규칙이 다르다', () => {
     expect(outcome.message).toContain('절대 경로');
   });
 
-  it('verify.cwd: cmd 가 설정 안 된 항목이면 거부', async () => {
+  it('verifications.cwd: cmd 가 설정 안 된 이름(존재하지 않는 항목)이면 거부', async () => {
     const config = freshConfig();
     const outcome = await applyConfigValue(
       config,
       '/tmp',
-      { kind: 'verify.cwd', verifyName: 'lint' }, // lint 는 freshConfig 에서 null
+      { kind: 'verifications.cwd', verifyName: 'lint' }, // lint 는 freshConfig 에 없음
       '.',
       { force: false },
     );
     expect(outcome.ok).toBe(false);
   });
 
-  it('verify.env: JSON 객체를 저장한다', async () => {
+  it('verifications.env: JSON 객체를 저장한다', async () => {
     const config = freshConfig();
     const outcome = await applyConfigValue(
       config,
       '/tmp',
-      { kind: 'verify.env', verifyName: 'typecheck' },
+      { kind: 'verifications.env', verifyName: 'typecheck' },
       '{"NODE_ENV":"test"}',
       { force: false },
     );
     expect(outcome.ok).toBe(true);
-    expect(config.verify.typecheck?.env).toEqual({ NODE_ENV: 'test' });
+    expect(findVerification(config, 'typecheck')?.env).toEqual({ NODE_ENV: 'test' });
   });
 
-  it('verify.env: JSON 이 아니면 거부', async () => {
+  it('verifications.env: JSON 이 아니면 거부', async () => {
     const config = freshConfig();
     const outcome = await applyConfigValue(
       config,
       '/tmp',
-      { kind: 'verify.env', verifyName: 'typecheck' },
+      { kind: 'verifications.env', verifyName: 'typecheck' },
       'not json',
       { force: false },
     );
     expect(outcome.ok).toBe(false);
   });
 
-  it('verify.cmd 만 바꿀 때 기존 cwd 를 보존한다', async () => {
+  it('verifications.scope/level/skip 을 설정한다', async () => {
+    const config = freshConfig();
+    const scope = await applyConfigValue(
+      config,
+      '/tmp',
+      { kind: 'verifications.scope', verifyName: 'typecheck' },
+      'changed',
+      { force: false },
+    );
+    expect(scope.ok).toBe(true);
+    expect(findVerification(config, 'typecheck')?.scope).toBe('changed');
+
+    const level = await applyConfigValue(
+      config,
+      '/tmp',
+      { kind: 'verifications.level', verifyName: 'typecheck' },
+      'request',
+      { force: false },
+    );
+    expect(level.ok).toBe(true);
+    expect(findVerification(config, 'typecheck')?.level).toBe('request');
+
+    const skip = await applyConfigValue(
+      config,
+      '/tmp',
+      { kind: 'verifications.skip', verifyName: 'typecheck' },
+      'true',
+      { force: false },
+    );
+    expect(skip.ok).toBe(true);
+    expect(findVerification(config, 'typecheck')?.skip).toBe(true);
+  });
+
+  it('verifications.scope: 잘못된 값이면 거부', async () => {
+    const config = freshConfig();
+    const outcome = await applyConfigValue(
+      config,
+      '/tmp',
+      { kind: 'verifications.scope', verifyName: 'typecheck' },
+      'nonsense',
+      { force: false },
+    );
+    expect(outcome.ok).toBe(false);
+  });
+
+  it('verifications.cmd 만 바꿀 때 기존 cwd 를 보존한다', async () => {
     // AC-08: 존재 확인도 그 cwd 로 하므로, 실제로 존재하는 디렉토리여야 한다.
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-cfg-preserve-')));
     fs.mkdirSync(path.join(root, 'packages', 'app'), { recursive: true });
     const config = freshConfig();
-    config.verify.typecheck = { cmd: 'tsc --noEmit', cwd: 'packages/app' };
+    const existing = findVerification(config, 'typecheck');
+    if (existing) existing.cwd = 'packages/app';
     const outcome = await applyConfigValue(
       config,
       root,
-      { kind: 'verify.cmd', verifyName: 'typecheck' },
+      { kind: 'verifications.cmd', verifyName: 'typecheck' },
       NODE,
       { force: false },
     );
     expect(outcome.ok).toBe(true);
-    expect(config.verify.typecheck).toEqual({ cmd: NODE, cwd: 'packages/app' });
+    expect(findVerification(config, 'typecheck')).toMatchObject({ cmd: NODE, cwd: 'packages/app' });
   });
 
-  it('verify.cmd: 존재 확인도 기존 cwd 기준으로 한다 (AC-08, maxflow 재현 — cwd 없이 확인하면 실패했을 명령)', async () => {
+  it('verifications.cmd: 존재 확인도 기존 cwd 기준으로 한다 (AC-08, maxflow 재현 — cwd 없이 확인하면 실패했을 명령)', async () => {
     // packages/app 안에서만 풀리는 상대경로 실행파일 — cwd 를 안 쓰고 확인하면 실패한다.
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-cfg-cwd-')));
     fs.mkdirSync(path.join(root, 'packages', 'app'), { recursive: true });
@@ -736,16 +1063,20 @@ describe('applyConfigValue — 키마다 검증 규칙이 다르다', () => {
     fs.chmodSync(toolPath, 0o755);
 
     const config = freshConfig();
-    config.verify.typecheck = { cmd: 'old-placeholder', cwd: 'packages/app' };
+    const existing = findVerification(config, 'typecheck');
+    if (existing) {
+      existing.cmd = 'old-placeholder';
+      existing.cwd = 'packages/app';
+    }
     const outcome = await applyConfigValue(
       config,
       root,
-      { kind: 'verify.cmd', verifyName: 'typecheck' },
+      { kind: 'verifications.cmd', verifyName: 'typecheck' },
       '../../node_modules/.bin/fake-tool',
       { force: false },
     );
     expect(outcome.ok).toBe(true);
-    expect(config.verify.typecheck).toEqual({
+    expect(findVerification(config, 'typecheck')).toMatchObject({
       cmd: '../../node_modules/.bin/fake-tool',
       cwd: 'packages/app',
     });
@@ -828,15 +1159,16 @@ describe('interactiveEditMenu — init 의 buildScreens 를 재사용한 인터�
   it('검증 명령어 메뉴에서 존재하는 명령으로 고친다', async () => {
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
     const config = freshConfig();
-    // typecheck/lint/test/e2e 순서로 물어본다. typecheck 만 바꾸고 나머지는 빈 줄(유지).
-    const rl = makeRL(['3', NODE, '', '', '']);
+    // ADK stage 4: 이미 설정된 이름(typecheck 하나)만 물어본다 — 자유 이름이라
+    // 4개 고정이 아니다. '/tmp' 는 감지될 것이 없다고 가정한다.
+    const rl = makeRL(['3', NODE]);
     const changed = await interactiveEditMenu(rl, config, '/tmp', CAPS);
     rl.close();
     stdoutSpy.mockRestore();
 
     expect(changed).toBe(true);
-    expect(config.verify.typecheck?.cmd).toBe(NODE);
-    expect(config.verify.lint).toBeNull(); // 안 바뀜
+    expect(config.verifications.find((v) => v.name === 'typecheck')?.cmd).toBe(NODE);
+    expect(config.verifications.find((v) => v.name === 'lint')).toBeUndefined(); // 없음, 안 생김
   });
 
   it('피드백 모드를 켜고 경로는 비워서 그대로 둔다', async () => {

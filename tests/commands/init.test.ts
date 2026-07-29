@@ -1,12 +1,13 @@
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import { PassThrough } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { VerificationEntry } from '../../src/commands/config.js';
 import {
   type InitInputs,
-  type VerifyMap,
   applyInit,
   applyVerifyCwd,
   buildConfig,
@@ -25,6 +26,7 @@ import {
   installSafetyHook,
   listRegisteredProjects,
   nonInteractiveInputs,
+  promptAuthorInteractive,
   promptVerifyLocation,
   registerProject,
   registeredProjectPaths,
@@ -239,10 +241,17 @@ describe('detectVerify', () => {
       }),
     );
     const v = detectVerify(p);
-    expect(v.typecheck).toEqual({ cmd: 'tsc --noEmit' }); // tsconfig 로 유추
-    expect(v.lint).toEqual({ cmd: 'eslint .' });
-    expect(v.test).toEqual({ cmd: 'vitest run', env: { NODE_ENV: 'test' } });
-    expect(v.e2e).toBeNull();
+    expect(v.find((e) => e.name === 'typecheck')).toEqual({
+      name: 'typecheck',
+      cmd: 'tsc --noEmit',
+    }); // tsconfig 로 유추
+    expect(v.find((e) => e.name === 'lint')).toEqual({ name: 'lint', cmd: 'eslint .' });
+    expect(v.find((e) => e.name === 'test')).toEqual({
+      name: 'test',
+      cmd: 'vitest run',
+      env: { NODE_ENV: 'test' },
+    });
+    expect(v.find((e) => e.name === 'e2e')).toBeUndefined();
   });
 });
 
@@ -263,23 +272,24 @@ describe('detectWorkspacePackages (WI-B, 모노레포 검증 위치)', () => {
   });
 });
 
+/** 스크립트된 답변을 순서대로 흘려보내는 readline. 여러 describe 블록이 공유한다. */
+function makeScriptedRL(answers: string[]): readline.Interface {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  output.on('data', () => {});
+  const rl = readline.createInterface({ input, output });
+  const queue = [...answers];
+  const originalQuestion = rl.question.bind(rl);
+  rl.question = ((query: string, cb: (answer: string) => void) => {
+    originalQuestion(query, cb);
+    const next = queue.shift() ?? '';
+    process.nextTick(() => input.write(`${next}\n`));
+  }) as typeof rl.question;
+  return rl;
+}
+
 describe('promptVerifyLocation (WI-B, readline 직접 구동 — D-23 패턴)', () => {
   const COLOR: Colors = makeColors(false);
-
-  function makeScriptedRL(answers: string[]): readline.Interface {
-    const input = new PassThrough();
-    const output = new PassThrough();
-    output.on('data', () => {});
-    const rl = readline.createInterface({ input, output });
-    const queue = [...answers];
-    const originalQuestion = rl.question.bind(rl);
-    rl.question = ((query: string, cb: (answer: string) => void) => {
-      originalQuestion(query, cb);
-      const next = queue.shift() ?? '';
-      process.nextTick(() => input.write(`${next}\n`));
-    }) as typeof rl.question;
-    return rl;
-  }
 
   it('모노레포가 아니면 묻지 않고 루트 verify 그대로 돌려준다', async () => {
     const p = tmp('awl-ws-');
@@ -307,7 +317,7 @@ describe('promptVerifyLocation (WI-B, readline 직접 구동 — D-23 패턴)', 
     rl.close();
     stdoutSpy.mockRestore();
     expect(result.cwd).toBeUndefined();
-    expect(result.verify.test).toEqual({ cmd: 'vitest run' });
+    expect(result.verify.find((v) => v.name === 'test')).toEqual({ name: 'test', cmd: 'vitest run' });
   });
 
   it('모노레포이고 루트에 검증 명령이 없으면 패키지를 물어본다 — "1"(루트) 을 고르면 루트를 유지한다', async () => {
@@ -343,55 +353,79 @@ describe('promptVerifyLocation (WI-B, readline 직접 구동 — D-23 패턴)', 
     rl.close();
     stdoutSpy.mockRestore();
     expect(result.cwd).toBe(path.join('packages', 'app'));
-    expect(result.verify.test).toEqual({ cmd: 'vitest run' });
+    expect(result.verify.find((v) => v.name === 'test')).toEqual({ name: 'test', cmd: 'vitest run' });
+  });
+});
+
+describe('promptAuthorInteractive — 전역 author 프롬프트 (ADK stage 1)', () => {
+  const C: Caps = { unicode: false, color: false, tty: false };
+
+  it('Enter 만 치면 seed 값 그대로 돌려준다', async () => {
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const rl = makeScriptedRL(['']);
+    const author = await promptAuthorInteractive(rl, 'hong@midasit.com', C);
+    rl.close();
+    stdoutSpy.mockRestore();
+    expect(author).toBe('hong@midasit.com');
+  });
+
+  it('값을 입력하면 그 값을 돌려준다(seed 무시)', async () => {
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const rl = makeScriptedRL(['other@example.com']);
+    const author = await promptAuthorInteractive(rl, 'hong@midasit.com', C);
+    rl.close();
+    stdoutSpy.mockRestore();
+    expect(author).toBe('other@example.com');
+  });
+
+  it('seed 가 빈 문자열이고 Enter 만 치면 빈 문자열을 돌려준다(진행은 막지 않는다)', async () => {
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const rl = makeScriptedRL(['']);
+    const author = await promptAuthorInteractive(rl, '', C);
+    rl.close();
+    stdoutSpy.mockRestore();
+    expect(author).toBe('');
   });
 });
 
 describe('applyVerifyCwd (WI-B, 리뷰 지적 AC-06 — 예전엔 어떤 테스트도 안 걸림)', () => {
-  it('cwd 가 있으면 null 아닌 모든 항목에 적용한다', () => {
-    const verify: VerifyMap = {
-      typecheck: { cmd: 'tsc --noEmit' },
-      lint: { cmd: 'eslint .' },
-      test: null,
-      e2e: null,
-    };
+  it('cwd 가 있으면 배열의 모든 항목에 적용한다', () => {
+    const verify: VerificationEntry[] = [
+      { name: 'typecheck', cmd: 'tsc --noEmit' },
+      { name: 'lint', cmd: 'eslint .' },
+    ];
     applyVerifyCwd(verify, 'packages/app');
-    expect(verify.typecheck?.cwd).toBe('packages/app');
-    expect(verify.lint?.cwd).toBe('packages/app');
-    expect(verify.test).toBeNull(); // null 은 그대로
+    expect(verify.find((v) => v.name === 'typecheck')?.cwd).toBe('packages/app');
+    expect(verify.find((v) => v.name === 'lint')?.cwd).toBe('packages/app');
   });
 
   it('사용자가 프롬프트에서 값을 새로 입력해 바꾼 뒤에도(순서 무관) cwd 가 정확히 적용된다', () => {
     // interactiveInputs 의 실제 순서를 흉내낸다: 사용자가 typecheck 를 새로 입력해
     // 바꾼 다음에 applyVerifyCwd 를 호출한다.
-    const verify: VerifyMap = { typecheck: null, lint: null, test: null, e2e: null };
-    verify.typecheck = { cmd: '../../node_modules/.bin/tsc --noEmit' }; // 사용자가 새로 입력
+    const verify: VerificationEntry[] = [
+      { name: 'typecheck', cmd: '../../node_modules/.bin/tsc --noEmit' }, // 사용자가 새로 입력
+    ];
     applyVerifyCwd(verify, 'packages/app');
-    expect(verify.typecheck?.cwd).toBe('packages/app');
+    expect(verify.find((v) => v.name === 'typecheck')?.cwd).toBe('packages/app');
   });
 
   it('cwd 가 없으면 아무것도 바꾸지 않는다', () => {
-    const verify: VerifyMap = { typecheck: { cmd: 'tsc' }, lint: null, test: null, e2e: null };
+    const verify: VerificationEntry[] = [{ name: 'typecheck', cmd: 'tsc' }];
     applyVerifyCwd(verify, undefined);
-    expect(verify.typecheck?.cwd).toBeUndefined();
+    expect(verify[0]?.cwd).toBeUndefined();
   });
 
   it('순수 함수가 아니다 — 인자를 그 자리에서 바꾸고 같은 참조를 돌려준다 (리뷰 지적 AC-11, 서술 정확성)', () => {
-    const verify: VerifyMap = { typecheck: { cmd: 'tsc' }, lint: null, test: null, e2e: null };
+    const verify: VerificationEntry[] = [{ name: 'typecheck', cmd: 'tsc' }];
     const returned = applyVerifyCwd(verify, 'packages/app');
-    expect(returned).toBe(verify); // 새 객체가 아니라 같은 참조
-    expect(verify.typecheck?.cwd).toBe('packages/app'); // 원본 인자가 실제로 바뀜
+    expect(returned).toBe(verify); // 새 배열이 아니라 같은 참조
+    expect(verify[0]?.cwd).toBe('packages/app'); // 원본 인자가 실제로 바뀜
   });
 });
 
 describe('verifyStepLines (리뷰 지적 AC-09 — buildScreens/interactiveInputs 가 리터럴 배열을 중복하던 것을 분리)', () => {
   it('검증 명령어 화면 본문을 만든다(안내문 + 각 항목 + 마무리 문구)', () => {
-    const lines = verifyStepLines({
-      typecheck: { cmd: 'tsc --noEmit' },
-      lint: null,
-      test: null,
-      e2e: null,
-    });
+    const lines = verifyStepLines([{ name: 'typecheck', cmd: 'tsc --noEmit' }]);
     expect(lines[0]).toBe('package.json 등에서 찾았습니다. 맞으면 Enter, 고치려면 새로 입력.');
     expect(lines.some((l) => l.includes('tsc --noEmit'))).toBe(true);
     expect(lines.at(-2)).toBe('이 명령어들이 유일한 심판입니다.');
@@ -399,7 +433,7 @@ describe('verifyStepLines (리뷰 지적 AC-09 — buildScreens/interactiveInput
   });
 
   it('buildScreens.verify 가 이 함수로 만든 내용을 그대로 담는다(단일 출처 확인)', () => {
-    const verify: VerifyMap = { typecheck: { cmd: 'tsc' }, lint: null, test: null, e2e: null };
+    const verify: VerificationEntry[] = [{ name: 'typecheck', cmd: 'tsc' }];
     const screens = buildScreens(tmp('awl-init-screens-'), false, {
       unicode: false,
       color: false,
@@ -416,54 +450,84 @@ describe('verifyStepLines (리뷰 지적 AC-09 — buildScreens/interactiveInput
 });
 
 describe('buildConfig', () => {
-  it('입력과 엔진버전으로 config 객체를 만든다', () => {
+  it('입력으로 config 객체를 만든다(ADK 0.8.0: engineVersion 필드 없음)', () => {
     const inputs: InitInputs = {
       project: 'proj',
       mainLanguage: ['typescript'],
       character: '디자인 토큰 강제',
-      verify: { typecheck: { cmd: 'tsc --noEmit' }, lint: null, test: null, e2e: null },
+      verifications: [{ name: 'typecheck', cmd: 'tsc --noEmit' }],
       skills: { claude: true, codex: false },
     };
-    const config = buildConfig(inputs, '0.0.0');
+    const config = buildConfig(inputs);
     expect(config.project).toBe('proj');
-    expect(config.engineVersion).toBe('0.0.0');
-    expect(config.verify.typecheck).toEqual({ cmd: 'tsc --noEmit' });
-    expect(config.verify.e2e).toBeNull();
+    expect(config).not.toHaveProperty('engineVersion');
+    expect(config.verifications).toEqual([{ name: 'typecheck', cmd: 'tsc --noEmit' }]);
   });
 });
 
-describe('ensureGitignore — 중복 방지', () => {
-  it('.awl/state.json 을 추가하고, 두 번째는 중복하지 않는다', () => {
+describe('ensureGitignore — 허용목록 방식 (ADK stage 1)', () => {
+  it('.awl/* 화이트리스트 블록을 추가하고, 두 번째는 중복하지 않는다(멱등)', () => {
     const p = tmp('awl-gi-');
     expect(ensureGitignore(p)).toBe('added');
     expect(ensureGitignore(p)).toBe('exists');
-    const content = fs.readFileSync(path.join(p, '.gitignore'), 'utf8');
-    const occurrences = content.split('\n').filter((l) => l.trim() === '.awl/state.json').length;
-    expect(occurrences).toBe(1);
+    const before = fs.readFileSync(path.join(p, '.gitignore'), 'utf8');
+    ensureGitignore(p);
+    expect(fs.readFileSync(path.join(p, '.gitignore'), 'utf8')).toBe(before);
   });
 
-  it('.awl-worktrees/ 도 함께 무시한다 (F-1 근원 차단)', () => {
+  it('.awl/* 와 config.json/profile.json 화이트리스트를 담는다', () => {
     const p = tmp('awl-gi-');
     ensureGitignore(p);
     const content = fs.readFileSync(path.join(p, '.gitignore'), 'utf8');
-    expect(content).toContain('.awl/state.json');
+    expect(content).toContain('.awl/*');
+    expect(content).toContain('!.awl/config.json');
+    expect(content).toContain('!.awl/profile.json');
+  });
+
+  it('.awl-worktrees/ 는 .awl/ 바깥이라 블록과 별개로 계속 무시한다 (F-1 근원 차단)', () => {
+    const p = tmp('awl-gi-');
+    ensureGitignore(p);
+    const content = fs.readFileSync(path.join(p, '.gitignore'), 'utf8');
     expect(content).toContain('.awl-worktrees/');
   });
 
-  it('verify-baseline.json 도 init 시점에 무시한다 (B4: work new 가 나중에 만들어 첫 commit 이 오귀속하는 것 차단)', () => {
-    const p = tmp('awl-gi-');
-    ensureGitignore(p);
-    const content = fs.readFileSync(path.join(p, '.gitignore'), 'utf8');
-    expect(content).toContain('.awl/verify-baseline.json');
-  });
-
-  it('기존 .gitignore 내용을 보존한다', () => {
+  it('기존 .gitignore 내용을 보존하고, 화이트리스트 블록을 맨 위에 둔다', () => {
     const p = tmp('awl-gi-');
     fs.writeFileSync(path.join(p, '.gitignore'), 'node_modules/\n');
     ensureGitignore(p);
     const content = fs.readFileSync(path.join(p, '.gitignore'), 'utf8');
     expect(content).toContain('node_modules/');
-    expect(content).toContain('.awl/state.json');
+    expect(content).toContain('.awl/*');
+    expect(content.indexOf('.awl/*')).toBeLessThan(content.indexOf('node_modules/'));
+  });
+
+  it('사람이 손으로 추가한 예외 라인은 재실행 후에도 보존된다', () => {
+    const p = tmp('awl-gi-');
+    ensureGitignore(p);
+    fs.appendFileSync(path.join(p, '.gitignore'), '!.awl/config.local.json\n');
+    ensureGitignore(p); // 재실행 — 블록만 갱신되고 사람 손 라인은 그대로.
+    const content = fs.readFileSync(path.join(p, '.gitignore'), 'utf8');
+    expect(content).toContain('!.awl/config.local.json');
+  });
+
+  it('실제 git 이 .awl/ 신규 파일은 무시하고 config.json 은 추적 후보로 본다(통합)', () => {
+    const p = tmp('awl-gi-');
+    spawnSync('git', ['init', '-q'], { cwd: p });
+    ensureGitignore(p);
+    fs.mkdirSync(path.join(p, '.awl'), { recursive: true });
+    fs.writeFileSync(path.join(p, '.awl', 'foo-test.json'), '{}\n');
+    fs.writeFileSync(path.join(p, '.awl', 'config.json'), '{}\n');
+
+    // --untracked-files=all 이 없으면 git 이 신규 디렉터리를 "?? .awl/" 하나로
+    // 접어서 안의 config.json 을 개별로 안 보여준다 — 화이트리스트 효과를 보려면
+    // 펼쳐서 봐야 한다.
+    const result = spawnSync(
+      'git',
+      ['status', '--porcelain', '--ignored', '--untracked-files=all'],
+      { cwd: p, encoding: 'utf8' },
+    );
+    expect(result.stdout).toContain('!! .awl/foo-test.json');
+    expect(result.stdout).toContain('?? .awl/config.json');
   });
 });
 
@@ -565,12 +629,15 @@ describe('applyInit — 전체 산출물', () => {
     const config = readJson(result.configPath) as Record<string, unknown>;
     expect(config.project).toBe(path.basename(proj));
     expect(config.mainLanguage).toEqual(['typescript']);
-    expect((config.verify as Record<string, unknown>).lint).toEqual({ cmd: 'eslint .' });
+    expect((config.verifications as Array<{ name: string; cmd: string }>).find((v) => v.name === 'lint')).toEqual({
+      name: 'lint',
+      cmd: 'eslint .',
+    });
 
     // state + gitignore
     expect(fs.existsSync(result.statePath)).toBe(true);
     expect(result.gitignore).toBe('added');
-    expect(fs.readFileSync(path.join(proj, '.gitignore'), 'utf8')).toContain('.awl/state.json');
+    expect(fs.readFileSync(path.join(proj, '.gitignore'), 'utf8')).toContain('.awl/*');
 
     // 스킬 설치
     expect(result.skills).toEqual(['claude', 'codex']);
@@ -580,6 +647,11 @@ describe('applyInit — 전체 산출물', () => {
       true,
     );
     expect(fs.readFileSync(path.join(proj, 'AGENTS.md'), 'utf8')).toContain('awl-loop:start');
+
+    // .awl/stages.md + CLAUDE.md/AGENTS.md 참조 (ADK stage 1)
+    expect(fs.existsSync(path.join(proj, '.awl', 'stages.md'))).toBe(true);
+    expect(fs.readFileSync(path.join(proj, 'CLAUDE.md'), 'utf8')).toContain('@.awl/stages.md');
+    expect(fs.readFileSync(path.join(proj, 'AGENTS.md'), 'utf8')).toContain('.awl/stages.md');
 
     // 스킬 버전 스탬프 (WI-X AC-01)
     const stamp = readJson(skillsVersionPath(proj)) as Record<string, unknown>;
@@ -795,23 +867,20 @@ describe('applyInit — 전체 산출물', () => {
     );
   });
 
-  it('syncExistingInstall — 옛 마커(config·skills-version)를 설치된 엔진 버전으로 끌어올린다 (F-2)', () => {
+  it('syncExistingInstall — 옛 skills-version 마커를 설치된 엔진 버전으로 끌어올린다 (F-2, ADK 0.8.0: config.json 은 안 건드림)', () => {
     const inputs = nonInteractiveInputs(proj);
     inputs.skills = { claude: true, codex: true };
     const result = applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
     const engineVersion = result.engineVersion;
 
     // 마커만 옛 버전으로 되돌린다(내용은 최신, 선언 마커만 낡은 상태 — F-2 관측 재현).
-    const configPath = path.join(proj, '.awl', 'config.json');
-    const cfg = readJson(configPath) as Record<string, unknown>;
-    fs.writeFileSync(configPath, JSON.stringify({ ...cfg, engineVersion: '0.0.1' }));
     fs.writeFileSync(skillsVersionPath(proj), JSON.stringify({ claude: '0.0.1', codex: '0.0.1' }));
 
     const synced = syncExistingInstall(proj, engineVersion, '2026-01-02T00:00:00.000Z');
 
-    expect(synced.configUpdated).toBe(true);
     expect(synced.skills.sort()).toEqual(['claude', 'codex']);
-    expect((readJson(configPath) as Record<string, unknown>).engineVersion).toBe(engineVersion);
+    const configPath = path.join(proj, '.awl', 'config.json');
+    expect(readJson(configPath) as Record<string, unknown>).not.toHaveProperty('engineVersion');
     const stamp = readJson(skillsVersionPath(proj)) as Record<string, unknown>;
     expect(stamp.claude).toBe(engineVersion);
     expect(stamp.codex).toBe(engineVersion);
@@ -829,16 +898,6 @@ describe('applyInit — 전체 산출물', () => {
 
     expect(synced.skills).toEqual([]);
     expect(fs.existsSync(path.join(proj, '.claude', 'skills', 'awl-loop'))).toBe(false);
-  });
-
-  it('syncExistingInstall — 이미 최신이면 config 를 다시 쓰지 않는다 (F-2)', () => {
-    const inputs = nonInteractiveInputs(proj);
-    inputs.skills = { claude: false, codex: false };
-    const result = applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
-
-    const synced = syncExistingInstall(proj, result.engineVersion, '2026-01-02T00:00:00.000Z');
-
-    expect(synced.configUpdated).toBe(false);
   });
 
   it('syncExistingInstall — awl remove --all 등으로 registry 가 비워진 뒤에도 "그대로 쓴다" 재실행이 재등록한다 (F-1)', () => {
@@ -881,23 +940,19 @@ describe('applyInit — 전체 산출물', () => {
     expect(listRegisteredProjects().map((p) => p.path)).toContain(fs.realpathSync(proj));
   });
 
-  it('runInit --yes 재실행이 낡은 마커를 설치 엔진으로 동기화한다 (F-2 CLI 배선)', async () => {
+  it('runInit --yes 재실행이 낡은 skills-version 마커를 설치 엔진으로 동기화한다 (F-2 CLI 배선, ADK 0.8.0: config.json 은 안 건드림)', async () => {
     const inputs = nonInteractiveInputs(proj);
     inputs.skills = { claude: true, codex: false };
     const result = applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
 
     // 마커만 낡게 되돌린다(선언 마커만 옛 버전 — F-2 관측 재현).
-    const configPath = path.join(proj, '.awl', 'config.json');
-    const cfg = readJson(configPath) as Record<string, unknown>;
-    fs.writeFileSync(configPath, JSON.stringify({ ...cfg, engineVersion: '0.0.1' }));
     fs.writeFileSync(skillsVersionPath(proj), JSON.stringify({ claude: '0.0.1' }));
 
     // proj 가 cwd(beforeEach 에서 chdir)이고 config 가 있으므로 --yes 재실행 경로를 탄다.
     await runInit({ yes: true });
 
-    expect((readJson(configPath) as Record<string, unknown>).engineVersion).toBe(
-      result.engineVersion,
-    );
+    const configPath = path.join(proj, '.awl', 'config.json');
+    expect(readJson(configPath) as Record<string, unknown>).not.toHaveProperty('engineVersion');
     expect((readJson(skillsVersionPath(proj)) as Record<string, unknown>).claude).toBe(
       result.engineVersion,
     );
@@ -1052,6 +1107,93 @@ describe('applyInit — 전체 산출물', () => {
         'utf8',
       ),
     ).toBe('v1\n');
+  });
+});
+
+describe('ensureGlobalAwlConfig — 전역 author 시드 (ADK stage 1)', () => {
+  let home: string;
+  let proj: string;
+
+  beforeEach(() => {
+    home = tmp('awl-global-cfg-home-');
+    fs.rmSync(home, { recursive: true, force: true }); // 없는 상태에서 시작
+    process.env.AWL_HOME = home;
+    proj = tmp('awl-global-cfg-proj-');
+    spawnSync('git', ['init', '-q'], { cwd: proj });
+    spawnSync('git', ['config', 'user.email', 'hong@midasit.com'], { cwd: proj });
+    process.chdir(proj);
+  });
+
+  it('git config user.email 이 있으면 --yes 재실행이 그 값으로 전역 config 를 만든다', async () => {
+    await runInit({ yes: true });
+    const cfg = readJson(path.join(home, 'config.json')) as { author?: string };
+    expect(cfg.author).toBe('hong@midasit.com');
+  });
+
+  it('전역 config 가 없어도 --yes 진행을 막지 않는다', async () => {
+    const result = await runInit({ yes: true }).then(
+      () => ({ ok: true }),
+      () => ({ ok: false }),
+    );
+    expect(result.ok).toBe(true);
+    expect(fs.existsSync(path.join(home, 'config.json'))).toBe(true);
+  });
+
+  it('두 번째 프로젝트에서 --yes 재실행해도 author 를 다시 묻지 않는다(전역 config 불변)', async () => {
+    await runInit({ yes: true });
+    const before = fs.readFileSync(path.join(home, 'config.json'), 'utf8');
+
+    const proj2 = tmp('awl-global-cfg-proj2-');
+    spawnSync('git', ['init', '-q'], { cwd: proj2 });
+    spawnSync('git', ['config', 'user.email', 'other@example.com'], { cwd: proj2 });
+    process.chdir(proj2);
+    await runInit({ yes: true });
+
+    // 두 번째 프로젝트의 다른 email 로 덮어써지지 않는다 — 전역 config 는 사람마다 한 번.
+    const after = fs.readFileSync(path.join(home, 'config.json'), 'utf8');
+    expect(after).toBe(before);
+  });
+
+  it('전역 config 가 이미 있으면 --yes 재실행(기존 프로젝트 config)에서도 손대지 않는다', async () => {
+    await runInit({ yes: true }); // 최초: proj 를 새로 셋업하며 전역 config 도 만든다
+    const before = fs.readFileSync(path.join(home, 'config.json'), 'utf8');
+
+    // proj 는 이미 .awl/config.json 이 있으므로 "그대로 쓴다" 재실행 분기를 탄다.
+    await runInit({ yes: true });
+
+    expect(fs.readFileSync(path.join(home, 'config.json'), 'utf8')).toBe(before);
+  });
+});
+
+describe('docs/CONTEXT.md 스캐폴딩 (ADK stage 1, runInit 경로에서만)', () => {
+  let home: string;
+  let proj: string;
+
+  beforeEach(() => {
+    home = tmp('awl-context-home-');
+    fs.rmSync(home, { recursive: true, force: true });
+    process.env.AWL_HOME = home;
+    proj = tmp('awl-context-proj-');
+    makeGitMetadata(path.join(proj, '.git'));
+    process.chdir(proj);
+  });
+
+  it('awl init --yes(신규)가 docs/CONTEXT.md 를 만든다', async () => {
+    await runInit({ yes: true });
+    expect(fs.existsSync(path.join(proj, 'docs', 'CONTEXT.md'))).toBe(true);
+  });
+
+  it('이미 있으면 덮어쓰지 않는다', async () => {
+    fs.mkdirSync(path.join(proj, 'docs'), { recursive: true });
+    fs.writeFileSync(path.join(proj, 'docs', 'CONTEXT.md'), '내가 쓴 용어집\n');
+    await runInit({ yes: true });
+    expect(fs.readFileSync(path.join(proj, 'docs', 'CONTEXT.md'), 'utf8')).toBe('내가 쓴 용어집\n');
+  });
+
+  it('applyInit() 단독 호출(레인 워크트리 재프로비저닝 경로)로는 만들지 않는다 — lane rm WIP 오탐 방지', () => {
+    const inputs = nonInteractiveInputs(proj);
+    applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
+    expect(fs.existsSync(path.join(proj, 'docs', 'CONTEXT.md'))).toBe(false);
   });
 });
 
@@ -1335,7 +1477,7 @@ describe('renderResult — 결과 값 emphasis 강조 (cli-visual-consistency AC
     project: 'proj',
     mainLanguage: ['typescript'],
     character: 'x',
-    verify: { typecheck: null, lint: null, test: null, e2e: null },
+    verifications: [],
     skills: { claude: true, codex: false },
   };
   const result = {

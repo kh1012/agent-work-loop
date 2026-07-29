@@ -8,7 +8,9 @@ import {
   projectsFile,
   rulesDir,
 } from '../core/paths.js';
+import { readGlobalAwlConfig } from '../core/global-config.js';
 import { CommandNotFoundError, run, tokenize } from '../core/runner.js';
+import { readSyncCursor } from '../core/sync.js';
 import {
   type Caps,
   caps,
@@ -27,7 +29,8 @@ import {
   checkVersions,
 } from '../core/versions.js';
 import { loadConfig } from './config.js';
-import { codexSkillNames, listRegisteredProjects } from './init.js';
+import { type SkillSlot, loadProfile } from './profile.js';
+import { codexSkillNames, listRegisteredProjects, stagesMdContent } from './init.js';
 import { loadProjectName, readRecords } from './record.js';
 import { loadState, readStateLock } from './state.js';
 import { gatherVersionInputs } from './version-check.js';
@@ -441,7 +444,11 @@ function collectEnv(checks: Check[]): void {
 }
 
 /** 2. 전역 설치 (~/.awl) */
-function collectGlobal(checks: Check[], versionResult: VersionCheckResult): void {
+function collectGlobal(
+  checks: Check[],
+  versionResult: VersionCheckResult,
+  currentProjectName: string | undefined,
+): void {
   const root = installationRoot();
   if (!exists(root)) {
     checks.push({
@@ -523,6 +530,37 @@ function collectGlobal(checks: Check[], versionResult: VersionCheckResult): void
     projectCount = Object.keys(projects).length;
   }
   checks.push({ group: '전역 설치', name: '프로젝트', status: 'info', value: `${projectCount}개` });
+
+  // sync(중앙 저장소 전송, ADK stage 3) — prototype.md:419-430 화면 그대로.
+  // 사람마다 한 번(전역) 설정이라 전역 설치와 나란히 검사하되, 그룹은 따로 둔다.
+  const recordsEndpoint = readGlobalAwlConfig()?.sync?.records?.endpoint;
+  if (!recordsEndpoint) {
+    checks.push({
+      group: 'sync',
+      name: 'endpoint',
+      status: 'info',
+      value: '없음',
+      hint: '전송이 꺼져 있습니다. 기록은 로컬에만 쌓입니다.',
+    });
+  } else {
+    checks.push({ group: 'sync', name: 'endpoint', status: 'ok', value: recordsEndpoint });
+    // records 커서는 프로젝트별로 나뉜다(cross-project 간섭 방지, ADK stage 3) —
+    // 이 cwd 의 프로젝트 것만 본다. 프로젝트를 못 찾으면(cwd 밖) 상태 행 자체를 생략한다.
+    const stream = currentProjectName
+      ? readSyncCursor().records?.[currentProjectName]
+      : undefined;
+    if (stream?.backoffIndex !== undefined) {
+      checks.push({
+        group: 'sync',
+        name: '상태',
+        status: 'warn',
+        value: `재시도 중${stream.lastFailureReason ? ` (${stream.lastFailureReason})` : ''}`,
+        hint: `미전송 ${stream.pendingCount ?? 0}건. 서버를 켜면 함께 나갑니다.`,
+      });
+    } else {
+      checks.push({ group: 'sync', name: '상태', status: 'ok', value: '정상' });
+    }
+  }
 }
 
 /**
@@ -628,6 +666,29 @@ async function collectSingleProject(
   }
   const raw = loadedConfig.config;
   checks.push({ group: groupLabel, name: 'config.json', status: 'ok', value: '있음' });
+
+  // .awl/stages.md (ADK stage 1) — doctor 는 아무것도 고치지 않는다, 안내만 한다.
+  const stagesMdPath = path.join(projectRoot, '.awl', 'stages.md');
+  if (!exists(stagesMdPath)) {
+    checks.push({
+      group: groupLabel,
+      name: 'stages.md',
+      status: 'warn',
+      value: '없음',
+      hint: '단계 계약 파일이 없습니다. awl update --local 로 다시 만드세요.',
+    });
+  } else if (fs.readFileSync(stagesMdPath, 'utf8') !== stagesMdContent()) {
+    checks.push({
+      group: groupLabel,
+      name: 'stages.md',
+      status: 'warn',
+      value: '낡음',
+      hint: '엔진이 만드는 계약 표와 다릅니다. awl update --local 로 다시 만드세요.',
+    });
+  } else {
+    checks.push({ group: groupLabel, name: 'stages.md', status: 'ok', value: '최신' });
+  }
+
   checks.push({
     group: groupLabel,
     name: 'config source',
@@ -635,6 +696,49 @@ async function collectSingleProject(
     value: `base: ${loadedConfig.basePath} · overlay: ${loadedConfig.overlayPath ?? '(없음)'}`,
     hint: `effective project=${raw.project}; project=${loadedConfig.sources.project}, feedback.enabled=${loadedConfig.sources['feedback.enabled']}, feedback.path=${loadedConfig.sources['feedback.path']}`,
   });
+
+  // 로컬에서 건너뛴 검증(config.local.json 의 skip:true, ADK stage 4) — 경고다.
+  // "통과했다"와 "안 돌렸다"는 다르다(reference.md:1222).
+  const skippedVerifications = raw.verifications.filter((v) => v.skip).map((v) => v.name);
+  if (skippedVerifications.length > 0) {
+    checks.push({
+      group: groupLabel,
+      name: '로컬에서 건너뛴 검증',
+      status: 'warn',
+      value: `${skippedVerifications.length}개: ${skippedVerifications.join(', ')}`,
+      hint: 'config.local.json 이 skip:true 로 껐습니다. 게이트 판단 전에 확인하세요.',
+    });
+  }
+
+  // exclusive 검증(ADK stage 5) — 정보다. 여러 레인이 동시에 돌아도 이 검증만은
+  // 포트 등 못 나누는 자원 때문에 한 번에 하나씩만 실행된다는 사실을 알린다.
+  const exclusiveVerifications = raw.verifications.filter((v) => v.exclusive).map((v) => v.name);
+  if (exclusiveVerifications.length > 0) {
+    checks.push({
+      group: groupLabel,
+      name: 'exclusive 검증',
+      status: 'info',
+      value: `${exclusiveVerifications.length}개: ${exclusiveVerifications.join(', ')}`,
+      hint: '레인이 여럿이어도 이 검증은 한 번에 하나만 돕니다(verify-lock).',
+    });
+  }
+
+  // 로컬 스킬 설정(profile.local.json, ADK stage 4) — 정보다. 스킬을 바꾸는 건
+  // 문제가 아니라 사실이다(prototype.md:519-524).
+  const loadedProfile = loadProfile(projectRoot);
+  if (loadedProfile.profile) {
+    const localSlots = (Object.keys(loadedProfile.sources) as SkillSlot[]).filter(
+      (slot) => loadedProfile.sources[slot] === 'local',
+    );
+    if (localSlots.length > 0) {
+      checks.push({
+        group: groupLabel,
+        name: '로컬 스킬 설정',
+        status: 'info',
+        value: `${localSlots.length}개: ${localSlots.join(', ')}`,
+      });
+    }
+  }
 
   // 네이밍 컨벤션 감지(WI-I AC-01) — 세기만 한다, 강제하지 않는다. doctor 는
   // 아무것도 고치지 않으므로 config.json 기록은 여기서 안 하고 hint 로 명령만
@@ -698,25 +802,12 @@ async function collectSingleProject(
     });
   }
 
-  // 엔진 버전 일치 (WI-X pair #3) — version-check 와 같은 계산(checkVersions)을 쓴다.
-  const installed = installedEngineVersion();
-  if (installed !== null) {
-    const projectMismatch = findMismatch(versionResult, 'project-vs-engine');
-    checks.push({
-      group: groupLabel,
-      name: '엔진 버전 일치',
-      status: projectMismatch ? 'warn' : 'ok',
-      value: projectMismatch
-        ? `config ${raw.engineVersion} / 설치 ${installed}`
-        : raw.engineVersion,
-      hint: projectMismatch?.hint,
-    });
-  }
-
   // 검증 명령 존재 확인: --version 으로 존재만 확인한다. 전체 실행은 하지 않는다(빨라야 함).
-  for (const [vname, spec] of Object.entries(raw.verify ?? {})) {
-    // 설정하지 않은 검증(e2e: null 등)은 건너뛴다.
-    if (!spec || typeof spec.cmd !== 'string') {
+  // ADK stage 4: verify(4키 고정 객체) → verifications(배열). raw 는 loadConfig 를 거쳐
+  // 이미 배열로 정규화돼 있다(옛 shape 이어도 loadConfig 가 메모리상에서 변환한다).
+  for (const spec of raw.verifications ?? []) {
+    const vname = spec.name;
+    if (typeof spec.cmd !== 'string') {
       continue;
     }
     const first = tokenize(spec.cmd)[0] ?? '';
@@ -853,7 +944,7 @@ async function collectSingleProject(
       typeof trailState.workitem === 'string' && trailState.workitem.trim() !== ''
         ? trailState.workitem
         : null;
-    const gateAttemptRecords = readRecords().filter(
+    const gateAttemptRecords = readRecords(projectRoot).filter(
       (r) => r.project === trailProjectName && (r.type === 'gate' || r.type === 'attempt'),
     ).length;
     const hasCommits = await gitHasCommits(projectRoot);
@@ -873,7 +964,7 @@ async function collectSingleProject(
   // "다른 세션"이라 단정하지 못한다 — 시각만 표시해 사람이 병렬 충돌을 눈치채게 한다.
   // info 라 doctor 종료코드에도 영향 없다(problems 는 missing/fail 만 센다, F-04).
   try {
-    const recs = readRecords();
+    const recs = readRecords(projectRoot);
     const lastAt = recs.length > 0 ? String(recs[0]?.at ?? '') : '';
     let stateMtime = '';
     try {
@@ -976,8 +1067,10 @@ export async function collectChecks(): Promise<DoctorReport> {
   // version-check 결과가 갈라지지 않게 한다.
   const versionResult = checkVersions(gatherVersionInputs(projectRoot));
 
+  const currentProjectName = projectRoot ? loadProjectName(projectRoot) : undefined;
+
   collectEnv(checks);
-  collectGlobal(checks, versionResult);
+  collectGlobal(checks, versionResult, currentProjectName);
   await collectProject(checks, projectRoot, versionResult);
   collectAgents(checks, projectRoot ?? process.cwd(), versionResult);
 
