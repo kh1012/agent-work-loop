@@ -460,16 +460,13 @@ export function buildConfig(inputs: InitInputs): AwlConfig {
 // 전역 설치 (~/.awl)
 // ---------------------------------------------------------------------------
 
-/** 패키지에 담긴 engine/ 디렉토리의 실제 위치. dev(src)와 prod(dist) 모두 대응. */
+/**
+ * 패키지에 담긴 engine/ 디렉토리. 이제 engineDir() 과 같은 것을 가리킨다 —
+ * 사본을 두지 않으므로 "패키지 엔진"과 "설치된 엔진"이 구분되지 않는다(2단계 #7).
+ * 호출부가 많아 이름만 남긴다.
+ */
 export function packageEngineDir(): string {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  for (const up of ['..', '../..']) {
-    const candidate = path.join(here, up, 'engine');
-    if (exists(path.join(candidate, 'version.json'))) {
-      return candidate;
-    }
-  }
-  return path.join(here, '..', 'engine');
+  return engineDir();
 }
 
 export function isGlobalInstalled(): boolean {
@@ -567,7 +564,6 @@ export function scaffoldGlobal(): { created: boolean; engineVersion: string } {
   }
 
   // engine 복사: 패키지의 engine/ -> ~/.awl/engine (init 재실행 시에도 최신화)
-  fs.cpSync(packageEngineDir(), engineDir(), { recursive: true });
 
   return { created, engineVersion: installedEngineVersion() ?? 'unknown' };
 }
@@ -807,7 +803,7 @@ export function registerProject(entry: {
  * 설치가 어긋나지 않는다).
  */
 function bundledSkillNames(agent: 'claude' | 'codex'): string[] {
-  for (const base of [engineDir(), packageEngineDir()]) {
+  for (const base of [engineDir()]) {
     try {
       return fs
         .readdirSync(path.join(base, 'skills', agent), { withFileTypes: true })

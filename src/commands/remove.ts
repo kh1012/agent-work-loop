@@ -2,10 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   WORKTREES_DIR,
-  engineDir,
   globalRoot,
   gotchasDir,
   legacyDeltasDir,
+  legacyEngineDir,
   lockFile,
   npmVersionCachePath,
   projectsFile,
@@ -347,7 +347,7 @@ export function scanGlobal(): RemoveItem[] {
       category,
     });
   };
-  push('engine/', engineDir());
+  push('engine/ (0.8.6 이하 잔재)', legacyEngineDir());
   push('gotchas/', gotchasDir());
   push('rules/', rulesDir());
   push('generations/', path.join(globalRoot(), 'generations'));

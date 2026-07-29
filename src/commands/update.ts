@@ -1,15 +1,16 @@
 import fs from 'node:fs';
 import { installedEngineVersion } from '../core/engine.js';
-import { engineDir } from '../core/paths.js';
 import { type Caps, caps, makeSymbols, sectionBox, signal } from '../core/tty.js';
-import { listRegisteredProjects, packageEngineDir, syncExistingInstall } from './init.js';
+import { listRegisteredProjects, syncExistingInstall } from './init.js';
 
 /**
- * awl update — 설치된 엔진(~/.awl/engine)을 이 패키지에 번들된 엔진으로 갱신하고
- * (--global, 기본값), 필요하면 등록된 프로젝트들의 로컬 스킬도 같이 맞춘다(--local/--all).
+ * awl update — 등록된 프로젝트들의 로컬 스킬을 지금 패키지 엔진에 맞춘다(--local/--all).
+ *
+ * 엔진 자체는 갱신 대상이 아니다 — 사본을 두지 않으므로 엔진은 설치된 npm 패키지다
+ * (2단계 #7). 엔진을 올리려면 `npm i -g agent-work-loop@latest` 하나뿐이다.
  *
  * 세 스코프는 서로 독립이다:
- * - `--global`(기본): 홈 엔진만. 프로젝트는 하나도 안 건드린다.
+ * - `--global`(기본): 아무것도 안 고치고 지금 버전과 갱신 방법만 알려준다.
  * - `--local`: 등록된 프로젝트 전부(현재 프로젝트 하나가 아니다)의 `.claude/skills`·
  *   `.agents/skills`·`AGENTS.md`·`.awl/config.json`을 지금 설치된 엔진 버전에 맞춰 재동기화한다
  *   (`awl init --yes`가 이미 설정된 프로젝트에서 하는 것과 같은 동작 — syncExistingInstall
@@ -27,14 +28,17 @@ export interface UpdateResult {
   toVersion: string | null;
 }
 
+/**
+ * 전역 엔진 갱신은 더 이상 awl 이 하지 않는다(설계 대조 2단계 #7).
+ * 엔진 = 설치된 npm 패키지라, 갱신 방법은 하나다 — `npm i -g agent-work-loop@latest`.
+ * 복사할 사본이 없으므로 이 함수는 지금 버전을 알려주기만 한다.
+ */
 export function applyUpdate(): UpdateResult {
-  const fromVersion = installedEngineVersion();
-  if (fromVersion === null) {
+  const version = installedEngineVersion();
+  if (version === null) {
     return { updated: false, reason: 'not-installed', fromVersion: null, toVersion: null };
   }
-  fs.cpSync(packageEngineDir(), engineDir(), { recursive: true });
-  const toVersion = installedEngineVersion();
-  return { updated: true, fromVersion, toVersion };
+  return { updated: false, fromVersion: version, toVersion: version };
 }
 
 export interface ProjectSyncResult {

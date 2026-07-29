@@ -478,15 +478,15 @@ function collectGlobal(
     });
   }
 
-  // 엔진 버전 — 실행 바이너리와 다르면 경고(WI-X pair #2).
+  // 엔진 버전 — 사본이 아니라 설치된 패키지 자체라 실행 바이너리와 어긋날 수 없다
+  // (설계 대조 2단계 #7). 값만 보여준다.
   const engineVer = installedEngineVersion();
-  const binaryMismatch = findMismatch(versionResult, 'binary-vs-engine');
   checks.push({
     group: '전역 설치',
     name: '엔진 버전',
-    status: engineVer ? (binaryMismatch ? 'warn' : 'ok') : 'missing',
+    status: engineVer ? 'ok' : 'missing',
     value: engineVer ?? '없음',
-    hint: binaryMismatch ? binaryMismatch.hint : engineVer ? undefined : INIT_HINT,
+    hint: engineVer ? undefined : INIT_HINT,
   });
 
   // 빌드 무결성 — package.json 과 engine/version.json(패키지 소스)이 다르면

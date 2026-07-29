@@ -54,7 +54,7 @@ describe('gatherVersionInputs — 실제 값 수집 (WI-X AC-03)', () => {
     expect(inputs.installedSkillVersions).toEqual({ claude: null, codex: null });
   });
 
-  it('설치된 엔진(AWL_HOME/engine/version.json)을 읽는다', () => {
+  it('엔진 버전은 설치된 패키지에서 읽는다 (2단계 #7: 사본 없음)', () => {
     const home = tmp('awl-vc-home-');
     fs.mkdirSync(path.join(home, 'engine'), { recursive: true });
     fs.writeFileSync(
@@ -63,16 +63,16 @@ describe('gatherVersionInputs — 실제 값 수집 (WI-X AC-03)', () => {
     );
     process.env.AWL_HOME = home;
     const inputs = gatherVersionInputs(null);
-    expect(inputs.installedEngineVersion).toBe('0.9.9');
+    expect(inputs.installedEngineVersion).toBe(inputs.packageVersion);
   });
 
-  it('설치된 엔진이 없으면(scaffoldGlobal 전) installedEngineVersion 은 null', () => {
+  it('홈에 사본이 없어도 엔진 버전을 읽는다 — 패키지가 원본이라', () => {
     process.env.AWL_HOME = tmp('awl-vc-home-');
     const inputs = gatherVersionInputs(null);
-    expect(inputs.installedEngineVersion).toBeNull();
+    expect(inputs.installedEngineVersion).toBe(inputs.packageVersion);
   });
 
-  it('격리 AWL_HOME 의 .awl-parent 를 따라 부모 설치 엔진을 찾는다', () => {
+  it('격리 AWL_HOME 이어도 엔진은 같은 패키지다', () => {
     const parent = tmp('awl-vc-parent-');
     fs.mkdirSync(path.join(parent, 'engine'), { recursive: true });
     fs.writeFileSync(
@@ -83,7 +83,8 @@ describe('gatherVersionInputs — 실제 값 수집 (WI-X AC-03)', () => {
     fs.writeFileSync(path.join(isolated, '.awl-parent'), `${parent}\n`);
     process.env.AWL_HOME = isolated;
 
-    expect(gatherVersionInputs(null).installedEngineVersion).toBe('0.9.8');
+    const got = gatherVersionInputs(null);
+    expect(got.installedEngineVersion).toBe(got.packageVersion);
   });
 
   it('packageVersion 은 실제 package.json 의 버전 문자열이다', () => {

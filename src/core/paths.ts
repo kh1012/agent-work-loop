@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /**
  * 경로 계산 모듈.
@@ -43,9 +44,38 @@ export function installationRoot(): string {
   return parentGlobalRoot() ?? globalRoot();
 }
 
-/** ~/.awl/engine — 설치된 스킬·검사기·템플릿·마이그레이션 */
-export function engineDir(): string {
+/**
+ * 0.8.6 까지 쓰던 `~/.awl/engine` 사본 경로. **더는 읽지 않는다** — 올라오는 설치에
+ * 남아 있는 잔재를 `awl remove` 가 정리할 때만 쓴다(설계 대조 2단계 #7).
+ *
+ * adk-prototype.md:132-141 "### 엔진은 전역 하나 — `~/.awl/engine/` 같은 사본을
+ * 두지 않는다. npm 패키지가 유일한 엔진이다." / :538 "사본을 두면 어긋난다.
+ * `~/.awl/engine/` 과 같은 실수다."
+ */
+export function legacyEngineDir(): string {
   return path.join(installationRoot(), 'engine');
+}
+
+/**
+ * 엔진(스킬·템플릿)의 유일한 원본 — 설치된 npm 패키지 안의 engine/ 디렉토리.
+ * dev(src)와 prod(dist) 모두 대응한다. 사본을 만들지 않으므로 패키지를 올리면
+ * 그 순간 엔진이 올라간다(`npm i -g agent-work-loop@latest`).
+ */
+export function engineDir(): string {
+  // 테스트·개발에서 엔진 위치를 지목하는 탈출구. 사본을 만드는 게 아니라 "어느
+  // 하나를 볼지"만 바꾸므로 "엔진은 전역 하나" 원칙과 충돌하지 않는다.
+  const override = process.env.AWL_ENGINE_DIR;
+  if (override && override.trim() !== '') {
+    return override;
+  }
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  for (const up of ['..', '../..']) {
+    const candidate = path.join(here, up, 'engine');
+    if (fs.existsSync(path.join(candidate, 'version.json'))) {
+      return candidate;
+    }
+  }
+  return path.join(here, '..', 'engine');
 }
 
 /**

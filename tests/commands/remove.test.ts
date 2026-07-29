@@ -767,12 +767,13 @@ describe('remove', () => {
       const { gatherVersionInputs } = await import('../../src/commands/version-check.js');
       const { checkVersions } = await import('../../src/core/versions.js');
       const configPath = path.join(proj, '.awl', 'config.json');
+      // 엔진 사본은 없다(2단계 #7) — 홈에 engine/ 이 생기지 않는 것이 정상이다.
       const engineDirPath = path.join(process.env.AWL_HOME as string, 'engine');
 
       // 1) 최초 설치를 시뮬레이션한다.
       await runInit({ yes: true });
       expect(fs.existsSync(configPath)).toBe(true);
-      expect(fs.existsSync(engineDirPath)).toBe(true);
+      expect(fs.existsSync(engineDirPath)).toBe(false);
       expect(fs.existsSync(path.join(proj, '.claude', 'skills', 'awl-loop'))).toBe(true);
 
       // 2) --all --yes 로 완전히 지운다.
@@ -785,7 +786,7 @@ describe('remove', () => {
       //    최초 부트스트랩(applyInit) 경로를 그대로 다시 밟는다.
       await runInit({ yes: true });
       expect(fs.existsSync(configPath)).toBe(true);
-      expect(fs.existsSync(engineDirPath)).toBe(true);
+      expect(fs.existsSync(engineDirPath)).toBe(false);
 
       // 4) 버전 불일치 경고가 없다(엔진/프로젝트/스킬 마커가 전부 같은 시점에 새로 찍힘).
       const inputs = gatherVersionInputs(proj);

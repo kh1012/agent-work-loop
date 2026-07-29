@@ -277,37 +277,15 @@ function displayHomePath(p: string): string {
 export function versionString(c: Caps = caps()): string {
   const color = makeColors(c.color);
   const s = makeSymbols(c);
-  const engineVer = installedEngineVersion();
-  const enginePath = displayHomePath(engineDir());
   const heading = `awl v${version} ${color.dim('(설치된 npm 패키지 버전 — CLI 본체)')}`;
 
-  let base: string;
-  if (engineVer === null) {
-    base = [
-      heading,
-      `    ${s.lastBranch} Engine Template: ${color.dim('(설치되지 않음)')}`,
-      '',
-      `    ${signal(c, 'warn')} 엔진 템플릿이 없습니다.`,
-      `        ${color.dim("'awl init'을 실행하여 템플릿을 설치하세요.")}`,
-    ].join('\n');
-  } else {
-    const template = [
-      `    ${s.lastBranch} Engine Template: v${engineVer} ${color.dim(`(${enginePath} 에 복사된 엔진 버전)`)}`,
-      `        ${color.dim('패키지 설치 후, 파일 관리를 위해 전역에 엔진 템플릿 형태로 복사본을 만듭니다.')}`,
-    ].join('\n');
-    if (engineVer === version) {
-      base = `${heading}\n${template}`;
-    } else {
-      base = [
-        heading,
-        template,
-        '',
-        `    ${signal(c, 'warn')} 버전 불일치 감지!`,
-        `        CLI 본체와 ${enginePath} 의 엔진 템플릿 버전이 다릅니다.`,
-        `        ${color.dim('해결하려면 awl update 로 엔진을 갱신하세요.')}`,
-      ].join('\n');
-    }
-  }
+  // 엔진은 사본이 아니라 설치된 패키지 그 자체다(설계 대조 2단계 #7,
+  // adk-prototype.md:132 "사본을 두지 않는다. npm 패키지가 유일한 엔진이다").
+  // 그래서 "엔진 템플릿 버전"이라는 별도 숫자도, 그것과의 불일치 경고도 없어졌다.
+  const base = [
+    heading,
+    `    ${s.lastBranch} Engine: ${color.dim(displayHomePath(engineDir()))}`,
+  ].join('\n');
 
   const updateAvailable = computeUpdateAvailable(version, readCachedLatestVersion());
   if (!updateAvailable) {

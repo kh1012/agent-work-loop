@@ -22,11 +22,7 @@ export interface VersionInputs {
   npmLatestVersion: string | null;
 }
 
-export type VersionMismatchKind =
-  | 'build'
-  | 'binary-vs-engine'
-  | 'claude-skill-vs-engine'
-  | 'codex-skill-vs-engine';
+export type VersionMismatchKind = 'build' | 'claude-skill-vs-engine' | 'codex-skill-vs-engine';
 
 export interface VersionMismatch {
   kind: VersionMismatchKind;
@@ -125,17 +121,8 @@ export function checkVersions(inputs: VersionInputs): VersionCheckResult {
     });
   }
 
-  if (
-    inputs.installedEngineVersion !== null &&
-    inputs.installedEngineVersion !== inputs.packageVersion
-  ) {
-    mismatches.push({
-      kind: 'binary-vs-engine',
-      a: inputs.packageVersion,
-      b: inputs.installedEngineVersion,
-      hint: '설치된 엔진(~/.awl/engine)이 실행 바이너리와 다릅니다. awl update 로 엔진을 갱신하세요.',
-    });
-  }
+  // binary-vs-engine 쌍은 사라졌다(설계 대조 2단계 #7) — 엔진이 사본이 아니라
+  // 설치된 패키지 그 자체라, 실행 바이너리와 엔진이 어긋날 구조가 없다.
 
   for (const skill of ['claude', 'codex'] as const) {
     const skillVersion = inputs.installedSkillVersions[skill];

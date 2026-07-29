@@ -47,6 +47,21 @@ import { projectsFile } from '../../src/core/paths.js';
 import { type Caps, type Colors, makeColors, stringWidth } from '../../src/core/tty.js';
 
 const origCwd = process.cwd();
+/** 엔진의 유일한 원본 — 저장소의 engine/ (2단계 #7: 사본을 두지 않는다). */
+const REPO_ENGINE = path.join(process.cwd(), 'engine');
+
+/**
+ * 스킬 설치 순회를 검증하려면 엔진에 더미 스킬을 끼워야 하는데, 진짜 engine/ 을
+ * 건드릴 수는 없다. 테스트 전용 사본을 만들고 그쪽을 보게 지목한다 — 제품 코드가
+ * 사본을 만드는 게 아니라 테스트가 픽스처를 세우는 것이다.
+ */
+function seedEngineCopy(home: string): string {
+  const dest = path.join(home, 'engine');
+  fs.cpSync(REPO_ENGINE, dest, { recursive: true });
+  process.env.AWL_ENGINE_DIR = dest;
+  return dest;
+}
+
 const origHome = process.env.AWL_HOME;
 
 function tmp(prefix: string): string {
@@ -70,19 +85,18 @@ afterEach(() => {
   } else {
     process.env.AWL_HOME = origHome;
   }
+  delete process.env.AWL_ENGINE_DIR;
 });
 
+// 설계 대조 2단계 #7 — 엔진 사본을 두지 않으므로 "홈 엔진 갱신"이라는 동작 자체가 없다.
+// 엔진은 설치된 npm 패키지이고, 올리는 방법은 npm i -g 하나뿐이다.
 describe('scaffoldGlobal', () => {
-  it('awl init 재실행은 기존 홈 엔진 템플릿도 최신으로 갱신한다', () => {
+  it('홈에 engine/ 사본을 만들지 않는다', () => {
     const home = path.join(tmp('awl-init-engine-'), 'home');
     process.env.AWL_HOME = home;
-    expect(scaffoldGlobal().created).toBe(true);
-
-    fs.writeFileSync(path.join(home, 'engine', 'version.json'), '{"engineVersion":"0.0.1"}\n');
-    const refreshed = scaffoldGlobal();
-
-    expect(refreshed.created).toBe(false);
-    expect(refreshed.engineVersion).not.toBe('0.0.1');
+    process.env.AWL_ENGINE_DIR = REPO_ENGINE;
+    scaffoldGlobal();
+    expect(fs.existsSync(path.join(home, 'engine'))).toBe(false);
   });
 });
 
@@ -606,6 +620,7 @@ describe('applyInit — 전체 산출물', () => {
     home = tmp('awl-home-');
     fs.rmSync(home, { recursive: true, force: true }); // 없는 상태에서 시작(scaffold 가 생성)
     process.env.AWL_HOME = home;
+    process.env.AWL_ENGINE_DIR = REPO_ENGINE;
     proj = tmp('awl-proj-');
     makeGitMetadata(path.join(proj, '.git'));
     fs.writeFileSync(path.join(proj, 'tsconfig.json'), '{}');
@@ -626,10 +641,9 @@ describe('applyInit — 전체 산출물', () => {
     expect(fs.existsSync(path.join(home, 'rules', 'active'))).toBe(true);
     expect(readJson(path.join(home, 'rules', 'index.json'))).toEqual([]);
     // engine 복사 (version.json + 스킬 자리표시자)
-    expect(fs.existsSync(path.join(home, 'engine', 'version.json'))).toBe(true);
-    expect(
-      fs.existsSync(path.join(home, 'engine', 'skills', 'claude', 'awl-loop', 'SKILL.md')),
-    ).toBe(true);
+    expect(fs.existsSync(path.join(REPO_ENGINE, 'skills', 'claude', 'awl-loop', 'SKILL.md'))).toBe(
+      true,
+    );
 
     // config
     const config = readJson(result.configPath) as Record<string, unknown>;
@@ -682,7 +696,7 @@ describe('applyInit — 전체 산출물', () => {
           : path.join(proj, '.claude', 'skills');
       for (const skill of ['awl', 'awl-loop']) {
         const engineSkill = fs.readFileSync(
-          path.join(home, 'engine', 'skills', surface, skill, 'SKILL.md'),
+          path.join(REPO_ENGINE, 'skills', surface, skill, 'SKILL.md'),
           'utf8',
         );
         const installedSkill = fs.readFileSync(path.join(installedRoot, skill, 'SKILL.md'), 'utf8');
@@ -975,7 +989,7 @@ describe('applyInit — 전체 산출물', () => {
   it('installClaudeSkill — engine 의 모든 스킬 디렉토리를 설치한다 (AC-01). 함수 수정 없이 픽스처 2개가 다 깔린다', () => {
     // scaffoldGlobal 이 engine 을 home/engine 으로 복사한다 — 그 위에 더미 스킬을 추가한다.
     scaffoldGlobal();
-    const engineClaude = path.join(home, 'engine', 'skills', 'claude');
+    const engineClaude = path.join(seedEngineCopy(home), 'skills', 'claude');
     const dummyDir = path.join(engineClaude, 'awl-fixture-skill');
     fs.mkdirSync(dummyDir, { recursive: true });
     fs.writeFileSync(path.join(dummyDir, 'SKILL.md'), '# fixture\n');
@@ -992,7 +1006,7 @@ describe('applyInit — 전체 산출물', () => {
 
   it('installClaudeSkill — 스킬 하나도 없으면 false (engine skills/claude 비어있음)', () => {
     scaffoldGlobal();
-    const engineClaude = path.join(home, 'engine', 'skills', 'claude');
+    const engineClaude = path.join(seedEngineCopy(home), 'skills', 'claude');
     fs.rmSync(engineClaude, { recursive: true, force: true });
     fs.mkdirSync(engineClaude, { recursive: true });
 
@@ -1016,7 +1030,7 @@ describe('applyInit — 전체 산출물', () => {
     const inputs = nonInteractiveInputs(proj);
     inputs.skills = { claude: true, codex: false };
     const result = applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
-    const engineClaude = path.join(home, 'engine', 'skills', 'claude');
+    const engineClaude = path.join(seedEngineCopy(home), 'skills', 'claude');
     fs.mkdirSync(path.join(engineClaude, 'awl-fixture-skill'), { recursive: true });
     fs.writeFileSync(path.join(engineClaude, 'awl-fixture-skill', 'SKILL.md'), 'v1\n');
     installClaudeSkill(proj); // 픽스처까지 설치(둘 다 .claude/skills 에 존재)
@@ -1046,7 +1060,7 @@ describe('applyInit — 전체 산출물', () => {
     const inputs = nonInteractiveInputs(proj);
     inputs.skills = { claude: true, codex: false };
     const result = applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
-    const engineClaude = path.join(home, 'engine', 'skills', 'claude');
+    const engineClaude = path.join(seedEngineCopy(home), 'skills', 'claude');
     fs.mkdirSync(path.join(engineClaude, 'awl-fixture-skill'), { recursive: true });
     fs.writeFileSync(path.join(engineClaude, 'awl-fixture-skill', 'SKILL.md'), 'v1\n');
 
@@ -1070,7 +1084,7 @@ describe('applyInit — 전체 산출물', () => {
     const inputs = nonInteractiveInputs(proj);
     inputs.skills = { claude: true, codex: false };
     applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
-    const engineClaude = path.join(home, 'engine', 'skills', 'claude');
+    const engineClaude = path.join(seedEngineCopy(home), 'skills', 'claude');
     fs.mkdirSync(path.join(engineClaude, 'awl-fixture-skill'), { recursive: true });
     fs.writeFileSync(path.join(engineClaude, 'awl-fixture-skill', 'SKILL.md'), 'v1\n');
 
@@ -1094,6 +1108,7 @@ describe('ensureGlobalAwlConfig — 전역 author 시드 (ADK stage 1)', () => {
     home = tmp('awl-global-cfg-home-');
     fs.rmSync(home, { recursive: true, force: true }); // 없는 상태에서 시작
     process.env.AWL_HOME = home;
+    process.env.AWL_ENGINE_DIR = REPO_ENGINE;
     proj = tmp('awl-global-cfg-proj-');
     spawnSync('git', ['init', '-q'], { cwd: proj });
     spawnSync('git', ['config', 'user.email', 'hong@midasit.com'], { cwd: proj });
@@ -1149,6 +1164,7 @@ describe('docs/CONTEXT.md 스캐폴딩 (ADK stage 1, runInit 경로에서만)', 
     home = tmp('awl-context-home-');
     fs.rmSync(home, { recursive: true, force: true });
     process.env.AWL_HOME = home;
+    process.env.AWL_ENGINE_DIR = REPO_ENGINE;
     proj = tmp('awl-context-proj-');
     makeGitMetadata(path.join(proj, '.git'));
     process.chdir(proj);
@@ -1180,6 +1196,7 @@ describe('claudeSkillLabel — 설치 메뉴 라벨을 실제 스킬 집합에�
     home = tmp('awl-label-home-');
     fs.rmSync(home, { recursive: true, force: true });
     process.env.AWL_HOME = home;
+    process.env.AWL_ENGINE_DIR = REPO_ENGINE;
   });
 
   it('AC-01/AC-03 스킬 2개 픽스처면 라벨이 2개를 표기한다', () => {
@@ -1208,7 +1225,7 @@ describe('claudeSkillLabel — 설치 메뉴 라벨을 실제 스킬 집합에�
 
   it('AC-02 인자 없이 부르면 claudeSkillNames()(engine/skills/claude)의 실제 개수를 읽는다 — 하드코딩 상수 아님', () => {
     scaffoldGlobal(); // engine → home/engine 복사
-    const engineClaude = path.join(home, 'engine', 'skills', 'claude');
+    const engineClaude = path.join(seedEngineCopy(home), 'skills', 'claude');
     fs.rmSync(engineClaude, { recursive: true, force: true });
     fs.mkdirSync(engineClaude, { recursive: true });
     for (const n of ['a1', 'a2', 'a3']) {
@@ -1384,6 +1401,7 @@ describe('registeredProjectPaths / excludeRegisteredProjects — 이미 등록�
   beforeEach(() => {
     home = tmp('awl-registered-home-');
     process.env.AWL_HOME = home;
+    process.env.AWL_ENGINE_DIR = REPO_ENGINE;
   });
 
   it('projects.json 이 없으면 빈 집합(안전 폴백)', () => {

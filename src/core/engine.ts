@@ -3,11 +3,12 @@ import path from 'node:path';
 import { engineDir } from './paths.js';
 
 /**
- * 설치된 엔진(~/.awl/engine)의 정보.
- * doctor/init/program(--version)이 각자 따로 구현하던 것을 여기로 합쳤다.
+ * 엔진 정보. 0.8.7 부터 엔진은 사본이 아니라 **설치된 npm 패키지 그 자체**다
+ * (설계 대조 2단계 #7, adk-prototype.md:132 "사본을 두지 않는다").
+ * 그래서 이 값은 사실상 패키지 버전과 같고, 둘이 어긋날 구조가 없어졌다.
  */
 
-/** 설치된 엔진의 버전. 없거나 읽지 못하면 null(크래시하지 않는다). */
+/** 엔진 버전. 패키지가 깨지지 않는 한 항상 값이 있다(못 읽으면 null). */
 export function installedEngineVersion(): string | null {
   try {
     const j = JSON.parse(

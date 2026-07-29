@@ -9,6 +9,7 @@ import {
   globalRoot,
   gotchasDir,
   legacyDeltasDir,
+  legacyEngineDir,
   lockFile,
   projectConfigPath,
   projectStatePath,
@@ -54,7 +55,8 @@ describe('globalRoot / AWL_HOME 재정의', () => {
   it('AWL_HOME 재정의가 하위 디렉토리에도 전파된다', () => {
     const tmp = makeTmpDir('awl-home-');
     process.env.AWL_HOME = tmp;
-    expect(engineDir()).toBe(path.join(path.resolve(tmp), 'engine'));
+    // 엔진은 AWL_HOME 이 아니라 설치된 패키지에서 온다(2단계 #7).
+    expect(engineDir()).not.toContain(path.resolve(tmp));
   });
 });
 
@@ -77,7 +79,7 @@ describe('전역 하위 경로 조합', () => {
 
   it('각 디렉토리를 globalRoot 아래 올바른 이름으로 조합한다', () => {
     const root = globalRoot();
-    expect(engineDir()).toBe(path.join(root, 'engine'));
+    expect(legacyEngineDir()).toBe(path.join(root, 'engine'));
     expect(gotchasDir()).toBe(path.join(root, 'gotchas'));
     expect(legacyDeltasDir()).toBe(path.join(root, 'deltas'));
     expect(rulesDir()).toBe(path.join(root, 'rules'));

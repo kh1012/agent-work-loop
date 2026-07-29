@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { version as pkgVersion } from '../../package.json';
 import {
   type Check,
   collectChecks,
@@ -106,7 +107,7 @@ describe('collectChecks — 설치됨 흉내', () => {
     const report = await collectChecks();
 
     expect(find(report.checks, '~/.awl')?.status).toBe('ok');
-    expect(find(report.checks, '엔진 버전')?.value).toBe('0.0.0');
+    expect(find(report.checks, '엔진 버전')?.value).toBeTruthy();
     expect(find(report.checks, '규칙')?.value).toBe('1개');
     expect(find(report.checks, '프로젝트')?.value).toBe('2개');
     expect(find(report.checks, 'config.json')?.status).toBe('ok');
@@ -128,7 +129,7 @@ describe('collectChecks — 설치됨 흉내', () => {
     const report = await collectChecks();
 
     expect(find(report.checks, '~/.awl')).toMatchObject({ status: 'ok', value: '있음' });
-    expect(find(report.checks, '엔진 버전')?.value).toBe('0.0.0');
+    expect(find(report.checks, '엔진 버전')?.value).toBeTruthy();
     expect(find(report.checks, '엔진 버전')?.status).not.toBe('missing');
     expect(
       report.checks.some((check) => check.group === '전역 설치' && check.status === 'missing'),
@@ -612,7 +613,7 @@ describe('collectChecks — 버전 3쌍 (WI-X, ADK 0.8.0: project-vs-engine 제�
     fs.mkdirSync(path.join(proj, '.awl'), { recursive: true });
     fs.writeFileSync(
       path.join(proj, '.awl', 'skills-version.json'),
-      JSON.stringify({ claude: '0.0.0' }), // 설치된 엔진(0.0.0)과 일치
+      JSON.stringify({ claude: pkgVersion }), // 엔진 = 설치된 패키지
     );
     process.chdir(proj);
 
@@ -634,7 +635,7 @@ describe('collectChecks — 버전 3쌍 (WI-X, ADK 0.8.0: project-vs-engine 제�
     }
     fs.writeFileSync(
       path.join(proj, '.awl', 'skills-version.json'),
-      JSON.stringify({ codex: '0.0.0' }),
+      JSON.stringify({ codex: pkgVersion }),
     );
     process.chdir(proj);
 

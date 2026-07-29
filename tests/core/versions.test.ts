@@ -33,15 +33,13 @@ describe('checkVersions — 3쌍 순수 계산 (WI-X AC-02, ADK 0.8.0: project-v
     expect(r.mismatches.some((m) => m.kind === 'build')).toBe(false);
   });
 
-  it('binary-vs-engine 쌍(실행 바이너리 vs 설치된 엔진) 불일치를 잡는다', () => {
+  // 설계 대조 2단계 #7 — 엔진이 사본이 아니라 설치된 패키지라 이 드리프트는 구조적으로 없다.
+  it('실행 바이너리 vs 엔진 쌍은 더는 만들지 않는다', () => {
     const r = checkVersions(inputs({ installedEngineVersion: '0.4.5' }));
-    expect(r.mismatches.some((m) => m.kind === 'binary-vs-engine')).toBe(true);
-    const m = r.mismatches.find((m) => m.kind === 'binary-vs-engine');
-    expect(m?.a).toBe('0.5.0');
-    expect(m?.b).toBe('0.4.5');
+    expect(r.mismatches.map((m) => m.kind)).not.toContain('binary-vs-engine');
   });
 
-  it('installedEngineVersion 이 null 이면(엔진 미설치) binary-vs-engine/skill 쌍 전부 검사하지 않는다(크래시 없음)', () => {
+  it('installedEngineVersion 이 null 이면(엔진 미설치) skill 쌍을 검사하지 않는다(크래시 없음)', () => {
     const r = checkVersions(inputs({ installedEngineVersion: null, engineSourceVersion: null }));
     expect(r.ok).toBe(true);
     expect(r.mismatches).toEqual([]);
@@ -80,7 +78,7 @@ describe('checkVersions — 3쌍 순수 계산 (WI-X AC-02, ADK 0.8.0: project-v
     });
     expect(r.ok).toBe(false);
     const kinds = r.mismatches.map((m) => m.kind).sort();
-    expect(kinds).toEqual(['binary-vs-engine', 'build', 'claude-skill-vs-engine'].sort());
+    expect(kinds).toEqual(['build', 'claude-skill-vs-engine'].sort());
   });
 });
 

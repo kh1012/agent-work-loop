@@ -1014,7 +1014,9 @@ describe('runWorkNew --worktree (WI-F AC-03, 실제 git 저장소로 통합 확�
   });
 
   it('engine 스킬 원본이 없어도 재설치 실패가 워크트리·workitem 생성을 중단하지 않는다 — best-effort 경고만 (AC-02)', async () => {
-    const proj = realGitProject(); // fresh AWL_HOME: engine 스킬 없음(원본 부재 재현).
+    const proj = realGitProject();
+    // 엔진은 이제 패키지라 지울 수 없다 — 빈 디렉토리를 지목해 "원본 부재"를 재현한다.
+    process.env.AWL_ENGINE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-empty-engine-'));
     const warns: string[] = [];
     const spy = vi.spyOn(process.stderr, 'write').mockImplementation((s: unknown) => {
       warns.push(String(s));

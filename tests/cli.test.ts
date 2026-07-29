@@ -297,52 +297,25 @@ describe('parseWorkitemsOption — loop-summary --workitems 콤마 파싱 (pipel
 const NO_COLOR: Caps = { unicode: false, color: false, tty: false };
 const COLOR: Caps = { unicode: true, color: true, tty: true };
 
-describe('versionString — engine 버전 표시', () => {
-  it('엔진이 설치 안 됐으면 템플릿 미설치 경고를 보여준다', () => {
+// 설계 대조 2단계 #7 — 엔진 사본이 사라져 "템플릿 버전"과의 불일치가 구조적으로 없다.
+describe('versionString — 엔진 표시', () => {
+  it('패키지 버전과 엔진 경로를 보여준다', () => {
     process.env.AWL_HOME = tmpHomeWithEngine(null);
     const s = versionString(NO_COLOR);
     expect(s).toContain(`awl v${pkgVersion}`);
-    expect(s).toContain('Engine Template: (설치되지 않음)');
-    expect(s).toContain('[!]');
-    expect(s).toContain('awl init');
+    expect(s).toContain('Engine:');
   });
 
-  it('엔진 버전이 같으면 CLI와 템플릿을 위계로 보여준다', () => {
+  it('엔진 템플릿 불일치 경고를 더는 내지 않는다', () => {
+    process.env.AWL_HOME = tmpHomeWithEngine('0.0.1');
+    const s = versionString(NO_COLOR);
+    expect(s).not.toContain('버전 불일치');
+    expect(s).not.toContain('Engine Template');
+  });
+
+  it('유니코드 미지원이면 트리 글리프를 ASCII 로 낮춘다', () => {
     process.env.AWL_HOME = tmpHomeWithEngine(pkgVersion);
-    const s = versionString(NO_COLOR);
-    expect(s).toContain(`awl v${pkgVersion}`);
-    expect(s).toContain(`Engine Template: v${pkgVersion}`);
-    // 유니코드 미지원이면 트리 글리프도 ASCII 로 degrade 한다(예전엔 └── 가 그대로 새어나왔다).
-    expect(s).toContain('`--');
-    expect(s).not.toContain('└──');
-  });
-
-  it('엔진 버전이 다르면 경고와 awl update 안내를 보여준다(불일치는 엔진 갱신이지 프로젝트 재설정이 아님)', () => {
-    process.env.AWL_HOME = tmpHomeWithEngine('0.0.1');
-    const s = versionString(NO_COLOR);
-    expect(s).toContain('Engine Template: v0.0.1');
-    expect(s).toContain('[!]');
-    expect(s).toContain('awl update'); // version-check 힌트(binary-vs-engine)와 일치
-    expect(s).not.toContain('awl init'); // 불일치 브랜치는 더 이상 awl init 을 지시하지 않는다
-  });
-
-  it('색 미지원이면 ANSI 코드 없이 마커만 나온다', () => {
-    process.env.AWL_HOME = tmpHomeWithEngine('0.0.1');
-    const s = versionString(NO_COLOR);
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI 이스케이프 부재 확인용
-    expect(/\x1b\[/.test(s)).toBe(false);
-  });
-
-  it('색 지원이면 ANSI 코드가 포함된다', () => {
-    process.env.AWL_HOME = tmpHomeWithEngine('0.0.1');
-    const s = versionString(COLOR);
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI 이스케이프 존재 확인용
-    expect(/\x1b\[/.test(s)).toBe(true);
-  });
-
-  it('인자를 안 주면 현재 프로세스 능력을 기본값으로 쓴다(크래시 없음)', () => {
-    process.env.AWL_HOME = tmpHomeWithEngine(null);
-    expect(() => versionString()).not.toThrow();
+    expect(versionString(NO_COLOR)).not.toContain('└');
   });
 });
 
@@ -372,12 +345,11 @@ describe('versionString — npm 업데이트 안내 (AC-03, 로컬 캐시만 동
     expect(s).not.toContain('npm i -g');
   });
 
-  it('기존 엔진 버전 불일치 경고와 새 버전 안내가 함께 나올 수 있다(병기)', () => {
+  it('새 버전 안내는 엔진 표시와 함께 나온다', () => {
     const home = tmpHomeWithEngine('0.0.1');
     writeNpmCache(home, '999.0.0');
     process.env.AWL_HOME = home;
     const s = versionString(NO_COLOR);
-    expect(s).toContain('버전 불일치 감지'); // 기존 엔진 불일치 경고
     expect(s).toContain('새 버전 v999.0.0'); // 신규 npm 업데이트 안내
   });
 });
