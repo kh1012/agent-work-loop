@@ -41,6 +41,11 @@ const GETTING_STARTED: { label: string; cmd: string; desc: string }[] = [
     cmd: '/awl-pipeline | $awl-pipeline <lane명> <mode> [--poll <interval>]',
     desc: 'Claude/Codex에서 레인 단위로 exec·review 세션을 실행합니다.',
   },
+  {
+    label: '2-3',
+    cmd: '/awl <목표>',
+    desc: '스펙→티켓→게이트 4개(ADK 0.8.0). awl next 가 매번 다음 할 일을 냅니다.',
+  },
 ];
 
 /** 표시폭(한글은 2칸) 기준 오른쪽 패딩. String.padEnd 는 UTF-16 코드유닛 수로만
@@ -57,7 +62,7 @@ function renderGettingStartedCard(c: Caps): string {
     (g) =>
       `${`${g.label}.`.padEnd(prefixWidth)} ${t.accent(padVisible(g.cmd, cmdWidth))}  ${g.desc}`,
   );
-  lines.push(t.muted('*2-1 혹은 2-2를 실행하면 바로 시작할 수 있습니다.'));
+  lines.push(t.muted('*2-1 · 2-2 · 2-3 중 아무거나 실행하면 바로 시작할 수 있습니다.'));
   lines.push(
     t.muted(
       '*Codex --poll 30m는 native Scheduled idle 확인이며 Scheduled capability가 필요합니다.',
@@ -164,7 +169,7 @@ function renderExamplesCard(c: Caps): string {
 }
 
 /**
- * awl --skills — awl-loop/awl-pipeline 파이프라인 스킬을 부연설명한다(cli-skills-help-card).
+ * awl --skills — awl-loop/awl-pipeline/awl 스킬을 부연설명한다(cli-skills-help-card).
  * --examples와 달리 명령 예시가 아니라 개념(레인·파이프라인 구조·게이트 밀도)이 중심이다 —
  * 이 스킬들은 awl 혼자가 아니라 Claude Code나 Codex 안에서 실행해야 의미가 있다.
  * 내용은 engine/skills/{claude,codex}/의 loop/pipeline 역할 계약을 요약한 것 — 그 문서가
@@ -178,6 +183,14 @@ function renderSkillsCard(c: Caps): string {
     t.muted('Claude: /awl-loop <목표>  |  Codex: $awl-loop <목표>'),
     '  목표를 완료 조건으로 번역하고, 게이트 승인 후 한 세션이 처음부터 끝까지 직접',
     '  자율 루프로 구현합니다. 워크아이템 하나를 한 세션이 관통합니다.',
+    '  (완료조건 단위의 레거시 2게이트 흐름입니다 — 티켓·4게이트는 아래 /awl.)',
+    '',
+    t.muted('Claude: /awl <목표>   — ADK 0.8.0 티켓 모델'),
+    '  스펙(docs/specs/)에서 티켓을 도출하고 게이트 4개로 진행합니다. 지시는 CLI가',
+    '  만들어서(awl next) 스킬은 그 출력을 따르기만 하는 얇은 구조입니다.',
+    '  모드는 state.json 의 loopMode(strict / semi-auto(기본) / auto)로 정합니다',
+    '  — 파이프라인 <mode>(게이트 밀도)와는 다른 축이니 헷갈리지 마세요.',
+    '  전체 흐름은 awl stages, 다음 할 일은 awl next 로 봅니다.',
     '',
     t.muted(
       'Claude: /awl-pipeline <lane명> <mode>  |  Codex: $awl-pipeline <lane명> <mode> [--poll <interval>]',
@@ -237,6 +250,9 @@ function renderSkillsHelpFooter(c: Caps): string {
     `  ${t.accent('Claude /awl-pipeline <lane명> <mode>  |  Codex $awl-pipeline <lane명> <mode> [--poll <interval>]')}`,
     '    레인별로 exec·review 세션을 스폰해 무인 파이프라인을 돌립니다.',
     '    Codex --poll 30m는 native Scheduled idle 확인이며 Scheduled capability가 없으면 비활성입니다.',
+    `  ${t.accent('Claude /awl <목표>')}`,
+    '    ADK 0.8.0 티켓 모델 — 스펙에서 티켓을 도출하고 게이트 4개로 갑니다.',
+    '    지시는 awl next 가 만들고 스킬은 따르기만 합니다(awl stages 로 전체 흐름).',
     '',
     color.dim('레인·파이프라인 구조·<mode> 게이트 밀도(--gh/--gm/--gl)는 awl --skills 로 봅니다.'),
   ];
@@ -429,7 +445,7 @@ export function buildProgram(): Command {
     // 배너는 루트(awl / awl --help)에서만 보여준다. 예전엔 beforeAll 이 모든
     // 서브커맨드 help(work --help 등)에도 배너를 반복 출력했다.
     .addHelpText('beforeAll', (ctx) => (ctx.command === program ? `${renderBanner()}\n` : ''))
-    // --help 맨 아래에 스킬(awl-loop/awl-pipeline) 부연설명 + LLM 병용 경고를 붙인다
+    // --help 맨 아래에 스킬(awl-loop/awl-pipeline/awl) 부연설명 + LLM 병용 경고를 붙인다
     // (cli-skills-help-card) — beforeAll이 위에 배너를 붙이는 것과 대칭으로 after를 쓴다.
     // 이것도 루트에서만(서브커맨드 help마다 반복 안 함).
     .addHelpText('after', (ctx) =>
@@ -439,7 +455,7 @@ export function buildProgram(): Command {
     // (cli-help-examples-card)의 대응은 --help 본문이 아니라 별도 --examples 로 뺐다 —
     // 모든 명령×옵션 조합까지 --help 에 다 욱여넣으면 분기가 너무 많아진다(사용자 판단).
     .option('--examples', '자주 쓰는 명령 예시를 보여줍니다')
-    .option('--skills', 'awl-loop/awl-pipeline 스킬을 부연설명합니다')
+    .option('--skills', 'awl-loop/awl-pipeline/awl 스킬을 부연설명합니다')
     .showHelpAfterError();
 
   // 사람이 치는 명령: init (처음 설정)

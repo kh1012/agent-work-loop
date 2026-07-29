@@ -24,7 +24,7 @@ import {
 import { type Caps, caps, makeColors, sectionBox, signal } from '../core/tty.js';
 import { loadConfig, resolveProjectRoot } from './config.js';
 import { type SkillSlot, loadProfile } from './profile.js';
-import { getCriterion, loadState, writeState } from './state.js';
+import { effectiveLoopMode, getCriterion, loadState, writeState } from './state.js';
 
 /**
  * awl record — 구조를 강제하는 기록.
@@ -1405,6 +1405,18 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
         data.localSkills = localSlots;
       }
     }
+  }
+
+  // 게이트 기록에 그 순간의 루프 모드를 각인한다(ADK stage 2 "모드",
+  // prototype.md:360 "세션 중 변경 가능하고 변경도 기록에 남는다",
+  // reference.md:1370 "티켓 3까지는 strict 였고 그 뒤로 auto 였다가 보여야").
+  //
+  // 별도 변경 로그를 만들지 않는 이유: 모드는 게이트에서만 의미가 생긴다. 게이트마다
+  // 그때의 값을 남기면 "언제 바뀌었나"가 그대로 재구성되고, 스킬이 기록을 잊을 여지도
+  // 없다. `auto:true` 만으로는 semi-auto 인지 auto 인지 못 가른다 — 그래서 필요하다.
+  // 필드가 없으면 semi-auto 로 읽히므로(effectiveLoopMode) 항상 값이 채워진다.
+  if (type === 'gate' && data.loopMode === undefined) {
+    data.loopMode = effectiveLoopMode(state);
   }
 
   // blocked 에만 baseline SHA 를 붙인다(막힌 코드를 버리므로 출발점 복원에 필요).

@@ -19,8 +19,12 @@ description: |
 
 **게이트는 사람이 멈추는 자리다.** `awl next` 출력의 "게이트 N 에 도달하려면" 목록이
 채워졌으면, 그 게이트에 해당하는 `awl record gate --json '{...}'` 를 기록하기 전에
-`state.json` 의 `mode`(strict/semi-auto/auto, `awl state get`, 아무것도 안 주면
+`state.json` 의 **`loopMode`**(strict/semi-auto/auto, `awl state get`, 아무것도 안 주면
 semi-auto)를 확인한다(adk-prototype.md:357-366):
+
+> ⚠ **`mode` 가 아니라 `loopMode` 다.** `state.json` 의 `mode` 는 파이프라인 게이트-밀도
+> (`gate-high`/`gate-medium`/`gate-low`)가 이미 쓰고 있어서 이름을 나눴다.
+> `mode` 를 읽으면 레인에 따라 `gate-low` 같은 값이 나와 루프 모드로 오독된다.
 
 ```
 strict      네 게이트에서 다 멈춘다 — 매번 AskUserQuestion 으로 승인을 받는다.

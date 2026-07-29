@@ -1495,6 +1495,58 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
     expect(record).not.toHaveProperty('localSkills');
   });
 
+  it('게이트 기록에 그 순간의 loopMode 가 각인된다 (ADK stage 2 "모드", prototype.md:360)', async () => {
+    const root = project({ workitem: 'WI-9', workitems: {}, loopMode: 'auto' });
+    writeTicketFixture(root, 'ticket-1');
+
+    await runRecord('gate', {
+      json: '{"gate":2,"layer":"ticket","ticket":"ticket-1","decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+
+    const [record] = readRecords(root, { type: 'gate' });
+    expect(record?.loopMode).toBe('auto');
+  });
+
+  it('loopMode 필드가 없어도 기본값 semi-auto 가 각인된다 — auto:true 만으로는 semi-auto/auto 를 못 가른다', async () => {
+    const root = project({ workitem: 'WI-9', workitems: {} });
+    writeTicketFixture(root, 'ticket-1');
+
+    await runRecord('gate', {
+      json: '{"gate":2,"layer":"ticket","ticket":"ticket-1","decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+
+    const [record] = readRecords(root, { type: 'gate' });
+    expect(record?.loopMode).toBe('semi-auto');
+  });
+
+  it('세션 중 모드가 바뀌면 "어디부터 사람이 안 봤나"가 게이트 기록으로 재구성된다 (reference.md:1370)', async () => {
+    const root = project({ workitem: 'WI-9', workitems: {}, loopMode: 'strict' });
+    writeTicketFixture(root, 'ticket-1');
+
+    await runRecord('gate', {
+      json: '{"gate":2,"layer":"ticket","ticket":"ticket-1","decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+
+    // 사람이 세션 중 모드를 올린다(스킬이 awl state set 으로 쓰는 것과 같은 효과).
+    const statePath = path.join(root, '.awl', 'state.json');
+    const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    state.loopMode = 'auto';
+    fs.writeFileSync(statePath, JSON.stringify(state));
+
+    await runRecord('gate', {
+      json: '{"gate":3,"layer":"ticket","ticket":"ticket-1","decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+
+    // readRecords 는 최신순이라 뒤집어 시간순으로 본다.
+    const modes = readRecords(root, { type: 'gate' })
+      .map((r) => [r.gate, r.loopMode])
+      .reverse();
+    expect(modes).toEqual([
+      [2, 'strict'],
+      [3, 'auto'],
+    ]);
+  });
+
   it('연속으로 여러 번 전이해도 본문이 안 자라난다(round-trip 안정성, ADK stage 3 e2e 검증이 발견)', async () => {
     const root = project({ workitem: 'WI-9', workitems: {} });
     const ticketPath = writeTicketFixture(root, 'ticket-1');
