@@ -68,6 +68,13 @@ export interface VerificationEntry {
   scope?: 'all' | 'changed';
   /** ticket(기본)=티켓마다, request=요청을 닫을 때 한 번(reference.md:844-845). */
   level?: 'ticket' | 'request';
+  /**
+   * 검증 세 층(§10:1494-1508). binary(기본)=참거짓, 티켓 단위 ·
+   * quantitative=처리량·지연·오류율, 요청 단위 · qualitative=사용성·직관성, 요청 단위.
+   * "가르는 기준은 그 판정이 조각 하나로 성립하는가"다 — 조각 하나로 판정이 안 되면
+   * 애초에 티켓 레벨에 있으면 안 된다.
+   */
+  layer?: 'binary' | 'quantitative' | 'qualitative';
   note?: string;
   /** 로컬(config.local.json)에서만 의미 있다 — base 에 skip:true 를 박아두지 않는다
    * (reference.md:1177 "끄면 기록에 남고 게이트에 표시된다" — 팀 공유 기준이 아니라

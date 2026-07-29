@@ -357,6 +357,32 @@ export function earsParts(text: string): { condition: string; action: string } |
 }
 
 /**
+ * 스펙의 `## Qualitative` 절에서 yes/no 루브릭 항목을 뽑는다(순수, 설계 §10:1628-1634).
+ *
+ * 설계가 점수를 안 쓰는 이유를 그대로 따른다 — "1~5점으로 평가해줘라고 하면 대부분
+ * 4점이 나오고, 4점이 무슨 뜻인지 아무도 모른다. yes/no 면 명확하고, no 가 나오면
+ * 구체적 지적이 따라온다." 그래서 항목은 `- ` 불릿 한 줄씩이고 판정은 사람/에이전트 몫이다.
+ */
+export function extractQualitativeItems(body: string): string[] {
+  const lines = body.split('\n');
+  const start = lines.findIndex((l) => /^##\s+Qualitative\s*$/.test(l.trim()));
+  if (start < 0) {
+    return [];
+  }
+  const out: string[] = [];
+  for (const line of lines.slice(start + 1)) {
+    if (/^##\s+/.test(line.trim())) {
+      break;
+    }
+    const m = line.trim().match(/^[-*]\s+(.+)$/);
+    if (m?.[1]) {
+      out.push(m[1].trim());
+    }
+  }
+  return out;
+}
+
+/**
  * 같은 조건에 다른 동작을 요구하는 짝을 찾는다(순수, 설계 §3 "모순이 잡힌다").
  * 조건이 같고 동작이 다르면 둘 중 하나는 틀렸다 — 어느 쪽인지는 사람이 정한다.
  */

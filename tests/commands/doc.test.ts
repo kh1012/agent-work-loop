@@ -10,6 +10,7 @@ import {
   earsParts,
   extractConditionBlocks,
   extractConstraintBlocks,
+  extractQualitativeItems,
   findEarsContradictions,
   findSpecsByDomain,
   kebabCase,
@@ -686,5 +687,39 @@ describe('lacksExceptionCondition — 예외를 안 생각했는지 (§3 "빠뜨
   it("'언제'가 아예 없으면 false — 물을 대상이 없다", () => {
     expect(lacksExceptionCondition([{ text: '항상 로그를 남겨야 한다' }])).toBe(false);
     expect(lacksExceptionCondition([])).toBe(false);
+  });
+});
+
+// 설계 대조 2단계 #12 — §10 의 정성 층. 루브릭은 스펙의 ## Qualitative 에 산다.
+describe('extractQualitativeItems — 정성 루브릭 추출 (순수)', () => {
+  it('## Qualitative 아래 불릿을 순서대로 뽑는다', () => {
+    const body = [
+      '## Conditions',
+      '### condition-1',
+      '언제 A 이면, B 해야 한다',
+      '',
+      '## Qualitative',
+      '- 키보드만으로 모든 노드에 도달할 수 있는가',
+      '- 지금 어느 노드가 선택됐는지 시각적으로 알 수 있는가',
+      '',
+      '## Out of scope',
+      '- 여긴 세면 안 된다',
+    ].join('\n');
+    expect(extractQualitativeItems(body)).toEqual([
+      '키보드만으로 모든 노드에 도달할 수 있는가',
+      '지금 어느 노드가 선택됐는지 시각적으로 알 수 있는가',
+    ]);
+  });
+
+  it('절이 없으면 빈 배열', () => {
+    expect(extractQualitativeItems('## Conditions\n### condition-1\n언제 A 이면, B')).toEqual([]);
+  });
+
+  it('절은 있는데 비어 있으면 빈 배열', () => {
+    expect(extractQualitativeItems('## Qualitative\n\n## Out of scope\n- x')).toEqual([]);
+  });
+
+  it('* 불릿도 인식한다', () => {
+    expect(extractQualitativeItems('## Qualitative\n* 읽을 만한가\n')).toEqual(['읽을 만한가']);
   });
 });
