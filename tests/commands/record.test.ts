@@ -1579,14 +1579,14 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
       json: '{"gate":3,"layer":"ticket","ticket":"ticket-1","decision":"approved","presentedCriteria":["AC-01"]}',
     });
 
-    // readRecords 는 최신순이라 뒤집어 시간순으로 본다.
-    const modes = readRecords(root, { type: 'gate' })
-      .map((r) => [r.gate, r.loopMode])
-      .reverse();
-    expect(modes).toEqual([
-      [2, 'strict'],
-      [3, 'auto'],
-    ]);
+    // 게이트 번호로 찾는다 — 두 기록이 같은 밀리초에 찍히면 정렬 순서가 안 정해져서
+    // 목록 순서에 기대면 CI 에서 뒤집힌다(실제로 그랬다). 보려는 건 순서가 아니라
+    // "각 게이트가 그 시점의 모드를 달고 있는가"다.
+    const byGate = new Map(
+      readRecords(root, { type: 'gate' }).map((r) => [r.gate, r.loopMode] as const),
+    );
+    expect(byGate.get(2)).toBe('strict');
+    expect(byGate.get(3)).toBe('auto');
   });
 
   it('연속으로 여러 번 전이해도 본문이 안 자라난다(round-trip 안정성, ADK stage 3 e2e 검증이 발견)', async () => {
