@@ -104,6 +104,15 @@ async function waitForProcessDeath(pid: number): Promise<void> {
   throw new Error(`process ${pid} did not exit`);
 }
 
+/**
+ * 워커 픽스처는 `.ts` 를 `--experimental-strip-types` 로 직접 돌린다. 그 플래그는
+ * Node 22.6+ 전용이라 그 아래에서는 프로세스가 종료코드 9(잘못된 인자)로 죽는다 —
+ * package.json engines 가 `>=18` 이라 CI 매트릭스에 18 이 있고, 0.7.5 부터 여기서
+ * 넷이 계속 깨졌다. 런타임이 못 하면 그 넷만 건너뛴다(나머지는 18 에서도 돈다).
+ */
+const CAN_STRIP_TYPES = Number(process.versions.node.split('.')[0] ?? '0') >= 22;
+const itWorker = it.skipIf(!CAN_STRIP_TYPES);
+
 function spawnContender(
   root: string,
   port: number,
@@ -209,38 +218,41 @@ describe('installation-scoped service port leases', () => {
     );
   });
 
-  it('lets exactly one of two processes start a child and reports the owner to the loser', async () => {
-    const root = tmp();
-    const port = await freePort();
-    const start = path.join(root, 'start');
-    const marker = path.join(root, 'child-started');
-    const stop = path.join(root, 'stop');
-    const first = spawnContender(root, port, start, marker, stop, 'a');
-    const second = spawnContender(root, port, start, marker, stop, 'b');
+  itWorker(
+    'lets exactly one of two processes start a child and reports the owner to the loser',
+    async () => {
+      const root = tmp();
+      const port = await freePort();
+      const start = path.join(root, 'start');
+      const marker = path.join(root, 'child-started');
+      const stop = path.join(root, 'stop');
+      const first = spawnContender(root, port, start, marker, stop, 'a');
+      const second = spawnContender(root, port, start, marker, stop, 'b');
 
-    await Promise.all([
-      waitForOutput(first.child, first.output, /READY a/),
-      waitForOutput(second.child, second.output, /READY b/),
-    ]);
-    fs.writeFileSync(start, '');
-    await waitForFile(marker);
-    fs.writeFileSync(stop, '');
+      await Promise.all([
+        waitForOutput(first.child, first.output, /READY a/),
+        waitForOutput(second.child, second.output, /READY b/),
+      ]);
+      fs.writeFileSync(start, '');
+      await waitForFile(marker);
+      fs.writeFileSync(stop, '');
 
-    const [firstCode, secondCode] = await Promise.all([
-      waitForExit(first.child),
-      waitForExit(second.child),
-    ]);
-    expect([firstCode, secondCode].sort()).toEqual([0, 2]);
-    expect(fs.readFileSync(marker, 'utf8').trim().split('\n')).toHaveLength(1);
-    expect(readPortLease(root, port)).toBeNull();
+      const [firstCode, secondCode] = await Promise.all([
+        waitForExit(first.child),
+        waitForExit(second.child),
+      ]);
+      expect([firstCode, secondCode].sort()).toEqual([0, 2]);
+      expect(fs.readFileSync(marker, 'utf8').trim().split('\n')).toHaveLength(1);
+      expect(readPortLease(root, port)).toBeNull();
 
-    const outputs = [first.output(), second.output()];
-    const busy = outputs.find((output) => output.includes('"status":"busy"'));
-    expect(busy).toBeDefined();
-    expect(busy).toMatch(/"ownerPid":\d+/);
-    expect(busy).toMatch(/"lane":".*lane-[ab]"/);
-    expect(busy).toMatch(/"workitem":"WI-[ab]"/);
-  });
+      const outputs = [first.output(), second.output()];
+      const busy = outputs.find((output) => output.includes('"status":"busy"'));
+      expect(busy).toBeDefined();
+      expect(busy).toMatch(/"ownerPid":\d+/);
+      expect(busy).toMatch(/"lane":".*lane-[ab]"/);
+      expect(busy).toMatch(/"workitem":"WI-[ab]"/);
+    },
+  );
 
   it('classifies an existing listener as unmanaged and never starts or kills a child', async () => {
     const root = tmp();
@@ -393,7 +405,7 @@ describe('installation-scoped service port leases', () => {
     }
   });
 
-  it.each([
+  itWorker.each([
     ['SIGINT', 130],
     ['SIGTERM', 143],
   ] as const)(
@@ -421,48 +433,51 @@ describe('installation-scoped service port leases', () => {
     },
   );
 
-  it('recovers an abnormal stale lease only after both owner and child are dead', async () => {
-    const root = tmp();
-    const port = await freePort();
-    const start = path.join(root, 'start');
-    const marker = path.join(root, 'child-started');
-    const stop = path.join(root, 'stop');
-    const worker = spawnContender(root, port, start, marker, stop, 'stale');
+  itWorker(
+    'recovers an abnormal stale lease only after both owner and child are dead',
+    async () => {
+      const root = tmp();
+      const port = await freePort();
+      const start = path.join(root, 'start');
+      const marker = path.join(root, 'child-started');
+      const stop = path.join(root, 'stop');
+      const worker = spawnContender(root, port, start, marker, stop, 'stale');
 
-    await waitForOutput(worker.child, worker.output, /READY stale/);
-    fs.writeFileSync(start, '');
-    await waitForFile(marker);
-    const abandoned = readPortLease(root, port);
-    expect(abandoned?.childPid).toEqual(expect.any(Number));
+      await waitForOutput(worker.child, worker.output, /READY stale/);
+      fs.writeFileSync(start, '');
+      await waitForFile(marker);
+      const abandoned = readPortLease(root, port);
+      expect(abandoned?.childPid).toEqual(expect.any(Number));
 
-    worker.child.kill('SIGKILL');
-    await waitForExit(worker.child);
-    const whileChildLives = await acquirePortLease(root, port, {
-      lane: path.join(root, 'replacement'),
-      branch: 'work/replacement',
-      head: 'b'.repeat(40),
-      workitem: 'WI-replacement',
-    });
-    expect(whileChildLives.status).toBe('busy');
+      worker.child.kill('SIGKILL');
+      await waitForExit(worker.child);
+      const whileChildLives = await acquirePortLease(root, port, {
+        lane: path.join(root, 'replacement'),
+        branch: 'work/replacement',
+        head: 'b'.repeat(40),
+        workitem: 'WI-replacement',
+      });
+      expect(whileChildLives.status).toBe('busy');
 
-    if (!abandoned?.childPid) {
-      throw new Error('fixture did not register a child pid');
-    }
-    process.kill(abandoned.childPid, 'SIGKILL');
-    await waitForProcessDeath(abandoned.childPid);
+      if (!abandoned?.childPid) {
+        throw new Error('fixture did not register a child pid');
+      }
+      process.kill(abandoned.childPid, 'SIGKILL');
+      await waitForProcessDeath(abandoned.childPid);
 
-    const recovered = await acquirePortLease(root, port, {
-      lane: path.join(root, 'replacement'),
-      branch: 'work/replacement',
-      head: 'b'.repeat(40),
-      workitem: 'WI-replacement',
-    });
-    expect(recovered.status).toBe('acquired');
-    if (recovered.status === 'acquired') {
-      expect(recovered.lease.token).not.toBe(abandoned.token);
-      expect(await releasePortLease(root, port, recovered.lease.token)).toBe(true);
-    }
-  });
+      const recovered = await acquirePortLease(root, port, {
+        lane: path.join(root, 'replacement'),
+        branch: 'work/replacement',
+        head: 'b'.repeat(40),
+        workitem: 'WI-replacement',
+      });
+      expect(recovered.status).toBe('acquired');
+      if (recovered.status === 'acquired') {
+        expect(recovered.lease.token).not.toBe(abandoned.token);
+        expect(await releasePortLease(root, port, recovered.lease.token)).toBe(true);
+      }
+    },
+  );
 
   it('never releases or steals a live lease when the token is foreign', async () => {
     const root = tmp();
