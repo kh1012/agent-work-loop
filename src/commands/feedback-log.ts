@@ -17,10 +17,10 @@ import {
 
 /**
  * awl feedback-log — awl 도구 자체에 대해 이미 남겨진 피드백(awl-feedback 기록)을
- * area 별로 묶어 보여준다. `awl config`의 `feedback.*`(awl-pipeline/awl-loop 세션이
+ * area 별로 묶어 보여준다. `awl config`의 `feedback.*`(루프 세션이
  * 다른 프로젝트로 관찰을 실시간 라우팅하는 파이프라인 모드)와는 다른 기능이다 — 이건
  * `awl record awl-feedback`으로 이미 쌓인 구조화 기록을 사람이 나중에 훑어보는
- * 조회 명령이다(engine/skills/claude/awl-pipeline/SKILL.md 참고).
+ * 조회 명령이다.
  *
  * awl 은 판단하지 않는다. 묶고 세고 정렬만 한다 — "이렇게 고쳐라"를 말하지 않는다.
  * 2회 이상 반복된 area 를 강조하는 것까지가 awl 의 몫이다(반복이 곧 우선순위 신호).

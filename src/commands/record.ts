@@ -1371,14 +1371,19 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
   const cliWorkitem =
     typeof opts.workitem === 'string' && opts.workitem.trim() !== '' ? opts.workitem : undefined;
   const defaultWorkitem = cliWorkitem ?? currentWorkitem;
-  if (!dataWorkitem && !defaultWorkitem) {
+  // ADK 경로에는 워크아이템이 없다. `awl run` → 스펙 → `awl tickets derive` 로 오면
+  // 이 기록이 무엇에 대한 것인지는 `ticket` 이 말해준다 — 워크아이템은 그 이전
+  // 세대의 같은 자리다(2단계 #5 에서 레거시로 내렸다). 둘 중 하나만 있으면 된다.
+  const dataTicket =
+    typeof data.ticket === 'string' && data.ticket.trim() !== '' ? data.ticket : undefined;
+  if (!dataWorkitem && !defaultWorkitem && !dataTicket) {
     // 리뷰 지적(WI-R): projectRoot 자체를 못 찾은 경우(state.json 을 아예 못 읽음)엔
     // "활성 워크아이템이 없다"는 말이 진짜 원인(프로젝트 미초기화)을 안 알려준다.
     const hint = projectRoot
       ? ''
       : ' (프로젝트 루트를 찾지 못했습니다 — awl init 을 실행했는지 확인하세요.)';
     process.stderr.write(
-      `\n  ${signal(caps(), 'error')} 활성 워크아이템이 없습니다.${hint} awl work new <id> [설명] 으로 시작하세요.\n  (이 기록 하나만 다른 워크아이템으로 남기려면 --workitem <id> 를 쓰세요)\n`,
+      `\n  ${signal(caps(), 'error')} 이 기록이 무엇에 대한 것인지 알 수 없습니다.${hint}\n  티켓 작업이면 데이터에 "ticket" 을 넣으세요(awl next 가 알려주는 id).\n  레거시 워크아이템 흐름이면 --workitem <id> 를 쓰거나 awl work new <id> 로 시작하세요.\n`,
     );
     process.exit(1);
   }

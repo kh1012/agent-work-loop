@@ -1272,7 +1272,6 @@ function resultSetupLines(result: InitResult, c: Caps): string[] {
   // 하나만 보고 바로 확인할 수 있게(사용자 피드백).
   const setupLines: string[] = [t.emphasis(`[v${result.engineVersion}]`)];
   setupLines.push(line('~/.awl', result.globalCreated ? '생성됨' : '이미 있음'));
-  setupLines.push(line('~/.awl/engine', result.engineVersion));
   setupLines.push(line('.awl/config.json', '생성됨', '<- 커밋하세요. 팀원은 이 파일을 씁니다'));
   setupLines.push(
     line(
@@ -1315,7 +1314,7 @@ function resultNextLines(inputs: InitInputs, c: Caps): string[] {
       `${color.bold('awl run')} "<목표>" --strict   ${color.dim('(기본은 semi-auto)')}`,
     );
     nextLines.push('');
-    nextLines.push(color.dim('/awl-loop · /awl-pipeline 은 레거시라 명시할 때만 발동합니다.'));
+    nextLines.push(color.dim('/awl-loop 은 레거시라 명시할 때만 발동합니다.'));
   } else if (inputs.skills.codex) {
     nextLines.push('Codex 에게 이렇게 말하세요.');
     nextLines.push('');
@@ -1327,7 +1326,7 @@ function resultNextLines(inputs: InitInputs, c: Caps): string[] {
       `${color.bold('awl run')} "<목표>" --strict   ${color.dim('(기본은 semi-auto)')}`,
     );
     nextLines.push('');
-    nextLines.push(color.dim('$awl-loop · $awl-pipeline 은 레거시라 명시할 때만 발동합니다.'));
+    nextLines.push(color.dim('$awl-loop 은 레거시라 명시할 때만 발동합니다.'));
   } else {
     nextLines.push('나중에 스킬을 설치하려면 awl init 을 다시 실행하세요.');
   }
@@ -2118,7 +2117,7 @@ export async function runInit(opts: { yes: boolean; pushGuard?: boolean }): Prom
         ? `\n  ${makeColors(c.color).dim('이 위치는 레인 워크트리입니다(.awl-worktrees 하위) — 전역 프로젝트 목록에는 등록하지 않습니다. 부모 프로젝트에서 awl lane rm/awl remove로 관리하세요.')}`
         : '';
       process.stdout.write(
-        `\n  .awl/config.json 이 이미 있습니다. 그대로 씁니다.\n  ${signal(c, 'ok')} 엔진 템플릿을 ${engine.created ? '설치했습니다.' : '갱신했습니다.'}${syncNote}${hook.warning ? `\n  ${signal(c, 'warn')} ${hook.warning}` : hook.installed ? `\n  ${signal(c, 'ok')} git push 차단 훅 설치` : ''}${worktreeNote}\n`,
+        `\n  .awl/config.json 이 이미 있습니다. 그대로 씁니다.\n  ${signal(c, 'ok')} 스킬을 ${engine.created ? '설치했습니다.' : '갱신했습니다.'}${syncNote}${hook.warning ? `\n  ${signal(c, 'warn')} ${hook.warning}` : hook.installed ? `\n  ${signal(c, 'ok')} git push 차단 훅 설치` : ''}${worktreeNote}\n`,
       );
       return;
     }

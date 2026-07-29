@@ -104,7 +104,7 @@ export interface AwlConfig {
   relatedCmd?: string;
   protectedFiles?: string[];
   /**
-   * awl-pipeline/awl-loop 피드백 모드(pipeline-feedback-mode). enabled 면 --fb 플래그 없이도
+   * 피드백 모드. enabled 면 --fb 플래그 없이도
    * 전역 기본으로 켜진다. path 미설정 시 DEFAULT_FEEDBACK_PATH 를 쓴다.
    */
   feedback?: { enabled: boolean; path?: string };
@@ -1287,7 +1287,7 @@ async function editFeedback(
         `현재: ${curEnabled ? '켜짐' : '꺼짐'}`,
         `경로: ${config.feedback?.path || `(기본값) ${DEFAULT_FEEDBACK_PATH}`}`,
         '',
-        'awl/awl-loop/awl-pipeline 스킬·CLI 자체의 설계 갭·버그·마찰을 다른 프로젝트로 라우팅합니다.',
+        'awl/awl-loop 스킬·CLI 자체의 설계 갭·버그·마찰을 다른 프로젝트로 라우팅합니다.',
       ],
       c,
     )}\n`,

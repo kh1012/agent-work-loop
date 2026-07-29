@@ -115,7 +115,7 @@ function prePushMatchesTemplate(prePushPath: string): boolean {
 }
 
 /**
- * `.tasks/watch-inputs.sh`(awl-pipeline 워처)가 쓰는 락 프로토콜의 stale 임계값(초).
+ * 0.8.3 이하의 파이프라인 워처가 쓰던 락 프로토콜의 stale 임계값(초). 잔재 정리용.
  * 워처 자신의 STALE=60 과 반드시 같은 값을 써야 한다 — 이 값이 어긋나면 워처가
  * 살아있다고 보는 락을 remove 가 죽었다고 오판(또는 그 반대)할 수 있다.
  */

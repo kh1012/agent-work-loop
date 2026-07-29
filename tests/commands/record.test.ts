@@ -1327,14 +1327,16 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
     return { exitSpy, stderrSpy };
   }
 
-  it('활성 워크아이템이 전혀 없으면(state 도 --workitem 도 없음) 거부한다', async () => {
+  it('워크아이템도 티켓도 없으면(state 도 --workitem 도 없음) 거부한다', async () => {
     project(undefined); // state.json 없음 = 워크아이템 없음
     const { exitSpy, stderrSpy } = mockExit();
 
     await expect(runRecord('spike', { json: '{"question":"q","found":"f"}' })).rejects.toThrow(
       'exit:1',
     );
-    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('활성 워크아이템'))).toBe(true);
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('무엇에 대한 것인지'))).toBe(
+      true,
+    );
 
     exitSpy.mockRestore();
     stderrSpy.mockRestore();
@@ -1493,6 +1495,20 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
 
     const [record] = readRecords(root, { type: 'gate' });
     expect(record).not.toHaveProperty('localSkills');
+  });
+
+  it('워크아이템 없이 ticket 만 있어도 기록된다 — ADK 경로엔 워크아이템이 없다', async () => {
+    // awl run → 스펙 → tickets derive 로 오면 workitem 이 없다. 이 기록이 무엇에
+    // 대한 것인지는 ticket 이 말해준다(2단계 #5 에서 workitem 을 레거시로 내렸다).
+    const root = project({});
+    writeTicketFixture(root, 'ticket-1');
+
+    await runRecord('gate', {
+      json: '{"gate":2,"layer":"ticket","ticket":"ticket-1","decision":"approved","presentedCriteria":["condition-1"]}',
+    });
+
+    const [record] = readRecords(root, { type: 'gate' });
+    expect(record?.ticket).toBe('ticket-1');
   });
 
   it('ticket 을 줬는데 layer 가 없는 게이트 2 는 거부한다 — 뜻이 정반대라 추측하면 안 된다', async () => {

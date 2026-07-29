@@ -1,475 +1,485 @@
 # awl 명령어 레퍼런스
 
-> **이 문서는 0.6.18(2026-07-19) 기준입니다.** 0.9.0 에서 구조가 크게 바뀌었습니다 —
-> 오케스트레이터·역할 스킬(`awl-pipeline*`)·`.tasks` 큐·`~/.awl/engine` 사본이 은퇴했고,
-> 진입점이 `awl run` + `/awl` 로 통일됐습니다. 아래 명령 목록과 출력 예시 중
-> 파이프라인·게이트밀도(`--gh/--gm/--gl`)·엔진 갱신 부분은 더 이상 유효하지 않습니다.
->
-> 지금 기준은 [README](../../README.md) 와 `awl --help` · `awl --examples` · `awl --skills`
-> 가 정본입니다. 이 문서는 그때의 실측 기록으로 남겨둡니다.
+이 문서는 `awl`이 가진 명령을 전부 다룬다. 아래 출력은 전부 0.9.2 에서 빈 프로젝트를 새로
+만들어 실제로 실행한 결과다. 길면 잘라내고 `(생략)`이라고 표시했다. 색이 없는 터미널에서
+받았기 때문에 `[ok]`/`[!]`/`[x]` 같은 텍스트 마커가 그대로 보인다.
 
-`storyline.md`가 왜/무엇인지를 다룬다면, 이 문서는 실제로 손에 잡히는 명령 전부를 다룬다. 모든 출력은 이 저장소(`agent-work-loop`, 버전 0.6.18)에서 2026-07-19에 실제로 실행한 결과다. 길면 자르고 "(생략)"이라고 표시했다. 색이 없는 터미널에서 실행했기 때문에 `[ok]`/`[!]`/`[x]` 같은 텍스트 마커가 그대로 보인다. 이것도 실제 출력이다.
+형식은 전부 같다 — **역할 / 언제 쓰나 / 실행과 출력 / 읽는 법**.
 
-`awl --help`에 노출되는 명령은 19개다(`uninstall`이 이 세션 중 새로 생겨 재확인 시점에 포함됐다). 이 중 `commit`/`review`는 사람이 직접 칠 수도 있지만 실제로는 awl-loop 스킬이 루프 중 자동으로 호출하는 경우가 대부분이라 "스킬용" 쪽에 묶었다. `--help`에 안 나오는(hidden) 명령이 6개 더 있다. `record`/`verify`/`state`/`evolve`/`defer-summary`/`hold-recheck`. 전부 합쳐 25개다. 형식은 전부 같다: **역할 / 언제 쓰나 / 실행+실제출력 / 읽는법**.
+명령은 다섯 갈래다.
+
+```
+요청을 연다        run
+문서를 다룬다      doc · tickets · next · stages
+작업을 닫는다      commit · verify · review · record · evolve
+쌓인 것을 본다     status · records · gotchas · rules · backlog · brief · metrics · tokens · feedback
+환경을 다룬다      init · doctor · version-check · update · config · profile · lane · lanes · remove
+```
 
 ---
 
-## 사람용 명령
+## 요청을 연다
 
-### `awl init`
+### `awl run`
 
-- **역할**: 이 프로젝트에 awl을 설정한다. `~/.awl`이 없으면 만들고, `.awl/config.json`을 만들고, 선택한 에이전트(Claude Code/Codex)에 스킬을 설치한다.
-- **언제 쓰나**: 새 프로젝트에서 딱 한 번. 스킬이 갱신됐는데 설치본이 낡았을 때 재실행(스킬 재설치).
-- **실행+실제출력**(`--yes`로 비대화형 실행, 스크래치 프로젝트):
+- **역할**: 요청 원문과 모드를 상태에 적고, 사람이 다음에 할 일을 안내한다.
+- **언제 쓰나**: 목표를 던지기 전에 모드를 미리 고르고 싶을 때. 건너뛰고 바로 `/awl`로 시작해도 된다.
+- **실행과 출력**:
   ```
-  $ awl init --yes
+  $ awl run "레이어 패널을 키보드로 조작하고 싶다" --strict
 
-  +- 설정 완료 ---------------------------------------------------------------+
-  |    ~/.awl              생성됨                                             |
-  |    ~/.awl/engine       0.6.18                                             |
-  |    .awl/config.json    생성됨    <- 커밋하세요. 팀원은 이 파일을 씁니다   |
-  |    .awl/state.json     gitignore 에 추가함    [ok] git push 차단 훅 설치  |
-  |  규칙 0개 · 교훈 0개 · 등록된 프로젝트 1개 · 1세대                        |
-  +---------------------------------------------------------------------------+
+    [ok] 요청을 열었습니다
+    에이전트를 열고 이렇게 말하세요.
 
-  +- 다음 단계 ----------------------------------------------------+
-  |  Claude Code 를 열고 이렇게 말하세요.                          |
-  |                                                                |
-  |  /awl-loop  페이지 편집기에 여백 시스템을 넣고 싶어            |
-  +----------------------------------------------------------------+
+      /awl  레이어 패널을 키보드로 조작하고 싶다
+
+    모드: strict
   ```
-- **읽는법**: `git push 차단 훅 설치`는 위 출력을 캡처했던 시점(0.6.18, `--push-guard` 도입 전)의 기본 동작이다. 이후 GUI 클라이언트나 IDE 소스 컨트롤처럼 사람이 시켰지만 제어 터미널이 없는 push까지 걸리는 사례가 나와, `awl init`은 이제 이 훅을 기본으로 심지 않는다 — `awl init --push-guard`를 명시해야 `.git/hooks/pre-push`가 설치된다. 설치되면 제어 터미널이 없는(에이전트·CI 등 비대화형) `git push`만 막는다("절대 규칙 10: push는 사람이 한다"를 git 레벨에서도 강제). 사람이 실제 터미널에서 직접 치는 push는 막지 않고, 비대화형 실행만 `AWL_ALLOW_PUSH=1`로 명시적으로 통과시켜야 한다. 대화형 모드는 `--yes` 없이 실행하면 3단계 화면(주 언어 → 검증 명령어 → 규칙과 프로젝트 성격)과 스킬 설치 화면을 순서대로 보여준다.
+- **읽는 법**: `--strict`(네 게이트에서 다 멈춤) · 생략(`semi-auto`, 게이트 2·3 자동 승인) ·
+  `--auto`(전부 자동) 중 하나를 고른다. `--review`는 교차 검증을 켜는 별개 축이라 위 셋과 같이 쓸 수 있다.
+  **에이전트를 띄우지는 않는다** — 터미널을 여는 건 사람 몫이다.
+
+`--lanes`를 붙이면 목표마다 격리 레인을 만든다.
+
+```
+$ awl run --lanes "키보드 조작" "인증 리프레시"
+
+  [ok] 레인 2개에 요청을 열었습니다
+  터미널 2개를 열고 각각 아래를 실행하세요.
+  (awl 은 세션을 대신 띄우지 않습니다 — 레인마다 사람이 하나씩 엽니다.)
+
+    cd .awl-worktrees/lane-1
+    /awl  키보드 조작
+
+    cd .awl-worktrees/lane-2
+    /awl  인증 리프레시
+
+  모드: semi-auto
+```
+
+---
+
+## 문서를 다룬다
+
+### `awl doc`
+
+- **역할**: 스펙·티켓·결정 문서의 스켈레톤을 만들고, 형식을 검사한다.
+- **언제 쓰나**: 목표를 스펙으로 옮길 때. 스킬이 대신 부르는 경우가 대부분이다.
+- **실행과 출력**:
+  ```
+  $ awl doc new spec "레이어 패널 키보드 조작" --request "레이어 패널을 키보드로 조작하고 싶다"
+
+    [ok] docs/specs/20260730-001950-레이어-패널-키보드-조작.md
+        id: 019fae75-e999-75ca-8827-dbc46dc92540
+  ```
+  만들어진 파일:
+  ```markdown
+  ---
+  id: 019fae75-e999-75ca-8827-dbc46dc92540
+  organization:
+  project: proj
+  title: 레이어 패널 키보드 조작
+  status: draft
+  domain:
+  terms: []
+  verification: [binary]
+  tickets: []
+  decisions: []
+  ---
+
+  ## Request
+  > 레이어 패널을 키보드로 조작하고 싶다
+
+  ## Instruction
+
+  ## Constraints
+
+  ## Conditions
+
+  ## Qualitative
+
+  ## Out of scope
+  ```
+- **읽는 법**: `Request`에 사용자 원문이 인용으로 남는다. 나중에 "왜 이걸 만들었나"를
+  되짚는 유일한 근거라 요약하지 않고 그대로 넣는다. `Conditions`에는 EARS 문형으로
+  검증 가능한 조건을, `Qualitative`에는 yes/no로 답할 루브릭을 적는다.
+
+`awl doc lint`가 형식을 본다.
+
+```
+$ awl doc lint
+
+  [ok] 위반 없음 (문서 1개)
+```
+
+무엇을 잡는가:
+
+- 조건이 EARS 다섯 문형(언제·만약·동안·어디서·항상)으로 시작하는가
+- 같은 조건에 다른 동작을 요구하는 짝이 있는가 (모순)
+- `언제`만 있고 `만약`이 하나도 없는가 (빠뜨린 예외)
+- "적절히", "직관적으로" 같은 질적 표현이 조건에 섞였는가
+- 제약마다 `verification`·`source`·`hits`가 함께 있는가
+- 파일명이 `YYYYMMDD-HHMMSS-kebab.md` 형식인가
+
+### `awl tickets`
+
+- **역할**: 스펙의 조건에서 티켓을 도출한다.
+- **언제 쓰나**: 게이트 1 직전. 조건 하나가 티켓 하나가 된다.
+- **실행과 출력**:
+  ```
+  $ awl tickets derive 019fae75-e999-75ca-8827-dbc46dc92540
+
+    [ok] 티켓 2개 생성
+        docs/tickets/20260730-002000-언제-포커스가-패널에-…-이.md  (condition-1)
+        docs/tickets/20260730-002001-만약-이름-편집-중이라면-…-한다.md  (condition-2)
+  ```
+- **읽는 법**: 이미 티켓이 있는 조건은 건너뛴다. 조건을 나중에 추가하고 다시 돌리면
+  새로 생긴 것만 만들어진다. `conditions`가 빈 티켓(여러 조건이 공유하는 기반)은
+  사람이 판단해 직접 만든다 — awl이 자동으로 만들지 않는다.
+
+### `awl next`
+
+- **역할**: 지금 무엇을 해야 하는지, 게이트에 도달하려면 무엇이 필요한지 조립한다.
+- **언제 쓰나**: 스킬이 매 단계 부른다. 사람이 직접 쳐도 된다.
+- **실행과 출력**:
+  ```
+  $ awl next
+
+    [ok] 019fae76-0e88-7eaf-a385-33ac38561ec1
+
+    ticket   019fae76-0e88-7eaf-a385-33ac38561ec1
+    spec     레이어 패널 키보드 조작
+    status   pending
+
+    condition
+      언제 포커스가 패널에 있고 위·아래 방향키를 누르면, 선택이 한 칸씩 이동해야 한다
+
+    constraints  constraint-1
+      > constraint-1
+        Puck 코어를 수정하지 않는다
+
+        verification: git diff 에 @measured/puck 없음
+        source: -
+        hits: 0
+
+    게이트 이력
+      아직 없음
+
+    이미 아는 것
+      (같은 스펙에 조사 기록 없음)
+
+    skill    investigation: (없음)
+
+    게이트 2(착수)에 도달하려면
+      finding       새로 알게 된 것. file:line 포함
+      clarification 물어서 정한 것. 없으면 "없음"
+      verification  given/when/then
+
+    게이트 3(완료)에 도달하려면
+      커밋            검증이 통과하는 상태
+
+    다음
+      게이트 2(착수) 승인이 필요합니다.
+  ```
+- **읽는 법**: **아무것도 쓰지 않는다.** 있는 것을 조립해 보여줄 뿐이다. 티켓 id를
+  생략하면 지금 진행할 티켓을 스스로 고른다. `skill` 줄이 채워져 있으면 그 파일을 읽고,
+  `(없음)`이면 계약만 보고 알아서 한다. "이미 아는 것"은 같은 스펙의 다른 티켓에서
+  나온 조사 기록이라, 같은 파일을 두 번 읽지 않게 해준다.
+
+### `awl stages`
+
+- **역할**: 전체 흐름을 한 화면에 펼친다.
+- **언제 쓰나**: 스킬이 얇아서 파일만 봐서는 파이프라인이 안 보일 때.
+- **실행과 출력**:
+  ```
+  $ awl stages
+
+  +  stages
+  |  요청 층
+  |    spec          스펙을 만든다              (없음)
+  |    tickets       티켓을 만든다              내장(derive)
+  |      [게이트 1]  이 티켓들로 요청이 만족되는가
+  |
+  |    ... 티켓 층 반복 ...
+  |
+  |    close         요청을 닫는다              (없음)
+  |      [게이트 4]  실제로 만족됐는가
+  |
+  |  티켓 층 (티켓마다)
+  |    investigation 코드를 읽는다              (없음)
+  |    clarification 남은 걸 묻는다              (없음)
+  |    design        만들 것을 정한다           내장
+  |    spike         모르는 걸 판정한다          (없음)
+  |      [게이트 2]  착수
+  |    implement     만든다                     (없음)
+  |    verify        기계가 판정한다             내장
+  |    review        다른 눈이 본다              (없음)
+  |      [게이트 3]  완료
+  |    record        남긴다                     내장
+  +
+  ```
+- **읽는 법**: 오른쪽이 그 자리를 누가 채우는지다. `내장`은 awl이 기계적으로 하는 것이라
+  갈아 끼울 게 없고, `(없음)`은 프로파일에 스킬을 지정하면 바뀌는 자리다.
+  `--short`는 다섯 줄만 낸다.
+
+  ```
+  $ awl stages --short
+  setup     준비한다
+  spec      스펙을 만든다
+  tickets   티켓을 만든다
+  implement 만들고 검증한다
+  verify    요청을 닫는다
+  ```
+
+---
+
+## 작업을 닫는다
+
+### `awl commit`
+
+- **역할**: 내 변경만 골라 커밋한다. 남의 미커밋 변경은 워킹트리에 그대로 둔다.
+- **언제 쓰나**: 티켓 하나를 끝냈을 때. 편집을 **시작하기 전에** `--start`를 먼저 부른다.
+- **실행과 출력**:
+  ```
+  $ awl commit 019fae76-0e88-7eaf-a385-33ac38561ec1 --start
+
+    019fae76-0e88-7eaf-a385-33ac38561ec1 베이스라인을 잡았습니다: 632a98b0a4
+    이제 작업한 뒤 awl commit 019fae76-… -m "..." 로 격리 커밋하세요.
+
+  $ awl commit 019fae76-0e88-7eaf-a385-33ac38561ec1 -m "방향키 이동 구현"
+
+    커밋할 내 변경:
+      + keyboard.ts
+
+    [ok] 커밋됨: 5c8b4ba3f6
+      방향키 이동 구현
+    내부 검증: 스테이징한 내용 그대로 커밋됨.
+  ```
+- **읽는 법**: `--start`가 그 시점 워킹트리를 "남의 것"으로 스냅샷한다. 순서가 뒤집히면
+  내 편집이 그 스냅샷에 흡수돼 격리가 무의미해진다. hunk가 남의 변경과 겹칠 수 있으면
+  커밋하지 않고 알린다 — 확신할 수 없을 때 밀어붙이지 않는 쪽이 낫다는 판단이다.
+  착수 승인 없이 커밋하면 경고가 붙지만 막지는 않는다.
+
+### `awl verify`
+
+- **역할**: `config.json`에 적은 검증 명령을 실제로 실행한다.
+- **언제 쓰나**: 게이트 3에 도달하기 전. AI가 "다 했습니다"라고 말할 수 없게 만드는 자리다.
+- **읽는 법**: `scope: changed`면 이번에 바뀐 파일에서 나온 실패만 본다. 변경 파일이
+  없으면 실패가 아니라 건너뜀이다. `exclusive: true`인 검증은 레인이 여럿이어도 한 번에
+  하나씩 돈다(포트처럼 못 나누는 자원 때문이다). `level: request`면 티켓마다가 아니라
+  요청을 닫을 때 한 번 돈다.
+
+### `awl review`
+
+- **역할**: 리뷰어에게 넘길 자료를 조립한다. **판정은 하지 않는다.**
+- **언제 쓰나**: `--review`를 켰을 때.
+- **읽는 법**: `awl review pack <티켓>`은 그 티켓의 조건 원문, 베이스라인 이후 diff,
+  적용되는 제약을 묶어 낸다. 재료가 부족하면 판정 대신 `재료 부족: <무엇>`을 돌려준다 —
+  근거 없이 통과시키는 것보다 낫다. 재리뷰는 고친 커밋만 본다. 왕복이 3회를 넘으면
+  사람을 부르라고 경고한다.
+
+### `awl record` (숨김)
+
+- **역할**: 있었던 일을 `.awl/records/`에 남긴다.
+- **언제 쓰나**: 스킬이 단계마다 부른다.
+- **실행과 출력**:
+  ```
+  $ awl record gate --json '{"gate":2,"layer":"ticket","ticket":"019fae76-…","decision":"approved","presentedCriteria":["condition-1"]}'
+
+  {"id":"rec_34e300eb0a52c3b620","at":"2026-07-29T15:21:00.060Z","file":"…/.awl/records/2026-07.jsonl"}
+  ```
+- **읽는 법**: 타입마다 필수 필드가 다르고, 빠지면 거부한다. 줄글 하나로 뭉치지 못하게
+  하는 게 목적이다. 게이트 기록에는 그 순간의 `loopMode`가 자동으로 각인되고, 사람이
+  실제로 답하지 않은 승인은 `"auto": true`로 남는다 — 나중에 어디부터 사람이 안 봤는지
+  되짚을 수 있어야 한다. 티켓 작업이면 `ticket`이, 레거시 흐름이면 `workitem`이
+  "이 기록이 무엇에 대한 것인지"를 말해준다.
+
+### `awl evolve` (숨김)
+
+- **역할**: 요청이 닫힌 뒤 기록을 훑어 교훈 후보를 뽑는다.
+- **읽는 법**: 판정은 에이전트가 한다. awl은 재료(실패·리뷰·막힘 기록)를 모아 줄 뿐이다.
+
+---
+
+## 쌓인 것을 본다
 
 ### `awl status`
 
-- **역할**: 지금 어느 워크아이템의 어느 단계인지 한 화면에 모은다.
-- **언제 쓰나**: 세션을 다시 열었을 때, "내가 어디까지 했더라" 확인할 때.
-- **실행+실제출력**:
+- **역할**: 지금 어느 티켓의 어느 단계인지 한 화면에 모은다.
+- **언제 쓰나**: 세션을 다시 열었을 때.
+- **실행과 출력**:
   ```
   $ awl status
 
-  +- 진행 상황 · 1세대 -----------------------------------------------------------------------------+
-  |  단계  loop  awl-team-storyline                                                                 |
-  |  |-- 완료 조건  1/8 통과  (막힘 0, 진행 0, 대기 6)                                              |
-  |  |   `-- [!] AC-02 블록됨  (대기: AC-01)
-  ...
-  |  `-- 최근 검증  passed                                                                          |
-  |      `-- 게이트 1  approved (자동)   2026-07-19 09:16   완료조건 8개, 제외 1건                  |
-  |      `-- [i] 게이트 2  대기중                                                                   |
-  +-------------------------------------------------------------------------------------------------+
+  +  진행 상황 · 1세대
+  |  단계  (없음)
+  |  |-- 완료 조건  0/0 통과  (막힘 0, 진행 0, 대기 0)
+  |  |-- 기록       1개  (gate 1)
+  |  `-- 최근 검증  (없음)
+  |      `-- [i] 게이트 1  대기중
+  |      `-- [i] 게이트 2  대기중
+  |      `-- [i] 게이트 3  대기중
+  |      `-- [i] 게이트 4  대기중
+  +
   ```
-- **읽는법**: `dependsOn`이 안 끝난 완료 조건은 "블록됨"으로 뜬다(계산만, 순서 판단은 스킬 몫). `--pipeline`을 붙이면 `.awl-worktrees/*` 레인들의 plan/exec/review 상태를 배지(pending/executing/reviewing/complete/blocked)로 모아 보여준다. `--archive`(파이프라인과 함께)는 유예기간(3일) 지난 완료 workitem을 `.tasks/archive/`로 옮긴다.
+- **읽는 법**: 게이트 넷이 각각 어디까지 왔는지 보인다. 앞선 조건이 안 끝난 완료 조건은
+  "블록됨"으로 뜬다 — 계산만 하고 순서 판단은 스킬 몫이다.
 
-### `awl brief`
+### `awl records` · `awl gotchas` · `awl rules`
 
-- **역할**: KST 오늘(또는 `--date`) 하루의 진행분을 모아 낸다.
-- **언제 쓰나**: 하루 마무리, 또는 다른 세션에 오늘 뭘 했는지 넘겨줄 때.
-- **실행+실제출력**:
+- **역할**: 있었던 일 전수 / 아직 규칙이 안 된 교훈 / 지금 적용되는 규칙.
+- **실행과 출력**:
   ```
-  $ awl brief
-  2026-07-19 (KST): records 140 · commits 37 · criteria 8 · verify 0
+  $ awl records
+
+  +  기록 1개 · 최근순
+  |  2026-07-29  gate      approved
+  |
+  |  상세는 awl records --json 또는 ~/.awl/records/ 를 보세요.
+  +
   ```
-- **읽는법**: `--json`을 붙이면 레코드별 상세(type/workitem/at/summary)가 배열로 나온다. 스킬이 이 형태로 소비한다.
+- **읽는 법**: 기록은 프로젝트에, 교훈과 규칙은 사람에게 쌓인다. 교훈이 규칙이 되는 건
+  사람이 정한다 — 자동 승격은 없다. 규칙에는 반증 조건(`--counter`)이 필수다. 그게 없으면
+  검증할 수 없는 신념이 되기 때문이다.
+
+### `awl backlog`
+
+- **역할**: 정리할 때가 됐는지 신호를 낸다.
+- **읽는 법**: 세는 건 3회 반복된 승격 후보뿐이고, 지난 정리 이후 30건을 넘으면 알린다.
+  누적이 아니라 증분이라 정리하면 다시 0부터 센다. `hits 0`인 제약이나 용어집 밖 용어는
+  기록은 하되 신호에 넣지 않는다 — 반복되지 않은 건 아직 정리 가치가 없다.
+
+### `awl brief` · `awl metrics` · `awl tokens`
+
+- **역할**: 오늘 진행분 / 세대별 지표 추세 / 티켓별 단계 토큰.
+- **읽는 법**: `awl brief`는 하루 마무리나 다른 세션에 넘길 때 쓴다. `awl tokens <티켓>`은
+  awl이 가진 기록 시각과 세션 로그의 usage를 엮어 단계별로 나눈다 — awl이 토큰을 직접
+  세는 게 아니라 구간으로 자르는 것이다. `--lanes`를 붙이면 레인별 합계가 나온다.
+
+### `awl feedback` · `awl feedback-log`
+
+- **역할**: awl 도구 자체가 아팠던 점을 남기고 모아 본다.
+- **읽는 법**: 교훈(gotcha)과 다른 종류다. 전자는 작업 대상 코드에 대한 것이고 이건
+  도구 자체의 문제라 규칙으로 승격되지 않는다. 절대경로는 자동으로 가려진다.
+
+---
+
+## 환경을 다룬다
+
+### `awl init`
+
+- **역할**: 이 프로젝트에 awl을 설정하고 스킬을 설치한다.
+- **실행과 출력**:
+  ```
+  $ awl init --yes
+
+  +  설정 완료
+  |  [v0.9.2]
+  |    ~/.awl              이미 있음
+  |    .awl/config.json    생성됨    <- 커밋하세요. 팀원은 이 파일을 씁니다
+  |    .awl/state.json     gitignore 에 추가함
+  |  규칙 0개 · 교훈 0개 · 등록된 프로젝트 1개 · 1세대
+  +
+
+  +  다음 단계
+  |  Claude Code 를 열고 이렇게 말하세요.
+  |
+  |  /awl  페이지 편집기에 여백 시스템을 넣고 싶어
+  |  (스펙 → 티켓 → 게이트 4개. awl next 가 다음 할 일을 냅니다.)
+  |
+  |  모드를 미리 고르려면 요청을 먼저 엽니다.
+  |  awl run "<목표>" --strict   (기본은 semi-auto)
+  |
+  |  /awl-loop 은 레거시라 명시할 때만 발동합니다.
+  +
+  ```
+- **읽는 법**: `--yes` 없이 실행하면 주 언어 → 검증 명령 → 프로젝트 성격을 차례로 묻는다.
+  `.gitignore`는 허용목록 방식으로 쓴다(`.awl/*` 무시 + `config.json`·`profile.json`만 되살림) —
+  `.awl/` 아래 새 파일이 생겨도 gitignore를 안 고쳐도 된다.
 
 ### `awl doctor`
 
 - **역할**: 설치와 환경을 점검한다. **아무것도 고치지 않는다.**
-- **언제 쓰나**: awl-loop 스킬이 파이프라인을 시작하기 전에 항상. 뭔가 이상할 때 제일 먼저.
-- **실행+실제출력**(이 저장소, 초기화 전 스크래치 프로젝트에서):
+- **실행과 출력**:
   ```
   $ awl doctor
 
-  +- Agent Work Loop · 진단 ------------------------------------------------------------------+
+  +  Agent Work Loop · 진단
   |  환경
   |  |-- Node: v22.22.2  [ok]
   |  |-- 플랫폼: darwin arm64  [ok]
   |  `-- 터미널: 유니코드 미지원, 색 미지원  [ok]
   |
   |  전역 설치
-  |  `-- ~/.awl: 없음  [x] awl init 을 실행하세요
+  |  |-- ~/.awl: 있음  [ok]
+  |  |-- 쓰기 권한: 가능  [ok]
+  |  |-- 엔진 버전: 0.9.2  [ok]
+  |  |-- 규칙: 0개
+  |  |-- 교훈: 0개
+  |  `-- 프로젝트: 1개
+  |
+  |  sync
+  |  `-- endpoint: 없음
   |
   |  이 프로젝트
-  |  |-- 프로젝트 루트: (생략)
   |  |-- 브랜치: main
-  |  |-- 워킹트리: 미커밋 변경 1개  [!] package.json
-  |  `-- config.json: 없음  [x] awl init 을 실행하세요
-  |
-  |  에이전트
-  |  |-- Claude Code: 없음
-  |  |-- Codex: 없음
-  |
-  |  [x] 문제 2개. awl init 을 실행하세요.
-  +-------------------------------------------------------------------------------------------+
+  |  |-- 워킹트리: 미커밋 변경 1개  [!]
+  |  (생략)
+  +
   ```
-- **읽는법**: `[ok]`/`[!]`/`[x]` 세 등급이다. `[x]`는 반드시 조치, `[!]`는 판단 필요(경고), `[ok]`는 그냥 진행. **워킹트리 상태는 doctor가 직접 `git status`를 친 결과만 믿는다**. 대화·환경이 준 요약을 믿지 말라고 awl-loop 스킬이 못박는다.
+- **읽는 법**: 워킹트리가 더러우면 경고한다. 그 상태로 시작하면 나중에 `awl commit`이
+  거부할 수 있고, 그때 남는 선택지가 "커밋 없이 계속"뿐이면 남의 변경에 내 것이 섞인다.
 
-### `awl version-check`
+### `awl version-check` · `awl update`
 
-- **역할**: `package.json` vs 설치된 엔진, 설치된 엔진 vs 실행 바이너리, 프로젝트 config vs 엔진, 설치된 스킬 vs 엔진. 4쌍의 버전 불일치를 검사한다.
-- **언제 쓰나**: awl-loop 파이프라인을 시작하기 전(워킹트리 확인보다도 먼저). `awl --version`이 노란색 경고를 띄웠을 때.
-- **실행+실제출력**(이 저장소, 2026-07-19):
+- **역할**: 버전이 어긋난 곳을 찾고, 등록된 프로젝트의 스킬을 지금 패키지에 맞춘다.
+- **읽는 법**: 엔진은 사본을 두지 않아서 설치된 패키지가 곧 엔진이다. 실행 바이너리와
+  엔진이 어긋날 구조가 없다. 어긋날 수 있는 건 프로젝트에 설치된 스킬뿐이고,
+  `awl update --local`이나 `awl init --yes`가 맞춘다.
+
+### `awl config` · `awl profile`
+
+- **역할**: 검증 명령과 단계별 스킬을 본다. TTY면 고칠 수도 있다.
+- **읽는 법**: `base → local` 순으로 병합하고 local이 이긴다. 배열은 통째로 갈아 끼우지
+  않고 `name` 키로 합친다 — e2e 하나 끄려고 목록 전체를 복사하게 만들면 아무도 제대로
+  안 쓴다. local에서 검증을 지우는 건 막고 `skip: true`만 허용한다. 끈 사실이 게이트에
+  보여야 하기 때문이다.
+
+### `awl lane` · `awl lanes`
+
+- **역할**: 격리 레인(워크트리 + 브랜치 + 포트 오프셋)을 만들고, 조회하고, 정리한다.
+- **실행과 출력**:
   ```
-  $ awl version-check --json
-  {
-    "ok": false,
-    "mismatches": [
-      {"kind":"binary-vs-engine","a":"0.6.18","b":"0.6.16","hint":"설치된 엔진(~/.awl/engine)이 실행 바이너리와 다릅니다. awl update 로 엔진을 갱신하세요."},
-      {"kind":"project-vs-engine","a":"0.6.13","b":"0.6.16","hint":"이 프로젝트는 0.6.13 기준으로 설정됐으나 엔진은 0.6.16입니다. awl init --yes 로 동기화하세요."},
-      {"kind":"claude-skill-vs-engine","a":"0.6.13","b":"0.6.16","hint":"설치된 Claude 스킬이 0.6.13 기준입니다. 엔진은 0.6.16입니다. awl init --yes 로 재설치·동기화하세요."}
-    ]
-  }
+  $ awl lane new keyboard
+
+    [ok] 레인 준비  keyboard
+      기준 브랜치: main · 포트 오프셋(참고용): 3000
+      이 레인에서 터미널을 열고 실행하세요:
+        /awl  |  $awl
   ```
-- **읽는법**: 이 저장소 자신도 지금 세 쌍이 어긋나 있다(그대로 보여준다). `ok:false`라고 무조건 멈추는 게 아니다. awl은 판단하지 않으니 강제로 막지 않는다. 계속 진행하기로 하면 그 판단 근거를 `awl record audit`에 남기는 게 awl-loop 스킬의 규칙이다. `updateAvailable` 필드가 있으면(npm에 새 배포가 나온 경우) 이건 `mismatches`와 다르게 정보로만 취급한다. 설치가 깨진 게 아니라 새 버전이 있다는 뜻이다.
-
-### `awl update`
-
-- **역할**: 설치된 엔진(`~/.awl/engine`)을 실행 바이너리 버전으로 갱신한다.
-- **언제 쓰나**: `version-check`의 `binary-vs-engine` 불일치를 해소할 때.
-- **실행**: `awl update` (인자 없음). 프로젝트 설정은 건드리지 않는다. 전역 엔진만 갱신한다.
-- **읽는법**: `awl init --yes`와 헷갈리기 쉽다. `update`는 전역 엔진만, `init --yes`는 이 프로젝트의 config/스킬까지 동기화한다.
+- **읽는 법**: 기준 브랜치는 레인을 열 때 서 있던 브랜치로 고정된다. `awl lane rm`은
+  병합 안 된 커밋이나 미커밋 변경이 있으면 거부한다. 기록은 주 워킹카피 하나를 가리켜
+  실시간으로 공유한다 — 레인마다 갈라지면 레인 A의 실패를 레인 B가 모른다.
 
 ### `awl remove`
 
-- **역할**: awl이 이 프로젝트(또는 전역)에 남긴 흔적을 지운다(이전 이름 `uninstall`). **기본은 드라이런**. `--yes` 없이는 아무것도 지우지 않는다.
-- **언제 쓰나**: awl을 프로젝트에서 빼기로 했을 때, 또는 무엇이 지워질지 먼저 확인하고 싶을 때.
-- **실행+실제출력**(스크래치 프로젝트, 드라이런):
-  ```
-  $ awl remove
-
-  +- awl remove: 드라이런(dry run) -----------------------------------------------------------+
-  |  프로젝트 로컬
-  |    [ok] .awl/ (config·state·skills-version·verify-baseline·state.lock·home)
-  |    [ok] .claude/skills/awl-loop
-  |    [ok] .claude/skills/awl-pipeline
-  |    [ok] .claude/skills/awl-pipeline-exec
-  |    [ok] .claude/skills/awl-pipeline-plan
-  |    [ok] .claude/skills/awl-pipeline-review
-  |    [ok] .git/hooks/pre-push (awl 템플릿과 일치할 때만)
-  |
-  |  전역(~/.awl): --global 또는 --all 로만 포함됩니다 (생략)
-  |
-  |  npm 패키지 자체는 이 명령으로 지우지 않습니다. 필요하면 npm uninstall -g agent-work-loop 를
-  |  직접 실행하세요.
-  +-----------------------------------------------------------------------------------------------+
-  ```
-- **읽는법**: 기본값(`--project`)은 이 프로젝트 로컬만 지운다. `--global`은 `~/.awl` 전체(다른 프로젝트의 학습까지) 지운다. 신중하게. `--all`은 둘 다. `.git/hooks/pre-push`는 awl이 심은 템플릿 그대로일 때만 지운다(사람이 직접 고친 훅은 안 건드린다). 실제로 지우려면 `--yes`를 붙인다.
-
-### `awl config`
-
-- **역할**: 이 프로젝트의 검증 명령과 설정을 본다(TTY면 수정도).
-- **언제 쓰나**: 검증 명령이 바뀌었을 때, 모노레포에서 패키지별 `cwd`를 지정할 때.
-- **실행+실제출력**:
-  ```
-  $ awl config
-
-  +- agent-work-loop 설정 ------------------------------------------------+
-  |  |-- 주 언어  typescript
-  |  |-- 성격     (없음)
-  |  |-- 엔진     0.6.44
-  |  |-- 피드백   꺼짐
-  |  |   `-- 경로: (기본값) /Users/kh1012/MIDAS/Research/agent-work-loop/.tasks/plan/
-  |
-  |  |-- typecheck tsc --noEmit
-  |  |-- lint      biome check .
-  |  |-- test      vitest run
-  |  |-- e2e       (없음)
-  |
-  |  `-- 명령을 바꾸려면: awl config set verify.lint.cmd "biome check ."
-  |      직접 편집도 됩니다: .awl/config.json
-  +-----------------------------------------------------------------------+
-  ```
-- **읽는법**: `config set <key> <value>`로 값을 하나씩 바꾼다(`--force` 없이는 존재하지 않는 `cwd`를 저장하지 않는다). `feedback.enabled`/`feedback.path`는 awl-pipeline/awl-loop의 피드백 모드 설정이다(아래 `awl feedback-log`와는 다른 기능). 인자 없이 TTY에서 실행하면 항목을 골라 고치는 대화형 화면이 뜬다. 이제 대화형 메뉴에 "피드백 모드"(켜짐/꺼짐 토글 + 경로 변경) 항목이 추가됐다.
-
-### `awl work`
-
-- **역할**: 이 프로젝트의 워크아이템(작업 단위)을 만들고 전환한다.
-- **언제 쓰나**: `[조사]`를 시작하기 전에 항상(`work new`). 다른 작업으로 옮겨갈 때(`work switch`).
-- **실행+실제출력**:
-  ```
-  $ awl work list
-
-  +- 워크아이템 -------------------------------------------------------------------------------------+
-  |  * awl-team-storyline                   active  1/8 통과  main
-  |    WI-D                                 paused  12/12 통과
-  |    awl-uninstall-reset                  paused  6/7 통과  main
-  (생략: 총 70여개)
-  +-------------------------------------------------------------------------------------------------+
-  ```
-- **읽는법**: `*`가 지금 활성 워크아이템이다. `new <id> [설명]`은 새로 만들고 전환(현재 것은 자동으로 `paused`로 보관, 삭제 아님). `--worktree`를 붙이면 격리된 git 워크트리에서 시작한다(다른 워크아이템의 미커밋 변경과 안 섞인다). `--isolated`는 `~/.awl` records까지 이 워크아이템 전용으로 격리한다(병렬 세션용). `abandon <id>`는 중단 표시(기록은 남는다). `done <id>`는 완료된 워크아이템의 워크트리를 회수한다.
-
-### `awl lane`
-
-- **역할**: 파이프라인용 격리 레인(워크트리+전용 `AWL_HOME`+스킬 재설치)을 만들고 관리한다. 내부적으로 `work new --worktree --isolated`를 재사용한다.
-- **언제 쓰나**: 여러 워크아이템을 동시에 격리해서 돌리고 싶을 때(3절 "언제 쓰는가"의 3단).
-- **실행+실제출력**:
-  ```
-  $ awl lane ls
-
-  +- 레인 -----------------------------------------+
-  |  [i] 레인이 없습니다.
-  |
-  |  awl lane new <name> 로 격리 레인을 만드세요.
-  +------------------------------------------------+
-  ```
-- **읽는법**: `new <name> [설명]`이 레인을 만든다. `rm <name>`은 워크트리를 회수하고 디렉토리를 지운다. 미머지 커밋이 있으면 `--force` 없이는 거부한다(커밋 손실 방지).
-
-### `awl records`
-
-- **역할**: 쌓인 기록을 사람이 읽는 목록으로 본다.
-- **언제 쓰나**: 무슨 일이 있었는지 훑어볼 때. `--type`/`--workitem`으로 좁혀서.
-- **실행+실제출력**:
-  ```
-  $ awl records --type narrative --workitem WI-P --json
-  ```
-  (2절 `WI-P`의 `reviewer-caught`/`spike-prevented` narrative 3건이 그대로 나온다, storyline.md 7절에 인용한 원문의 출처가 이 명령이다.)
-- **읽는법**: `--type`은 `attempt`/`blocked`/`gate`/`review`/`narrative`/`awl-feedback`/`audit`/`criteria`/`decision`/`clarify`/`spike`/`refactor`/`gotcha-applied`/`gotcha-missed`/`defer` 등을 받는다.
-
-### `awl rules`
-
-- **역할**: 이 프로젝트에 적용되는 규칙(승격된 gotcha)을 본다.
-- **언제 쓰나**: `[조사]` 단계에서 (`--scope audit`), 구현 전 확인.
-- **실행+실제출력**:
-  ```
-  $ awl rules --json
-  {"rules":[],"warnings":[]}
-  ```
-- **읽는법**: 이 프로젝트는 지금 규칙이 0건이다. storyline.md 5절/8절에서 정직하게 다룬 그대로다. `rules edit`으로 규칙을 고치고, `rules promote <gotcha-id>`로 gotcha를 규칙으로 승격한다(자동 승격 없음, 사람이 실행).
-
-### `awl gotchas`
-
-- **역할**: 아직 규칙이 되지 않은 교훈(gotcha) 목록을 본다.
-- **언제 쓰나**: 완료 조건마다 구현 시작 전, 적용 가능한 교훈이 있는지 훑을 때.
-- **실행+실제출력**:
-  ```
-  $ awl gotchas --json
-  ```
-  75건(이 조회 시점). 예: `G-001`. "구현 시작 전 작업트리 git status를 실제 git 바이너리로 확인한다. 다른 세션의 무관한 미커밋 변경이 이미 섞여 있으면, 내 변경이 끝난 뒤 격리 커밋 단계에서 hunk가 겹쳐 자동 커밋이 거부될 수 있다."
-- **읽는법**: 각 항목엔 `count`(반복 횟수)가 있다. 2번 반복되면 `awl evolve`가 승격 후보로 알려준다.
-
-### `awl metrics`
-
-- **역할**: 워크아이템(세대)별 지표 추세를 본다. `criteriaTotal`/`avgAttempts`/`blockedRatio`/`reviewRejects`/`proceduralErrors`/`gotchaApplied`/`gotchaMissed`/`refactorCount`. 토큰을 직접 재는 게 아니라 대리 지표다.
-- **언제 쓰나**: 워크아이템을 마친 뒤 이번 작업이 얼마나 매끄러웠는지 볼 때.
-- **실행+실제출력**(초기 세대 하나):
-  ```
-  $ awl metrics --json
-  {"generations":[{"workitem":"WI-B","at":"2026-07-14T12:59:59.177Z","criteriaTotal":11,"avgAttempts":0.73,"blockedRatio":0,"reviewRejects":2,"proceduralErrors":4, ...}, ...]}
-  ```
-- **읽는법**: `--compare`로 실험 케이스(모델/모드/작업유형)별 비교를 본다. 워크아이템마다 난이도가 다르니 세대 간 단순 비교는 조심하라고 스킬 문서가 못박는다.
-
-### `awl loop-summary`
-
-- **역할**: 루프/파이프라인 완료를 4렌즈(개입·품질·효율·산출)로 요약한다.
-- **언제 쓰나**: 워크아이템 하나가 끝난 뒤 전체를 한눈에 볼 때.
-- **실행+실제출력**(이 워크아이템, 진행 중 시점):
-  ```
-  $ awl loop-summary --json
-  {
-    "workitem": "awl-team-storyline",
-    "intervention": {"autonomous":1,"humanInterventions":0,"humanGateCount":0,"deferCount":0,"unmannedRate":100},
-    "quality": {"reviewCount":0,"reviewRejects":0,"blocked":0,"avgAttempts":0,"implementationFailures":0,"proceduralErrors":0},
-    "efficiency": {"durationMs":423134},
-    "output": {"passedCriteria":0,"totalCriteria":8,"commits":1,"gotchaApplied":1,"gotchaMissed":0,"exclusions":1}
-  }
-  ```
-- **읽는법**: `unmannedRate`가 게이트를 얼마나 자율로 통과했는지(자동 승인 비율)를 보여준다.
-
-### `awl loop-summary` 배치모드 (`--workitems`/`--since`)
-
-- **역할**: 여러 워크아이템을 한 번에 항목별 + 전체집계로 요약한다. 단일모드와 같은 4렌즈를 쓰되, 집계는 카운트값(완료 AC·격리커밋·gotcha 등)은 합, 비율값(무인율·평균시도/AC)은 평균, 시간/비용(durationMs/costDelta)은 있는 값만 평균한다.
-- **언제 쓰나**: 파이프라인 오케스트레이터가 사이클(레인 큐가 유휴로 돌아가는 시점) 하나에 완료된 워크아이템 여러 개를 한 번에 보고할 때. `--workitems`는 완료 목록을 콤마로 직접 넘기고, `--since`는 그 시각(ISO) 이후 완료된 워크아이템 전부를 세대 스냅샷(`awl metrics`와 같은 소스)에서 골라온다.
-- **실행+실제출력**(이 저장소, 2026-07-20, `--workitems`로 실제 워크아이템 2개 지정):
-  ```
-  $ awl loop-summary --workitems pipeline-cycle-summary,awl-loop-structural-investigation
-
-  +- 작업 완료 요약 · pipeline-cycle-summary -----------------------------+
-  |  사람 개입 0 · 자율 2 (무인율 100%)                                   |
-  |    게이트 자율 2 · 사람 0 · defer 0                                   |
-  |                                                                       |
-  |  품질   리뷰 1(반려 1) · blocked 1 · 평균시도/AC 0                    |
-  |         실패 원인  구현 0 · 절차 0 (환경 미기록)                      |
-  |  효율   소요 34m                                                      |
-  |  산출   완료 AC 6/6 · 격리커밋 3 · gotcha 적용 2/누락 2 · 범위배제 0  |
-  +-----------------------------------------------------------------------+
-  +- 작업 완료 요약 · awl-loop-structural-investigation ------------------+
-  |  사람 개입 0 · 자율 2 (무인율 100%)                                   |
-  |    게이트 자율 2 · 사람 0 · defer 0                                   |
-  |                                                                       |
-  |  품질   리뷰 1(반려 0) · blocked 0 · 평균시도/AC 1                    |
-  |         실패 원인  구현 6 · 절차 0 (환경 미기록)                      |
-  |  효율   소요 3m                                                       |
-  |  산출   완료 AC 6/6 · 격리커밋 1 · gotcha 적용 0/누락 0 · 범위배제 0  |
-  +-----------------------------------------------------------------------+
-  +- 전체 집계 · 워크아이템 2개 -----------------------------------------------------------+
-  |  사람 개입 합 0 · 자율 합 4 (무인율 평균 100%)                                         |
-  |    게이트 자율 4 · 사람 0 · defer 0                                                    |
-  |                                                                                        |
-  |  품질   리뷰 2(반려 1) · blocked 1 · 평균시도/AC 평균 0.5                              |
-  |         실패 원인 합  구현 6 · 절차 0                                                  |
-  |  효율   소요 평균 19m (참고용: wall-clock 아님)                                       |
-  |  산출   완료 AC 합 12/12 · 격리커밋 합 4 · gotcha 적용 합 2/누락 합 2 · 범위배제 합 0  |
-  +----------------------------------------------------------------------------------------+
-  ```
-- **읽는법**: 항목별 카드 다음에 "전체 집계" 카드가 붙는다. 집계의 "효율 소요 평균"은 각 워크아이템 `durationMs`를 있는 값만 평균한 것이지, 오케스트레이터가 벽시계로 잰 사이클 총 소요시간(wall-clock)이 아니다. `engine/skills/claude/awl-pipeline/SKILL.md`의 "사이클 완료 요약" 절이 이 둘을 섞지 말라고 못박는다. `--json`을 붙이면 `{"summaries":[...], "aggregate":{...}}` 모양으로 나온다.
-
-### `awl feedback-log`
-
-- **역할**: awl 도구 자체에 이미 남겨진 피드백 기록(`awl record awl-feedback`으로 쌓인 것, 코드 교훈이 아니라 "도구가 아팠던 점")을 area별로 묶어 검토한다. 해법은 제시하지 않는다. `awl config`의 `feedback.*`(awl-pipeline/awl-loop 세션이 다른 프로젝트로 관찰을 실시간 라우팅하는 파이프라인 모드)와는 별개 기능이다.
-- **언제 쓰나**: awl 자신을 고칠 재료를 찾을 때.
-- **실행+실제출력**:
-  ```
-  $ awl feedback-log --json
-  {"collectedFrom":30,"areas":{"cli":{"count":3,"repeated":true,"items":[...]}, "review":{...}, ...}}
-  ```
-- **읽는법**: `area`는 commit/review/gate/verify/state/init/cli/기타로 나뉜다. `repeated:true`면 같은 area에서 피드백이 반복됐다는 뜻이다.
-
-### `awl changelog`
-
-- **역할**: 게이트 2 승인 뒤 `CHANGELOG.md`에 옮겨 적을 초안을 만든다. **파일을 직접 쓰지는 않는다.**
-- **언제 쓰나**: 워크아이템이 끝나고 CHANGELOG를 정리할 때.
-- **실행+실제출력**(게이트 2 승인 전이라 아직 초안이 없다):
-  ```
-  $ awl changelog
-    [!] Gate 2 승인 뒤에만 CHANGELOG 초안을 만듭니다.
-  ```
-- **읽는법**: 게이트 2 기록이 있어야 초안이 나온다. 완료 안 된 작업이 CHANGELOG에 조용히 새는 걸 막는다.
+- **역할**: awl이 만든 것을 지운다.
+- **읽는 법**: 기본은 드라이런이라 무엇이 지워질지 먼저 보여준다. 실제로 지우려면
+  `--yes`, `~/.awl`까지 지우려면 `--global`을 명시해야 한다. npm 패키지 자체는 지우지 않는다.
 
 ---
 
-## 스킬/에이전트용 명령
+## 숨은 명령
 
-사람이 못 칠 명령은 아니지만, 실제로는 awl-loop 스킬이 루프를 도는 동안 에이전트가 호출한다.
+`--help`에 안 나오지만 스킬이 쓰는 것들이다.
 
-### `awl commit`
+```
+record      기록을 남긴다
+verify      검증 명령을 실행한다
+state       루프 상태를 읽고 쓴다
+evolve      교훈 후보를 뽑는다
+work        [레거시] 워크아이템 — ADK 는 티켓을 쓴다
+port        서비스 포트를 lease 로 조정한다
+```
 
-- **역할**: 완료 조건 작업을 **내 변경만** 격리 커밋한다. 남의 미커밋 변경과 섞이면 커밋하지 않고 알린다.
-- **언제 쓰나**: `commit --start <AC>`로 베이스라인을 잡고, 구현 후 `commit <AC> -m "..."`로 닫는다.
-- **실행+실제출력**(이 워크아이템 AC-01 실제 커밋):
-  ```
-  $ awl commit AC-01 -m "docs(presentation): storyline.md 8절 초안 ..."
-    커밋할 내 변경:
-      + docs/presentation/storyline.md
-    제외(남의 미커밋 변경, 워킹트리에 그대로 둡니다):
-      - .gitignore
-      - docs/presentation-source.md
-
-    [ok] 커밋됨: 7b5709e7c5
-      docs(presentation): storyline.md 8절 초안 ...
-    내부 검증: 스테이징한 내용 그대로 커밋됨.
-  ```
-- **읽는법**: "제외" 줄이 이 명령의 핵심이다. 이 저장소에 실제로 있던(`.gitignore`, `docs/presentation-source.md`) 무관한 미커밋 변경을 자동으로 걸러냈다. "내부 검증" 문구는 1절/7절에서 다룬 D-36 사고 이후 정정된 표현이다(스테이징한 그대로 커밋되는 동어반복이라는 사실을 숨기지 않는다).
-
-### `awl review`
-
-- **역할**: 리뷰어에게 넘길 자료(diff, 완료 조건, 검증 결과, provenance, 관련 규칙)를 조립한다.
-- **언제 쓰나**: 완료 조건 3개마다.
-- **실행**: `awl review AC-01..AC-03 --json`. 새 `reviewId`(`rev_` 접두어)가 발급된다.
-- **읽는법**: 조립만 하지 판정은 안 한다. 판정(부정행위/품질/구조)은 서브에이전트로 띄운 리뷰어가 하고, 그 결과를 `awl record review`로 기록한다.
-
-### `awl record` (hidden)
-
-- **역할**: 구조화된 기록을 남긴다. `--type` 자리에 `audit`/`criteria`/`gate`/`attempt`/`blocked`/`review`/`narrative`/`gotcha-applied`/`gotcha-missed`/`refactor`/`decision`/`clarify`/`spike`/`awl-feedback` 등이 온다.
-- **언제 쓰나**: 파이프라인의 거의 매 단계.
-- **실행**: `awl record audit --json '{"scope":"...","findings":[{"id":"F-01","what":"...","severity":"high"}]}'`
-- **읽는법**: 활성 워크아이템이 없으면 거부한다(기록이 어느 워크아이템 것인지 못 정하면 안 남긴다). `--workitem`으로 다른 워크아이템에 남길 수 있다.
-
-### `awl verify` (hidden)
-
-- **역할**: `.awl/config.json`의 검증 명령(typecheck/lint/test/e2e)을 순서대로 실행한다. **유일한 심판이다.**
-- **언제 쓰나**: 구현 하나가 끝날 때마다.
-- **실행+실제출력**(이 워크아이템, AC-01 커밋 직후):
-  ```
-  $ awl verify --json
-  {"results":[
-    {"name":"typecheck","exitCode":0,"durationMs":1156,"output":"","timedOut":false},
-    {"name":"lint","exitCode":0,"durationMs":190,"output":"Checked 88 files in 65ms. No fixes applied.","timedOut":false},
-    {"name":"test","exitCode":0,"durationMs":7067,"output":"(생략: 1023 테스트 통과)","timedOut":false}
-  ]}
-  ```
-- **읽는법**: `--since-baseline`은 베이스라인 대비 새로 생긴 실패만 회귀로 판정한다(원래 있던 실패와 구분). `--related`는 변경 파일에 관련된 테스트만 돌린다(폴백 있음).
-
-### `awl state` (hidden)
-
-- **역할**: 루프 상태(`phase`/`workitem`/`criteria`/게이트 기록)를 읽고 쓴다.
-- **언제 쓰나**: 완료 조건을 등록할 때(`state set`), 다음에 뭘 할지 정할 때(`state get`).
-- **실행**: `awl state set --json '{"phase":"awaiting-gate1","criteria":[...]}'`
-- **읽는법**: `phase:"loop"`로의 전환은 게이트 1 기록이 없으면 코드로 거부된다(storyline.md 4절의 핵심 근거).
-
-### `awl evolve` (hidden)
-
-- **역할**: 이번 워크아이템의 기록을 모아(`--collect`) 재사용 가능한 교훈으로 뽑고, gotcha로 기록한다(`--record`).
-- **언제 쓰나**: 게이트 2를 통과한 뒤, 워크아이템을 닫기 전.
-- **실행**: `awl evolve --collect --workitem <WI>` 다음 `awl evolve --record --json '{"lesson":"...","context":"...","source":{...}}'`
-- **읽는법**: 같은 교훈이 2번 반복되면 알림이 뜨지만, 규칙으로 자동 승격하지 않는다. `awl rules promote`는 사람이 직접 실행한다.
-
-### `awl defer-summary` (hidden)
-
-- **역할**: pipeline `gate-medium` 모드에서 큐에 쌓인 "사람 최종 확인 항목"을 사이클 끝에 한 번에 요약한다.
-- **언제 쓰나**: pipeline 오케스트레이터가 한 사이클을 마칠 때.
-- **실행**: `awl defer-summary --json --workitem <wi>`
-- **읽는법**: `gate-high`(기본)에서는 안 쓰인다. 게이트를 전부 사람에게 묻기 때문에 defer 큐 자체가 안 생긴다.
-
-### `awl hold-recheck` (hidden)
-
-- **역할**: `.tasks/plan`의 의존형 hold(`.hold.md`)를 재점검해, 의존 워크아이템이 착지+합격했으면 자동으로 un-hold(`.hold.md` → `.md`)한다.
-- **언제 쓰나**: pipeline exec 세션이 유휴로 넘어가기 직전(신규 착수·피드백 처리가 둘 다 없을 때).
-- **실행+실제출력**:
-  ```
-  $ awl hold-recheck --json
-  Usage: awl hold-recheck [options]
-  .tasks/plan 의 의존형 hold 를 재점검해 착지+합격한 의존이면 자동 un-hold 합니다
-  ```
-- **읽는법**: storyline.md 4절에서 다룬 `pipeline-hold-recheck`(커밋 `c3a58df`) 실증의 핵심 명령이다. 사람이 파일명을 손으로 바꾸지 않아도, 의존이 끝나는 순간 같은 턴에 자동으로 풀린다.
-
----
-
-## 스킬 (Claude Code: `.claude/skills/`, Codex: `.agents/skills/`)
-
-배포 원본은 `engine/skills/claude/`와 `engine/skills/codex/`다. Claude Code는 `/awl-*` 트리거와 워처 기반 역할 세션을 쓰고, Codex는 `$awl-*` 스킬과 `spawn_agent`·`wait_agent`·`followup_task` 기반 역할 세션을 쓴다. `.tasks`의 plan/exec/review 파일 상태 계약과 gate mode 의미는 같다.
-
-### `/awl-loop`
-
-- **역할**: 워크아이템 하나의 생애를 처음부터 끝까지 진행한다. 조사부터 게이트 2, evolve까지.
-- **언제 쓰나**: 완료 조건이 여러 개인 작업(3절의 2단). 목표를 서술문으로 주면 스킬이 완료 조건으로 번역한다.
-- **트리거**: `/awl-loop`, "이 기능 구현하자", 완료 조건 없는 목표 서술문.
-- **읽는법**: Claude Code는 게이트 질문 도구를 호출하고, Codex는 지원 모드에서 `request_user_input`을 쓰거나 질문을 남기고 실제로 턴을 끝낸다. 어느 쪽이든 응답 전에 구현으로 넘어가면 실패다. 자율 구간은 게이트 1 이후부터다.
-
-### `/awl-pipeline`
-
-- **역할**: 오케스트레이터. plan 역할로 진입해 exec·review를 백그라운드 LLM CLI 에이전트로 스폰하고, 한 레인의 파이프라인을 무인으로 돌린다.
-- **언제 쓰나**: 여러 워크아이템을 동시에 격리해서 돌리고 싶을 때(3절의 3단). 사람은 목표만 던진다.
-- **트리거**: Claude는 `/awl-pipeline [레인] [모드]`, Codex는 `$awl-pipeline <lane명> <mode> [--poll <interval>]`.
-- **읽는법**: 첫 인자가 레인 이름, `.`(cwd를 단일 레인으로), 인자 없음(자동 레인 `unknown-lane-<N>` 생성), 또는 mode 토큰만 온 경우(자동 레인 + 그 모드) 넷 중 하나로 해석된다. mode는 `gate-high`(기본, 매 게이트 사람 승인) / `gate-medium`(승인 자동, high만 최종 요약) / `gate-low`(전부 자율) 세 단계다. 방향 규약은 "높을수록 게이트가 많다". Codex의 `--poll 30m`은 현재 chat의 native Scheduled task로 미래 plan을 30분마다 확인한다. Scheduled capability가 없으면 goal·sleep·shell watcher·cron으로 대체하지 않는다. `awl`은 스폰하지 않는다는 게 이 스킬의 경계다(스폰은 스킬 몫, awl은 설치·데이터만).
-
-### `/awl-pipeline-plan`
-
-- **역할**: 사람이 준 목표를 `.tasks/plan/<name>.md` 일감 문서로 구조화한다. exec가 `/awl-loop`로 자율 구현할 수 있게 완료 조건·범위·검증 힌트를 명시한다.
-- **언제 쓰나**: pipeline의 plan 역할 세션(오케스트레이터가 이 역할로 들어간다).
-- **트리거**: `/awl-pipeline-plan`.
-- **읽는법**: 직접 구현하지 않는다(exec 몫). 검증하지 않는다(review 몫).
-
-### `/awl-pipeline-exec`
-
-- **역할**: `.tasks/plan`의 신규 일감과 `.tasks/review`의 피드백을 이벤트 워처로 감지해 무인으로 구현한다. 구현 코어는 반드시 `/awl-loop`(게이트는 자율 승인). 핸드오프를 `.tasks/exec/<name>.md`에 남긴다.
-- **언제 쓰나**: pipeline의 exec 역할 세션.
-- **트리거**: `/awl-pipeline-exec`.
-- **읽는법**: 한 틱의 순서는 피드백(review) 처리 → 신규 착수(plan) → **hold 재점검**(`awl hold-recheck`, storyline.md 4절 hold-recheck 사례가 여기서 나온다) → 유휴 순이다. 무거운 구현은 서브에이전트(`Task`)에 위임해 메인 세션의 컨텍스트를 구현 로그로 채우지 않는다. 유휴로 넘어가면 워처(`watch-inputs.sh`)를 포그라운드로 1회만 체크하고, 처리할 게 없으면 다음 확인을 예약한 뒤 턴을 끝낸다. 연속으로 몇 번 비었는지(`EMPTY_COUNT`)에 따라 막 유휴에 들어간 직후엔 240초, 계속 한산하면 1500초로 간격을 늘린다(`pipeline-self-pace-adaptive-backoff`). 배경 프로세스를 계속 띄워두지 않는다.
-
-### `/awl-pipeline-review`
-
-- **역할**: `.tasks/exec`의 미검증 핸드오프를 감지해 무인으로 검증한다. 부정행위·완료조건 충족·품질을 확인한다. 합격이면 기록 없음(파일명이 상태), 수정 요구가 있으면 `.tasks/review/<name>.md`에 남긴다.
-- **언제 쓰나**: pipeline의 review 역할 세션.
-- **트리거**: `/awl-pipeline-review`.
-- **읽는법**: 마커는 `.taken` 하나로 통일돼 있다. `exec/<name>.taken.md` + `review/` 쪽에 파일이 없으면 그게 곧 "합격·완료"다. 검증은 서브에이전트에 위임한다(exec 주장을 그대로 안 믿고 신선한 눈으로 독립 재검증). 이 세션 동안 워처 스크립트(`watch-exec.sh`)가 symlink된 `.tasks/` 경로(예: `.tasks -> .awl/lanes/<lane>`)에서도 올바르게 동작하도록 고쳐졌다. `cd -P`/`pwd -P`로 스크립트의 물리적 위치를 완전히 따라가게 했다(`pipeline-watcher-symlink-invoke-fix`). 유휴 시 다음 확인 예약은 exec와 대칭이다(`watch-exec.sh` one-shot 체크 → `EMPTY_COUNT` 기반 240초/1500초 백오프).
-
----
-
-## 참고: 명령 카운트 재확인 로그
-
-`awl --help`(2026-07-19, 버전 0.6.18): init/status/brief/doctor/version-check/update/**uninstall**/config/work/lane/records/rules/gotchas/metrics/loop-summary/feedback/changelog/commit/review = 19개. F-01(이전 조사)의 18개에서 `uninstall`이 하나 늘었다. 리뷰(`rev_5b70cac74220bb1ed7`)가 이 문서 초판에서 `uninstall` 항목 자체가 빠진 걸 잡아 이번에 추가했다. `uninstall`은 storyline.md AC-01 커밋보다 먼저 main에 병합돼 조사 시점에 이미 `--help`에 있었는데 놓쳤다. hidden 명령은 `record`/`verify`/`state`/`evolve`/`defer-summary` 5개에 더해 `hold-recheck`가 새로 확인돼 6개다(`awl hold-recheck --help`로 존재 확인, `--help` 목록엔 안 뜬다). 합쳐서 25개.
-
-**재확인 2**(2026-07-20, 버전 0.6.20): `loop-summary`에 `--workitems`/`--since` 옵션이 추가됐지만(6b19c16) 새 top-level 명령은 아니라서 `awl --help` 목록·hidden 목록 둘 다 그대로다. 다시 세어봐도 visible 19개 + hidden 6개 = 25개로 변동 없다.
-
-**재확인 3**(버전 0.6.22): `pipeline-self-pace-loop`·`pipeline-self-pace-adaptive-backoff`가 exec/review의 유휴 재개 방식을 바꿨다(백그라운드 워처 상시 재무장 → 포그라운드 one-shot 체크 + `EMPTY_COUNT` 기반 240초/1500초 백오프). 둘 다 워처 스크립트와 `/awl-pipeline-exec`·`/awl-pipeline-review` 스킬 내부 동작만 바꿨을 뿐 새 `awl` 명령이나 옵션을 추가하지 않아 25개에서 변동 없다.
-
-**재확인 4**(버전 0.6.44): `feedback` 명령이 `feedback-log`로 개명됐다. `awl config`의 `feedback.*`(파이프라인 라우팅 모드)와 이름이 겹쳐 혼동을 낳는다는 지적에 따른 것이다(`review`로의 개명은 기존 완료조건 리뷰 명령과 충돌해 보류). 이름만 바뀌었을 뿐 top-level 명령 수는 그대로라 25개에서 변동 없다. 이와 별개로 `awl config`가 `feedback.enabled`/`feedback.path` 상태를 화면에 보여주고(이전엔 `config get`으로만 조회 가능했다), 대화형 편집 메뉴에 토글+경로 변경 항목이 추가됐다. `awl config`/`config set`이 쓰는 프로젝트 판별 로직도 바뀌었다: 등록된 프로젝트가 정확히 1개면 cwd 밖에서도 cd 안내 없이 바로 그 프로젝트에 적용된다(이전엔 등록 프로젝트 수와 무관하게 cwd 밖이면 항상 cd를 요구했다).
+`awl work`는 티켓 이전 세대의 같은 자리다. `/awl-loop`을 이어 쓰는 경우가 있어 남겨뒀다.

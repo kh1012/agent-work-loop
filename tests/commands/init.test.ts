@@ -1487,9 +1487,11 @@ describe('renderResult — 결과 값 emphasis 강조 (cli-visual-consistency AC
     lessonCount: 0,
     safetyHook: { installed: true },
   };
-  it('색 모드에서 결과 값(engineVersion 등)을 bold 로 강조한다', () => {
+  it('색 모드에서 결과 값을 bold 로 강조한다', () => {
+    // 엔진 사본이 사라져(2단계 #7) '~/.awl/engine  <버전>' 줄이 없어졌다. 값 강조
+    // 계약 자체는 살아 있으므로 남아 있는 값 줄로 확인한다.
     const text = renderResult(result, inputs, { unicode: true, color: true, tty: true });
-    expect(text).toContain('\x1b[1m0.6.8\x1b[0m'); // 값 bold
+    expect(text).toContain('\x1b[1m생성됨\x1b[0m');
   });
   it('색 없음이면 값은 평문(no-op)', () => {
     const text = renderResult(result, inputs, { unicode: false, color: false, tty: false });
