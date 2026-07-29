@@ -91,9 +91,13 @@ autonomous the run, the larger that debt.
 
 ## No ticket yet? Make one first
 
-If `awl next` says it could not find a ticket, move the goal into a spec:
-`awl doc new spec <제목> --request "<원문>"` → fill Conditions/Constraints →
-`awl tickets derive <spec-id>` → `awl next` again.
+With no tickets, `awl next` prints a spec-stage view — not an error. Its "다음" block
+names what you can do right now, with real ids filled in; follow it. To move a goal into
+a spec: `awl doc new spec <제목> --request "<원문>"` → fill `## Conditions` as
+`### condition-N` blocks (EARS phrasing) → `awl tickets derive <spec-id>` → `awl next`.
+
+> Conditions written as bullets (`- 언제 …`) pass `awl doc lint` but make
+> `awl tickets derive` produce zero tickets. One condition is one `### condition-N`.
 
 ## Commit documents immediately
 

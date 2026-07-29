@@ -83,9 +83,14 @@ auto        펼친 요약만 — 완료 티켓·조건·검증·자동승인 횟
 확인질문 네 절). **이건 리뷰가 아니다.** 리뷰는 다른 눈으로 결함을 찾는 자리(`review` 슬롯)고,
 여기는 사람이 "에이전트가 무얼 했나"를 따라잡는 자리다. 자율로 오래 돌수록 이 부채가 커진다.
 
-**티켓이 없으면 먼저 만든다.** `awl next` 가 "진행할 티켓을 찾지 못했습니다"라고
-하면, 목표를 스펙으로 옮긴다: `awl doc new spec <제목> --request "<원문>"` →
-Conditions/Constraints 채우기 → `awl tickets derive <spec-id>` → 다시 `awl next`.
+**티켓이 없으면 `awl next` 가 스펙 단계 뷰를 낸다.** 실패가 아니다 — 그 화면의
+"다음" 절이 지금 할 수 있는 일을 실제 id 까지 넣어 알려주니 그대로 따르면 된다.
+목표를 스펙으로 옮기는 순서는 이렇다: `awl doc new spec <제목> --request "<원문>"` →
+`## Conditions` 를 `### condition-N` 블록으로 채우기(EARS 문형) → `awl tickets derive
+<spec-id>` → 다시 `awl next`.
+
+> 조건을 불릿(`- 언제 …`)으로 쓰면 `awl doc lint` 는 통과하는데 `awl tickets derive`
+> 가 0개를 만들고 끝난다. 조건 하나가 `### condition-N` 소제목 하나다.
 
 **문서(스펙·티켓)를 만들거나 고치면 그 자리에서 바로 커밋한다** — `git add
 docs/ && git commit -m "..."` (`awl commit`이 아니라 그냥 git — 완료조건 diff
