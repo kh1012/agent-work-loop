@@ -85,36 +85,34 @@ describe('README 파이프라인/퀵스타트 정확성 (readme-refresh AC-03)',
   });
 });
 
-describe('오케스트레이션 파이프라인 노출 (cli-pipeline-surface)', () => {
-  it('top-level lane 설명에 파이프라인 맥락이 있다 (AC-02)', () => {
-    const src = read('src/program.ts');
-    // program.command('lane').description(...) 의 top-level 설명을 뽑는다.
-    const m = src.match(/\.command\('lane'\)\s*\.description\(\s*'([^']*)'/);
-    expect(m).not.toBeNull();
-    const desc = m?.[1] ?? '';
-    expect(desc).toContain('파이프라인'); // --help 명령목록 lane 줄에서 발견 가능
-  });
-
-  it('README 에 오케스트레이션 파이프라인 섹션과 3요소가 있다 (AC-01)', () => {
+// 설계 대조 2단계 #15 — 오케스트레이터를 은퇴시켰으므로(#3) README 도 그 구조를
+// 더는 설명하지 않는다. 레인은 남지만 세션을 띄우는 건 사람이다.
+describe('작업 루프와 오케스트레이션 노출', () => {
+  it('README 가 레인을 여는 법과 여는 주체를 함께 말한다', () => {
     const md = read('README.md');
-    const head = md.indexOf('## 오케스트레이션');
-    expect(head).toBeGreaterThan(-1); // ② 다중 레인 섹션 존재
-    // 3요소가 섹션 안(앵커 뒤)에 공존한다 — 섹션이 비면 실패한다(AC-04 강화).
+    const head = md.indexOf('## 작업 루프와 오케스트레이션');
+    expect(head).toBeGreaterThan(-1);
     const section = md.slice(head);
-    expect(section).toContain('awl lane'); // 요소 1: 격리 레인
-    expect(section).toContain('--pipeline'); // 요소 2: awl status --pipeline 롤업
-    expect(section).toContain('awl-pipeline'); // 요소 3: 역할 스킬(plan/exec/review)
-    // auto-spawn 미탑재는 로드맵으로만 표기(탑재된 척 금지)
-    expect(section).toContain('로드맵');
+    expect(section).toContain('awl run --lanes'); // 레인을 여는 명령
+    expect(section).toContain('awl lanes'); // 현황
+    expect(section).toContain('/awl'); // 레인에서 사람이 도는 것
+    // 스폰 주체를 흐리지 않는다 — awl 이 띄우는 것처럼 읽히면 안 된다.
+    expect(section).toContain('오케스트레이터 에이전트를 두지 않습니다');
   });
 
-  it('두 pipeline 의미를 구분된 용어로 지칭한다 (AC-03)', () => {
+  it('README 에 은퇴한 파이프라인 표면이 남아 있지 않다', () => {
     const md = read('README.md');
-    // ① 단일 워크아이템 흐름과 ② 다중 레인을 서로 다른 용어로 부른다.
-    expect(md).toContain('작업 루프'); // ① 워크플로우 라벨
-    expect(md).toContain('오케스트레이션'); // ② 다중 레인 라벨
-    // ① 라벨이 워크플로우 다이어그램 자리에서 먼저 등장한다(② 섹션보다 앞).
-    expect(md.indexOf('작업 루프')).toBeLessThan(md.indexOf('## 오케스트레이션'));
+    for (const gone of ['awl-pipeline', '--pipeline', 'gate-high', 'gate-low']) {
+      expect(md).not.toContain(gone);
+    }
+    // --gl/--gm/--gh 게이트밀도 축약(뒤에 단어가 안 붙는 형태)도 사라져야 한다.
+    expect(md).not.toMatch(/--g[lmh]\b/);
+  });
+
+  it('두 층을 구분된 용어로 지칭한다', () => {
+    const md = read('README.md');
+    expect(md).toContain('작업 루프');
+    expect(md).toContain('오케스트레이션');
   });
 });
 

@@ -109,7 +109,16 @@ describe('runStateSet 입력 엣지 (stress-input-edge AC-01/02)', () => {
   it('거대 유효 JSON(1MB) 을 크래시 없이 적용한다', () => {
     const root = project();
     const bigVal = 'y'.repeat(1024 * 1024);
-    runStateSet(JSON.stringify({ note: bigVal }));
+    // stdout 을 가로챈다. runStateSet 은 병합 결과를 통째로 출력하는데, CI 처럼
+    // stdout 이 파이프면 1MB 쓰기가 드레인을 기다리다 교착한다(실제로 0.7.5 부터
+    // GitHub Actions 가 이 지점에서 9분간 멈췄다가 죽었다). 이 테스트가 보려는 건
+    // "1MB 를 크래시 없이 **적용**하는가"지 출력이 아니다.
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      runStateSet(JSON.stringify({ note: bigVal }));
+    } finally {
+      stdoutSpy.mockRestore();
+    }
     const state = JSON.parse(fs.readFileSync(path.join(root, '.awl', 'state.json'), 'utf8'));
     expect(state.note).toHaveLength(1024 * 1024);
   });
