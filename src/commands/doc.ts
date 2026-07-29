@@ -164,6 +164,8 @@ ${quote}
 
 ## Conditions
 
+## Qualitative
+
 ## Out of scope
 `;
 }
@@ -328,6 +330,75 @@ function isEarsForm(text: string): boolean {
 }
 
 /**
+ * EARS 한 줄을 조건부와 동작부로 가른다(순수). 설계 §3 은 다섯 문형 전부가
+ * `<조건>, 시스템은 <동작>해야 한다` 꼴이라고 정한다 — 쉼표가 그 경계다.
+ * 쉼표가 없으면(`항상 …` 처럼 조건이 없는 문형 포함) null.
+ *
+ * 정규화: 공백을 하나로 줄이고 문장부호를 떨어낸다. "선택이 한 칸씩 이동해야 한다." 와
+ * "선택이  한 칸씩 이동해야 한다" 를 같은 것으로 봐야 모순 검출이 의미가 있다.
+ */
+export function earsParts(text: string): { condition: string; action: string } | null {
+  const flat = text.trim().replace(/\s+/g, ' ');
+  const at = flat.indexOf(',');
+  if (at < 0) {
+    return null;
+  }
+  const norm = (v: string): string =>
+    v
+      .trim()
+      .replace(/[.。]$/, '')
+      .trim();
+  const condition = norm(flat.slice(0, at));
+  const action = norm(flat.slice(at + 1));
+  if (condition === '' || action === '') {
+    return null;
+  }
+  return { condition, action };
+}
+
+/**
+ * 같은 조건에 다른 동작을 요구하는 짝을 찾는다(순수, 설계 §3 "모순이 잡힌다").
+ * 조건이 같고 동작이 다르면 둘 중 하나는 틀렸다 — 어느 쪽인지는 사람이 정한다.
+ */
+export function findEarsContradictions(
+  blocks: readonly { heading: string; text: string; line: number }[],
+): { heading: string; line: number; conflictsWith: string }[] {
+  const seen = new Map<string, { heading: string; action: string }>();
+  const out: { heading: string; line: number; conflictsWith: string }[] = [];
+  for (const b of blocks) {
+    const parts = earsParts(b.text);
+    if (!parts) {
+      continue;
+    }
+    const prev = seen.get(parts.condition);
+    if (prev === undefined) {
+      seen.set(parts.condition, { heading: b.heading, action: parts.action });
+    } else if (prev.action !== parts.action) {
+      out.push({ heading: b.heading, line: b.line, conflictsWith: prev.heading });
+    }
+  }
+  return out;
+}
+
+/**
+ * "언제"만 있고 "만약"이 하나도 없는지(순수, 설계 §3 "빠뜨린 예외가 보인다").
+ * 예외를 안 생각했다는 신호지 오류는 아니라, 호출부는 경고로만 쓴다.
+ */
+export function lacksExceptionCondition(blocks: readonly { text: string }[]): boolean {
+  let when = 0;
+  let ifAny = 0;
+  for (const b of blocks) {
+    const t = b.text.trim();
+    if (t.startsWith('언제')) {
+      when += 1;
+    } else if (t.startsWith('만약')) {
+      ifAny += 1;
+    }
+  }
+  return when > 0 && ifAny === 0;
+}
+
+/**
  * 스펙 본문의 `## <sectionHeading>` 아래 `### <slug>-N` 블록들을 뽑는다(제목·본문 텍스트).
  * `line` 은 그 블록 제목(`###`)이 본문(body) 안에서 몇 번째 줄인지(1-인덱스) — lint 가
  * 파일 전체 기준 줄 번호로 바꿀 때 이 값에 프론트매터 줄 수를 더한다. Conditions 와
@@ -484,6 +555,27 @@ export function lintDoc(
           });
         }
       }
+    }
+
+    // 설계 §3 이 EARS 로 얻는다고 한 나머지 둘. 문형 검사만으로는 안 잡힌다.
+    const conditionBlocks = extractConditionBlocks(body);
+
+    // "모순이 잡힌다 — 같은 조건에 다른 동작을 요구하면 기계가 찾는다"
+    for (const c of findEarsContradictions(conditionBlocks)) {
+      violations.push({
+        file: filePath,
+        message: `${c.heading} 이 ${c.conflictsWith} 과 같은 조건에 다른 동작을 요구합니다 (모순)`,
+        line: toFileLine(content, body, c.line),
+      });
+    }
+
+    // "빠뜨린 예외가 보인다 — '언제'만 있고 '만약'이 하나도 없으면 예외를 안 생각한 것이다"
+    if (lacksExceptionCondition(conditionBlocks)) {
+      violations.push({
+        file: filePath,
+        message:
+          "'언제' 조건만 있고 '만약'(예외) 조건이 하나도 없습니다 — 예외를 안 생각했는지 확인하세요",
+      });
     }
 
     const pathMatch = body.match(FILE_PATH_PATTERN);

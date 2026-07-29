@@ -7,10 +7,13 @@ import {
   bodySha256,
   createDoc,
   deriveOrganizationFromGitRemote,
+  earsParts,
   extractConditionBlocks,
   extractConstraintBlocks,
+  findEarsContradictions,
   findSpecsByDomain,
   kebabCase,
+  lacksExceptionCondition,
   lintDoc,
   lintFilename,
   listDocFiles,
@@ -368,7 +371,9 @@ describe('lintDoc — EARS 문형 (EARS #2)', () => {
     const file = writeSpec(
       p,
       '20260725-143052-제목.md',
-      '## Conditions\n\n### condition-1\n언제 X 이면, Y 해야 한다\n',
+      // '만약'을 함께 둔다 — 없으면 "예외를 안 생각했다" 경고가 별도로 붙어(§3)
+      // 이 테스트가 보려는 문형 검사와 섞인다.
+      '## Conditions\n\n### condition-1\n언제 X 이면, Y 해야 한다\n\n### condition-2\n만약 Z 라면, W 해야 한다\n',
     );
     expect(lintDoc('spec', file, new Set())).toEqual([]);
   });
@@ -601,5 +606,85 @@ describe('findSpecsByDomain (WI-G7)', () => {
     const dir = path.join(p, 'docs', 'specs');
     writeSpecWithDomain(dir, '20260101-000000-a.md', 'auth');
     expect(findSpecsByDomain(p, 'editor')).toEqual([]);
+  });
+});
+
+// 설계 대조 2단계 #13 — §3 이 EARS 로 얻는다고 한 셋 중 문형 검사만 있었다.
+describe('earsParts — 조건부/동작부 분리 (순수)', () => {
+  it('쉼표를 경계로 조건과 동작을 가른다', () => {
+    expect(earsParts('언제 포커스가 패널에 있으면, 선택이 이동해야 한다')).toEqual({
+      condition: '언제 포커스가 패널에 있으면',
+      action: '선택이 이동해야 한다',
+    });
+  });
+
+  it('공백과 끝 마침표를 정규화한다 — 같은 뜻이 다르게 보이면 모순 검출이 무의미해진다', () => {
+    const a = earsParts('언제  A 이면,  B 해야 한다.');
+    const b = earsParts('언제 A 이면, B 해야 한다');
+    expect(a).toEqual(b);
+  });
+
+  it('쉼표가 없으면 null (항상 문형처럼 조건부가 없는 경우)', () => {
+    expect(earsParts('항상 시스템은 로그를 남겨야 한다')).toBeNull();
+  });
+
+  it('조건이나 동작이 비면 null', () => {
+    expect(earsParts(', 동작만 있다')).toBeNull();
+    expect(earsParts('조건만 있다,')).toBeNull();
+  });
+});
+
+describe('findEarsContradictions — 같은 조건에 다른 동작 (§3 "모순이 잡힌다")', () => {
+  const b = (heading: string, text: string, line = 1) => ({ heading, text, line });
+
+  it('조건이 같고 동작이 다르면 잡는다', () => {
+    const out = findEarsContradictions([
+      b('condition-1', '언제 A 이면, B 해야 한다'),
+      b('condition-2', '언제 A 이면, C 해야 한다', 5),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0]?.heading).toBe('condition-2');
+    expect(out[0]?.conflictsWith).toBe('condition-1');
+  });
+
+  it('조건도 동작도 같으면 모순이 아니다(중복일 뿐)', () => {
+    expect(
+      findEarsContradictions([
+        b('condition-1', '언제 A 이면, B 해야 한다'),
+        b('condition-2', '언제 A 이면, B 해야 한다'),
+      ]),
+    ).toEqual([]);
+  });
+
+  it('조건이 다르면 동작이 달라도 모순이 아니다', () => {
+    expect(
+      findEarsContradictions([
+        b('condition-1', '언제 A 이면, B 해야 한다'),
+        b('condition-2', '언제 X 이면, C 해야 한다'),
+      ]),
+    ).toEqual([]);
+  });
+
+  it('쉼표 없는 문형은 건너뛴다(크래시 없음)', () => {
+    expect(findEarsContradictions([b('condition-1', '항상 로그를 남겨야 한다')])).toEqual([]);
+  });
+});
+
+describe('lacksExceptionCondition — 예외를 안 생각했는지 (§3 "빠뜨린 예외가 보인다")', () => {
+  it("'언제'만 있고 '만약'이 없으면 true", () => {
+    expect(
+      lacksExceptionCondition([{ text: '언제 A 이면, B 해야 한다' }, { text: '언제 C 이면, D' }]),
+    ).toBe(true);
+  });
+
+  it("'만약'이 하나라도 있으면 false", () => {
+    expect(lacksExceptionCondition([{ text: '언제 A 이면, B' }, { text: '만약 X 라면, Y' }])).toBe(
+      false,
+    );
+  });
+
+  it("'언제'가 아예 없으면 false — 물을 대상이 없다", () => {
+    expect(lacksExceptionCondition([{ text: '항상 로그를 남겨야 한다' }])).toBe(false);
+    expect(lacksExceptionCondition([])).toBe(false);
   });
 });

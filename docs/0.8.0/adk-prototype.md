@@ -172,6 +172,8 @@ updated: <오늘>
 
 ## Conditions
 
+## Qualitative
+
 ## Out of scope
 ```
 

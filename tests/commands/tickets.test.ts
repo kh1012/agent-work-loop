@@ -93,11 +93,12 @@ describe('deriveTickets', () => {
     const first = await deriveTickets(p, specId);
     const firstTicketId = first.created[0]?.id;
 
-    // 조건 하나를 더 추가한 뒤 다시 도출 — ## Conditions 섹션 안(## Out of scope 이전)에 넣는다.
+    // 조건 하나를 더 추가한 뒤 다시 도출 — ## Conditions 섹션 안에 넣어야 한다.
+    // 그 다음 절은 ## Qualitative 다(설계 §2 뼈대, 2단계 #11).
     const content = fs.readFileSync(first.specPath, 'utf8');
     const updated = content.replace(
-      '## Out of scope',
-      '### condition-2\n만약 Z 라면, W 해야 한다\n\n## Out of scope',
+      '## Qualitative',
+      '### condition-2\n만약 Z 라면, W 해야 한다\n\n## Qualitative',
     );
     fs.writeFileSync(first.specPath, updated);
 
