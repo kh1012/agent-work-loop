@@ -3,7 +3,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  RULE_LOAD_LIMIT,
   buildRuleFile,
   checkRuleLoadLimit,
   filterRules,
@@ -240,14 +239,10 @@ describe('buildRuleFile — 규칙 파일 내용 생성 (WI-7)', () => {
   });
 });
 
-describe('checkRuleLoadLimit — 로드 규칙 상한 경고 (WI-7)', () => {
-  it(`${RULE_LOAD_LIMIT}개 이하면 경고 없음`, () => {
-    expect(checkRuleLoadLimit(RULE_LOAD_LIMIT)).toBeNull();
-  });
-
-  it(`${RULE_LOAD_LIMIT}개 초과면 경고 문구를 돌려준다`, () => {
-    const warning = checkRuleLoadLimit(RULE_LOAD_LIMIT + 1);
-    expect(warning).toContain(String(RULE_LOAD_LIMIT + 1));
-    expect(warning).toContain('졸업');
+// 설계 대조 2단계 #6 — adk-reference.md:1939 "상한도 승격도 두지 않는다".
+// 정리는 개수가 아니라 신호(awl backlog)로 한다.
+describe('checkRuleLoadLimit — 개수 상한을 두지 않는다', () => {
+  it.each([0, 15, 16, 100, 1000])('규칙이 %i개여도 경고하지 않는다', (n) => {
+    expect(checkRuleLoadLimit(n)).toBeNull();
   });
 });

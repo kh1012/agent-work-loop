@@ -210,7 +210,16 @@ export function suggestLinter(lesson: string): { rule: string; hint: string } | 
   return null;
 }
 
-export const RULE_LOAD_LIMIT = 15;
+/**
+ * 규칙 개수 상한은 두지 않는다(설계 대조 2단계 #6).
+ *
+ * adk-reference.md:1937-1941 "### 초반에는 쌓기만 한다 / **상한도 승격도 두지
+ * 않는다.** 지금 제약이 몇 개나 쌓일지, 어떤 종류가 많을지, 검사 가능한 비율이
+ * 얼마일지 모른다. 관찰 안 된 문제에 규칙을 만들면 엉뚱한 데를 조인다."
+ *
+ * 정리는 개수가 아니라 신호로 한다 — `awl backlog`(3회 반복된 승격 후보 30건 초과,
+ * :1973/:2001)가 그 자리다. 0.8.5 까지는 15개 권장 경고가 있었다.
+ */
 
 /** applies/counter 필수 검증. 빠진 필드 이름 배열을 돌려준다(빈 배열=통과). 순수 함수. */
 export function validatePromoteOpts(opts: { applies?: string; counter?: string }): string[] {
@@ -247,12 +256,13 @@ export function buildRuleFile(
   ].join('\n');
 }
 
-/** 이 프로젝트에 로드되는 규칙이 상한을 넘으면 경고 문구, 아니면 null. 순수 함수. */
-export function checkRuleLoadLimit(loadedCount: number): string | null {
-  if (loadedCount <= RULE_LOAD_LIMIT) {
-    return null;
-  }
-  return `이 프로젝트에 로드되는 규칙이 ${loadedCount}개입니다(${RULE_LOAD_LIMIT}개 권장). 검사기로 졸업시킬 규칙이 없는지 보세요.`;
+/**
+ * 규칙 개수만으로는 경고하지 않는다 — 항상 null. 설계가 상한을 두지 말라고 했다.
+ * 시그니처를 남겨두는 이유는 호출부(runRules)가 "여기서 정리 신호를 본다"는 자리를
+ * 유지하기 때문이다. 실제 신호는 awl backlog 가 낸다.
+ */
+export function checkRuleLoadLimit(_loadedCount: number): string | null {
+  return null;
 }
 
 export function runRulesPromote(
