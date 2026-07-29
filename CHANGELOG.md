@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-29
+
 ### 변경
 
 - **ADK 0.8.0 설계 대조 완결.** 설계 문서(`adk-prototype.md`·`adk-reference.md`)를 코드와
