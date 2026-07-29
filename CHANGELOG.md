@@ -5,6 +5,83 @@
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-07-29
+
+### 추가
+
+- 게이트4 auto 요청 요약(완료 티켓·조건·자동승인 횟수) (WI-H4)
+- 신규 얇은 오케스트레이션 스킬 awl 추가 (WI-H2)
+- 무인자 "지금" 티켓 자동판정 + constraints + 게이트 체크리스트 (WI-H1)
+- 왕복 카운트 + diff-only 재리뷰 + 기반/기능 티켓 차등 (WI-G24)
+- review pack ticket 키 조회 + 재료 부족 반환 (WI-G23)
+- finding 재사용 + 확인 필요 판정 + profile.skills 노출 (WI-G21)
+- 게이트 화면 접기/펼치기 UI (WI-G19)
+- awl feedback 사람용 단축 쓰기 명령 신설 (WI-G18)
+- awl tokens --lanes 로 레인별 합계 + 총합 (ADK checklist WI-G17d)
+- --worktree 는 --isolated 무관하게 records 심링크, 비-워크트리 --isolated 는 env 접미사 (ADK checklist WI-G17c)
+- records 를 심링크로 실시간 공유, teardown 에서 병합 제거 (ADK checklist WI-G17b)
+- 저장 위치를 사용자 홈 전역에서 project-local(.awl/records/)로 이전 (ADK checklist WI-G17a)
+- profile.local 스킬변경을 게이트 화면·기록에 반영 (ADK checklist WI-G16)
+- 새 검증을 처음 추가할 때 scope:changed 로 시작할지 물어봄 (ADK checklist WI-G15 후속)
+- scope:changed 필터링 + level:request 스케줄링 (ADK checklist WI-G15)
+- awl stages / awl stages --short 명령 신설 (ADK checklist WI-G14)
+- author 도 전역→저장소→local 3층으로 병합 (ADK checklist WI-G13)
+- awl doc related --domain — 이전 스펙·gotcha 조회 (checklist 라운드2 WI-G7)
+- 스펙 제약(Constraints)에 verification/source/hits 요구 (checklist 라운드2 WI-G6)
+- 스펙 저장 revision 해시·lint 줄번호·Request 원문 캡처 (checklist 라운드2 WI-G3~G5)
+- state.json loopMode 필드 + 게이트3/4 상태 확장 (checklist 라운드1 WI-F2)
+- 도구 피드백 자동 수집 — awl CLI 미처리 예외 (단계 6 WI-D, 마지막)
+- awl backlog — 정리 신호 + 리셋 (단계 6 WI-C)
+- 리뷰 findings 의 ruleId 지목 강제 + 자동 hits 증가 (단계 6 WI-B)
+- Rule.hits/source 연결 + awl rules hit <id> (단계 6 WI-A)
+- awl tokens <ticket-id> — 티켓별·단계별 토큰 사용량 (단계 5 WI-E, 마지막)
+- 게이트4 병합 제안 (단계 5 WI-D)
+- awl lane sync <name> — 레인을 지우지 않고 학습을 지금 합친다 (단계 5 WI-C)
+- 검증 배타(exclusive) 락 — 레인이 여럿이어도 직렬화 (단계 5 WI-B)
+- 레인 메타 — 기준 브랜치 + 포트 오프셋 (단계 5 WI-A)
+- awl profile install <path> — 공유 프로파일 받기 (단계 4 WI-5, 마지막)
+- 게이트 가시성 — skip은 경고, 스킬 교체는 정보 (단계 4 WI-4)
+- config.local.json/profile.local.json 병합 + config --show-origin (단계 4 WI-3)
+- .awl/profile.json 신설 — 공유 가능한 스킬 선택 (단계 4 WI-2)
+- verify(4키 고정 객체) → verifications(자유 이름 배열) 마이그레이션 (단계 4 WI-1)
+- 로컬 검증용 임시 서버 + 실측이 드러낸 두 실버그 수정 (단계 3)
+- awl doctor sync 섹션 (단계 3)
+- 전송 트리거 배선 — 스펙 closed·티켓 done·awl-feedback (단계 3)
+- 동기화 코어 모듈 src/core/sync.ts (단계 3)
+- 게이트 1/4(layer:request)가 스펙 status를 전이시킨다
+- ADK 0.8.0 Stage 2e — .tasks 파이프라인이 티켓을 원천으로 삼는다
+- ADK 0.8.0 Stage 2d — awl commit이 티켓 id를 인식한다
+- ADK 0.8.0 Stage 2c — awl next 읽기 전용 상태 조립
+- ADK 0.8.0 Stage 2b — 게이트 2·3이 티켓 status를 전이시킨다
+- ADK 0.8.0 Stage 2a — 티켓 도출 + 게이트 4개 확장
+- ADK 0.8.0 1단계(문서 구조) — doc new/lint, 전역 author, gitignore 허용목록
+
+### 고침
+
+- 시뮬레이션이 잡은 기반 티켓(conditions:[]) review pack 결함 2건
+- awl 스킬의 게이트 모드 설명이 레거시 2게이트 규칙을 잘못 가져옴
+- 사람이 직접 남기는 awl-feedback 도 절대경로를 redaction (ADK checklist WI-G12)
+- 임계값 초과 알림에 "누구든 회의를 소집할 수 있다" 문구 추가 (ADK checklist WI-G11)
+- exclusive 검증을 doctor 출력에 표시 (ADK checklist WI-G10)
+- 같은 초에 같은 제목 문서를 만들어도 안 덮어씀 (ADK checklist WI-G9)
+- 티켓 dependencies 를 doc new 로 채울 수 있게 함 (ADK checklist WI-G8)
+- records 동기화 — author 미강제·소급전송 버그 수정 (checklist 라운드2 WI-G1/G2)
+- config.json 의 engineVersion 필드 제거 — 설계대로 (checklist 라운드1 WI-F1)
+
+### 변경
+
+- style: biome 포맷 일괄 적용 (adk-stage1-foundation 병합분)
+- Merge branch 'work/adk-stage1-foundation'
+- update
+- 프로젝트 규칙 hits 기준 상한 25개 (WI-I2)
+- finding/constraint 상한 25/15 + 게이트 이력 중복 제거 (WI-I1)
+- awl 스킬에 "문서 만들면 바로 커밋" 지침 추가
+- ADK 0.8.0 구현 점검 목록 커밋 (감사 라운드1~5)
+- finding 메커니즘에 where/source 확장 + F-01/AC-01 표기를 finding-N/condition-N 으로 (WI-G20)
+- 정리 신호 알림에 "누구든 회의를 소집할 수 있다" 문구 추가 (WI-G11 후속)
+- 리뷰 서브에이전트를 --review 옵트인으로 전환, 기본은 자가 검증 (checklist 라운드1 WI-F4)
+- awl-loop 루프 모드(--strict/--auto, semi-auto 기본) — 게이트2 조건부 자동승인 (checklist 라운드1 WI-F3)
+
 ## [0.7.6] - 2026-07-25
 
 ### 고침
