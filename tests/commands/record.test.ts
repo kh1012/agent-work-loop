@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createDoc } from '../../src/commands/doc.js';
 import {
   appendRecord,
   buildRecord,
@@ -3037,5 +3038,87 @@ describe('runDeferSummary — --json 기계 계약 + workitem 폴백(skip-gate-d
     const j = JSON.parse(out);
     expect(j.workitem).toBe('WI-FALL'); // state.workitem 폴백
     expect(j.count).toBe(1);
+  });
+});
+
+describe('runRecord — 스펙 소유 기록 (ADK 게이트 1·4, dogfood-20260730)', () => {
+  const origCwd = process.cwd();
+  const origHome = process.env.AWL_HOME;
+
+  afterEach(() => {
+    process.chdir(origCwd);
+    if (origHome === undefined) {
+      delete process.env.AWL_HOME;
+    } else {
+      process.env.AWL_HOME = origHome;
+    }
+  });
+
+  /** 티켓도 워크아이템도 없는, 스펙 하나만 있는 프로젝트. */
+  async function specOnlyProject(): Promise<{ root: string; specId: string }> {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-record-spec-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, '.awl', 'config.json'),
+      JSON.stringify({ project: 'p', mainLanguage: 'other', engineVersion: '0.0.0', verify: {} }),
+    );
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-record-spec-home-'));
+    const spec = await createDoc('spec', '자동 저장', root);
+    process.chdir(root);
+    return { root, specId: spec.id };
+  }
+
+  it('스펙 식별자만으로 조사 기록을 받는다 — 스펙은 조사에서 나오므로 티켓보다 먼저다', async () => {
+    const { root, specId } = await specOnlyProject();
+    await runRecord('audit', {
+      json: JSON.stringify({
+        spec: specId,
+        scope: 's',
+        findings: [{ id: 'f-1', what: 'w', where: 'a.ts:1', source: 'x', severity: 'low' }],
+      }),
+    });
+    const rows = readRecords(root, { type: 'audit' });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.spec).toBe(specId);
+  });
+
+  it('게이트 1(요청 확정)을 기록할 수 있다 — 이 게이트에는 티켓이 아직 없다', async () => {
+    const { root, specId } = await specOnlyProject();
+    await runRecord('gate', {
+      json: JSON.stringify({
+        layer: 'request',
+        gate: 1,
+        spec: specId,
+        decision: 'approved',
+        presentedCriteria: ['조건 3개'],
+      }),
+    });
+    const rows = readRecords(root, { type: 'gate' });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.gate).toBe(1);
+  });
+
+  it('실재하지 않는 스펙 식별자는 거부한다 — 오타가 조용히 기록되면 안 된다', async () => {
+    await specOnlyProject();
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    await expect(
+      runRecord('audit', {
+        json: JSON.stringify({
+          spec: 'no-such-spec',
+          scope: 's',
+          findings: [{ id: 'f-1', what: 'w', where: 'a.ts:1', source: 'x', severity: 'low' }],
+        }),
+      }),
+    ).rejects.toThrow('exit:1');
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('스펙을 찾을 수 없습니다'))).toBe(
+      true,
+    );
+
+    exitSpy.mockRestore();
+    stderrSpy.mockRestore();
   });
 });

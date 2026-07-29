@@ -1376,14 +1376,19 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
   // 세대의 같은 자리다(2단계 #5 에서 레거시로 내렸다). 둘 중 하나만 있으면 된다.
   const dataTicket =
     typeof data.ticket === 'string' && data.ticket.trim() !== '' ? data.ticket : undefined;
-  if (!dataWorkitem && !defaultWorkitem && !dataTicket) {
+  // 스펙도 소유자가 될 수 있다. 게이트 1(요청 확정)·4(요청 닫기)는 요청 레이어라
+  // 티켓이 아직/이미 없고, 스펙을 만들어내는 조사도 티켓보다 먼저다. 티켓만 소유자로
+  // 인정하면 4게이트 중 1·4 를 아예 기록할 수 없다(dogfood-20260730 에서 게이트 1
+  // 첫 시도에 걸렸다 — 모델은 있는데 그 자리를 아무도 못 밟는 상태였다).
+  const dataSpec = typeof data.spec === 'string' && data.spec.trim() !== '' ? data.spec : undefined;
+  if (!dataWorkitem && !defaultWorkitem && !dataTicket && !dataSpec) {
     // 리뷰 지적(WI-R): projectRoot 자체를 못 찾은 경우(state.json 을 아예 못 읽음)엔
     // "활성 워크아이템이 없다"는 말이 진짜 원인(프로젝트 미초기화)을 안 알려준다.
     const hint = projectRoot
       ? ''
       : ' (프로젝트 루트를 찾지 못했습니다 — awl init 을 실행했는지 확인하세요.)';
     process.stderr.write(
-      `\n  ${signal(caps(), 'error')} 이 기록이 무엇에 대한 것인지 알 수 없습니다.${hint}\n  티켓 작업이면 데이터에 "ticket" 을 넣으세요(awl next 가 알려주는 id).\n  레거시 워크아이템 흐름이면 --workitem <id> 를 쓰거나 awl work new <id> 로 시작하세요.\n`,
+      `\n  ${signal(caps(), 'error')} 이 기록이 무엇에 대한 것인지 알 수 없습니다.${hint}\n  티켓 작업이면 데이터에 "ticket" 을 넣으세요(awl next 가 알려주는 id).\n  아직 티켓이 없는 단계(조사·게이트 1·게이트 4)면 "spec" 을 넣으세요.\n  레거시 워크아이템 흐름이면 --workitem <id> 를 쓰거나 awl work new <id> 로 시작하세요.\n`,
     );
     process.exit(1);
   }
@@ -1394,6 +1399,15 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
     process.stderr.write(
       `\n  ${signal(caps(), 'error')} 프로젝트 루트를 찾을 수 없어 기록을 남길 곳이 없습니다. awl init 을 실행했는지 확인하세요.\n`,
     );
+    process.exit(1);
+    return;
+  }
+
+  // spec 을 소유자로 쓸 땐 실재를 확인한다 — 오타 하나로 어느 스펙에도 안 붙는 고아
+  // 기록이 조용히 쌓이면, 나중에 그 스펙을 훑는 쪽(next 의 "이미 아는 것")에서 영영
+  // 안 보인다. 티켓 경로는 게이트 전이에서 이미 스펙을 확인하므로 여기선 안 겹친다.
+  if (dataSpec && !dataTicket && !findSpecFileById(projectRoot, dataSpec)) {
+    process.stderr.write(`\n  ${signal(caps(), 'error')} 스펙을 찾을 수 없습니다: ${dataSpec}\n`);
     process.exit(1);
     return;
   }
