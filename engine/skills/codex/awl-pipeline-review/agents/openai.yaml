@@ -1,4 +1,0 @@
-interface:
-  display_name: "AWL Pipeline Review"
-  short_description: "exec 결과를 코드·테스트로 독립 검증하고 pass·수정 판정"
-  default_prompt: "Use $awl-pipeline-review to independently verify an exec handoff against its plan, code, and tests, then record pass or fixes."

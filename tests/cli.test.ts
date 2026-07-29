@@ -207,7 +207,7 @@ describe('awl 프로그램 구성', () => {
     expect(program.helpInformation()).toContain('metrics');
   });
 
-  it('실제 루트 도움말은 Codex native Scheduled polling 계약을 노출한다', () => {
+  it('루트 도움말은 정식 진입점을 싣고 레거시는 각주로 내린다', () => {
     const program = buildProgram();
     let output = '';
     program.configureOutput({
@@ -237,14 +237,14 @@ describe('awl 프로그램 구성', () => {
       expect(section).toContain('레거시');
     }
 
+    // 오케스트레이터 은퇴(설계 대조 2단계 #3) 뒤 --skills 는 진입점과 레인 격리 범위만
+    // 설명한다. 파이프라인 역할/게이트밀도/폴링 계약은 스킬과 함께 사라졌다.
     const skillsCard = normalizeSection(renderSkillsCard(caps()));
-    for (const contract of [
-      '$awl-pipeline <lane명> <mode> [--poll <interval>]',
-      '--poll 30m',
-      'native Scheduled',
-      'Scheduled capability',
-    ]) {
+    for (const contract of ['/awl <목표>', 'awl run --lanes', 'awl lanes']) {
       expect(skillsCard).toContain(contract);
+    }
+    for (const gone of ['--poll', 'gate-high', '오케스트레이터']) {
+      expect(skillsCard).not.toContain(gone);
     }
   });
 });

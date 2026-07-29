@@ -21,17 +21,16 @@ import {
 
 /**
  * awl lane — 격리 레인(worktree + 전용 AWL_HOME + 스킬 + 기동 안내)을 만들고
- * 조회·정리한다 (P1 멀티레인). 개념만 신규다 — 생성 자체는 work new --worktree
+ * 조회·정리한다 (P1 멀티레인). awl run --lanes 가 이 위에 얹혀 요청까지 함께 연다. 개념만 신규다 — 생성 자체는 work new --worktree
  * --isolated 원시경로를 그대로 재사용하고(runWorkNew), 정리는 removeGitWorktree 를
  * 재사용한다. lane 은 그 조립 + 레인 어휘의 기동 안내만 얹는다.
  */
 
-// 레인의 각 역할 세션이 실행할 파이프라인 스킬 트리거. Claude Code는 `/`, Codex는 `$`.
-const PIPELINE_TRIGGERS = [
-  '/awl-pipeline-plan  |  $awl-pipeline-plan',
-  '/awl-pipeline-exec  |  $awl-pipeline-exec',
-  '/awl-pipeline-review  |  $awl-pipeline-review',
-];
+/**
+ * 레인을 연 뒤 사람이 실행할 것. 오케스트레이터를 은퇴시켰으므로(설계 대조 2단계 #3,
+ * adk-reference.md:2233-2260 "세션당 레인 하나") 역할 스킬 세 개가 아니라 진입점 하나다.
+ */
+const LANE_TRIGGERS = ['/awl  |  $awl'];
 
 // ---------------------------------------------------------------------------
 // 레인 메타 (ADK stage 5) — 기준 브랜치 + 포트 오프셋. .awl/lane-meta.json 에
@@ -190,7 +189,7 @@ export async function runLaneNew(
   // 은 그 원시경로를 그대로 재사용할 뿐 별도 처리가 없다.
 
   // 레인 기동 안내(AC-01 c) — export AWL_HOME 은 runWorkNew 가 이미 찍었다(단일 출처,
-  // 표면 중복 금지). 여기선 역할 세션이 실행할 파이프라인 스킬 트리거만 얹는다.
+  // 표면 중복 금지). 여기선 사람이 그 레인에서 실행할 진입점만 얹는다.
   process.stdout.write(`\n${feedback(c, 'ok', `레인 준비  ${color.bold(laneName)}`)}\n`);
   if (baseBranch) {
     process.stdout.write(
@@ -202,8 +201,8 @@ export async function runLaneNew(
   if (opts.suppressGuidance === true) {
     return;
   }
-  process.stdout.write(`    ${color.dim('이 레인의 역할 세션에서 스킬 트리거를 실행하세요:')}\n`);
-  for (const t of PIPELINE_TRIGGERS) {
+  process.stdout.write(`    ${color.dim('이 레인에서 터미널을 열고 실행하세요:')}\n`);
+  for (const t of LANE_TRIGGERS) {
     process.stdout.write(`      ${color.dim(t)}\n`);
   }
 }

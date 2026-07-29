@@ -651,9 +651,7 @@ describe('applyInit — 전체 산출물', () => {
     expect(result.skills).toEqual(['claude', 'codex']);
     expect(fs.existsSync(path.join(proj, '.claude', 'skills', 'awl-loop', 'SKILL.md'))).toBe(true);
     expect(fs.existsSync(path.join(proj, '.agents', 'skills', 'awl-loop', 'SKILL.md'))).toBe(true);
-    expect(fs.existsSync(path.join(proj, '.agents', 'skills', 'awl-pipeline', 'SKILL.md'))).toBe(
-      true,
-    );
+    expect(fs.existsSync(path.join(proj, '.agents', 'skills', 'awl', 'SKILL.md'))).toBe(true);
     expect(fs.readFileSync(path.join(proj, 'AGENTS.md'), 'utf8')).toContain('awl-loop:start');
 
     // .awl/stages.md + CLAUDE.md/AGENTS.md 참조 (ADK stage 1)
@@ -670,9 +668,11 @@ describe('applyInit — 전체 산출물', () => {
     expect(result.projectCount).toBe(1);
   });
 
-  it('Codex와 Claude pipeline 계약을 review와 runner provenance까지 설치 surface로 그대로 복사한다', () => {
-    const inputs = nonInteractiveInputs(proj);
-    inputs.skills = { claude: true, codex: true };
+  it('engine 의 스킬을 설치 surface 로 그대로 복사한다 (Codex·Claude 양쪽)', () => {
+    const inputs: InitInputs = {
+      ...nonInteractiveInputs(proj),
+      skills: { claude: true, codex: true },
+    };
     applyInit(proj, inputs, '2026-01-01T00:00:00.000Z');
 
     for (const surface of ['codex', 'claude']) {
@@ -680,12 +680,7 @@ describe('applyInit — 전체 산출물', () => {
         surface === 'codex'
           ? path.join(proj, '.agents', 'skills')
           : path.join(proj, '.claude', 'skills');
-      for (const skill of [
-        'awl-pipeline',
-        'awl-pipeline-exec',
-        'awl-pipeline-review',
-        'awl-loop',
-      ]) {
+      for (const skill of ['awl', 'awl-loop']) {
         const engineSkill = fs.readFileSync(
           path.join(home, 'engine', 'skills', surface, skill, 'SKILL.md'),
           'utf8',
@@ -693,25 +688,6 @@ describe('applyInit — 전체 산출물', () => {
         const installedSkill = fs.readFileSync(path.join(installedRoot, skill, 'SKILL.md'), 'utf8');
         expect(installedSkill).toBe(engineSkill);
       }
-
-      const installedExec = fs.readFileSync(
-        path.join(installedRoot, 'awl-pipeline-exec', 'SKILL.md'),
-        'utf8',
-      );
-      const installedReview = fs.readFileSync(
-        path.join(installedRoot, 'awl-pipeline-review', 'SKILL.md'),
-        'utf8',
-      );
-      expect(installedExec).toContain('package-owned-runner-resolution:');
-      expect(installedExec).toContain('## Test runner provenance');
-      expect(installedExec).toContain('port-lease-run-contract:');
-      expect(installedExec).toContain('## Service port lease provenance');
-      expect(installedReview).toContain(
-        'package-owned-runner-review: independently-resolve-and-rerun; provenance-missing=fail',
-      );
-      expect(installedReview).toContain(
-        'port-lease-provenance-review: independently-reproduce-and-inspect; provenance-missing=fail',
-      );
     }
   });
 
@@ -826,7 +802,7 @@ describe('applyInit — 전체 산출물', () => {
     expect(agents.split('awl-loop:start').length - 1).toBe(1);
   });
 
-  it('Codex 기존 AGENTS 블록을 최신 라우팅 블록으로 교체하고 6개 repo 스킬을 설치한다', () => {
+  it('Codex 기존 AGENTS 블록을 최신 라우팅 블록으로 교체하고 repo 스킬을 설치한다', () => {
     scaffoldGlobal();
     fs.writeFileSync(
       path.join(proj, 'AGENTS.md'),
@@ -838,20 +814,13 @@ describe('applyInit — 전체 산출물', () => {
     const agents = fs.readFileSync(path.join(proj, 'AGENTS.md'), 'utf8');
     expect(agents).toContain('# project');
     expect(agents).not.toContain('legacy claude-shaped instructions');
-    expect(agents).toContain('$awl-pipeline');
+    expect(agents).toContain('$awl');
     expect(agents).toContain('AUTO-EXCLUDE-FIRST');
     expect(agents).toContain('AUTO-INCLUDE-AFTER-EXCLUSIONS');
     expect(agents).toContain('PRE-SELECTION-AWL=none');
     expect(agents).toContain('POST-SELECTION-FIRST-AWL=awl version-check --json');
     expect(agents.split('awl-loop:start').length - 1).toBe(1);
-    expect(codexSkillNames()).toEqual([
-      'awl',
-      'awl-loop',
-      'awl-pipeline',
-      'awl-pipeline-exec',
-      'awl-pipeline-plan',
-      'awl-pipeline-review',
-    ]);
+    expect(codexSkillNames()).toEqual(['awl', 'awl-loop']);
     for (const name of codexSkillNames()) {
       expect(fs.existsSync(path.join(proj, '.agents', 'skills', name, 'SKILL.md'))).toBe(true);
     }
@@ -893,9 +862,7 @@ describe('applyInit — 전체 산출물', () => {
     const stamp = readJson(skillsVersionPath(proj)) as Record<string, unknown>;
     expect(stamp.claude).toBe(engineVersion);
     expect(stamp.codex).toBe(engineVersion);
-    expect(fs.existsSync(path.join(proj, '.agents', 'skills', 'awl-pipeline', 'SKILL.md'))).toBe(
-      true,
-    );
+    expect(fs.existsSync(path.join(proj, '.agents', 'skills', 'awl', 'SKILL.md'))).toBe(true);
   });
 
   it('syncExistingInstall — 설치 안 된 스킬은 새로 깔지 않는다 (F-2)', () => {
@@ -1216,7 +1183,7 @@ describe('claudeSkillLabel — 설치 메뉴 라벨을 실제 스킬 집합에�
   });
 
   it('AC-01/AC-03 스킬 2개 픽스처면 라벨이 2개를 표기한다', () => {
-    expect(claudeSkillLabel(['awl-loop', 'awl-pipeline-plan'])).toContain('2개');
+    expect(claudeSkillLabel(['awl', 'awl-loop'])).toContain('2개');
   });
 
   it('AC-02/AC-03 개수가 바뀌면 라벨 개수도 바뀐다 — 4개 픽스처는 4개, 2개 아님', () => {
@@ -1227,13 +1194,13 @@ describe('claudeSkillLabel — 설치 메뉴 라벨을 실제 스킬 집합에�
 
   it('AC-01 라벨에 단일 스킬명 하드코딩이 없다 — 목록에 그 이름이 있어도 개수만 표기(뮤테이션 저항)', () => {
     // 스킬 목록에 대표 스킬이 들어 있어도 라벨엔 개수만 나온다.
-    const label = claudeSkillLabel(['awl-loop', 'awl-pipeline-exec', 'awl-pipeline-plan']);
+    const label = claudeSkillLabel(['awl', 'awl-loop', 'awl-extra']);
     expect(label).not.toContain('awl-loop');
     expect(label).toContain('3개');
   });
 
   it('Codex 라벨도 실제 스킬 개수를 표시하고 .agents/skills 설치 위치를 알린다', () => {
-    const label = codexSkillLabel(['awl-loop', 'awl-pipeline']);
+    const label = codexSkillLabel(['awl', 'awl-loop']);
     expect(label).toContain('2개');
     expect(label).toContain('.agents/skills/');
     expect(label).not.toContain('awl-loop');

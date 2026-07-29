@@ -87,8 +87,8 @@ describe('remove', () => {
     fs.writeFileSync(path.join(proj, '.awl', 'config.json'), '{}\n');
     fs.mkdirSync(path.join(proj, '.claude', 'skills', 'awl-loop'), { recursive: true });
     fs.writeFileSync(path.join(proj, '.claude', 'skills', 'awl-loop', 'SKILL.md'), '# x\n');
-    fs.mkdirSync(path.join(proj, '.agents', 'skills', 'awl-pipeline'), { recursive: true });
-    fs.writeFileSync(path.join(proj, '.agents', 'skills', 'awl-pipeline', 'SKILL.md'), '# x\n');
+    fs.mkdirSync(path.join(proj, '.agents', 'skills', 'awl-loop'), { recursive: true });
+    fs.writeFileSync(path.join(proj, '.agents', 'skills', 'awl-loop', 'SKILL.md'), '# x\n');
     fs.writeFileSync(
       path.join(proj, 'AGENTS.md'),
       '<!-- awl-loop:start -->\nfoo\n<!-- awl-loop:end -->\n',
@@ -111,7 +111,7 @@ describe('remove', () => {
 
       const dotAwlPath = path.join(proj, '.awl');
       const skillPath = path.join(proj, '.claude', 'skills', 'awl-loop');
-      const codexSkillPath = path.join(proj, '.agents', 'skills', 'awl-pipeline');
+      const codexSkillPath = path.join(proj, '.agents', 'skills', 'awl-loop');
       const agentsPath = path.join(proj, 'AGENTS.md');
       const tasksPlanPath = path.join(proj, '.tasks', 'plan');
       const homeGotchasPath = path.join(process.env.AWL_HOME as string, 'gotchas');
@@ -132,7 +132,7 @@ describe('remove', () => {
       // 목록에 실제 발견 항목이 나온다.
       expect(out).toContain('.awl/');
       expect(out).toContain('.claude/skills/awl-loop');
-      expect(out).toContain('.agents/skills/awl-pipeline');
+      expect(out).toContain('.agents/skills/awl-loop');
       expect(out).toContain('AGENTS.md');
       expect(out).toContain('.tasks/plan');
       expect(out).toContain('gotchas/');

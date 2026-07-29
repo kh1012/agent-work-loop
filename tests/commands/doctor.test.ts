@@ -628,14 +628,7 @@ describe('collectChecks — 버전 3쌍 (WI-X, ADK 0.8.0: project-vs-engine 제�
       path.join(proj, 'AGENTS.md'),
       '<!-- awl-loop:start -->\nUse $awl-loop.\n<!-- awl-loop:end -->\n',
     );
-    for (const name of [
-      'awl',
-      'awl-loop',
-      'awl-pipeline',
-      'awl-pipeline-exec',
-      'awl-pipeline-plan',
-      'awl-pipeline-review',
-    ]) {
+    for (const name of ['awl', 'awl-loop']) {
       fs.mkdirSync(path.join(proj, '.agents', 'skills', name), { recursive: true });
       fs.writeFileSync(path.join(proj, '.agents', 'skills', name, 'SKILL.md'), '# test\n');
     }

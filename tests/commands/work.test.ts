@@ -872,14 +872,14 @@ describe('runWorkNew --worktree (WI-F AC-03, 실제 git 저장소로 통합 확�
     fs.writeFileSync(path.join(dir, 'SKILL.md'), `---\nname: ${name}\ndescription: test\n---\n`);
     fs.writeFileSync(
       path.join(base, 'AGENTS.awl.md'),
-      '<!-- awl-loop:start -->\nUse $awl-loop and $awl-pipeline.\n<!-- awl-loop:end -->\n',
+      '<!-- awl-loop:start -->\nUse $awl and $awl-loop.\n<!-- awl-loop:end -->\n',
     );
   }
 
   it('--worktree 가 워크트리 생성 직후 engine Claude 스킬을 워크트리 루트에 재설치한다 (pipeline-lane-skill-reinstall AC-01)', async () => {
     const proj = realGitProject();
     seedEngineSkill('awl-loop');
-    seedEngineSkill('awl-pipeline-plan');
+    seedEngineSkill('awl');
 
     await runWorkNew('WI-SKILL', undefined, { worktree: true });
 
@@ -889,9 +889,7 @@ describe('runWorkNew --worktree (WI-F AC-03, 실제 git 저장소로 통합 확�
       true,
     );
     // multi-installer 일반화 덕에 awl-pipeline-* 도 함께 깔린다(전 스킬 순회).
-    expect(
-      fs.existsSync(path.join(wtRoot, '.claude', 'skills', 'awl-pipeline-plan', 'SKILL.md')),
-    ).toBe(true);
+    expect(fs.existsSync(path.join(wtRoot, '.claude', 'skills', 'awl', 'SKILL.md'))).toBe(true);
   });
 
   it('--worktree는 engine bundle 뒤 tracked manifest의 중첩 프로젝트 스킬을 lane root에 동기화한다', async () => {
@@ -997,7 +995,7 @@ describe('runWorkNew --worktree (WI-F AC-03, 실제 git 저장소로 통합 확�
     const proj = realGitProject();
     seedEngineSkill('awl-loop');
     seedCodexEngineSkill('awl-loop');
-    seedCodexEngineSkill('awl-pipeline');
+    seedCodexEngineSkill('awl');
     fs.writeFileSync(
       path.join(proj, 'AGENTS.md'),
       '<!-- awl-loop:start -->\nlegacy\n<!-- awl-loop:end -->\n',
@@ -1009,11 +1007,9 @@ describe('runWorkNew --worktree (WI-F AC-03, 실제 git 저장소로 통합 확�
     expect(fs.existsSync(path.join(wtRoot, '.agents', 'skills', 'awl-loop', 'SKILL.md'))).toBe(
       true,
     );
-    expect(fs.existsSync(path.join(wtRoot, '.agents', 'skills', 'awl-pipeline', 'SKILL.md'))).toBe(
-      true,
-    );
+    expect(fs.existsSync(path.join(wtRoot, '.agents', 'skills', 'awl', 'SKILL.md'))).toBe(true);
     const agents = fs.readFileSync(path.join(wtRoot, 'AGENTS.md'), 'utf8');
-    expect(agents).toContain('$awl-pipeline');
+    expect(agents).toContain('$awl');
     expect(agents).not.toContain('legacy');
   });
 

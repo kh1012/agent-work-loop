@@ -21,8 +21,7 @@ import { readRecords } from './record.js';
  * 이 명령이 만든다(adk-prototype.md:335 "지시는 CLI 가 만든다").
  *
  * 아무것도 안 쓰고 판단도 안 한다 — 있는 걸 조립할 뿐이다. ticket-id 를 생략하면
- * "지금" 티켓을 자동판정한다(resolveCurrentTicketId). .tasks 파이프라인 연동은
- * 이번 범위가 아니다.
+ * "지금" 티켓을 자동판정한다(resolveCurrentTicketId).
  */
 
 interface ParsedDoc {

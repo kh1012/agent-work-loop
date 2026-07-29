@@ -134,7 +134,7 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
   it('lane new: worktree + .awl/home + 스킬 재설치 + export AWL_HOME + 파이프라인 트리거 안내 (AC-01)', async () => {
     const proj = realGitProject();
     seedEngineSkill('awl-loop');
-    seedEngineSkill('awl-pipeline-plan');
+    seedEngineSkill('awl');
 
     const cap = captureStdout();
     try {
@@ -155,7 +155,7 @@ describe('lane new/ls/rm — 실제 git 저장소 통합', () => {
     // (c) 기동 안내: export AWL_HOME 라인(isolated 누락 시 사라짐) + 스킬 트리거(트리거 블록 누락 시 사라짐).
     const out = cap.writes.join('');
     expect(out).toContain(`export AWL_HOME=${homeDir}`);
-    expect(out).toContain('/awl-pipeline-plan');
+    expect(out).toContain('/awl');
     // (d) 소요시간·디스크 리포트(D-46) — runLaneNew 는 runWorkNew 를 그대로 감싸 쓰므로
     // (lane.ts 소스 변경 없이) "레인 준비" 블록이 아니라 그 앞의 "워크아이템 생성" 블록에
     // 붙는다. 위치가 목업과 다르지만 awl lane new 의 같은 출력 스트림에 포함된다(설계 결정, D-46).

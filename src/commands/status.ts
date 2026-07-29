@@ -18,7 +18,6 @@ import {
 } from '../core/tty.js';
 import { multiProjectFooter, resolveProjectScope } from './config.js';
 import { listDocFiles } from './doc.js';
-import { archiveAllLanes } from './pipeline-archive.js';
 import { readRecords } from './record.js';
 import { loadState } from './state.js';
 
@@ -468,309 +467,14 @@ export function renderStatus(report: StatusReport, c: Caps): string {
   return sectionBox(`진행 상황 · ${report.generation}세대`, out, c);
 }
 
-/** exec 쪽 세부 진행(pipeline-status-table). status(5종 통합) 와 별개로 EXEC 열에 쓴다. */
-export type ExecState = 'pending' | 'in_progress' | 'handed_off' | 'verified';
-
-/** review 쪽 세부 진행(pipeline-status-table). REVIEW 열에 쓴다. */
-export type ReviewState = 'waiting' | 'changes_requested' | 'passed';
-
-/** 한 파이프라인 레인의 workitem 상태(pipeline-status-tracking AC-02, pipeline-status-table 로 EXEC/REVIEW 분리 추가). */
-export interface PipelineLane {
-  name: string;
-  status: PipelineStatus;
-  execState: ExecState;
-  reviewState: ReviewState;
-  /**
-   * <name> 이 실제 티켓 id 와 일치하면 그 티켓의 status(pending/implementing/reviewing/
-   * done/blocked, ADK stage 2e). 일치하지 않으면(지금 모든 자유이름 항목) null — 선택
-   * 필드라 pipelineLanes() 의 기존 생성부는 안 건드려도 된다(렌더링 시점 보강, withTicketStatus).
-   */
-  ticketStatus?: string | null;
-}
-
-/**
- * 마커 잔재(.taken/.hold/.pass)와 .md 를 벗겨 workitem 이름으로 정규화한다. pipelineLanes 의
- * 상태판정(base 계산)과 pipeline-archive.ts 의 물리 파일목록화(ownedFiles)가 같은 마커 접미사
- * 집합을 봐야 하므로 export 해 공유한다 — 복제하면 마커 접미사가 늘 때 한쪽만 갱신돼 일부
- * 파일만 이동하는 desync 가 재발한다(리뷰 지적, pipeline-archive-cleanup).
- */
-export function markerBaseName(f: string): string {
-  return f.replace(/\.md$/, '').replace(/\.(taken|hold|pass)$/, '');
-}
-
-/**
- * .tasks/{plan,exec,review} 의 파일명만으로 레인별 workitem 상태를 판정한다(순수, 파일 내용 안 엶).
- * 마커 규약은 awl-pipeline-* 스킬 계약과 단일 진실(`.taken`)로 통일한다(pipeline-marker-finalization):
- * claim=plan/<name>.taken.md, 합격=exec/<name>.taken.md 이고 review 수정요구 없음(무파일 합격 계약).
- *
- * 우선순위: review/<name>.md(미반영 수정요구)=blocked → plan/<name>.hold.md(에스컬레이션)=blocked →
- * exec/<name>.taken.md(검증함·수정요구 없음)=complete → exec/<name>.md(미검증 핸드오프)=reviewing →
- * plan/<name>.taken.md(착수)=executing → plan/<name>.md(신규)=pending.
- */
-export function pipelineLanes(
-  planFiles: string[],
-  execFiles: string[],
-  reviewFiles: string[],
-): PipelineLane[] {
-  const isMd = (f: string): boolean => f.endsWith('.md');
-  const names = new Set<string>();
-  for (const f of [...planFiles, ...execFiles, ...reviewFiles]) {
-    if (isMd(f)) {
-      names.add(markerBaseName(f));
-    }
-  }
-  const lanes: PipelineLane[] = [];
-  for (const name of names) {
-    // 판정에 쓰는 marker 존재여부를 한 번만 계산해 status·execState·reviewState 셋이 공유한다.
-    const reviewPending = reviewFiles.includes(`${name}.md`); // 미반영 수정요구
-    const held = planFiles.includes(`${name}.hold.md`); // 사람 에스컬레이션
-    const execVerified = execFiles.includes(`${name}.taken.md`); // review 가 검증함(합격/불합격 무관)
-    const execHandedOff = execFiles.includes(`${name}.md`); // 미검증 핸드오프
-    const claimed = planFiles.includes(`${name}.taken.md`); // exec 착수(claim)
-
-    let status: PipelineStatus;
-    if (reviewPending) {
-      status = 'blocked'; // review/<name>.md = 미반영 수정요구(review/<name>.taken.md 반영본은 complete/reviewing 으로)
-    } else if (held) {
-      status = 'blocked'; // hold = 사람 에스컬레이션(멈춤)
-    } else if (execVerified) {
-      status = 'complete'; // exec 검증함 표식 + review 수정요구 없음 = 무파일 합격 계약
-    } else if (execHandedOff) {
-      status = 'reviewing'; // exec/<name>.md 미검증 핸드오프 = review 대기
-    } else if (claimed) {
-      status = 'executing'; // plan claim 표식(착수, 핸드오프 전)
-    } else {
-      status = 'pending'; // plan/<name>.md 신규
-    }
-
-    // EXEC 열: exec 가 이 workitem 을 얼마나 진행했나(review 판정과 독립).
-    const execState: ExecState = execVerified
-      ? 'verified'
-      : execHandedOff
-        ? 'handed_off'
-        : claimed
-          ? 'in_progress'
-          : 'pending';
-    // REVIEW 열: review 가 이 workitem 에 대해 뭘 했나. exec 가 아직 핸드오프 전이면 review 몫이 없다(waiting).
-    const reviewState: ReviewState = reviewPending
-      ? 'changes_requested'
-      : execVerified
-        ? 'passed'
-        : 'waiting';
-
-    lanes.push({ name, status, execState, reviewState });
-  }
-  lanes.sort((a, b) => a.name.localeCompare(b.name));
-  return lanes;
-}
-
-/**
- * 디렉토리 파일명을 읽는다(없으면 빈 배열 — awl 은 파이프라인 유무를 판단하지 않는다).
- * pipeline-archive-cleanup AC-01 이 이 함수와 pipelineLanes 를 그대로 재사용한다(export) —
- * 보관 모듈이 별도 파일목록 읽기·마커 판정을 새로 구현하지 않는다.
- */
-export function readDirNames(dir: string): string[] {
-  try {
-    return fs.readdirSync(dir);
-  } catch {
-    return [];
-  }
-}
-
-/**
- * <ticketId> 가 그 root(레인 자신) 의 docs/tickets/*.md 프론트매터 id 와 일치하면 그
- * 티켓의 status 를 돌려준다(ADK stage 2e). .tasks/plan/<name>.md 의 <name> 자리를
- * 티켓 id 로 쓰면 별도 연결 필드 없이 자연스럽게 이어진다는 설계 — pipelineLanes 의
- * 판정(파일명만 봄)과는 분리된 렌더링 시점 보강일 뿐이다. 못 찾거나 손상됐으면 null.
- */
-export function resolveTicketStatus(root: string, ticketId: string): string | null {
-  for (const file of listDocFiles(root)) {
-    if (file.type !== 'ticket') {
-      continue;
-    }
-    try {
-      const parsed = parseFrontmatter(fs.readFileSync(file.path, 'utf8'));
-      if (parsed?.data.id === ticketId) {
-        return typeof parsed.data.status === 'string' ? parsed.data.status : null;
-      }
-    } catch {
-      // 손상된 파일 하나가 조회를 막지 않는다.
-    }
-  }
-  return null;
-}
-
-/** pipelineLanes 결과에 티켓 상태를 얹는다(렌더링 전용 보강, ADK stage 2e — 판정 로직과 분리). */
-function withTicketStatus(root: string, lanes: PipelineLane[]): PipelineLane[] {
-  return lanes.map((lane) => ({ ...lane, ticketStatus: resolveTicketStatus(root, lane.name) }));
-}
-
-/**
- * 한 레인(워크트리)의 workitem 롤업(pipeline-status-view AC-01). name 은 레인
- * (`.awl-worktrees/<name>`) 디렉토리명, workitems 는 그 레인의 .tasks/ 를
- * pipelineLanes 로 판정한 결과다. 기존 PipelineLane({name,status})은 workitem 하나다.
- */
-export interface PipelineLaneGroup {
-  name: string;
-  workitems: PipelineLane[];
-}
-
-/**
- * `.awl-worktrees/*`(레인 진실원천, F-05)를 순회해 레인마다 pipelineLanes 를 재적용한다
- * (AC-01). 순수 판정(pipelineLanes)은 재사용하고 레인 그룹핑 계층만 얹는다 — 파일명만
- * 보고 내용은 안 엶(기존 방식 유지). `.awl-worktrees/` 자체가 없으면 빈 배열이라
- * 호출부가 단일 .tasks/ 폴백을 스스로 정한다(AC-02). git 을 쓰지 않아 status 는
- * 절대 크래시하지 않는다(readDirNames 원칙과 동일).
- */
-export function collectPipelineLaneGroups(root: string): PipelineLaneGroup[] {
-  const base = path.join(root, WORKTREES_DIR);
-  let entries: fs.Dirent[];
-  try {
-    entries = fs.readdirSync(base, { withFileTypes: true });
-  } catch {
-    return []; // .awl-worktrees/ 부재 = 레인 없음 → 폴백.
-  }
-  const groups: PipelineLaneGroup[] = [];
-  for (const e of entries) {
-    if (!e.isDirectory()) {
-      continue;
-    }
-    const laneRoot = path.join(base, e.name);
-    const tasks = path.join(laneRoot, '.tasks');
-    const workitems = withTicketStatus(
-      laneRoot,
-      pipelineLanes(
-        readDirNames(path.join(tasks, 'plan')),
-        readDirNames(path.join(tasks, 'exec')),
-        readDirNames(path.join(tasks, 'review')),
-      ),
-    );
-    groups.push({ name: e.name, workitems });
-  }
-  groups.sort((a, b) => a.name.localeCompare(b.name));
-  return groups;
-}
-
-/**
- * 메인 트리 .tasks/ 를 하나의 레인 그룹('main')으로 롤업한다(F-01). 레인 워크트리의 .tasks/
- * 는 gitignore 라 빈 껍데기이므로, 레인이 하나라도 있으면 collectPipelineLaneGroups 만으론
- * 메인의 실작업이 통째 숨는다 — 이 그룹을 앞에 붙여 메인을 항상 포함한다. 파일명만 보고
- * 내용은 안 엶(pipelineLanes 재사용).
- */
-function mainTreeGroup(root: string): PipelineLaneGroup {
-  const tasks = path.join(root, '.tasks');
-  return {
-    name: 'main',
-    workitems: withTicketStatus(
-      root,
-      pipelineLanes(
-        readDirNames(path.join(tasks, 'plan')),
-        readDirNames(path.join(tasks, 'exec')),
-        readDirNames(path.join(tasks, 'review')),
-      ),
-    ),
-  };
-}
-
-/** 열 폭 헬퍼(F-03과 동일 원칙) — 헤더·전체 값 중 표시폭이 가장 넓은 것 기준. */
-function tableColWidth(header: string, values: string[]): number {
-  return Math.max(stringWidth(header), ...values.map(stringWidth));
-}
-
-/**
- * 교차 레인 롤업을 표로 렌더한다(pipeline-status-table). `워크아이템 | EXEC | REVIEW | 상태`
- * 헤더 한 줄 + 레인별 데이터 행 — exec 가 어디까지 갔는지와 review 가 어디까지 갔는지를
- * 하나로 합쳐진 status(pending/executing/reviewing/complete/blocked) 옆에 따로 보여준다.
- * 워크아이템/EXEC/REVIEW 3열은 색 없는 순수 텍스트라 padEndDisplay(stringWidth 기준, F-03)로
- * 안전하게 패딩한다. 상태 열은 statusBadge(색 있음)를 쓰므로 패딩하지 않고 행의 마지막에
- * 둔다 — padEndDisplay 는 ANSI 를 인지하지 않아 색 있는 문자열에 쓰면 폭이 깨진다(기존 코드
- * 관행 그대로 유지, 별도 구분선은 그리지 않는다 — 헤더+정렬만으로 표로 읽힌다).
- *
- * "티켓" 열(ADK stage 2e)은 <name> 이 실제 티켓 id 와 일치하는 행이 하나라도 있을 때만
- * 나타난다 — 아무도 티켓 기반 이름을 안 쓰면(지금 모든 기존 사용) 예전 표와 시각적으로
- * 구분이 안 될 만큼 조용하다.
- */
-export function renderPipelineGroups(groups: PipelineLaneGroup[], c: Caps): string {
-  const color = makeColors(c.color);
-  const all = groups.flatMap((g) => g.workitems);
-  const nameWidth = Math.max(
-    tableColWidth(
-      '워크아이템',
-      all.map((w) => w.name),
-    ),
-    4,
-  );
-  const execWidth = tableColWidth(
-    'EXEC',
-    all.map((w) => w.execState),
-  );
-  const reviewWidth = tableColWidth(
-    'REVIEW',
-    all.map((w) => w.reviewState),
-  );
-  const showTicketColumn = all.some((w) => w.ticketStatus != null);
-  const ticketWidth = showTicketColumn
-    ? tableColWidth(
-        '티켓',
-        all.map((w) => w.ticketStatus ?? '-'),
-      )
-    : 0;
-
-  const header = [
-    `  ${padEndDisplay('워크아이템', nameWidth)}`,
-    padEndDisplay('EXEC', execWidth),
-    padEndDisplay('REVIEW', reviewWidth),
-    ...(showTicketColumn ? [padEndDisplay('티켓', ticketWidth)] : []),
-    '상태',
-  ].join('  ');
-  const out: string[] = [header];
-  groups.forEach((g, i) => {
-    if (i > 0) {
-      out.push('');
-    }
-    out.push(color.bold(g.name));
-    if (g.workitems.length === 0) {
-      out.push(`  ${color.dim('(workitem 없음)')}`);
-      return;
-    }
-    for (const w of g.workitems) {
-      const row = [
-        `  ${padEndDisplay(w.name, nameWidth)}`,
-        padEndDisplay(w.execState, execWidth),
-        padEndDisplay(w.reviewState, reviewWidth),
-        ...(showTicketColumn ? [padEndDisplay(w.ticketStatus ?? '-', ticketWidth)] : []),
-        `${statusBadge(c, w.status)} ${w.status}`,
-      ].join('  ');
-      out.push(row);
-    }
-  });
-  return sectionBox(`파이프라인 ${groups.length}개 레인`, out, c);
-}
-
-export async function runStatus(opts: {
-  json: boolean;
-  pipeline?: boolean;
-  archive?: boolean;
-}): Promise<void> {
+export async function runStatus(opts: { json: boolean }): Promise<void> {
   const scope = resolveProjectScope();
   if (scope.mode === 'multi' && scope.projects) {
     const cc = caps();
     const color = makeColors(cc.color);
-    if (opts.pipeline === true && opts.archive === true) {
-      process.stdout.write(
-        `  ${signal(cc, 'warn')} --archive 는 여러 프로젝트에 걸쳐 실행하지 않습니다. 해당 프로젝트로 이동한 뒤 실행하세요.\n\n`,
-      );
-    }
     if (opts.json) {
       const projects = await Promise.all(
         scope.projects.map(async (p) => {
-          if (opts.pipeline === true) {
-            return {
-              name: p.name,
-              path: p.path,
-              lanes: [mainTreeGroup(p.path), ...collectPipelineLaneGroups(p.path)],
-            };
-          }
           const report: StatusReport = {
             ...buildStatus(p.path),
             missingAcCommits: await checkMissingAcCommits(p.path),
@@ -784,16 +488,11 @@ export async function runStatus(opts: {
     const blocks: string[] = [];
     for (const p of scope.projects) {
       blocks.push(color.bold(`프로젝트: ${p.name}  (${p.path})`));
-      if (opts.pipeline === true) {
-        const groups = [mainTreeGroup(p.path), ...collectPipelineLaneGroups(p.path)];
-        blocks.push(renderPipelineGroups(groups, cc));
-      } else {
-        const report: StatusReport = {
-          ...buildStatus(p.path),
-          missingAcCommits: await checkMissingAcCommits(p.path),
-        };
-        blocks.push(renderStatus(report, cc));
-      }
+      const report: StatusReport = {
+        ...buildStatus(p.path),
+        missingAcCommits: await checkMissingAcCommits(p.path),
+      };
+      blocks.push(renderStatus(report, cc));
     }
     process.stdout.write(`${blocks.join('\n\n')}\n`);
     process.stdout.write(`${multiProjectFooter(scope.projects, 'awl status', cc)}\n`);
@@ -807,36 +506,6 @@ export async function runStatus(opts: {
     process.exit(1);
   }
   const root = scope.projectRoot as string;
-  // --pipeline: temp-loop 하네스의 .tasks/{plan,exec,review} 레인 상태를 배지로 낸다(opt-in).
-  // awl 코어의 일반 status 와 분리 — .tasks 가 없으면 빈 뷰다(awl 은 하네스 유무를 판단 안 함).
-  if (opts.pipeline === true) {
-    // --archive(pipeline-archive-cleanup AC-05): 유예(3일) 지난 complete workitem을
-    // archive/<name>/ 로 옮긴 뒤(기계적·게이트 불요) 그 결과를 반영해 렌더한다. F-03 판정
-    // 함수(pipelineLanes)를 archiveAllLanes 가 그대로 소비하므로 여기서 새 판정을 하지 않는다.
-    let archived: Record<string, string[]> | undefined;
-    if (opts.archive === true) {
-      archived = archiveAllLanes(root);
-    }
-    // 교차 레인 롤업: 메인 트리 .tasks/ 를 항상 'main' 그룹으로 앞에 두고(F-01: 레인이 생겨도
-    // 메인 안 숨김), .awl-worktrees/* 레인 그룹을 잇는다. 폴백(레인 없음)·다중(레인 있음)이
-    // 같은 {name,workitems[]} 스키마라 --json 소비자가 런타임 상태로 갈리지 않는다(F-02).
-    // archiveAllLanes 가 먼저 파일을 옮겼다면 이 재계산에는 보관된 workitem이 빠져 있다
-    // (archive/ 는 readDirNames 가 plan/exec/review 서브디렉토리만 읽어 구조적으로 제외).
-    const groups = [mainTreeGroup(root), ...collectPipelineLaneGroups(root)];
-    if (opts.json) {
-      process.stdout.write(
-        `${JSON.stringify({ lanes: groups, ...(archived ? { archived } : {}) }, null, 2)}\n`,
-      );
-    } else {
-      if (archived) {
-        const total = Object.values(archived).reduce((n, names) => n + names.length, 0);
-        const color = makeColors(caps().color);
-        process.stdout.write(`  보관 ${color.bold(String(total))}건\n`);
-      }
-      process.stdout.write(`${renderPipelineGroups(groups, caps())}\n`);
-    }
-    return;
-  }
   // buildStatus 는 동기 유지(기존 호출/테스트 보존). 커밋 SHA 대조는 git 이 필요해
   // 여기서 async 로 덧붙인다 — 없으면 빈 배열이라 렌더/JSON 모두 영향 없다.
   const report: StatusReport = {

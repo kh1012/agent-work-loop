@@ -132,12 +132,14 @@ export function migrateLegacyVerify(rv: Record<string, unknown>): VerificationEn
 }
 
 /**
- * feedback.path 미설정 시 기본값. 이 저장소(agent-work-loop, awl 자기 자신의 소스)의
- * .tasks/plan/ — awl/awl-pipeline 스킬 자체에 대한 관찰을 프로젝트를 가리지 않고 이
- * 한 곳으로 모으는 게 의도적 설계다(사용자 개인 워크플로 — 다른 설치에서는
- * `awl config set feedback.path <경로>`로 바꾼다).
+ * feedback.path 미설정 시 기본값. 프로젝트 로컬이다.
+ *
+ * 0.8.3 까지는 이 자리에 저작자 개인 머신의 절대경로(`/Users/.../.tasks/plan/`)가
+ * 박혀 있었다 — 배포 번들에 그대로 실려 모든 설치가 존재하지 않는 남의 경로를
+ * 기본값으로 안내했고, 가리키던 `.tasks/` 는 오케스트레이터와 함께 은퇴했다.
+ * 한곳으로 모으고 싶으면 `awl config set feedback.path <경로>` 로 덮는다.
  */
-export const DEFAULT_FEEDBACK_PATH = '/Users/kh1012/MIDAS/Research/agent-work-loop/.tasks/plan/';
+export const DEFAULT_FEEDBACK_PATH = '.awl/feedback/';
 
 export interface ConfigResult {
   config: AwlConfig | null;

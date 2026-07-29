@@ -58,7 +58,7 @@ function renderGettingStartedCard(c: Caps): string {
       `${`${g.label}.`.padEnd(prefixWidth)} ${t.accent(padVisible(g.cmd, cmdWidth))}  ${g.desc}`,
   );
   lines.push(t.muted('*2 를 건너뛰고 3 부터 해도 됩니다 — 스킬이 없는 요청은 스스로 엽니다.'));
-  lines.push(t.muted('*레거시(/awl-loop · /awl-pipeline)는 사용자가 명시할 때만 발동합니다.'));
+  lines.push(t.muted('*레거시(/awl-loop)는 사용자가 명시할 때만 발동합니다.'));
   return sectionBox('시작하기', lines, c);
 }
 
@@ -160,8 +160,8 @@ function renderExamplesCard(c: Caps): string {
 }
 
 /**
- * awl --skills — awl-loop/awl-pipeline/awl 스킬을 부연설명한다(cli-skills-help-card).
- * --examples와 달리 명령 예시가 아니라 개념(레인·파이프라인 구조·게이트 밀도)이 중심이다 —
+ * awl --skills — awl/awl-loop 스킬을 부연설명한다(cli-skills-help-card).
+ * --examples와 달리 명령 예시가 아니라 개념(진입점·레인·격리 범위)이 중심이다 —
  * 이 스킬들은 awl 혼자가 아니라 Claude Code나 Codex 안에서 실행해야 의미가 있다.
  * 내용은 engine/skills/{claude,codex}/의 loop/pipeline 역할 계약을 요약한 것 — 그 문서가
  * 바뀌면 여기도 같이 바뀌어야 한다(단일 출처 아님, 사람이 손으로 맞춰야 함).
@@ -175,7 +175,7 @@ export function renderSkillsCard(c: Caps): string {
     '  스펙(docs/specs/)에서 티켓을 도출하고 게이트 4개로 진행합니다. 지시는 CLI가',
     '  만들어서(awl next) 스킬은 그 출력을 따르기만 하는 얇은 구조입니다.',
     '  모드는 awl run 의 --strict/--auto 로 고르고 state.json 의 loopMode 에 남습니다',
-    '  (기본 semi-auto). 파이프라인 <mode>(게이트 밀도)와는 다른 축입니다.',
+    '  (기본 semi-auto). --review 는 교차 검증을 켜는 별개 축입니다.',
     '  전체 흐름은 awl stages, 다음 할 일은 awl next 로 봅니다.',
     '',
     t.muted('Claude: /awl-loop <목표>  |  Codex: $awl-loop <목표>   — 레거시'),
@@ -183,45 +183,16 @@ export function renderSkillsCard(c: Caps): string {
     '  이미 이 방식으로 돌던 작업을 이어갈 때만 쓰세요 — 게이트 번호의 뜻이 다릅니다',
     '  (여기 게이트 2 = 워크아이템 완료 / ADK 게이트 2 = 티켓 착수).',
     '',
-    t.muted(
-      'Claude: /awl-pipeline <lane명> <mode>  |  Codex: $awl-pipeline <lane명> <mode> [--poll <interval>]',
-    ),
-    '  레인(lane) 단위로 무인 파이프라인을 돌립니다. 오케스트레이터 세션은 목표를',
-    '  일감으로 옮겨 레인 큐에 넣기만 하고, exec·review는 각각 별도 백그라운드',
-    '  에이전트로 스폰돼 그 레인 안에서 구현·검증을 진행합니다.',
+    t.muted('레인(lane) — 요청 여럿을 나란히'),
+    '  awl run --lanes "A" "B" "C" 로 레인을 열면 .awl-worktrees/<이름> 격리 워크트리가',
+    '  레인마다 하나씩 생깁니다. 그 다음은 사람이 터미널을 레인 수만큼 열어 각각 /awl 을',
+    '  돕니다 — awl 은 세션을 대신 띄우지 않습니다(판단도 스폰도 안 하는 것이 원칙입니다).',
+    '  한 세션이 한 레인을 스펙부터 검증까지 혼자 끝냅니다. 현황은 awl lanes 로 봅니다.',
     '',
-    t.muted('레인(lane)이란'),
-    '  .awl-worktrees/<lane명> 격리 워크트리 하나에 대응하는 작업 단위입니다.',
-    '  레인명을 생략하면 unknown-lane-<N>이 자동 생성돼 cwd와 섞이지 않습니다',
-    '  (단, cwd가 이미 다른 레인 워크트리 안이면 그 레인을 그대로 씁니다).',
-    '',
-    t.muted('파이프라인 구조 (간략)'),
-    '  plan(오케스트레이터) → exec·review 스폰(레인별) → 수집·게이트 → 상태 표시.',
-    '  한 레인에는 writer 하나만 둡니다. Claude는 워처로 역할을 깨우고, Codex는',
-    '  wait_agent로 완료를 기다린 뒤 followup_task로 idle 역할을 다시 깨웁니다.',
-    '',
-    t.muted('Codex idle polling'),
-    '  $awl-pipeline feedback-loop --gl --poll 30m',
-    '  --poll <interval>은 현재 chat의 native Scheduled task로 미래 plan을 확인합니다.',
-    '  Scheduled capability가 없으면 goal·sleep·shell watcher·cron으로 대체하지 않습니다.',
-    '',
-    t.muted('<mode> — 게이트 밀도 (높을수록 사람 개입이 많습니다, 기본은 gate-high)'),
+    t.muted('격리하는 것과 공유하는 것'),
+    '  격리: 워크트리 · state.json · 포트 오프셋',
+    '  공유: config.json · profile.json · 기록 · 교훈 (읽기는 전부, 쓰기만 나눕니다)',
   ];
-  const modes: { flag: string; desc: string }[] = [
-    { flag: '--gh, --gate-high', desc: '(기본값) 게이트마다 사람에게 승인받습니다 — 개입 최대' },
-    {
-      flag: '--gm, --gate-medium',
-      desc: '게이트를 자동 승인하되 심각 항목만 모아 보고합니다 — 개입 중간',
-    },
-    {
-      flag: '--gl, --gate-low',
-      desc: '게이트를 전부 자동 승인하고 끝까지 자율로 진행합니다 — 개입 최소',
-    },
-  ];
-  const flagWidth = Math.max(...modes.map((m) => visibleWidth(m.flag)));
-  for (const m of modes) {
-    lines.push(`  ${t.accent(padVisible(m.flag, flagWidth))}  ${m.desc}`);
-  }
   return sectionBox('스킬', lines, c);
 }
 
@@ -239,10 +210,10 @@ function renderSkillsHelpFooter(c: Caps): string {
     `  ${t.accent('Claude /awl <목표>  |  Codex $awl <목표>')}`,
     '    정식 진입점 — 스펙에서 티켓을 도출하고 게이트 4개로 갑니다.',
     '    지시는 awl next 가 만들고 스킬은 따르기만 합니다(awl stages 로 전체 흐름).',
-    `  ${t.accent('/awl-loop  ·  /awl-pipeline')}  ${color.dim('(레거시)')}`,
+    `  ${t.accent('/awl-loop')}  ${color.dim('(레거시)')}`,
     '    사용자가 명시할 때만 발동합니다. 이미 그 방식으로 돌던 작업에만 쓰세요.',
     '',
-    color.dim('레인·파이프라인 구조·<mode> 게이트 밀도(--gh/--gm/--gl)는 awl --skills 로 봅니다.'),
+    color.dim('레인·격리 범위·모드(strict/semi-auto/auto)는 awl --skills 로 봅니다.'),
   ];
   return sectionBox('skills 부연설명', lines, c);
 }
@@ -433,7 +404,7 @@ export function buildProgram(): Command {
     // 배너는 루트(awl / awl --help)에서만 보여준다. 예전엔 beforeAll 이 모든
     // 서브커맨드 help(work --help 등)에도 배너를 반복 출력했다.
     .addHelpText('beforeAll', (ctx) => (ctx.command === program ? `${renderBanner()}\n` : ''))
-    // --help 맨 아래에 스킬(awl-loop/awl-pipeline/awl) 부연설명 + LLM 병용 경고를 붙인다
+    // --help 맨 아래에 스킬(awl/awl-loop) 부연설명 + LLM 병용 경고를 붙인다
     // (cli-skills-help-card) — beforeAll이 위에 배너를 붙이는 것과 대칭으로 after를 쓴다.
     // 이것도 루트에서만(서브커맨드 help마다 반복 안 함).
     .addHelpText('after', (ctx) =>
@@ -443,7 +414,7 @@ export function buildProgram(): Command {
     // (cli-help-examples-card)의 대응은 --help 본문이 아니라 별도 --examples 로 뺐다 —
     // 모든 명령×옵션 조합까지 --help 에 다 욱여넣으면 분기가 너무 많아진다(사용자 판단).
     .option('--examples', '자주 쓰는 명령 예시를 보여줍니다')
-    .option('--skills', 'awl-loop/awl-pipeline/awl 스킬을 부연설명합니다')
+    .option('--skills', 'awl/awl-loop 스킬을 부연설명합니다')
     .showHelpAfterError();
 
   // 사람이 치는 명령: init (처음 설정)
@@ -465,18 +436,9 @@ export function buildProgram(): Command {
     .command('status')
     .description('지금 어디까지 왔는지 한눈에 봅니다')
     .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
-    .option('--pipeline', '.tasks 레인(plan/exec/review)의 workitem 상태를 배지로 봅니다')
-    .option(
-      '--archive',
-      '(--pipeline과 함께) 유예 기간(3일) 지난 완료 workitem을 .tasks/archive/ 로 보관합니다',
-    )
-    .action(async (opts: { json?: boolean; pipeline?: boolean; archive?: boolean }) => {
+    .action(async (opts: { json?: boolean }) => {
       const { runStatus } = await import('./commands/status.js');
-      await runStatus({
-        json: opts.json === true,
-        pipeline: opts.pipeline === true,
-        archive: opts.archive === true,
-      });
+      await runStatus({ json: opts.json === true });
     });
 
   // 사람이 치는 명령: brief (KST 오늘 진행분을 스킬이 소비할 데이터로 낸다)
@@ -579,64 +541,6 @@ export function buildProgram(): Command {
       const { runPortLeaseInspectCommand } = await import('./commands/port-lease.js');
       await runPortLeaseInspectCommand(opts);
     });
-
-  const pipelineDispatch = program
-    .command('pipeline-dispatch', { hidden: true })
-    .description('pipeline role dispatch envelope를 발급·검증·claim합니다');
-  pipelineDispatch
-    .command('issue')
-    .description('coordinator가 exact input용 dispatch envelope를 원자적으로 발급합니다')
-    .requiredOption('--lane <absolute-path>', 'absolute pipeline lane')
-    .requiredOption('--role <exec|review>', 'consumer role')
-    .requiredOption('--workitem <id>', 'routed workitem')
-    .requiredOption('--input <absolute-path>', 'canonical plan/review/exec input')
-    .requiredOption('--mode <gate-mode>', 'gate-high, gate-medium, or gate-low')
-    .requiredOption('--gate-evidence <json>', 'coordinator gate record/evidence JSON object')
-    .option('--ttl-seconds <seconds>', 'claim expiry window (default 1800)')
-    .option('--json', 'machine-readable result')
-    .action(
-      async (opts: {
-        lane: string;
-        role: string;
-        workitem: string;
-        input: string;
-        mode: string;
-        gateEvidence: string;
-        ttlSeconds?: string;
-        json?: boolean;
-      }) => {
-        const { runPipelineDispatchIssue } = await import('./commands/pipeline-dispatch.js');
-        runPipelineDispatchIssue(opts);
-      },
-    );
-  for (const operation of ['verify', 'claim'] as const) {
-    pipelineDispatch
-      .command(operation)
-      .description(`${operation} an exact pipeline role dispatch`)
-      .requiredOption('--dispatch <absolute-path>', 'issued envelope path')
-      .requiredOption('--lane <absolute-path>', 'expected absolute pipeline lane')
-      .requiredOption('--role <exec|review>', 'expected consumer role')
-      .requiredOption('--workitem <id>', 'expected workitem')
-      .requiredOption('--input <absolute-path>', 'expected canonical input')
-      .option('--json', 'machine-readable result')
-      .action(
-        async (opts: {
-          dispatch: string;
-          lane: string;
-          role: string;
-          workitem: string;
-          input: string;
-          json?: boolean;
-        }) => {
-          const command = await import('./commands/pipeline-dispatch.js');
-          if (operation === 'verify') {
-            command.runPipelineDispatchVerify(opts);
-          } else {
-            command.runPipelineDispatchClaim(opts);
-          }
-        },
-      );
-  }
 
   // 사람이 치는 명령: remove (awl 이 손댄 흔적을 지운다 — 기본은 드라이런, 이전 이름 uninstall)
   program
@@ -1287,16 +1191,6 @@ export function buildProgram(): Command {
         });
       },
     );
-
-  // 스킬이 치는 명령(숨김): hold-recheck (pipeline-hold-recheck)
-  program
-    .command('hold-recheck', { hidden: true })
-    .description('.tasks/plan 의 의존형 hold 를 재점검해 착지+합격한 의존이면 자동 un-hold 합니다')
-    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
-    .action(async (opts: { json?: boolean }) => {
-      const { runHoldRecheck } = await import('./commands/hold-recheck.js');
-      await runHoldRecheck({ json: opts.json === true });
-    });
 
   // 스킬이 치는 명령(숨김): state get / set
   const state = program.command('state', { hidden: true }).description('루프 상태를 읽고 씁니다');
