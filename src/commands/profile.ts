@@ -15,6 +15,12 @@ import { multiProjectFooter, resolveProjectRoot, resolveProjectScope } from './c
 
 /** 파이프라인 순서 그대로(reference.md:892-899). 자리당 하나만 — 배열로 두면 조합
  * 규칙(순차·병렬·우선순위)을 프로파일이 정해야 해서 프로파일이 프로그램이 된다. */
+/**
+ * 갈아 끼울 수 있는 자리. 설계 초안은 여섯이었는데(prototype.md:540) 게이트 4 의
+ * 마감 설명이 자리를 못 가져 `review` 를 빌려 쓰고 있었다 — 리뷰(다른 눈으로 편향 회피)와
+ * 마감 설명(사람의 인지 부채 감소)은 목적이 달라 둘 중 하나만 가질 수 있었다. `close` 를
+ * 일곱째로 뒀다.
+ */
 export const SKILL_SLOTS = [
   'spec',
   'investigation',
@@ -22,6 +28,7 @@ export const SKILL_SLOTS = [
   'spike',
   'implement',
   'review',
+  'close',
 ] as const;
 
 export type SkillSlot = (typeof SKILL_SLOTS)[number];
@@ -72,10 +79,45 @@ export function emptyProfileSkills(): Record<SkillSlot, SkillRef> {
   return skills;
 }
 
-/** 새 저장소에서 처음 만드는 빈 프로파일 — 6자리 전부 null(스킬 없이도 돌아간다,
- * reference.md:950 "비어 있어도 돌아간다"). */
+const MP = 'https://github.com/mattpocock/skills/tree/main/skills';
+
+/**
+ * 아무것도 설정하지 않았을 때 자리마다 붙는 기본 스킬.
+ *
+ * 0.9.4 까지는 일곱 자리가 전부 null 이었다. 설계는 "비어 있어도 돌아간다"(reference.md:950)를
+ * 의도했지만, 실제로 벌어진 일은 **아무 자리에도 아무것도 안 붙는 것**이었다 — 설계가
+ * grill 을 spec·clarification 자리에 두기로 해놓고(reference.md:735,737) 기본값이 null 이라
+ * 캐묻는 단계가 어디에도 없었다.
+ *
+ * 그래서 자리마다 그 단계가 실제로 하는 일에 맞는 스킬을 기본으로 가리킨다. 여전히
+ * **가리키기만 한다** — 설치도, 강제도 하지 않는다. 읽을 수 없으면 스킬이 계약만 보고
+ * 진행한다(그게 "비어 있어도 돌아간다"의 원래 뜻이다).
+ */
+export function defaultProfileSkills(): Record<SkillSlot, SkillRef> {
+  return {
+    // 스펙을 만들며 도메인 용어를 세운다. 설계가 이 자리에 지목한 스킬이다.
+    spec: { type: 'external', url: `${MP}/engineering/grill-with-docs` },
+    // 코드를 읽고 출처를 남긴다.
+    investigation: { type: 'external', url: `${MP}/engineering/research` },
+    // 남은 결정을 캐묻는다. 설계가 이 자리에 지목한 스킬이다.
+    clarification: { type: 'external', url: `${MP}/productivity/grill-me` },
+    // 모르는 걸 일회성 프로토타입으로 판정한다 — spike 의 정의 그대로다.
+    spike: { type: 'external', url: `${MP}/engineering/prototype` },
+    // 실패하는 테스트부터 쓴다.
+    implement: { type: 'external', url: `${MP}/engineering/tdd` },
+    // 표준과 스펙 두 축으로 본다.
+    review: { type: 'external', url: `${MP}/engineering/code-review` },
+    // 게이트 4 — 사람이 "무엇이 왜 바뀌었나"를 읽을 형태로 남긴다(인지 부채를 줄이는 자리).
+    close: {
+      type: 'external',
+      url: 'https://gist.github.com/geoffreylitt/a29df1b5f9865506e8952488eac3d524',
+    },
+  };
+}
+
+/** 새 저장소에서 처음 만드는 프로파일. 자리마다 기본 스킬을 가리킨다(전부 갈아 끼울 수 있다). */
 export function defaultProfile(projectName: string): AwlProfile {
-  return { name: projectName, skills: emptyProfileSkills() };
+  return { name: projectName, skills: defaultProfileSkills() };
 }
 
 function isSkillRef(v: unknown): v is SkillRef {

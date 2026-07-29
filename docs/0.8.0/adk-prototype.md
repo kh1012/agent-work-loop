@@ -538,7 +538,11 @@ base → local 순. local 이 이긴다
 { "type": "custom",   "path": ".claude/skills/our-review" }
 ```
 
-자리는 여섯. `spec` `investigation` `clarification` `spike` `implement` `review`.
+자리는 일곱. `spec` `investigation` `clarification` `spike` `implement` `review` `close`.
+
+> 초안은 여섯이었다. 게이트 4의 마감 설명이 자리를 못 가져 `review` 를 빌려 쓰고 있었는데,
+> 리뷰(다른 눈으로 편향 회피)와 마감 설명(사람의 인지 부채 감소)은 목적이 달라 둘 중 하나만
+> 가질 수 있었다. `close` 를 일곱째로 뒀다(0.9.5).
 `url` 만 필수, 나머지는 선택. **설치 목록을 따로 두지 않는다.**
 `.claude/skills/<name>/` 이 있는지로 알고, 버전은 스킬이 커밋되므로 git 이 안다.
 사본을 두면 어긋난다. `~/.awl/engine/` 과 같은 실수다.

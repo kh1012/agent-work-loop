@@ -12,6 +12,7 @@ import {
 } from './doc.js';
 import { type SkillSlot, loadProfile, skillRefLabel } from './profile.js';
 import { readRecords } from './record.js';
+import { type LoopMode, effectiveLoopMode, loadState } from './state.js';
 
 /**
  * `awl next [ticket-id]` — 지금 이 티켓에 대해 이미 아는 것(스펙 조건·제약·게이트
@@ -111,6 +112,45 @@ export const GATE_CHECKLISTS: GateChecklist[] = [
   },
 ];
 
+/**
+ * 모드가 정하는 건 "얼마나 자동 승인하느냐"만이 아니다. 사람이 실제로 손을 대는 두 자리 —
+ * 게이트 1 앞의 캐묻기(grill)와 게이트 4의 마감 설명 — 의 강도도 같이 정해진다.
+ *
+ * 왜 여기서 계약으로 내보내나: awl 은 캐묻지도 설명하지도 않는다(판단하지 않는다).
+ * 무엇이 요구되는지만 매번 같은 형식으로 내주고, 실행은 스킬이 한다. 이 값이 출력에
+ * 안 보이면 스킬마다 다르게 해석하고, 그게 0.8.x 까지 grill 이 아무 데도 안 붙어 있던
+ * 이유였다(프로파일 슬롯에 자리는 있는데 아무도 안 가리켰다).
+ */
+export interface ModeContract {
+  mode: LoopMode;
+  /** 게이트 1 앞에서 얼마나 캐물을 것인가. */
+  grill: string;
+  /** 게이트 4에서 사람에게 무엇을 남길 것인가. */
+  close: string;
+}
+
+export function modeContract(mode: LoopMode): ModeContract {
+  if (mode === 'strict') {
+    return {
+      mode,
+      grill: '미해결 질문이 0건이 될 때까지 캐묻는다. 남은 게 있으면 게이트 1로 가지 않는다',
+      close: '무엇을 왜 바꿨는지 사람이 읽을 형태로 남긴다. 이해를 확인하는 질문까지',
+    };
+  }
+  if (mode === 'auto') {
+    return {
+      mode,
+      grill: '건너뛴다. 사람 손을 빼는 모드에서 캐묻는 건 모순이다',
+      close: '펼친 요약만. 완료 티켓·조건·검증·자동승인 횟수',
+    };
+  }
+  return {
+    mode,
+    grill: '한 번 캐묻고, 남은 것은 clarification 으로 기록한 뒤 진행한다',
+    close: '무엇을 왜 바꿨는지 사람이 읽을 형태로 남긴다',
+  };
+}
+
 export interface GateHistoryEntry {
   gate: number;
   decision: string;
@@ -193,6 +233,8 @@ export interface NextView {
   hint: string;
   /** 게이트 2/3 도달 계약(정적, WI-H1). */
   gateChecklists: GateChecklist[];
+  /** 지금 모드가 게이트 1·4 에 요구하는 것. */
+  modeContract: ModeContract;
 }
 
 /** ticketId 를 생략하면 resolveCurrentTicketId 로 "지금" 티켓을 고른다(WI-H1). */
@@ -283,6 +325,7 @@ export function computeNextView(projectRoot: string, ticketId?: string): NextVie
   const skill = profile ? `${slot}: ${skillRefLabel(profile.skills[slot as SkillSlot])}` : null;
 
   return {
+    modeContract: modeContract(effectiveLoopMode(loadState(projectRoot))),
     ticketId: resolvedTicketId,
     ticketPath: ticket.path,
     status,
@@ -401,6 +444,13 @@ function renderView(view: NextView, c: Caps): string {
     lines.push('');
     lines.push(`  skill    ${view.skill}`);
   }
+  const mc = view.modeContract;
+  lines.push('');
+  lines.push(`  모드     ${mc.mode}`);
+  lines.push(`    캐묻기(게이트 1 앞)  ${mc.grill}`);
+  lines.push(`    마감(게이트 4)       ${mc.close}`);
+  lines.push('');
+
   for (const gc of view.gateChecklists) {
     lines.push('');
     lines.push(`  게이트 ${gc.gate}(${gc.label})에 도달하려면`);

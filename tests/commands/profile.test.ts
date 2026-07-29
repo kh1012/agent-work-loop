@@ -7,6 +7,7 @@ import {
   SKILL_SLOTS,
   type SkillInstaller,
   defaultProfile,
+  defaultProfileSkills,
   emptyProfileSkills,
   ensureProfile,
   installProfile,
@@ -28,8 +29,8 @@ afterEach(() => {
   process.chdir(origCwd);
 });
 
-describe('SKILL_SLOTS — 파이프라인 순서 6자리 고정(reference.md:892-899)', () => {
-  it('정확히 6자리다', () => {
+describe('SKILL_SLOTS — 파이프라인 순서 일곱 자리 고정(게이트 4 마감이 자기 자리를 가진다)', () => {
+  it('정확히 일곱 자리다', () => {
     expect(SKILL_SLOTS).toEqual([
       'spec',
       'investigation',
@@ -37,15 +38,16 @@ describe('SKILL_SLOTS — 파이프라인 순서 6자리 고정(reference.md:892
       'spike',
       'implement',
       'review',
+      'close',
     ]);
   });
 
-  it('emptyProfileSkills 는 6자리 전부 null 이다', () => {
+  it('emptyProfileSkills 는 일곱 자리 전부 null 이다', () => {
     const skills = emptyProfileSkills();
     for (const slot of SKILL_SLOTS) {
       expect(skills[slot]).toBeNull();
     }
-    expect(Object.keys(skills)).toHaveLength(6);
+    expect(Object.keys(skills)).toHaveLength(7);
   });
 });
 
@@ -377,5 +379,33 @@ describe('installProfile — 공유 프로파일 받기(ADK stage 4, reference.m
 
     expect(result.ok).toBe(false);
     expect(fs.existsSync(profilePath(root))).toBe(false);
+  });
+});
+
+// 0.9.4 까지는 자리가 전부 null 이라 grill 이 어디에도 안 붙었다 — 설계가 spec·clarification
+// 자리에 두기로 해놓고 기본값이 비어 있어서 아무도 그 자리를 가리키지 않았다.
+describe('defaultProfileSkills — 자리마다 기본 스킬이 붙는다', () => {
+  it('일곱 자리가 전부 채워진다', () => {
+    const skills = defaultProfileSkills();
+    for (const slot of SKILL_SLOTS) {
+      expect(skills[slot], `${slot} 이 비었다`).not.toBeNull();
+    }
+  });
+
+  it('스펙과 명료화 자리에 캐묻는 스킬이 붙는다(설계가 지목한 자리)', () => {
+    const skills = defaultProfileSkills();
+    expect(JSON.stringify(skills.spec)).toContain('grill');
+    expect(JSON.stringify(skills.clarification)).toContain('grill');
+  });
+
+  it('close 자리는 review 와 다른 스킬을 가리킨다 — 편향 회피와 인지 부채는 다른 일이다', () => {
+    const skills = defaultProfileSkills();
+    expect(JSON.stringify(skills.close)).not.toBe(JSON.stringify(skills.review));
+  });
+
+  it('전부 external 이라 갈아 끼울 수 있다(설치하거나 강제하지 않는다)', () => {
+    for (const ref of Object.values(defaultProfileSkills())) {
+      expect(ref).toMatchObject({ type: 'external' });
+    }
   });
 });

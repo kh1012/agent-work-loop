@@ -9,6 +9,7 @@ import {
   MAX_SHOWN_FINDINGS,
   checkFindingsFreshness,
   computeNextView,
+  modeContract,
   resolveCurrentTicketId,
 } from '../../src/commands/next.js';
 import { profilePath } from '../../src/commands/profile.js';
@@ -642,5 +643,37 @@ describe('토큰 상한 — finding/constraint 대량 누적 스트레스 (WI-I1
     expect(view.gateHistory).toHaveLength(1);
     expect(view.gateHistory[0]?.retries).toBe(49);
     expect(view.gateHistory[0]?.decision).toBe('approved');
+  });
+});
+
+// 모드는 게이트 자동승인만 정하는 게 아니다. 사람이 실제로 손을 대는 두 자리 —
+// 게이트 1 앞의 캐묻기와 게이트 4의 마감 설명 — 의 강도도 같이 정한다.
+describe('modeContract — 모드가 캐묻기·마감 강도를 정한다', () => {
+  it('strict 는 미해결 0건까지 캐묻는다', () => {
+    const c = modeContract('strict');
+    expect(c.grill).toContain('0건');
+    expect(c.close).toContain('확인');
+  });
+
+  it('semi-auto 는 한 번 캐묻고 남은 건 clarification 으로 넘긴다', () => {
+    const c = modeContract('semi-auto');
+    expect(c.grill).toContain('clarification');
+    expect(c.grill).not.toContain('건너뛴다');
+  });
+
+  it('auto 는 캐묻지 않는다 — 사람 손을 뺀 모드에서 캐묻는 건 모순이다', () => {
+    const c = modeContract('auto');
+    expect(c.grill).toContain('건너뛴다');
+  });
+
+  it('세 모드의 캐묻기 강도가 서로 다르다(같으면 모드를 나눈 의미가 없다)', () => {
+    const g = (['strict', 'semi-auto', 'auto'] as const).map((m) => modeContract(m).grill);
+    expect(new Set(g).size).toBe(3);
+  });
+
+  it('마감 설명은 auto 만 요약으로 낮아진다', () => {
+    expect(modeContract('auto').close).toContain('요약');
+    expect(modeContract('strict').close).not.toContain('요약만');
+    expect(modeContract('semi-auto').close).not.toContain('요약만');
   });
 });

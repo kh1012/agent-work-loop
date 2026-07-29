@@ -38,7 +38,7 @@ export function renderStagesFull(profile: AwlProfile, c: Caps): string {
   out.push('');
   out.push('  ... 티켓 층 반복 ...');
   out.push('');
-  out.push(`  close         요청을 닫는다              ${skillOf(profile, 'review')}`);
+  out.push(`  close         요청을 닫는다              ${skillOf(profile, 'close')}`);
   out.push('    [게이트 4]  실제로 만족됐는가');
   out.push('');
   out.push('티켓 층 (티켓마다)');

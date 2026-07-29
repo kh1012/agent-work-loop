@@ -56,6 +56,39 @@ Investigate first, read code first, or ask the user first — it does not matter
 is that when you reach a gate, the shape `awl next` asked for (finding / clarification /
 verification, or a commit) is satisfied.
 
+## Before gate 1 — grill
+
+Read the **모드** block in `awl next` output before writing a spec. Its "캐묻기" line states
+exactly how hard this mode wants you to push.
+
+```
+strict      Keep asking until zero open questions. Do not reach gate 1 with any left.
+semi-auto   Ask once, record what is left as a clarification, move on.
+auto        Skip — grilling contradicts a mode whose point is removing the human.
+```
+
+How to ask follows the skill in `profile.json`'s `spec`/`clarification` slots (grill-with-docs
+and grill-me by default). If you cannot read it, proceed without it — what you ask matters,
+not which skill you asked with.
+
+**Grilling can distort the request.** Digging can drift away from the original intent, so never
+edit the user's words in `Request`. What you settle goes into `Instruction` and `Conditions`.
+
+## At gate 4 — closing explanation
+
+The mode also decides what the human gets when the request closes.
+
+```
+strict      Explain what changed and why, in a form a human reads. Include comprehension checks.
+semi-auto   Explain what changed and why, in a form a human reads.
+auto        Expanded summary only — done tickets, conditions, verifications, self-approval count.
+```
+
+`profile.json`'s `close` slot points at the format (explain-diff by default: background,
+intuition, code, comprehension checks). **This is not review.** Review is another pair of eyes
+hunting defects (`review` slot); this is the human catching up on what the agent did. The more
+autonomous the run, the larger that debt.
+
 ## No ticket yet? Make one first
 
 If `awl next` says it could not find a ticket, move the goal into a spec:
