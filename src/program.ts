@@ -795,6 +795,31 @@ export function buildProgram(): Command {
     });
 
   // 사람이 치는 명령: lane (격리 레인 = worktree + 전용 AWL_HOME + 스킬 + 기동 안내, P1 멀티레인)
+  // 사람이 치는 명령: run (요청을 연다 — ADK 0.8.0 의 CLI 진입점)
+  program
+    .command('run <goals...>')
+    .description(
+      '요청을 엽니다 — 목표·모드를 상태에 쓰고 다음 단계를 안내합니다 (에이전트는 띄우지 않습니다)',
+    )
+    .option('--strict', '네 게이트에서 다 멈춥니다')
+    .option('--auto', '전부 자동으로 진행합니다 (기본은 semi-auto)')
+    .option('--review', '교차 검증을 켭니다 (게이트 모드와 다른 축입니다)')
+    .option('--lanes', '목표마다 격리 레인을 만듭니다')
+    .action(
+      async (
+        goals: string[],
+        opts: { strict?: boolean; auto?: boolean; review?: boolean; lanes?: boolean },
+      ) => {
+        const { runRun } = await import('./commands/run.js');
+        await runRun(goals, {
+          strict: opts.strict === true,
+          auto: opts.auto === true,
+          review: opts.review === true,
+          lanes: opts.lanes === true,
+        });
+      },
+    );
+
   const lane = program
     .command('lane')
     .description('격리 레인(worktree)으로 파이프라인을 병렬 실행합니다 (레인 생성·조회·정리)');
@@ -833,6 +858,16 @@ export function buildProgram(): Command {
     .action(async (name: string) => {
       const { runLaneSync } = await import('./commands/lane.js');
       await runLaneSync(name);
+    });
+
+  // 설계(adk-reference.md:2244)가 쓰는 이름. awl lane ls 와 같은 것을 가리킨다.
+  program
+    .command('lanes')
+    .description('현존 레인을 나열합니다 (awl lane ls 와 같습니다)')
+    .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
+    .action(async (opts: { json?: boolean }) => {
+      const { runLaneList } = await import('./commands/lane.js');
+      await runLaneList({ json: opts.json === true });
     });
 
   // 사람이 치는 명령: doc (ADK 문서 — spec/ticket/decision, ADK stage 1)

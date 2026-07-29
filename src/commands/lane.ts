@@ -123,7 +123,11 @@ async function isGitWorkTree(root: string): Promise<boolean> {
  * 이름 충돌·비-git cwd 는 명확한 에러로 거른다(AC-04). 생성 실패 시 orphan 워크트리
  * 롤백은 runWorkNew 가 이미 처리한다(work.ts createWorkitem 레이스 정리).
  */
-export async function runLaneNew(name: string, description?: string): Promise<void> {
+export async function runLaneNew(
+  name: string,
+  description?: string,
+  opts: { suppressGuidance?: boolean } = {},
+): Promise<void> {
   const root = requireRoot();
   const c = caps();
   const color = makeColors(c.color);
@@ -192,6 +196,11 @@ export async function runLaneNew(name: string, description?: string): Promise<vo
     process.stdout.write(
       `    ${color.dim(`기준 브랜치: ${baseBranch} · 포트 오프셋(참고용): ${port}`)}\n`,
     );
+  }
+  // 호출부가 자기 안내를 찍는 경우(awl run)엔 여기서 안 찍는다 — 한 명령 안에서 서로
+  // 다른 진입 안내가 두 벌 나오면 사람이 무엇을 실행해야 할지 모른다.
+  if (opts.suppressGuidance === true) {
+    return;
   }
   process.stdout.write(`    ${color.dim('이 레인의 역할 세션에서 스킬 트리거를 실행하세요:')}\n`);
   for (const t of PIPELINE_TRIGGERS) {
