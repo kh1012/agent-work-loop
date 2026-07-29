@@ -770,7 +770,7 @@ describe('SpecStageView — 티켓이 없는 스펙 단계 (dogfood-20260730)', 
     try {
       await runNext();
       const out = outSpy.mock.calls.map((c) => String(c[0])).join('');
-      expect(out).toContain('스펙 단계');
+      expect(out).toContain('스펙 (아직 티켓 없음)');
       expect(out).toContain('캐묻기');
       expect(out).toContain('awl doc new spec');
       expect(exitSpy).not.toHaveBeenCalled();
@@ -792,7 +792,7 @@ describe('SpecStageView — 티켓이 없는 스펙 단계 (dogfood-20260730)', 
 
     const view = computeSpecStageView(p);
     expect(view.reason).toBe('all-done');
-    expect(view.openSpecs.map((s) => s.id)).toContain(specId);
+    expect(view.gate4Specs.map((s) => s.id)).toContain(specId);
 
     const out = renderSpecStage(view, { color: false, unicode: false, width: 80 } as never);
     expect(out).toContain('게이트 4');
@@ -814,13 +814,56 @@ describe('SpecStageView — 티켓이 없는 스펙 단계 (dogfood-20260730)', 
     );
 
     const view = computeSpecStageView(p);
-    expect(view.reason).toBe('blocked');
-    expect(view.blockedTickets[0]?.waitingOn).toEqual(['없는-선행-티켓']);
+    expect(view.reason).toBe('stalled');
+    expect(view.stalledTickets[0]?.waitingOn).toEqual(['없는-선행-티켓']);
 
     const out = renderSpecStage(view, { color: false, unicode: false, width: 80 } as never);
-    expect(out).toContain('진행이 막힌 티켓');
+    expect(out).toContain('자동으로 고를 수 없는 티켓');
     expect(out).toContain('없는-선행-티켓');
     expect(out).not.toContain('아직 티켓 없음');
+  });
+
+  // record 는 `spec` 으로 쓰고 next 는 `specId` 로 읽던 불일치가 이 패널을 늘 비게
+  // 했다. 정본 이름(`spec`)으로 남긴 기록이 잡히는지 직접 본다 — 여기가 비면
+  // `r.spec === specId ||` 를 떼도 초록이다(재리뷰 M10 생존).
+  it('정본 이름 spec 으로 남긴 조사가 "이미 아는 것"에 잡힌다', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    const { specId, ticketId } = await specWithOneTicket(p);
+    appendRecord(
+      {
+        id: 'rec_spec',
+        at: new Date().toISOString(),
+        type: 'audit',
+        project: 'p',
+        spec: specId,
+        scope: 's',
+        findings: [{ id: 'f-spec', what: '스펙에 붙인 조사', where: 'b.ts:2' }],
+      },
+      p,
+    );
+    const view = computeNextView(p, ticketId);
+    expect(view.knownFindings.map((f) => f.id)).toContain('f-spec');
+  });
+
+  it('옛 이름 specId 로 남긴 조사도 계속 잡힌다 (하위호환)', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    const { specId, ticketId } = await specWithOneTicket(p);
+    appendRecord(
+      {
+        id: 'rec_legacy',
+        at: new Date().toISOString(),
+        type: 'audit',
+        project: 'p',
+        specId,
+        scope: 's',
+        findings: [{ id: 'f-legacy', what: '옛 이름으로 붙인 조사', where: 'c.ts:3' }],
+      },
+      p,
+    );
+    const view = computeNextView(p, ticketId);
+    expect(view.knownFindings.map((f) => f.id)).toContain('f-legacy');
   });
 
   it('티켓으로만 남긴 조사도 같은 스펙의 다음 티켓에서 "이미 아는 것"으로 보인다', async () => {
@@ -874,5 +917,156 @@ describe('SpecStageView — 티켓이 없는 스펙 단계 (dogfood-20260730)', 
     expect(out).toContain('skill    clarification: ');
     expect(out).toContain('grill-me');
     expect(out).toContain('awl tickets derive');
+  });
+});
+
+describe('SpecStageView — 재리뷰가 잡은 거짓 뷰들 (2차)', () => {
+  /** 조건 하나짜리 스펙 + 티켓 하나를 만들고 티켓 status 를 지정한다. */
+  async function withTicketStatus(
+    p: string,
+    status: string,
+  ): Promise<{ specId: string; ticketId: string }> {
+    const r = await specWithOneTicket(p);
+    const dir = path.join(p, 'docs', 'tickets');
+    const [file] = fs.readdirSync(dir);
+    const fp = path.join(dir, file as string);
+    fs.writeFileSync(fp, fs.readFileSync(fp, 'utf8').replace(/^status: .+$/m, `status: ${status}`));
+    return r;
+  }
+
+  function setSpecStatus(p: string, status: string): void {
+    const dir = path.join(p, 'docs', 'specs');
+    const [file] = fs.readdirSync(dir);
+    const fp = path.join(dir, file as string);
+    fs.writeFileSync(fp, fs.readFileSync(fp, 'utf8').replace(/^status: .+$/m, `status: ${status}`));
+  }
+
+  const render = (v: ReturnType<typeof computeSpecStageView>): string =>
+    renderSpecStage(v, { color: false, unicode: false, width: 80 } as never);
+
+  it('게이트 4 를 기록해 스펙이 닫히면 더는 게이트 4 를 시키지 않는다 (무한 루프 금지)', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    await withTicketStatus(p, 'done');
+    setSpecStatus(p, 'closed');
+
+    const view = computeSpecStageView(p);
+    expect(view.gate4Specs).toEqual([]);
+
+    const out = render(view);
+    // 닫힌 스펙을 다시 닫으라고 하지 않는다. 게이트 4 명령 자체가 나가면 안 되고,
+    // 특히 채울 값이 없어 만들어낸 "spec":"<spec-id>" 같은 실행 불가 리터럴은 금지다.
+    expect(out).not.toContain('awl record gate');
+    expect(out).not.toContain('"spec":"<spec-id>"');
+  });
+
+  it('티켓 없는 스펙은 all-done 상태에서도 사라지지 않는다', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    await withTicketStatus(p, 'done');
+    const second = await createDoc('spec', '둘째 요청', p);
+
+    const view = computeSpecStageView(p);
+    expect(view.reason).toBe('all-done');
+    expect(view.pendingSpecs.map((s) => s.id)).toContain(second.id);
+
+    const out = render(view);
+    expect(out).toContain('둘째 요청');
+    expect(out).toContain(`awl tickets derive ${second.id}`);
+  });
+
+  it('티켓 없는 스펙은 stalled 상태에서도 사라지지 않는다', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    await withTicketStatus(p, 'reviewing');
+    const second = await createDoc('spec', '둘째 요청', p);
+
+    const view = computeSpecStageView(p);
+    expect(view.reason).toBe('stalled');
+    expect(view.pendingSpecs.map((s) => s.id)).toContain(second.id);
+    expect(render(view)).toContain('둘째 요청');
+  });
+
+  it('리뷰 중인 티켓에 "선행 티켓을 먼저 끝내라"고 하지 않는다', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    await withTicketStatus(p, 'reviewing');
+
+    const view = computeSpecStageView(p);
+    expect(view.stalledTickets[0]?.status).toBe('reviewing');
+    expect(view.stalledTickets[0]?.waitingOn).toEqual([]);
+
+    const out = render(view);
+    expect(out).toContain('리뷰 중입니다');
+    expect(out).not.toContain('선행 티켓이 아직 done');
+  });
+
+  it('막힌 티켓에는 게이트 2 재기록을 안내한다', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    await withTicketStatus(p, 'blocked');
+
+    const out = render(computeSpecStageView(p));
+    expect(out).toContain('게이트 2(착수)를 다시 기록');
+    expect(out).not.toContain('선행 티켓이 아직 done');
+  });
+
+  it('스펙마다 따로 판정한다 — 한 스펙이 끝나도 다른 스펙 티켓이 남아 있으면 게이트 4 대상이 아니다', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    const a = await withTicketStatus(p, 'done');
+    // 둘째 스펙 + 그 티켓은 reviewing 으로 남긴다.
+    const b = await createDoc('spec', '둘째 요청', p);
+    const bTicket = await createDoc('ticket', '둘째 티켓', p, {
+      spec: b.id,
+      conditions: ['condition-1'],
+    });
+    const bPath = bTicket.path;
+    fs.writeFileSync(
+      bPath,
+      fs.readFileSync(bPath, 'utf8').replace(/^status: .+$/m, 'status: reviewing'),
+    );
+
+    const view = computeSpecStageView(p);
+    expect(view.gate4Specs.map((s) => s.id)).toEqual([a.specId]);
+    expect(view.reason).toBe('stalled');
+  });
+
+  it('id 없는 티켓이 undefined 로 찍히지 않는다', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    await withTicketStatus(p, 'reviewing');
+    const dir = path.join(p, 'docs', 'tickets');
+    const [file] = fs.readdirSync(dir);
+    const fp = path.join(dir, file as string);
+    fs.writeFileSync(fp, fs.readFileSync(fp, 'utf8').replace(/^id: .+$/m, 'id:'));
+
+    const view = computeSpecStageView(p);
+    // String(undefined)/String(null) 이 그대로 화면에 나가면 안 된다 — 사람이
+    // 복사해 붙일 수 있는 값만 보여준다.
+    expect(view.stalledTickets[0]?.id).toBe('(id 없음)');
+    const out = render(view);
+    expect(out).not.toContain('undefined');
+    expect(out).not.toMatch(/^ {4}null\b/m);
+  });
+
+  it('배너가 단계와 어긋나지 않는다 (all-done 인데 "스펙 단계"라 하지 않는다)', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    await withTicketStatus(p, 'done');
+
+    const out = render(computeSpecStageView(p));
+    expect(out).toContain('요청 닫기');
+    expect(out.split('\n')[1]).not.toContain('스펙 단계');
+  });
+
+  it('열린 것이 아무것도 없으면 그렇다고 말한다 (가짜 지시 금지)', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    await withTicketStatus(p, 'done');
+    setSpecStatus(p, 'closed');
+
+    const out = render(computeSpecStageView(p));
+    expect(out).toContain('열려 있는 것 없음');
   });
 });

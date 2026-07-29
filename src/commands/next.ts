@@ -259,16 +259,37 @@ export interface PendingSpec {
 export type NoTicketReason =
   /** 티켓 문서가 하나도 없다 — 스펙부터 만들거나 derive 한다. */
   | 'no-tickets'
-  /** 티켓은 있고 전부 done — 남은 건 게이트 4(요청 닫기)다. */
+  /** 티켓은 있고 전부 done. */
   | 'all-done'
-  /** 막히지 않은 pending 이 없다 — 의존이 done 이 아니거나 blocked 다. */
-  | 'blocked';
+  /** done 도 아니고 고를 수도 없는 티켓이 있다(리뷰 중·막힘·의존 미충족). */
+  | 'stalled';
 
-export interface BlockedTicket {
+/**
+ * done 도 아닌데 resolveCurrentTicketId 가 고르지도 않는 티켓. **"막힘"과 동의어가
+ * 아니다** — 리뷰 중이거나 abandoned 로 blocked 가 된 것도 여기 온다. 초판은 이걸
+ * 전부 "진행이 막힌 티켓"이라 부르고 "선행 티켓을 먼저 끝내세요"라고 했는데, 선행이
+ * 아예 없는 티켓에도 그 말이 나갔다(리뷰 지적 6).
+ */
+export interface StalledTicket {
   id: string;
   status: string;
-  /** 아직 done 이 아닌 선행 티켓들. */
+  /** 아직 done 이 아닌 선행 티켓들. 의존이 원인이 아니면 빈 배열. */
   waitingOn: string[];
+  /** 이 티켓이 왜 안 골라졌고 무엇을 하면 되는지. */
+  why: string;
+}
+
+function stallReason(status: string, waitingOn: string[]): string {
+  if (waitingOn.length > 0) {
+    return `선행 티켓이 아직 done 이 아닙니다: ${waitingOn.join(', ')}`;
+  }
+  if (status === 'reviewing') {
+    return '리뷰 중입니다 — 끝나면 게이트 3(완료)을 기록하세요.';
+  }
+  if (status === 'blocked') {
+    return '막혔습니다 — 재개하려면 게이트 2(착수)를 다시 기록하세요.';
+  }
+  return `자동판정이 고르지 않는 status 입니다: ${status}`;
 }
 
 /**
@@ -282,12 +303,16 @@ export interface BlockedTicket {
 export interface SpecStageView {
   kind: 'spec-stage';
   reason: NoTicketReason;
-  /** 아직 티켓이 안 도출된 스펙들. 비어 있으면 스펙부터 만들어야 한다. */
+  /**
+   * 아직 티켓이 안 도출된 스펙들. **reason 과 무관하게 늘 채운다** — 초판은
+   * else-if 체인이라 all-done/blocked 일 때 이 목록을 그릴 자리가 없어서, 티켓 없는
+   * 스펙이 출력에서 통째로 사라졌다(리뷰 지적 4).
+   */
   pendingSpecs: PendingSpec[];
-  /** reason:'all-done' 일 때 게이트 4 를 기다리는 스펙들(closed 가 아닌 것). */
-  openSpecs: PendingSpec[];
-  /** reason:'blocked' 일 때 무엇이 무엇을 기다리는지. */
-  blockedTickets: BlockedTicket[];
+  /** 게이트 4 를 실제로 기다리는 스펙 — 도출됐고 closed 아니고 제 티켓이 전부 done. */
+  gate4Specs: PendingSpec[];
+  /** done 도 아니고 고를 수도 없는 티켓들과 그 이유. */
+  stalledTickets: StalledTicket[];
   /** 이 단계에서 사람이 쓰는 두 자리 — spec(스펙 캐묻기)·clarification(명료화). */
   skills: { slot: SkillSlot; label: string }[];
   /** profile 을 못 읽은 이유. skills 가 비었을 때 왜인지 말해준다. */
@@ -313,8 +338,51 @@ export function computeSpecStageView(projectRoot: string): SpecStageView {
     tickets.map((d) => (typeof d.spec === 'string' ? d.spec : null)).filter((s) => s !== null),
   );
 
+  // resolveCurrentTicketId 와 **같은 규칙**으로 되짚는다 — 두 곳이 규칙을 각자
+  // 구현하면 갈라진다(리뷰 지적 6/R7). 고를 수 있는 티켓의 정의는 한 곳에 둔다.
+  const doneIds = new Set(
+    tickets.filter((t) => t.status === 'done').map((t) => String(t.id ?? '')),
+  );
+  const isSelectable = (t: FrontmatterData): boolean => {
+    if (t.status === 'implementing') {
+      return true;
+    }
+    if (t.status !== 'pending') {
+      return false;
+    }
+    const deps = Array.isArray(t.dependencies) ? t.dependencies : [];
+    return deps.every((d) => doneIds.has(String(d)));
+  };
+
+  const stalledTickets: StalledTicket[] = tickets
+    .filter((t) => t.status !== 'done' && !isSelectable(t))
+    .map((t) => {
+      const status = typeof t.status === 'string' ? t.status : 'pending';
+      const waitingOn = (Array.isArray(t.dependencies) ? t.dependencies : [])
+        .map(String)
+        .filter((d) => !doneIds.has(d));
+      return {
+        // 빈 문자열도 없는 것으로 본다 — `id:` 만 남은 프론트매터가 실제로 있고,
+        // String(undefined) 를 화면에 내보내면 사람이 복사할 수 없는 값이 나간다.
+        id: typeof t.id === 'string' && t.id.trim() !== '' ? t.id : '(id 없음)',
+        status,
+        waitingOn,
+        why: stallReason(status, waitingOn),
+      };
+    });
+
+  // 스펙별로 티켓이 전부 done 인지 따로 본다 — 스펙이 여럿이면 하나가 끝나도
+  // 다른 스펙은 안 끝났을 수 있다.
+  const ticketsBySpec = new Map<string, FrontmatterData[]>();
+  for (const t of tickets) {
+    if (typeof t.spec !== 'string') {
+      continue;
+    }
+    ticketsBySpec.set(t.spec, [...(ticketsBySpec.get(t.spec) ?? []), t]);
+  }
+
   const pendingSpecs: PendingSpec[] = [];
-  const openSpecs: PendingSpec[] = [];
+  const gate4Specs: PendingSpec[] = [];
   for (const f of files.filter((x) => x.type === 'spec')) {
     const data = readDocData(f.path);
     const id = typeof data?.id === 'string' ? data.id : null;
@@ -322,30 +390,24 @@ export function computeSpecStageView(projectRoot: string): SpecStageView {
       continue;
     }
     const entry = { id, title: typeof data?.title === 'string' ? data.title : '(제목 없음)' };
-    if (derivedSpecIds.has(id)) {
-      if (data?.status !== 'closed') {
-        openSpecs.push(entry);
-      }
-    } else {
+    if (!derivedSpecIds.has(id)) {
       pendingSpecs.push(entry);
+      continue;
+    }
+    // 이미 닫힌 요청은 게이트 4 대상이 아니다 — 여기서 거르지 않으면 닫은 뒤에도
+    // next 가 계속 "게이트 4 를 기록하세요"를 반복한다(리뷰 지적 1).
+    if (data?.status === 'closed') {
+      continue;
+    }
+    const mine = ticketsBySpec.get(id) ?? [];
+    if (mine.length > 0 && mine.every((t) => t.status === 'done')) {
+      gate4Specs.push(entry);
     }
   }
 
-  // 왜 진행할 티켓이 없는지 — resolveCurrentTicketId 와 같은 규칙으로 되짚는다.
-  const doneIds = new Set(tickets.filter((t) => t.status === 'done').map((t) => String(t.id)));
-  const blockedTickets: BlockedTicket[] = tickets
-    .filter((t) => t.status !== 'done')
-    .map((t) => ({
-      id: String(t.id),
-      status: typeof t.status === 'string' ? t.status : 'pending',
-      waitingOn: (Array.isArray(t.dependencies) ? t.dependencies : [])
-        .map(String)
-        .filter((d) => !doneIds.has(d)),
-    }));
-
   let reason: NoTicketReason = 'no-tickets';
   if (tickets.length > 0) {
-    reason = blockedTickets.length === 0 ? 'all-done' : 'blocked';
+    reason = stalledTickets.length > 0 ? 'stalled' : 'all-done';
   }
 
   const loaded = loadProfile(projectRoot);
@@ -360,8 +422,8 @@ export function computeSpecStageView(projectRoot: string): SpecStageView {
     kind: 'spec-stage',
     reason,
     pendingSpecs,
-    openSpecs,
-    blockedTickets,
+    gate4Specs,
+    stalledTickets,
     skills,
     skillErrors: loaded.errors,
     modeContract: modeContract(effectiveLoopMode(loadState(projectRoot))),
@@ -609,35 +671,52 @@ function renderView(view: NextView, c: Caps): string {
 const STAGE_LABELS: Record<NoTicketReason, string> = {
   'no-tickets': '스펙 (아직 티켓 없음)',
   'all-done': '요청 닫기 (티켓은 모두 done)',
-  blocked: '대기 (진행 가능한 티켓 없음)',
+  stalled: '대기 (자동으로 고를 티켓 없음)',
 };
 
+/**
+ * 진행할 티켓이 없을 때의 화면.
+ *
+ * **분기(else-if)로 짜지 않는다.** 초판이 그랬다가 두 가지가 났다 — (1) all-done 이면
+ * 티켓 없는 스펙을 그릴 자리가 없어 통째로 사라졌고, (2) 스펙을 닫은 뒤에도 "게이트 4 를
+ * 기록하세요"를 반복하며 실행 불가능한 `<spec-id>` 리터럴을 뱉었다. 그래서 지금은
+ * **실제로 할 수 있는 일만 모아서** 낸다 — 할 게 없으면 없다고 말한다.
+ */
 export function renderSpecStage(view: SpecStageView, c: Caps): string {
   const lines: string[] = [];
   lines.push(`  단계     ${STAGE_LABELS[view.reason]}`);
-  lines.push('');
-  if (view.reason === 'all-done') {
-    lines.push('  게이트 4 를 기다리는 스펙');
-    if (view.openSpecs.length === 0) {
-      lines.push('    (없음 — 이미 닫힌 요청입니다)');
+
+  if (view.stalledTickets.length > 0) {
+    lines.push('');
+    lines.push('  자동으로 고를 수 없는 티켓');
+    for (const t of view.stalledTickets) {
+      lines.push(`    ${t.id}  ${t.status}`);
+      lines.push(`      ${t.why}`);
     }
-    for (const s of view.openSpecs) {
+  }
+  if (view.gate4Specs.length > 0) {
+    lines.push('');
+    lines.push('  게이트 4 를 기다리는 스펙 (티켓 전부 done)');
+    for (const s of view.gate4Specs) {
       lines.push(`    ${s.id}  ${s.title}`);
     }
-  } else if (view.reason === 'blocked') {
-    lines.push('  진행이 막힌 티켓');
-    for (const t of view.blockedTickets) {
-      const waiting = t.waitingOn.length > 0 ? ` — 대기: ${t.waitingOn.join(', ')}` : '';
-      lines.push(`    ${t.id}  ${t.status}${waiting}`);
-    }
-  } else if (view.pendingSpecs.length === 0) {
-    lines.push('  스펙     (없음)');
-  } else {
+  }
+  if (view.pendingSpecs.length > 0) {
+    lines.push('');
     lines.push('  티켓이 아직 없는 스펙');
     for (const s of view.pendingSpecs) {
       lines.push(`    ${s.id}  ${s.title}`);
     }
   }
+  if (
+    view.stalledTickets.length === 0 &&
+    view.gate4Specs.length === 0 &&
+    view.pendingSpecs.length === 0
+  ) {
+    lines.push('');
+    lines.push('  스펙     (열려 있는 것 없음)');
+  }
+
   lines.push('');
   if (view.skills.length > 0) {
     for (const s of view.skills) {
@@ -654,27 +733,29 @@ export function renderSpecStage(view: SpecStageView, c: Caps): string {
   lines.push(`  모드     ${mc.mode}`);
   lines.push(`    캐묻기(게이트 1 앞)  ${mc.grill}`);
   lines.push(`    마감(게이트 4)       ${mc.close}`);
+
   lines.push('');
   lines.push('  다음');
-  if (view.reason === 'all-done') {
-    const target = view.openSpecs[0]?.id ?? '<spec-id>';
-    lines.push('    게이트 4(요청 닫기)를 기록하세요:');
-    lines.push(`      awl record gate --json '{"layer":"request","gate":4,"spec":"${target}",`);
-    lines.push('        "decision":"merge","presentedCriteria":[...]}\'');
-    lines.push('    (decision 은 merge / judge-only / hold 중 하나)');
-  } else if (view.reason === 'blocked') {
-    lines.push(
-      '    막힌 티켓의 선행 티켓을 먼저 끝내거나, awl next <ticket-id> 로 직접 지목하세요.',
-    );
-  } else if (view.pendingSpecs.length === 0) {
-    lines.push('    awl doc new spec "<제목>" --request "<사용자 원문 그대로>"');
-    lines.push('    → ## Conditions 를 ### condition-N 블록으로 채운다 (EARS 문형)');
-    lines.push('    → awl tickets derive <spec-id>');
-  } else {
-    lines.push(`    awl tickets derive ${view.pendingSpecs[0]?.id}`);
-    lines.push('    (조건이 비어 있으면 awl doc new spec 으로 만든 스펙을 먼저 채우세요)');
+  const nextLines: string[] = [];
+  for (const s of view.gate4Specs) {
+    nextLines.push(`    게이트 4(요청 닫기) — ${s.title}`);
+    nextLines.push(`      awl record gate --json '{"layer":"request","gate":4,"spec":"${s.id}",`);
+    nextLines.push('        "decision":"merge","presentedCriteria":[...]}\'');
+    nextLines.push('      (decision 은 merge / judge-only / hold 중 하나)');
   }
-  return `\n  ${signal(c, 'ok')} 스펙 단계\n\n${lines.join('\n')}\n`;
+  for (const s of view.pendingSpecs) {
+    nextLines.push(`    awl tickets derive ${s.id}   (${s.title})`);
+  }
+  for (const t of view.stalledTickets) {
+    nextLines.push(`    ${t.id} — ${t.why}`);
+  }
+  if (nextLines.length === 0) {
+    nextLines.push('    awl doc new spec "<제목>" --request "<사용자 원문 그대로>"');
+    nextLines.push('    → ## Conditions 를 ### condition-N 블록으로 채운다 (EARS 문형)');
+    nextLines.push('    → awl tickets derive <spec-id>');
+  }
+  lines.push(...nextLines);
+  return `\n  ${signal(c, 'ok')} ${STAGE_LABELS[view.reason]}\n\n${lines.join('\n')}\n`;
 }
 
 /** ticketId 를 생략하면 "지금" 티켓을 자동판정한다(WI-H1, resolveCurrentTicketId). */

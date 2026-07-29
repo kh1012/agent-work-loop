@@ -3122,3 +3122,113 @@ describe('runRecord — 스펙 소유 기록 (ADK 게이트 1·4, dogfood-202607
     stderrSpy.mockRestore();
   });
 });
+
+describe('runRecord — ticket 이 같이 있어도 spec 실재를 검사한다 (재리뷰 지적 2)', () => {
+  const origCwd = process.cwd();
+  const origHome = process.env.AWL_HOME;
+
+  afterEach(() => {
+    process.chdir(origCwd);
+    if (origHome === undefined) {
+      delete process.env.AWL_HOME;
+    } else {
+      process.env.AWL_HOME = origHome;
+    }
+  });
+
+  async function projectWithTicket(): Promise<{ root: string; ticketId: string; specId: string }> {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-record-both-')));
+    fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, '.awl', 'config.json'),
+      JSON.stringify({ project: 'p', mainLanguage: 'other', engineVersion: '0.0.0', verify: {} }),
+    );
+    process.env.AWL_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-record-both-home-'));
+    const spec = await createDoc('spec', '자동 저장', root);
+    const ticket = await createDoc('ticket', '조건 하나', root, {
+      spec: spec.id,
+      conditions: ['condition-1'],
+    });
+    process.chdir(root);
+    return { root, ticketId: ticket.id, specId: spec.id };
+  }
+
+  function mockExit() {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    return { exitSpy, stderrSpy };
+  }
+
+  // 원래 버그는 spec 만 줬을 때가 아니라 **ticket 을 같이 줬을 때** 검사가 꺼지는
+  // 것이었다. 그 경로를 직접 겨냥한다 — 여기가 비면 `!dataTicket` 을 되살려도 초록이다.
+  it('ticket 과 함께 준 오타 spec 을 거부한다 (audit)', async () => {
+    const { ticketId } = await projectWithTicket();
+    const { exitSpy, stderrSpy } = mockExit();
+    await expect(
+      runRecord('audit', {
+        json: JSON.stringify({
+          ticket: ticketId,
+          spec: 'NOPE-없는-스펙',
+          scope: 's',
+          findings: [{ id: 'f', what: 'w' }],
+        }),
+      }),
+    ).rejects.toThrow('exit:1');
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('NOPE-없는-스펙'))).toBe(true);
+    exitSpy.mockRestore();
+    stderrSpy.mockRestore();
+  });
+
+  it('ticket 과 함께 준 오타 spec 을 거부한다 (gate 2 — layer:ticket 이라 전이 검증이 안 걸리는 경로)', async () => {
+    const { ticketId } = await projectWithTicket();
+    const { exitSpy, stderrSpy } = mockExit();
+    await expect(
+      runRecord('gate', {
+        json: JSON.stringify({
+          ticket: ticketId,
+          spec: 'NOPE-없는-스펙',
+          layer: 'ticket',
+          gate: 2,
+          decision: 'approved',
+          presentedCriteria: ['c'],
+        }),
+      }),
+    ).rejects.toThrow('exit:1');
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('NOPE-없는-스펙'))).toBe(true);
+    exitSpy.mockRestore();
+    stderrSpy.mockRestore();
+  });
+
+  it('옛 이름 specId 로 준 오타도 거부한다 (하위호환 필드도 검증 대상)', async () => {
+    const { ticketId } = await projectWithTicket();
+    const { exitSpy, stderrSpy } = mockExit();
+    await expect(
+      runRecord('audit', {
+        json: JSON.stringify({
+          ticket: ticketId,
+          specId: 'NOPE-없는-스펙',
+          scope: 's',
+          findings: [{ id: 'f', what: 'w' }],
+        }),
+      }),
+    ).rejects.toThrow('exit:1');
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('NOPE-없는-스펙'))).toBe(true);
+    exitSpy.mockRestore();
+    stderrSpy.mockRestore();
+  });
+
+  it('실재하는 spec 을 ticket 과 함께 주면 통과한다 (과잉 차단 아님)', async () => {
+    const { root, ticketId, specId } = await projectWithTicket();
+    await runRecord('audit', {
+      json: JSON.stringify({
+        ticket: ticketId,
+        spec: specId,
+        scope: 's',
+        findings: [{ id: 'f', what: 'w' }],
+      }),
+    });
+    expect(readRecords(root, { type: 'audit' })).toHaveLength(1);
+  });
+});
