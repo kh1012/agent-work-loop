@@ -755,6 +755,20 @@ export function buildRecord(
       }
     }
 
+    // 게이트 2 의 뜻이 둘이라 ticket 만 주고 layer 를 빠뜨리면 조용히 반대로 기록된다
+    // (설계 대조 2단계 #4). 레거시 gate 2 = 워크아이템 **완료**, ADK gate 2 =
+    // 티켓 **착수** — 정반대다. ticket 을 준 시점에서 의도는 ADK 인데 layer 가 없으면
+    // 레거시로 떨어지므로, 추측하지 않고 거부한다(awl 은 판단하지 않는다).
+    if (!gateMissing && gate === 2 && layerMissing) {
+      const hasTicket = data.ticket !== undefined && data.ticket !== null && data.ticket !== '';
+      if (hasTicket) {
+        missing.push(
+          "layer ('ticket' 이어야 함 — ticket 을 줬으면 ADK 게이트 2(티켓 착수)다. " +
+            'layer 없는 게이트 2 는 레거시(워크아이템 완료)라 뜻이 정반대다)',
+        );
+      }
+    }
+
     // gate 1/4 를 layer:'request' 로 기록하면(ADK stage 3) 어느 스펙의 status 를
     // 전이시킬지 알아야 한다 — spec(그 스펙의 id)이 필수다. 레거시 gate 1(layer 없이
     // 부르는 기존 awl-loop 스킬 호출)은 이 조건에 안 걸린다 — layer==='request' 일

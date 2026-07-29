@@ -616,7 +616,13 @@ export function buildProgram(): Command {
     });
 
   // 사람이 치는 명령: work (워크아이템 여러 개를 오간다, WI-D)
-  const work = program.command('work').description('이 프로젝트의 워크아이템을 관리합니다');
+  // 레거시(설계 대조 2단계 #5): ADK 는 워크아이템을 티켓으로 대체했다
+  // (adk-reference.md 에 workitem 0회). 정식 경로는 awl doc new spec → awl tickets
+  // derive → awl commit <ticket-id> 라 work 없이 돈다. /awl-loop 를 이어 쓰는 경우가
+  // 있어 지우지 않고 도움말에서만 내린다.
+  const work = program
+    .command('work', { hidden: true })
+    .description('[레거시] 워크아이템을 관리합니다 — ADK 는 티켓(awl tickets)을 씁니다');
   work
     .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
     .action(async (opts: { json?: boolean }) => {

@@ -1495,6 +1495,48 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
     expect(record).not.toHaveProperty('localSkills');
   });
 
+  it('ticket 을 줬는데 layer 가 없는 게이트 2 는 거부한다 — 뜻이 정반대라 추측하면 안 된다', async () => {
+    const root = project({ workitem: 'WI-9', workitems: {} });
+    writeTicketFixture(root, 'ticket-1');
+    const { exitSpy, stderrSpy } = mockExit();
+
+    await expect(
+      runRecord('gate', {
+        json: '{"gate":2,"ticket":"ticket-1","decision":"approved","presentedCriteria":["AC-01"]}',
+      }),
+    ).rejects.toThrow('exit:1');
+    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('layer'))).toBe(true);
+    // 아무것도 안 남아야 한다 — 반쯤 기록된 게이트는 나중에 못 읽는다.
+    expect(readRecords(root, { type: 'gate' })).toEqual([]);
+
+    exitSpy.mockRestore();
+    stderrSpy.mockRestore();
+  });
+
+  it('layer:ticket 을 명시하면 같은 기록이 통과한다 (ADK 게이트 2 = 티켓 착수)', async () => {
+    const root = project({ workitem: 'WI-9', workitems: {} });
+    writeTicketFixture(root, 'ticket-1');
+
+    await runRecord('gate', {
+      json: '{"gate":2,"layer":"ticket","ticket":"ticket-1","decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+
+    const [record] = readRecords(root, { type: 'gate' });
+    expect(record?.layer).toBe('ticket');
+  });
+
+  it('ticket 없는 레거시 게이트 2 는 그대로 통과한다 (awl-loop 하위호환)', async () => {
+    const root = project({ workitem: 'WI-9', workitems: {} });
+
+    await runRecord('gate', {
+      json: '{"gate":2,"decision":"approved","presentedCriteria":["AC-01"]}',
+    });
+
+    const [record] = readRecords(root, { type: 'gate' });
+    expect(record?.gate).toBe(2);
+    expect(record).not.toHaveProperty('layer');
+  });
+
   it('게이트 기록에 그 순간의 loopMode 가 각인된다 (ADK stage 2 "모드", prototype.md:360)', async () => {
     const root = project({ workitem: 'WI-9', workitems: {}, loopMode: 'auto' });
     writeTicketFixture(root, 'ticket-1');
