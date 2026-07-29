@@ -205,6 +205,11 @@ config 는 하나다. 패키지의 설정이 아니라 저장소의 설정이다
 ~/.awl/
   config.json             전역 기본값               사람마다 한 번
 
+  gotchas/                겪은 함정                 사람마다 쌓인다
+  rules/active/           승격된 규칙                사람마다 쌓인다
+  generations/<project>/  워크아이템 세대 지표        사람마다 쌓인다
+  templates/              개인 초안 기본값
+
 <repo>/
   .awl/
     config.json           이 저장소가 정한 것        커밋
@@ -222,6 +227,15 @@ config 는 하나다. 패키지의 설정이 아니라 저장소의 설정이다
     tickets/20260725-151203-keyboard-event-wiring.md   티켓
     decisions/20260725-160841-event-at-panel-root.md   결정
 ```
+
+**학습은 사람 층에 둔다.** 위 네 칸(`gotchas` · `rules` · `generations` · `templates`)이
+그 자리다. 프로젝트를 옮겨도 따라와야 "다음 프로젝트에서 빈손으로 시작하지 않는다"가
+성립한다. 저장소에 두면 저장소를 나가는 순간 사라진다.
+
+**기록(`records`)만 예외로 프로젝트 층이다**(`<repo>/.awl/records/`). 기록은 커밋·티켓과
+1:1로 붙고 양이 크며, 레인이 여럿일 때 주 워킹카피 하나를 심링크로 가리켜 실시간 공유한다
+(§14). 사람 층에 두면 레인마다 갈라져 정리 때 병합해야 하는데, 그건 §14 가 피하려는 바로
+그 구조다.
 
 **빌려온 관례가 셋이다.**
 
@@ -2460,6 +2474,26 @@ awl tokens <ticket>
 피드백은 기본 켜짐. LLM 이 정리한 최소 맥락만 보낸다.
 
 **쌓인 것이 신호를 내는지, 도구가 스스로 개선 재료를 모으는지를 본다.**
+
+### 개념 명령과 운영 명령
+
+위 여섯 단계가 정한 건 **개념 명령**이다(`run` `doc` `tickets` `next` `stages` `record`
+`review` `verify` `commit` `lane` `tokens` `backlog` `rules` `gotchas` `feedback`).
+
+그 밖에 설계 문서가 이름을 정하지 않은 **운영 명령**이 있다. 도구를 설치·점검·정리하는
+자리라 방법론과 층이 다르다 — 없으면 개념 명령을 쓸 수가 없다.
+
+```
+init · update · doctor · version-check   설치와 점검
+status · brief · loop-summary · metrics  지금 상태와 지나온 것
+remove                                    흔적 지우기
+work                                      [레거시] 티켓 이전의 워크아이템
+evolve · changelog · feedback-log         완료 뒤 정리
+port                                      §14 의 포트 격리를 실행하는 자리
+```
+
+**설계에 이름이 없다는 것과 있으면 안 된다는 것은 다르다.** 다만 개념 명령과 겹치는
+것(예: `work` ↔ 티켓)은 하나로 모은다 — 어휘가 둘이면 기록이 갈라진다.
 
 ---
 
