@@ -151,7 +151,13 @@ async function isPortBindingOccupied(port: number, host: string): Promise<boolea
         resolve(true);
         return;
       }
-      if (host.includes(':') && (error.code === 'EAFNOSUPPORT' || error.code === 'EADDRNOTAVAIL')) {
+      // 바인드할 수 없는 주소는 "그 주소에서는 아무도 안 듣는다"로 읽는다. 점유 판정이
+      // 목적이지 주소 열거의 정확성이 목적이 아니다 — 하나라도 던지면 acquisition 전체가
+      // 깨진다. EINVAL 은 zone index 없는 링크로컬 IPv6(fe80::…)에서 Linux 가 낸다.
+      if (
+        host.includes(':') &&
+        (error.code === 'EAFNOSUPPORT' || error.code === 'EADDRNOTAVAIL' || error.code === 'EINVAL')
+      ) {
         resolve(false);
         return;
       }
@@ -169,10 +175,23 @@ async function isPortBindingOccupied(port: number, host: string): Promise<boolea
   });
 }
 
+/**
+ * 링크로컬 IPv6(fe80::/10)인가. zone index(`%eth0`) 없이는 바인드할 수 없어서
+ * Linux 가 EINVAL 을 낸다 — GitHub Actions 러너가 정확히 이 상태라 0.7.5 부터
+ * port-lease 테스트 10개가 전부 깨졌다. 서비스가 링크로컬에서 듣는 경우는 없으므로
+ * 점유 판정 대상에서 뺀다.
+ */
+export function isLinkLocalIpv6(address: string): boolean {
+  return /^fe[89ab][0-9a-f]:/i.test(address);
+}
+
 function localProbeAddresses(): string[] {
   const addresses = new Set(['127.0.0.1', '::1']);
   for (const entries of Object.values(os.networkInterfaces())) {
     for (const entry of entries ?? []) {
+      if (isLinkLocalIpv6(entry.address)) {
+        continue;
+      }
       addresses.add(entry.address);
     }
   }

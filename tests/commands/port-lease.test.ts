@@ -12,6 +12,7 @@ import {
 import {
   acquirePortLease,
   inspectPortLease,
+  isLinkLocalIpv6,
   portLeaseLocation,
   readPortLease,
   releasePortLease,
@@ -664,4 +665,23 @@ describe('runPortLeaseCommand — 호출자 cwd (review-verification-env-traps A
 
     expect(fs.readFileSync(marker, 'utf8')).toBe(fs.realpathSync(pkgDir));
   });
+});
+
+// 0.7.5~0.8.12 동안 CI 가 이 파일에서 전부 깨졌다. 러너에 링크로컬 IPv6(fe80::…)가
+// 붙어 있는데 zone index 없이 바인드하면 Linux 가 EINVAL 을 낸다. macOS 에서는
+// 통과해서 로컬로는 안 보였다.
+describe('isLinkLocalIpv6 — 점유 판정에서 뺄 주소', () => {
+  it.each(['fe80::1', 'fe80::7eed:8dff:fe3d:6647', 'FE80::abcd', 'fe9f::1', 'feaf::1', 'febf::1'])(
+    '링크로컬 %s 는 true',
+    (addr) => {
+      expect(isLinkLocalIpv6(addr)).toBe(true);
+    },
+  );
+
+  it.each(['::1', '127.0.0.1', '10.0.0.5', '192.168.1.9', '2001:db8::1', 'fec0::1', 'fd00::1'])(
+    '그 밖의 %s 는 false — 진짜 서비스가 들을 수 있는 주소다',
+    (addr) => {
+      expect(isLinkLocalIpv6(addr)).toBe(false);
+    },
+  );
 });
