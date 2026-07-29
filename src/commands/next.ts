@@ -170,10 +170,15 @@ export const MAX_SHOWN_CONSTRAINTS = 15;
 
 /**
  * 같은 스펙의 audit 기록에서 모은 finding(WI-G21, "이미 아는 것을 먼저 준다").
- * audit 레코드는 workitem 단위(AC 모델)라 스펙(specId)과 직접 이어주는 필드가
- * 없었다 — record.ts 가 top-level 필드를 제한하지 않으므로(D-15) `awl record audit`
- * 호출 시 `specId` 를 자유 필드로 얹으면 코드 변경 없이 이어진다. specId 없이
- * 남긴(옛) audit 기록은 이 집계에서 조용히 빠진다(하위호환, 크래시하지 않는다).
+ *
+ * 스펙을 가리키는 필드 이름은 **`spec`** 이다. status.ts 도 `r.spec` 을 읽고 record 는
+ * `spec` 을 소유자로 검증한다. 초안은 여기서만 `specId` 라는 자유 필드를 쓰라고 했는데
+ * (audit 이 workitem 단위였던 시절의 우회), 그 결과 record 가 쓰는 이름과 여기가 읽는
+ * 이름이 달라 이 패널이 구조적으로 늘 비어 있었다(dogfood-20260730 리뷰 지적 3).
+ * 옛 기록 호환으로 `specId` 도 계속 읽는다.
+ *
+ * ticket 으로만 남긴 기록도 그 티켓의 spec 을 따라 여기 들어온다 — 조사는 티켓에 붙이고
+ * 읽기는 스펙 단위로 하는 게 "다음 티켓이 앞선 조사를 물려받는다"의 뜻이다.
  */
 export interface KnownFinding {
   id: string;
@@ -244,7 +249,30 @@ export interface PendingSpec {
 }
 
 /**
- * 티켓이 하나도 없을 때 내는 뷰. 티켓 뷰와 필드가 겹치지 않으므로 kind 로 구분한다.
+ * 왜 진행할 티켓이 없는가. resolveCurrentTicketId 가 null 을 내는 이유는 셋인데,
+ * 셋의 다음 행동이 전부 다르다 — 이걸 뭉뚱그려 "티켓 없음"이라 말하면 뷰가 거짓이 된다.
+ *
+ * 리뷰가 잡은 실제 사고(dogfood-20260730): 티켓 4개가 done 이고 게이트 4 만 남은
+ * 상태에서 "아직 티켓 없음 / 스펙 (없음) / 새 스펙을 만드세요"가 나왔다. 스킬이 그대로
+ * 따르면 끝난 요청을 안 닫고 새 요청을 판다.
+ */
+export type NoTicketReason =
+  /** 티켓 문서가 하나도 없다 — 스펙부터 만들거나 derive 한다. */
+  | 'no-tickets'
+  /** 티켓은 있고 전부 done — 남은 건 게이트 4(요청 닫기)다. */
+  | 'all-done'
+  /** 막히지 않은 pending 이 없다 — 의존이 done 이 아니거나 blocked 다. */
+  | 'blocked';
+
+export interface BlockedTicket {
+  id: string;
+  status: string;
+  /** 아직 done 이 아닌 선행 티켓들. */
+  waitingOn: string[];
+}
+
+/**
+ * 진행할 티켓이 없을 때 내는 뷰. 티켓 뷰와 필드가 겹치지 않으므로 kind 로 구분한다.
  *
  * 왜 필요한가: 스킬은 "스펙을 쓰기 전에 awl next 의 모드 절을 보고 그 강도대로
  * 캐물으라"고 지시하는데, 티켓이 없는 그 시점에 next 가 실패로 끝나면 캐물어야 할
@@ -253,46 +281,89 @@ export interface PendingSpec {
  */
 export interface SpecStageView {
   kind: 'spec-stage';
+  reason: NoTicketReason;
   /** 아직 티켓이 안 도출된 스펙들. 비어 있으면 스펙부터 만들어야 한다. */
   pendingSpecs: PendingSpec[];
+  /** reason:'all-done' 일 때 게이트 4 를 기다리는 스펙들(closed 가 아닌 것). */
+  openSpecs: PendingSpec[];
+  /** reason:'blocked' 일 때 무엇이 무엇을 기다리는지. */
+  blockedTickets: BlockedTicket[];
   /** 이 단계에서 사람이 쓰는 두 자리 — spec(스펙 캐묻기)·clarification(명료화). */
   skills: { slot: SkillSlot; label: string }[];
+  /** profile 을 못 읽은 이유. skills 가 비었을 때 왜인지 말해준다. */
+  skillErrors: string[];
   modeContract: ModeContract;
 }
 
 /** 스펙 단계에서 가리키는 슬롯. 순서가 곧 사람이 지나가는 순서다. */
 const SPEC_STAGE_SLOTS: SkillSlot[] = ['spec', 'clarification'];
 
-/** 티켓이 없을 때의 뷰. throw 하지 않는다 — 이 단계 자체가 정상 상태다. */
+function readDocData(filePath: string): FrontmatterData | undefined {
+  return parseFrontmatter(fs.readFileSync(filePath, 'utf8'))?.data;
+}
+
+/** 진행할 티켓이 없을 때의 뷰. throw 하지 않는다 — 이 단계 자체가 정상 상태다. */
 export function computeSpecStageView(projectRoot: string): SpecStageView {
-  const specs = listDocFiles(projectRoot).filter((f) => f.type === 'spec');
+  const files = listDocFiles(projectRoot);
+  const tickets = files
+    .filter((f) => f.type === 'ticket')
+    .map((f) => readDocData(f.path))
+    .filter((d): d is FrontmatterData => d !== undefined);
   const derivedSpecIds = new Set(
-    listDocFiles(projectRoot)
-      .filter((f) => f.type === 'ticket')
-      .map((f) => parseFrontmatter(fs.readFileSync(f.path, 'utf8'))?.data)
-      .map((d) => (typeof d?.spec === 'string' ? d.spec : null))
-      .filter((s): s is string => s !== null),
+    tickets.map((d) => (typeof d.spec === 'string' ? d.spec : null)).filter((s) => s !== null),
   );
 
   const pendingSpecs: PendingSpec[] = [];
-  for (const f of specs) {
-    const data = parseFrontmatter(fs.readFileSync(f.path, 'utf8'))?.data;
+  const openSpecs: PendingSpec[] = [];
+  for (const f of files.filter((x) => x.type === 'spec')) {
+    const data = readDocData(f.path);
     const id = typeof data?.id === 'string' ? data.id : null;
-    if (!id || derivedSpecIds.has(id)) {
+    if (!id) {
       continue;
     }
-    pendingSpecs.push({ id, title: typeof data?.title === 'string' ? data.title : '(제목 없음)' });
+    const entry = { id, title: typeof data?.title === 'string' ? data.title : '(제목 없음)' };
+    if (derivedSpecIds.has(id)) {
+      if (data?.status !== 'closed') {
+        openSpecs.push(entry);
+      }
+    } else {
+      pendingSpecs.push(entry);
+    }
   }
 
-  const profile = loadProfile(projectRoot).profile;
-  const skills = profile
-    ? SPEC_STAGE_SLOTS.map((slot) => ({ slot, label: skillRefLabel(profile.skills[slot]) }))
+  // 왜 진행할 티켓이 없는지 — resolveCurrentTicketId 와 같은 규칙으로 되짚는다.
+  const doneIds = new Set(tickets.filter((t) => t.status === 'done').map((t) => String(t.id)));
+  const blockedTickets: BlockedTicket[] = tickets
+    .filter((t) => t.status !== 'done')
+    .map((t) => ({
+      id: String(t.id),
+      status: typeof t.status === 'string' ? t.status : 'pending',
+      waitingOn: (Array.isArray(t.dependencies) ? t.dependencies : [])
+        .map(String)
+        .filter((d) => !doneIds.has(d)),
+    }));
+
+  let reason: NoTicketReason = 'no-tickets';
+  if (tickets.length > 0) {
+    reason = blockedTickets.length === 0 ? 'all-done' : 'blocked';
+  }
+
+  const loaded = loadProfile(projectRoot);
+  const skills = loaded.profile
+    ? SPEC_STAGE_SLOTS.map((slot) => ({
+        slot,
+        label: skillRefLabel(loaded.profile?.skills[slot] ?? null),
+      }))
     : [];
 
   return {
     kind: 'spec-stage',
+    reason,
     pendingSpecs,
+    openSpecs,
+    blockedTickets,
     skills,
+    skillErrors: loaded.errors,
     modeContract: modeContract(effectiveLoopMode(loadState(projectRoot))),
   };
 }
@@ -351,10 +422,21 @@ export function computeNextView(projectRoot: string, ticketId?: string): NextVie
 
   const status = typeof ticket.data.status === 'string' ? ticket.data.status : 'pending';
 
+  // 이 스펙에 속한 티켓 전부 — ticket 으로만 남긴 조사도 스펙 단위로 모으기 위해.
+  const siblingTicketIds = new Set(
+    listDocFiles(projectRoot)
+      .filter((f) => f.type === 'ticket')
+      .map((f) => readDocData(f.path))
+      .filter((d) => d !== undefined && d.spec === specId)
+      .map((d) => String(d?.id)),
+  );
+
   const allFindings: KnownFinding[] = [];
   if (specId) {
     for (const r of readRecords(projectRoot, { type: 'audit' })) {
-      if (r.specId !== specId) {
+      const ownedBySpec = r.spec === specId || r.specId === specId;
+      const ownedByTicket = typeof r.ticket === 'string' && siblingTicketIds.has(r.ticket);
+      if (!ownedBySpec && !ownedByTicket) {
         continue;
       }
       const recordedAt = typeof r.at === 'string' ? r.at : undefined;
@@ -524,11 +606,31 @@ function renderView(view: NextView, c: Caps): string {
   return `\n  ${signal(c, 'ok')} ${view.ticketId}\n\n${lines.join('\n')}\n`;
 }
 
+const STAGE_LABELS: Record<NoTicketReason, string> = {
+  'no-tickets': '스펙 (아직 티켓 없음)',
+  'all-done': '요청 닫기 (티켓은 모두 done)',
+  blocked: '대기 (진행 가능한 티켓 없음)',
+};
+
 export function renderSpecStage(view: SpecStageView, c: Caps): string {
   const lines: string[] = [];
-  lines.push('  단계     스펙 (아직 티켓 없음)');
+  lines.push(`  단계     ${STAGE_LABELS[view.reason]}`);
   lines.push('');
-  if (view.pendingSpecs.length === 0) {
+  if (view.reason === 'all-done') {
+    lines.push('  게이트 4 를 기다리는 스펙');
+    if (view.openSpecs.length === 0) {
+      lines.push('    (없음 — 이미 닫힌 요청입니다)');
+    }
+    for (const s of view.openSpecs) {
+      lines.push(`    ${s.id}  ${s.title}`);
+    }
+  } else if (view.reason === 'blocked') {
+    lines.push('  진행이 막힌 티켓');
+    for (const t of view.blockedTickets) {
+      const waiting = t.waitingOn.length > 0 ? ` — 대기: ${t.waitingOn.join(', ')}` : '';
+      lines.push(`    ${t.id}  ${t.status}${waiting}`);
+    }
+  } else if (view.pendingSpecs.length === 0) {
     lines.push('  스펙     (없음)');
   } else {
     lines.push('  티켓이 아직 없는 스펙');
@@ -536,11 +638,16 @@ export function renderSpecStage(view: SpecStageView, c: Caps): string {
       lines.push(`    ${s.id}  ${s.title}`);
     }
   }
+  lines.push('');
   if (view.skills.length > 0) {
-    lines.push('');
     for (const s of view.skills) {
       lines.push(`  skill    ${s.slot}: ${s.label}`);
     }
+  } else {
+    // 조용히 생략하지 않는다 — 스킬 줄이 그냥 없으면 "이 단계엔 스킬이 없다"로
+    // 읽히지만 실제로는 profile 을 못 읽은 것이다(리뷰 지적 5).
+    const why = view.skillErrors[0] ?? 'profile.json 을 읽지 못했습니다';
+    lines.push(`  skill    (없음 — ${why})`);
   }
   const mc = view.modeContract;
   lines.push('');
@@ -549,7 +656,17 @@ export function renderSpecStage(view: SpecStageView, c: Caps): string {
   lines.push(`    마감(게이트 4)       ${mc.close}`);
   lines.push('');
   lines.push('  다음');
-  if (view.pendingSpecs.length === 0) {
+  if (view.reason === 'all-done') {
+    const target = view.openSpecs[0]?.id ?? '<spec-id>';
+    lines.push('    게이트 4(요청 닫기)를 기록하세요:');
+    lines.push(`      awl record gate --json '{"layer":"request","gate":4,"spec":"${target}",`);
+    lines.push('        "decision":"merge","presentedCriteria":[...]}\'');
+    lines.push('    (decision 은 merge / judge-only / hold 중 하나)');
+  } else if (view.reason === 'blocked') {
+    lines.push(
+      '    막힌 티켓의 선행 티켓을 먼저 끝내거나, awl next <ticket-id> 로 직접 지목하세요.',
+    );
+  } else if (view.pendingSpecs.length === 0) {
     lines.push('    awl doc new spec "<제목>" --request "<사용자 원문 그대로>"');
     lines.push('    → ## Conditions 를 ### condition-N 블록으로 채운다 (EARS 문형)');
     lines.push('    → awl tickets derive <spec-id>');

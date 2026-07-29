@@ -1403,13 +1403,22 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
     return;
   }
 
-  // spec 을 소유자로 쓸 땐 실재를 확인한다 — 오타 하나로 어느 스펙에도 안 붙는 고아
-  // 기록이 조용히 쌓이면, 나중에 그 스펙을 훑는 쪽(next 의 "이미 아는 것")에서 영영
-  // 안 보인다. 티켓 경로는 게이트 전이에서 이미 스펙을 확인하므로 여기선 안 겹친다.
-  if (dataSpec && !dataTicket && !findSpecFileById(projectRoot, dataSpec)) {
-    process.stderr.write(`\n  ${signal(caps(), 'error')} 스펙을 찾을 수 없습니다: ${dataSpec}\n`);
-    process.exit(1);
-    return;
+  // spec 을 가리키면 실재를 확인한다 — 오타 하나로 어느 스펙에도 안 붙는 고아 기록이
+  // 조용히 쌓이면, 나중에 그 스펙을 훑는 쪽(next 의 "이미 아는 것")에서 영영 안 보인다.
+  //
+  // ticket 이 같이 있어도 검사한다. 처음엔 `!dataTicket` 으로 껐는데("티켓 경로는 게이트
+  // 전이가 확인한다") 그 전이 검증은 gate 1·4 + layer:'request' 에만 걸려서 audit·spike 나
+  // gate 2/3 은 오타를 그대로 삼켰다 — 가드가 자기가 막겠다고 선언한 상태를 통과시켰다
+  // (dogfood-20260730 리뷰 지적 2). specId 는 옛 기록이 쓰던 같은 뜻의 이름이라 같이 본다.
+  const specRefs = [dataSpec, typeof data.specId === 'string' ? data.specId : undefined].filter(
+    (s): s is string => typeof s === 'string' && s.trim() !== '',
+  );
+  for (const ref of specRefs) {
+    if (!findSpecFileById(projectRoot, ref)) {
+      process.stderr.write(`\n  ${signal(caps(), 'error')} 스펙을 찾을 수 없습니다: ${ref}\n`);
+      process.exit(1);
+      return;
+    }
   }
 
   const id = newRecordId();

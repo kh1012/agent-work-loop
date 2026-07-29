@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDoc } from '../../src/commands/doc.js';
 import {
   MAX_SHOWN_CONSTRAINTS,
@@ -13,6 +13,7 @@ import {
   modeContract,
   renderSpecStage,
   resolveCurrentTicketId,
+  runNext,
 } from '../../src/commands/next.js';
 import { defaultProfileSkills, profilePath } from '../../src/commands/profile.js';
 import { appendRecord } from '../../src/commands/record.js';
@@ -719,12 +720,30 @@ describe('SpecStageView — 티켓이 없는 스펙 단계 (dogfood-20260730)', 
     expect(view.skills[1]?.label).toContain('grill-me');
   });
 
-  it('프로파일이 없으면 스킬 자리를 비운 채로 나머지를 낸다', () => {
+  it('프로파일을 못 읽으면 스킬 자리를 비우되 왜인지 함께 남긴다 (조용히 사라지면 안 된다)', () => {
     const p = tmp('awl-next-');
     process.env.AWL_HOME = tmp('awl-next-home-');
     const view = computeSpecStageView(p);
     expect(view.skills).toEqual([]);
+    expect(view.skillErrors.length).toBeGreaterThan(0);
     expect(view.modeContract.grill.length).toBeGreaterThan(0);
+
+    const out = renderSpecStage(view, { color: false, unicode: false, width: 80 } as never);
+    expect(out).toContain('skill    (없음');
+  });
+
+  it('profile.json 이 깨져 있어도 그 사실을 출력에 드러낸다', () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    fs.mkdirSync(path.join(p, '.awl'), { recursive: true });
+    fs.writeFileSync(profilePath(p), '{ broken');
+    const out = renderSpecStage(computeSpecStageView(p), {
+      color: false,
+      unicode: false,
+      width: 80,
+    } as never);
+    expect(out).toContain('skill    (없음');
+    expect(out).toContain('파싱 오류');
   });
 
   it('아직 티켓이 안 도출된 스펙을 알려준다 — 다음에 무엇을 derive 할지 되묻지 않게', async () => {
@@ -736,17 +755,93 @@ describe('SpecStageView — 티켓이 없는 스펙 단계 (dogfood-20260730)', 
     expect(view.pendingSpecs[0]?.title).toBe('레이어 패널 키보드 조작');
   });
 
-  it('runNext 가 티켓 없이도 exit 1 로 죽지 않는다', async () => {
+  // 이 블록은 runNext 를 **실제로 부른다**. 앞선 판에서는 같은 이름을 달고 순수함수
+  // 두 개만 호출해, runNext 의 분기를 통째로 없애도 초록이었다(뮤테이션 M1 생존).
+  it('runNext 를 실제로 불러도 exit 하지 않고 스펙 단계 뷰를 stdout 에 쓴다', async () => {
     const p = tmp('awl-next-');
     process.env.AWL_HOME = tmp('awl-next-home-');
     fs.mkdirSync(path.join(p, '.awl'), { recursive: true });
-    const out = renderSpecStage(computeSpecStageView(p), {
-      color: false,
-      unicode: false,
-      width: 80,
-    } as never);
-    expect(out).toContain('캐묻기');
-    expect(out).toContain('awl doc new spec');
+    const cwd = process.cwd();
+    process.chdir(p);
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit:${code}`);
+    }) as never);
+    const outSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      await runNext();
+      const out = outSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(out).toContain('스펙 단계');
+      expect(out).toContain('캐묻기');
+      expect(out).toContain('awl doc new spec');
+      expect(exitSpy).not.toHaveBeenCalled();
+    } finally {
+      outSpy.mockRestore();
+      exitSpy.mockRestore();
+      process.chdir(cwd);
+    }
+  });
+
+  it('티켓이 전부 done 이면 "티켓 없음"이 아니라 게이트 4 로 안내한다 (거짓 뷰 금지)', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    const { specId, ticketId } = await specWithOneTicket(p);
+    const dir = path.join(p, 'docs', 'tickets');
+    const [file] = fs.readdirSync(dir);
+    const fp = path.join(dir, file as string);
+    fs.writeFileSync(fp, fs.readFileSync(fp, 'utf8').replace(/^status: .+$/m, 'status: done'));
+
+    const view = computeSpecStageView(p);
+    expect(view.reason).toBe('all-done');
+    expect(view.openSpecs.map((s) => s.id)).toContain(specId);
+
+    const out = renderSpecStage(view, { color: false, unicode: false, width: 80 } as never);
+    expect(out).toContain('게이트 4');
+    expect(out).not.toContain('아직 티켓 없음');
+    expect(out).not.toContain('awl doc new spec "<제목>"');
+    expect(ticketId).toBeTruthy();
+  });
+
+  it('의존이 안 풀린 티켓만 남으면 무엇을 기다리는지 보여준다', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    await specWithOneTicket(p);
+    const dir = path.join(p, 'docs', 'tickets');
+    const [file] = fs.readdirSync(dir);
+    const fp = path.join(dir, file as string);
+    fs.writeFileSync(
+      fp,
+      fs.readFileSync(fp, 'utf8').replace(/^dependencies: .*$/m, 'dependencies: [없는-선행-티켓]'),
+    );
+
+    const view = computeSpecStageView(p);
+    expect(view.reason).toBe('blocked');
+    expect(view.blockedTickets[0]?.waitingOn).toEqual(['없는-선행-티켓']);
+
+    const out = renderSpecStage(view, { color: false, unicode: false, width: 80 } as never);
+    expect(out).toContain('진행이 막힌 티켓');
+    expect(out).toContain('없는-선행-티켓');
+    expect(out).not.toContain('아직 티켓 없음');
+  });
+
+  it('티켓으로만 남긴 조사도 같은 스펙의 다음 티켓에서 "이미 아는 것"으로 보인다', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    const { specId, ticketId } = await specWithOneTicket(p);
+    appendRecord(
+      {
+        id: 'rec_x',
+        at: new Date().toISOString(),
+        type: 'audit',
+        project: 'p',
+        ticket: ticketId,
+        scope: 's',
+        findings: [{ id: 'f-1', what: '티켓에 붙인 조사', where: 'a.ts:1' }],
+      },
+      p,
+    );
+    const view = computeNextView(p, ticketId);
+    expect(view.specId).toBe(specId);
+    expect(view.knownFindings.map((f) => f.id)).toContain('f-1');
   });
 
   it('렌더까지 가도 캐묻기 강도와 두 스킬 자리가 같이 찍힌다 (condition-2 글루)', async () => {
