@@ -748,4 +748,36 @@ describe('SpecStageView — 티켓이 없는 스펙 단계 (dogfood-20260730)', 
     expect(out).toContain('캐묻기');
     expect(out).toContain('awl doc new spec');
   });
+
+  it('렌더까지 가도 캐묻기 강도와 두 스킬 자리가 같이 찍힌다 (condition-2 글루)', async () => {
+    const p = tmp('awl-next-');
+    process.env.AWL_HOME = tmp('awl-next-home-');
+    fs.mkdirSync(path.join(p, '.awl'), { recursive: true });
+    fs.writeFileSync(path.join(p, '.awl', 'state.json'), JSON.stringify({ loopMode: 'strict' }));
+    fs.writeFileSync(
+      profilePath(p),
+      JSON.stringify({
+        name: 'test',
+        skills: {
+          ...defaultProfileSkills(),
+          spec: { type: 'external', url: 'https://example.test/grill-with-docs' },
+          clarification: { type: 'external', url: 'https://example.test/grill-me' },
+        },
+      }),
+    );
+    await createDoc('spec', '자동 저장', p);
+
+    const out = renderSpecStage(computeSpecStageView(p), {
+      color: false,
+      unicode: false,
+      width: 80,
+    } as never);
+
+    expect(out).toContain(modeContract('strict').grill);
+    expect(out).toContain('skill    spec: ');
+    expect(out).toContain('grill-with-docs');
+    expect(out).toContain('skill    clarification: ');
+    expect(out).toContain('grill-me');
+    expect(out).toContain('awl tickets derive');
+  });
 });
