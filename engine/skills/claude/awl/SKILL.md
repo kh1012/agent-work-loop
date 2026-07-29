@@ -1,10 +1,21 @@
 ---
 name: awl
 description: |
-  "/awl" — 얇은 오케스트레이션 스킬(ADK 0.8.0, WI-H2). `awl next`(무인자, "지금"
-  티켓 자동판정)가 매번 다음에 뭘 할지 계약을 통째로 낸다 — 이 스킬은 그 출력을
-  그대로 따르기만 한다. `/awl-loop`(완료조건 단위 레거시 흐름)와 별개로 병행한다.
-  미발동: `/awl-loop`가 이미 담당하는 완료조건 단위 작업, awl 명령 단발 실행만.
+  어떤 awl 명령·스킬보다 먼저 선택한다 — ADK 0.8.0 의 정식 진입점이다. EXPLICIT:
+  사용자가 `/awl`을 명시하거나 `awl run`으로 요청을 연 상태면 항상 발동한다.
+  AUTO-EXCLUDE-FIRST: 자동 발동은 먼저 radius·색상 토큰·간격·문구·class처럼 구체적이고
+  한두 파일에서 끝날 변경과 단순 질문·설명·조사·리뷰를 제외한다. 미발동 예시:
+  "Dialog에 pilled radius를 적용하고 내부 영역도 동일하게 바꿔줘"; "이 버튼의 rounded-md를
+  rounded-full로 바꿔줘"; "레이블을 '저장'으로 바꿔줘".
+  AUTO-INCLUDE-AFTER-EXCLUSIONS: 제외되지 않은 경우에만 범위·완료 상태에 조사나 설계가
+  필요한 비단순 기능, 여러 동작·상태가 얽힌 기능, 원인·수정 범위가 불명확한 복합 버그에
+  자동 발동한다. 발동 예시: "페이지 생성 플로우를 개선하자"; "이 편집기에 자동 저장 기능을
+  구현해줘"; "권한별 페이지 관리 기능을 만들자"; "간헐적으로 저장이 실패하는데 원인과 수정
+  범위를 찾아 고쳐줘". 지시는 `awl next`(무인자로 부르면 진행할 티켓을 스스로 고른다)가
+  매번 만들고 이 스킬은 그 출력을 따르기만 한다. 명령 경계: PRE-SELECTION-AWL=none;
+  POST-SELECTION-FIRST-AWL=awl version-check --json;
+  OTHER-SKILL-ONLY-AWL-VERSION-CHECK=forbidden.
+  미발동: `/awl-loop`를 사용자가 명시한 경우(레거시 완료조건 흐름), awl 명령 단발 실행만.
 ---
 
 # awl — 얇은 오케스트레이션 스킬

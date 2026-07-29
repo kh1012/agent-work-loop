@@ -1,0 +1,4 @@
+interface:
+  display_name: "AWL"
+  short_description: "스펙 → 티켓 → 게이트 4개. awl next 가 매번 다음 할 일을 낸다"
+  default_prompt: "Use $awl <목표> to open a request, derive tickets from a spec, and drive gates 1-4 with awl next."

@@ -826,7 +826,7 @@ describe('applyInit — 전체 산출물', () => {
     expect(agents.split('awl-loop:start').length - 1).toBe(1);
   });
 
-  it('Codex 기존 AGENTS 블록을 최신 라우팅 블록으로 교체하고 5개 repo 스킬을 설치한다', () => {
+  it('Codex 기존 AGENTS 블록을 최신 라우팅 블록으로 교체하고 6개 repo 스킬을 설치한다', () => {
     scaffoldGlobal();
     fs.writeFileSync(
       path.join(proj, 'AGENTS.md'),
@@ -845,6 +845,7 @@ describe('applyInit — 전체 산출물', () => {
     expect(agents).toContain('POST-SELECTION-FIRST-AWL=awl version-check --json');
     expect(agents.split('awl-loop:start').length - 1).toBe(1);
     expect(codexSkillNames()).toEqual([
+      'awl',
       'awl-loop',
       'awl-pipeline',
       'awl-pipeline-exec',

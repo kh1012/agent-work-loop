@@ -629,6 +629,7 @@ describe('collectChecks — 버전 3쌍 (WI-X, ADK 0.8.0: project-vs-engine 제�
       '<!-- awl-loop:start -->\nUse $awl-loop.\n<!-- awl-loop:end -->\n',
     );
     for (const name of [
+      'awl',
       'awl-loop',
       'awl-pipeline',
       'awl-pipeline-exec',

@@ -1311,20 +1311,27 @@ function resultNextLines(inputs: InitInputs, c: Caps): string[] {
   if (inputs.skills.claude) {
     nextLines.push('Claude Code 를 열고 이렇게 말하세요.');
     nextLines.push('');
-    nextLines.push(`${color.bold('/awl-loop')}  페이지 편집기에 여백 시스템을 넣고 싶어`);
+    nextLines.push(`${color.bold('/awl')}  페이지 편집기에 여백 시스템을 넣고 싶어`);
+    nextLines.push(color.dim('(스펙 → 티켓 → 게이트 4개. awl next 가 다음 할 일을 냅니다.)'));
     nextLines.push('');
-    nextLines.push(`${color.bold('/awl-pipeline')} <레인명> --gl 을 실행해보세요.`);
-    nextLines.push(color.dim('(격리된 작업 세션이 생성되며, 자율 모드로 실행됩니다.)'));
+    nextLines.push('모드를 미리 고르려면 요청을 먼저 엽니다.');
+    nextLines.push(
+      `${color.bold('awl run')} "<목표>" --strict   ${color.dim('(기본은 semi-auto)')}`,
+    );
     nextLines.push('');
-    nextLines.push(`${color.bold('/awl')}  스펙·티켓·게이트 4개로 가는 ADK 0.8.0 흐름입니다.`);
-    nextLines.push(color.dim('(awl next 가 다음 할 일을 냅니다. 전체 흐름은 awl stages.)'));
+    nextLines.push(color.dim('/awl-loop · /awl-pipeline 은 레거시라 명시할 때만 발동합니다.'));
   } else if (inputs.skills.codex) {
     nextLines.push('Codex 에게 이렇게 말하세요.');
     nextLines.push('');
-    nextLines.push(`${color.bold('$awl-loop')}  페이지 편집기에 여백 시스템을 넣고 싶어`);
+    nextLines.push(`${color.bold('$awl')}  페이지 편집기에 여백 시스템을 넣고 싶어`);
+    nextLines.push(color.dim('(스펙 → 티켓 → 게이트 4개. awl next 가 다음 할 일을 냅니다.)'));
     nextLines.push('');
-    nextLines.push(`${color.bold('$awl-pipeline')} <레인명> --gl 을 실행해보세요.`);
-    nextLines.push(color.dim('(격리된 작업 세션이 생성되며, 자율 모드로 실행됩니다.)'));
+    nextLines.push('모드를 미리 고르려면 요청을 먼저 엽니다.');
+    nextLines.push(
+      `${color.bold('awl run')} "<목표>" --strict   ${color.dim('(기본은 semi-auto)')}`,
+    );
+    nextLines.push('');
+    nextLines.push(color.dim('$awl-loop · $awl-pipeline 은 레거시라 명시할 때만 발동합니다.'));
   } else {
     nextLines.push('나중에 스킬을 설치하려면 awl init 을 다시 실행하세요.');
   }

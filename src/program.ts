@@ -32,19 +32,14 @@ awl은 파일과 상태만 관리합니다.`;
 const GETTING_STARTED: { label: string; cmd: string; desc: string }[] = [
   { label: '1', cmd: 'awl init', desc: '작업 중인 프로젝트에 awl 환경을 설정합니다.' },
   {
-    label: '2-1',
-    cmd: '/awl-loop | $awl-loop <목표>',
-    desc: 'Claude/Codex에서 목표를 완수할 때까지 단일 루프를 실행합니다.',
+    label: '2',
+    cmd: 'awl run "<목표>" [--strict|--auto] [--review]',
+    desc: '요청을 엽니다. 모드를 여기서 고릅니다(기본 semi-auto).',
   },
   {
-    label: '2-2',
-    cmd: '/awl-pipeline | $awl-pipeline <lane명> <mode> [--poll <interval>]',
-    desc: 'Claude/Codex에서 레인 단위로 exec·review 세션을 실행합니다.',
-  },
-  {
-    label: '2-3',
-    cmd: '/awl <목표>',
-    desc: '스펙→티켓→게이트 4개(ADK 0.8.0). awl next 가 매번 다음 할 일을 냅니다.',
+    label: '3',
+    cmd: '/awl | $awl <목표>',
+    desc: '스펙→티켓→게이트 4개를 한 세션이 관통합니다. awl next 가 다음 할 일을 냅니다.',
   },
 ];
 
@@ -62,12 +57,8 @@ function renderGettingStartedCard(c: Caps): string {
     (g) =>
       `${`${g.label}.`.padEnd(prefixWidth)} ${t.accent(padVisible(g.cmd, cmdWidth))}  ${g.desc}`,
   );
-  lines.push(t.muted('*2-1 · 2-2 · 2-3 중 아무거나 실행하면 바로 시작할 수 있습니다.'));
-  lines.push(
-    t.muted(
-      '*Codex --poll 30m는 native Scheduled idle 확인이며 Scheduled capability가 필요합니다.',
-    ),
-  );
+  lines.push(t.muted('*2 를 건너뛰고 3 부터 해도 됩니다 — 스킬이 없는 요청은 스스로 엽니다.'));
+  lines.push(t.muted('*레거시(/awl-loop · /awl-pipeline)는 사용자가 명시할 때만 발동합니다.'));
   return sectionBox('시작하기', lines, c);
 }
 
@@ -175,22 +166,22 @@ function renderExamplesCard(c: Caps): string {
  * 내용은 engine/skills/{claude,codex}/의 loop/pipeline 역할 계약을 요약한 것 — 그 문서가
  * 바뀌면 여기도 같이 바뀌어야 한다(단일 출처 아님, 사람이 손으로 맞춰야 함).
  */
-function renderSkillsCard(c: Caps): string {
+export function renderSkillsCard(c: Caps): string {
   const t = makeTokens(c);
   const lines: string[] = [
     t.muted('Claude Code 또는 Codex 안에서 실행하세요 — awl 혼자서는 판단하지 않습니다.'),
     '',
-    t.muted('Claude: /awl-loop <목표>  |  Codex: $awl-loop <목표>'),
-    '  목표를 완료 조건으로 번역하고, 게이트 승인 후 한 세션이 처음부터 끝까지 직접',
-    '  자율 루프로 구현합니다. 워크아이템 하나를 한 세션이 관통합니다.',
-    '  (완료조건 단위의 레거시 2게이트 흐름입니다 — 티켓·4게이트는 아래 /awl.)',
-    '',
-    t.muted('Claude: /awl <목표>   — ADK 0.8.0 티켓 모델'),
+    t.muted('Claude: /awl <목표>  |  Codex: $awl <목표>   — 정식 진입점(ADK 0.8.0)'),
     '  스펙(docs/specs/)에서 티켓을 도출하고 게이트 4개로 진행합니다. 지시는 CLI가',
     '  만들어서(awl next) 스킬은 그 출력을 따르기만 하는 얇은 구조입니다.',
-    '  모드는 state.json 의 loopMode(strict / semi-auto(기본) / auto)로 정합니다',
-    '  — 파이프라인 <mode>(게이트 밀도)와는 다른 축이니 헷갈리지 마세요.',
+    '  모드는 awl run 의 --strict/--auto 로 고르고 state.json 의 loopMode 에 남습니다',
+    '  (기본 semi-auto). 파이프라인 <mode>(게이트 밀도)와는 다른 축입니다.',
     '  전체 흐름은 awl stages, 다음 할 일은 awl next 로 봅니다.',
+    '',
+    t.muted('Claude: /awl-loop <목표>  |  Codex: $awl-loop <목표>   — 레거시'),
+    '  완료조건 단위의 2게이트 흐름입니다. 사용자가 명시할 때만 발동합니다.',
+    '  이미 이 방식으로 돌던 작업을 이어갈 때만 쓰세요 — 게이트 번호의 뜻이 다릅니다',
+    '  (여기 게이트 2 = 워크아이템 완료 / ADK 게이트 2 = 티켓 착수).',
     '',
     t.muted(
       'Claude: /awl-pipeline <lane명> <mode>  |  Codex: $awl-pipeline <lane명> <mode> [--poll <interval>]',
@@ -245,14 +236,11 @@ function renderSkillsHelpFooter(c: Caps): string {
   const lines: string[] = [
     t.muted('Claude Code 또는 Codex 안에서 실행하세요 — awl 혼자서는 판단하지 않습니다.'),
     '',
-    `  ${t.accent('Claude /awl-loop <목표>  |  Codex $awl-loop <목표>')}`,
-    '    단일 세션이 목표 하나를 완료 조건 → 게이트 → 구현까지 직접 관통합니다.',
-    `  ${t.accent('Claude /awl-pipeline <lane명> <mode>  |  Codex $awl-pipeline <lane명> <mode> [--poll <interval>]')}`,
-    '    레인별로 exec·review 세션을 스폰해 무인 파이프라인을 돌립니다.',
-    '    Codex --poll 30m는 native Scheduled idle 확인이며 Scheduled capability가 없으면 비활성입니다.',
-    `  ${t.accent('Claude /awl <목표>')}`,
-    '    ADK 0.8.0 티켓 모델 — 스펙에서 티켓을 도출하고 게이트 4개로 갑니다.',
+    `  ${t.accent('Claude /awl <목표>  |  Codex $awl <목표>')}`,
+    '    정식 진입점 — 스펙에서 티켓을 도출하고 게이트 4개로 갑니다.',
     '    지시는 awl next 가 만들고 스킬은 따르기만 합니다(awl stages 로 전체 흐름).',
+    `  ${t.accent('/awl-loop  ·  /awl-pipeline')}  ${color.dim('(레거시)')}`,
+    '    사용자가 명시할 때만 발동합니다. 이미 그 방식으로 돌던 작업에만 쓰세요.',
     '',
     color.dim('레인·파이프라인 구조·<mode> 게이트 밀도(--gh/--gm/--gl)는 awl --skills 로 봅니다.'),
   ];

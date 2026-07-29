@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { version as pkgVersion } from '../package.json';
 import { RECORD_TYPES, SCHEMAS } from '../src/commands/record.js';
-import { type Caps, visibleWidth } from '../src/core/tty.js';
+import { type Caps, caps, visibleWidth } from '../src/core/tty.js';
 import {
   BANNER,
   RECORD_TYPES_HELP_TABLE,
@@ -15,6 +15,7 @@ import {
   parseExperimentOption,
   parseWorkitemsOption,
   renderBanner,
+  renderSkillsCard,
   versionString,
 } from '../src/program.js';
 
@@ -225,19 +226,25 @@ describe('awl 프로그램 구성', () => {
 
     const normalizeSection = (value: string): string =>
       value.replace(/\n\|\s*/g, ' ').replace(/\s+/g, ' ');
-    const sections = [
-      normalizeSection(output.slice(startupAt, usageAt)),
-      normalizeSection(output.slice(footerAt)),
-    ];
-    for (const section of sections) {
-      for (const contract of [
-        '$awl-pipeline <lane명> <mode> [--poll <interval>]',
-        '--poll 30m',
-        'native Scheduled',
-        'Scheduled capability',
-      ]) {
-        expect(section).toContain(contract);
-      }
+
+    // ADK 0.8.0(설계 대조 2단계 #2): --help 의 시작하기·푸터는 정식 진입점(/awl)만 싣고,
+    // 레거시 파이프라인의 세부 계약(--poll 등)은 awl --skills 로 내려갔다. 두 표면에
+    // 같은 내용을 두 벌 적으면 어긋나기 때문이다.
+    const startup = normalizeSection(output.slice(startupAt, usageAt));
+    const footer = normalizeSection(output.slice(footerAt));
+    for (const section of [startup, footer]) {
+      expect(section).toContain('/awl');
+      expect(section).toContain('레거시');
+    }
+
+    const skillsCard = normalizeSection(renderSkillsCard(caps()));
+    for (const contract of [
+      '$awl-pipeline <lane명> <mode> [--poll <interval>]',
+      '--poll 30m',
+      'native Scheduled',
+      'Scheduled capability',
+    ]) {
+      expect(skillsCard).toContain(contract);
     }
   });
 });

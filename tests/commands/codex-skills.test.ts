@@ -12,7 +12,9 @@ const claudeLoopPath = path.join(
   'awl-loop',
   'SKILL.md',
 );
+const claudeAwlPath = path.join(process.cwd(), 'engine', 'skills', 'claude', 'awl', 'SKILL.md');
 const skillNames = [
+  'awl',
   'awl-loop',
   'awl-pipeline',
   'awl-pipeline-exec',
@@ -572,12 +574,14 @@ describe('Codex AWL skills', () => {
   });
 });
 
-describe('awl-loop 자동 발동 계약', () => {
-  const codexDescription = frontmatterDescription(read('awl-loop/SKILL.md'));
-  const claudeDescription = frontmatterDescription(fs.readFileSync(claudeLoopPath, 'utf8'));
+// ADK 0.8.0: 자동 발동 계약은 /awl 이 가진다. awl-loop 은 명시 전용 레거시가 됐다
+// (설계 대조 2단계 #2) — 계약 자체는 그대로라 대상만 옮긴다.
+describe('awl 자동 발동 계약', () => {
+  const codexDescription = frontmatterDescription(read('awl/SKILL.md'));
+  const claudeDescription = frontmatterDescription(fs.readFileSync(claudeAwlPath, 'utf8'));
   const targets = [
-    { name: 'Codex', description: codexDescription, explicitInvocation: '$awl-loop' },
-    { name: 'Claude', description: claudeDescription, explicitInvocation: '/awl-loop' },
+    { name: 'Codex', description: codexDescription, explicitInvocation: '$awl' },
+    { name: 'Claude', description: claudeDescription, explicitInvocation: '/awl' },
   ];
 
   it.each(targets)('$name: 명시적 호출은 항상 발동한다', ({ description, explicitInvocation }) => {
@@ -660,5 +664,38 @@ describe('awl-loop 자동 발동 계약', () => {
 
   it('Codex와 Claude는 같은 자동 발동 예시 집합을 가진다', () => {
     expect(triggerExamples(codexDescription)).toEqual(triggerExamples(claudeDescription));
+  });
+});
+
+// 설계 대조 2단계 #2 — /awl 이 정식 진입점이 되면서 awl-loop 은 명시 전용으로 내려왔다.
+// 둘 다 자동 발동하면 같은 요청에 두 흐름이 경합하고, 게이트 번호 뜻이 달라 기록이 섞인다.
+describe('awl-loop 레거시 계약 (명시 전용)', () => {
+  const targets = [
+    { name: 'Codex', description: frontmatterDescription(read('awl-loop/SKILL.md')) },
+    {
+      name: 'Claude',
+      description: frontmatterDescription(fs.readFileSync(claudeLoopPath, 'utf8')),
+    },
+  ];
+
+  it.each(targets)('$name: 자동 발동 마커가 없다 — 명시했을 때만 뜬다', ({ description }) => {
+    expect(description).not.toContain('AUTO-INCLUDE-AFTER-EXCLUSIONS');
+    expect(description).toContain('EXPLICIT-ONLY');
+  });
+
+  it.each(targets)('$name: 레거시임을 설명에 밝힌다', ({ description }) => {
+    expect(description.toLowerCase()).toMatch(/legacy|레거시/);
+  });
+
+  it.each(targets)('$name: 정식 진입점이 awl 임을 가리킨다', ({ description }) => {
+    expect(description).toMatch(/[/$]awl\b/);
+  });
+
+  it.each(targets)('$name: 명령 경계는 그대로다', ({ description }) => {
+    expect(commandBoundary(description)).toEqual({
+      preSelection: 'none',
+      postSelectionFirst: 'awl version-check --json',
+      otherSkillOnlyVersionCheck: 'forbidden',
+    });
   });
 });

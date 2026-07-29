@@ -1,35 +1,30 @@
 ---
 name: awl-loop
 description: >-
-  Decision order before awl commands: EXPLICIT: a user-written `$awl-loop` always selects it.
-  AUTO-EXCLUDE-FIRST: otherwise skip bounded one-or-two-file radius, color token, spacing,
-  copy, or class changes, plus simple questions, explanations, investigations, or reviews.
-  Do not auto-trigger examples: "Dialog에 pilled radius를 적용하고
-  내부 영역도 동일하게 바꿔줘"; "이 버튼의 rounded-md를 rounded-full로 바꿔줘"; "레이블을
-  '저장'으로 바꿔줘". AUTO-INCLUDE-AFTER-EXCLUSIONS: only if not excluded, select non-simple
-  features needing investigation or design for scope or done state, intertwined behaviors or
-  states, or complex bugs with unclear cause and scope.
-  Auto-trigger examples: "페이지 생성 플로우를 개선하자"; "이 편집기에 자동 저장 기능을
-  구현해줘"; "권한별 페이지 관리 기능을 만들자"; "간헐적으로 저장이 실패하는데 원인과 수정
-  범위를 찾아 고쳐줘". Missing acceptance criteria alone is not a trigger; judge complexity,
-  scope uncertainty, and design need. Command boundary: PRE-SELECTION-AWL=none;
+  **Legacy flow. Never auto-selects.** The ADK 0.8.0 entry point is `$awl`
+  (spec → tickets → four gates); this skill is the older criterion-level two-gate flow.
+  EXPLICIT-ONLY: select it only when the user explicitly wrote `$awl-loop`. Everything else
+  — a thrown goal, a complex bug, a feature request — goes to `$awl`.
+  Command boundary: PRE-SELECTION-AWL=none;
   POST-SELECTION-FIRST-AWL=awl version-check --json;
   OTHER-SKILL-ONLY-AWL-VERSION-CHECK=forbidden.
 ---
 
-# awl-loop for Codex
+# awl-loop for Codex (legacy)
+
+> **This skill is legacy.** Start new work with `$awl` — the ADK 0.8.0 flow that derives
+> tickets from a spec and runs gates 1-4. This is the earlier **criterion-level two-gate**
+> flow, kept so work already running this way can finish. The gate numbers mean different
+> things in the two flows (here gate 2 = workitem done; in ADK gate 2 = ticket started).
 
 Translate a goal into completion criteria, stop at the required gates, then implement autonomously while recording evidence. Treat `awl` as the state/recording tool and Codex as the decision-maker.
 
 ## Trigger boundary
 
-Decide whether to use this skill before running any `awl` command:
-
-1. An explicit user-written `$awl-loop` always selects this skill.
-2. For automatic selection, evaluate exclusions first. Do not select it for a bounded, concrete local change likely limited to one or two files—such as radius, color-token, spacing, copy, or class edits—or for a simple question, explanation, investigation, or review.
-3. Only when no exclusion matches, select it for a non-simple feature goal whose scope or completion state needs investigation or design, intertwined behaviors or states, or a complex bug whose cause and fix scope are unclear.
-
-Missing acceptance criteria alone is not a trigger. Do not run `awl version-check`, `awl doctor`, or any other `awl` command while making this decision. If another skill alone is selected, do not run an AWL version check.
+Select this skill only when the user explicitly wrote `$awl-loop`. There is no automatic
+selection — `$awl` handles everything else. Do not run `awl version-check`, `awl doctor`, or
+any other `awl` command while making this decision. If another skill alone is selected, do
+not run an AWL version check.
 
 ## Quick start
 
