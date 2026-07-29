@@ -192,12 +192,9 @@ describe('createDoc — spec', () => {
 
   it('--request 로 원문을 주면 Request 절에 그대로 인용된다(WI-G5)', async () => {
     const p = project();
-    const result = await createDoc(
-      'spec',
-      '제목',
-      p,
-      { request: '레이어 패널을 키보드로 조작하고 싶어' },
-    );
+    const result = await createDoc('spec', '제목', p, {
+      request: '레이어 패널을 키보드로 조작하고 싶어',
+    });
     const parsed = parseFrontmatter(fs.readFileSync(result.path, 'utf8'));
     expect(parsed?.body).toContain('> 레이어 패널을 키보드로 조작하고 싶어');
     expect(parsed?.body).not.toContain('(사용자가 던진 원문 그대로)');

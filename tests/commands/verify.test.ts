@@ -635,9 +635,7 @@ describe('substituteRelatedCmd (WI-I AC-04)', () => {
 
 describe('applyChangedScope (scope:changed, WI-G15)', () => {
   it('{files} 자리표시자가 있으면 substituteRelatedCmd 와 같은 방식으로 치환한다', () => {
-    expect(applyChangedScope('eslint {files}', ['a.ts', 'b.ts'])).toBe(
-      'eslint "a.ts" "b.ts"',
-    );
+    expect(applyChangedScope('eslint {files}', ['a.ts', 'b.ts'])).toBe('eslint "a.ts" "b.ts"');
   });
 
   it('{files} 가 없으면 변경 파일 목록을 뒤에 그대로 붙인다', () => {

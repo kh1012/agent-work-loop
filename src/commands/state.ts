@@ -391,8 +391,7 @@ export function runStateSet(jsonPatch: string, opts: RunStateSetOpts = {}): void
     }
     // loopMode 는 정해진 3값 중 하나여야 한다(ADK 0.8.0 단계 2 "모드") — 잘못된 값이
     // 조용히 저장돼 나중에 semi-auto 로 오인되는 것을 막는다.
-    modeRejected =
-      !workitemRejected && !gateRejected && 'loopMode' in p && !isLoopMode(p.loopMode);
+    modeRejected = !workitemRejected && !gateRejected && 'loopMode' in p && !isLoopMode(p.loopMode);
     if (!workitemRejected && !gateRejected && !modeRejected) {
       const merged = mergeState(current, p);
       writeState(root, merged);
@@ -414,9 +413,7 @@ export function runStateSet(jsonPatch: string, opts: RunStateSetOpts = {}): void
     process.exit(1);
   }
   if (modeRejected) {
-    process.stderr.write(
-      `\n  loopMode 는 ${LOOP_MODES.join(' / ')} 중 하나여야 합니다.\n`,
-    );
+    process.stderr.write(`\n  loopMode 는 ${LOOP_MODES.join(' / ')} 중 하나여야 합니다.\n`);
     process.exit(1);
   }
 }

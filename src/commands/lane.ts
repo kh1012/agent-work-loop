@@ -445,7 +445,9 @@ export async function runLaneSync(name: string): Promise<void> {
     );
     process.exit(1);
   }
-  process.stdout.write(`\n${feedback(c, 'ok', `레인 ${color.bold(laneName)} 의 학습을 전역에 합쳤습니다`)}\n`);
+  process.stdout.write(
+    `\n${feedback(c, 'ok', `레인 ${color.bold(laneName)} 의 학습을 전역에 합쳤습니다`)}\n`,
+  );
   process.stdout.write(
     `    ${color.dim(`교훈 ${result.gotchasAdded}개 · 규칙 ${result.rulesAdded}개 · 세대 ${result.generationsAdded}개`)}\n`,
   );

@@ -197,7 +197,9 @@ const server = http.createServer(async (req, res) => {
       const month = monthOf(envelope.frontmatter?.at);
       const filePath = path.join(STORAGE, 'feedback', `${month}.jsonl`);
       const result = appendJsonlDedup(filePath, envelope);
-      console.log(`POST /feedback  id=${envelope.id} ${result.deduped ? '(중복, 무시)' : '(저장)'}`);
+      console.log(
+        `POST /feedback  id=${envelope.id} ${result.deduped ? '(중복, 무시)' : '(저장)'}`,
+      );
       sendJson(res, 200, result);
       return;
     }
@@ -205,7 +207,9 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && segments[0] === 'specs') {
       const envelope = JSON.parse(await readBody(req));
       const result = writeSpec(envelope);
-      console.log(`POST /specs  id=${envelope.id} ${result.deduped ? '(같은 revision, 무시)' : '(저장)'}`);
+      console.log(
+        `POST /specs  id=${envelope.id} ${result.deduped ? '(같은 revision, 무시)' : '(저장)'}`,
+      );
       sendJson(res, 200, result);
       return;
     }
@@ -216,11 +220,21 @@ const server = http.createServer(async (req, res) => {
         .map(parseSpecFile)
         .filter((d) => d !== null);
       if (q) {
-        const matches = files.filter((d) => d.body.includes(q) || JSON.stringify(d.frontmatter).includes(q));
-        sendJson(res, 200, matches.map((d) => d.frontmatter));
+        const matches = files.filter(
+          (d) => d.body.includes(q) || JSON.stringify(d.frontmatter).includes(q),
+        );
+        sendJson(
+          res,
+          200,
+          matches.map((d) => d.frontmatter),
+        );
         return;
       }
-      sendJson(res, 200, files.map((d) => d.frontmatter));
+      sendJson(
+        res,
+        200,
+        files.map((d) => d.frontmatter),
+      );
       return;
     }
 

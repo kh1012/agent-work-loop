@@ -830,7 +830,10 @@ export function buildProgram(): Command {
       '(ticket 전용) 먼저 끝나야 하는 티켓 id들, 쉼표로 구분 — 의존이 곧 구현 순서',
     )
     .option('--supersedes <id>', '(decision 전용) 대체하는 이전 결정 id')
-    .option('--request <text>', '(spec 전용) 사용자가 던진 원문 그대로 — Request 절에 인용으로 들어간다')
+    .option(
+      '--request <text>',
+      '(spec 전용) 사용자가 던진 원문 그대로 — Request 절에 인용으로 들어간다',
+    )
     .action(
       async (
         type: string,
@@ -848,7 +851,10 @@ export function buildProgram(): Command {
         await runDocNew(type, titleParts, {
           spec: opts.spec,
           dependencies: opts.dependencies
-            ? opts.dependencies.split(',').map((s) => s.trim()).filter((s) => s !== '')
+            ? opts.dependencies
+                .split(',')
+                .map((s) => s.trim())
+                .filter((s) => s !== '')
             : undefined,
           supersedes: opts.supersedes,
           request: opts.request,
@@ -891,7 +897,9 @@ export function buildProgram(): Command {
   // 인자 없이 부르는 게 기본 사용법이다(adk-prototype.md:330 "목표를 받으면 `awl next` 를 호출한다").
   program
     .command('next [ticket-id]')
-    .description('티켓의 조건·제약·게이트 이력·다음 할 일을 조립해 보여줍니다(읽기 전용, 생략하면 지금 티켓 자동판정)')
+    .description(
+      '티켓의 조건·제약·게이트 이력·다음 할 일을 조립해 보여줍니다(읽기 전용, 생략하면 지금 티켓 자동판정)',
+    )
     .action(async (ticketId: string | undefined) => {
       const { runNext } = await import('./commands/next.js');
       await runNext(ticketId);
@@ -911,7 +919,9 @@ export function buildProgram(): Command {
   // 사람이 치는 명령: tokens (티켓별·단계별 토큰 사용량, ADK stage 5, 읽기 전용)
   program
     .command('tokens [ticket-id]')
-    .description('티켓의 기록 시간창을 세션 로그 usage 와 엮어 단계별 토큰 사용량을 보여줍니다(읽기 전용)')
+    .description(
+      '티켓의 기록 시간창을 세션 로그 usage 와 엮어 단계별 토큰 사용량을 보여줍니다(읽기 전용)',
+    )
     .option('--json', '기계가 읽을 수 있는 JSON으로 출력합니다')
     .option('--lanes', '레인별 합계와 총합을 보여줍니다(ticket-id 대신)')
     .action(async (ticketId: string | undefined, opts: { json?: boolean; lanes?: boolean }) => {
@@ -1054,15 +1064,16 @@ export function buildProgram(): Command {
   program
     .command('feedback <text>')
     .description('awl 도구 자체가 아팠던 점을 짧게 남깁니다 (awl-feedback 기록, source:manual)')
-    .option('--area <area>', 'commit, review, gate, verify, state, init, cli, 기타 중 하나(기본: 기타)')
+    .option(
+      '--area <area>',
+      'commit, review, gate, verify, state, init, cli, 기타 중 하나(기본: 기타)',
+    )
     .option('--impact <text>', '영향(생략하면 text 를 그대로 씁니다)')
     .option('--severity <sev>', 'high/medium/low 중 하나(기본: low)')
-    .action(
-      async (text: string, opts: { area?: string; impact?: string; severity?: string }) => {
-        const { runFeedback } = await import('./commands/feedback-log.js');
-        await runFeedback(text, opts);
-      },
-    );
+    .action(async (text: string, opts: { area?: string; impact?: string; severity?: string }) => {
+      const { runFeedback } = await import('./commands/feedback-log.js');
+      await runFeedback(text, opts);
+    });
 
   // 사람이 치는 명령: feedback-log (이미 남겨진 awl-feedback 기록을 area 별로 모아서 본다.
   // `awl config`의 feedback.*(다른 프로젝트로 실시간 라우팅하는 파이프라인 모드)와는 별개다.)

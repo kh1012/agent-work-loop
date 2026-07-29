@@ -207,7 +207,9 @@ export async function runFeedback(
 ): Promise<void> {
   const c = caps();
   if (text.trim() === '') {
-    process.stderr.write(`\n  ${signal(c, 'error')} 내용을 입력하세요: awl feedback "무엇이 아팠나"\n`);
+    process.stderr.write(
+      `\n  ${signal(c, 'error')} 내용을 입력하세요: awl feedback "무엇이 아팠나"\n`,
+    );
     process.exit(1);
     return;
   }
@@ -245,7 +247,12 @@ export async function runFeedback(
   const { record, missing } = buildRecord(
     'awl-feedback',
     { area, what, impact, severity, source: 'manual' },
-    { project: config?.project, id: newRecordId(), at: new Date().toISOString(), author: resolveEffectiveAuthor(projectRoot) },
+    {
+      project: config?.project,
+      id: newRecordId(),
+      at: new Date().toISOString(),
+      author: resolveEffectiveAuthor(projectRoot),
+    },
   );
   if (!record) {
     process.stderr.write(

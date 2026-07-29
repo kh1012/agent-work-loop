@@ -425,9 +425,7 @@ describe('countReviewRoundTrips — 순수 계산 (WI-G24)', () => {
   });
 
   it('조건 여러 개 중 하나만 겹쳐도 센다(같은 티켓의 여러 조건)', () => {
-    const records = [
-      { type: 'review', criteria: ['condition-2'], findings: [{ what: 'x' }] },
-    ];
+    const records = [{ type: 'review', criteria: ['condition-2'], findings: [{ what: 'x' }] }];
     expect(countReviewRoundTrips(records, ['condition-1', 'condition-2'])).toBe(1);
   });
 
@@ -436,9 +434,7 @@ describe('countReviewRoundTrips — 순수 계산 (WI-G24)', () => {
   });
 
   it('기반 티켓(조건 id 없음)도 매칭 목록에 티켓 자신의 id 를 넣으면 왕복이 잡힌다(시뮬레이션 발견 회귀 방지)', () => {
-    const records = [
-      { type: 'review', criteria: ['ticket-1'], findings: [{ what: 'x' }] },
-    ];
+    const records = [{ type: 'review', criteria: ['ticket-1'], findings: [{ what: 'x' }] }];
     // 기반 티켓은 conditionIds 가 [] 라 매칭 목록이 [ticketId] 하나뿐이어도 잡혀야 한다.
     expect(countReviewRoundTrips(records, ['ticket-1'])).toBe(1);
     expect(countReviewRoundTrips(records, [])).toBe(0); // 매칭 목록이 정말 비면 당연히 0

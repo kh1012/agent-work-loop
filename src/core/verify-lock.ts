@@ -81,7 +81,10 @@ export function tryAcquireVerifyLock(name: string, token: string): boolean {
   const tryCreate = (): boolean => {
     const tmp = `${p}.${process.pid}.acq`;
     try {
-      fs.writeFileSync(tmp, JSON.stringify({ token, pid: process.pid, at: new Date().toISOString() }));
+      fs.writeFileSync(
+        tmp,
+        JSON.stringify({ token, pid: process.pid, at: new Date().toISOString() }),
+      );
       fs.linkSync(tmp, p);
       return true;
     } catch (e) {

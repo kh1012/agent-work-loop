@@ -25,9 +25,6 @@ import {
   projectsFile,
 } from '../core/paths.js';
 import { runInteractiveSelect } from '../core/select.js';
-import type { AwlConfig, VerificationEntry } from './config.js';
-import { migrateLegacyVerify } from './config.js';
-import { ensureProfile } from './profile.js';
 import {
   type Caps,
   type Colors,
@@ -42,6 +39,9 @@ import {
   signal,
   stringWidth,
 } from '../core/tty.js';
+import type { AwlConfig, VerificationEntry } from './config.js';
+import { migrateLegacyVerify } from './config.js';
+import { ensureProfile } from './profile.js';
 
 /**
  * awl init — 사용자가 처음 만나는 화면이자 유일한 튜토리얼.
@@ -1010,7 +1010,10 @@ export function syncExistingInstall(
 
   // profile.json 이 없는 기존 설치(단계 4 이전 저장소)를 여기서 백필한다 — 있으면
   // ensureProfile 이 아무것도 안 건드린다.
-  ensureProfile(projectRoot, typeof raw?.project === 'string' ? raw.project : path.basename(projectRoot));
+  ensureProfile(
+    projectRoot,
+    typeof raw?.project === 'string' ? raw.project : path.basename(projectRoot),
+  );
 
   // applyInit(처음부터 다시)만 registerProject 를 불렀다 — "그대로 쓴다"/--yes 재실행은
   // config 를 이미 있는 것으로 간주해 레지스트리를 건드리지 않았다. 그래서 awl remove

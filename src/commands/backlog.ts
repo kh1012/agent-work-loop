@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { backlogCursorPath } from '../core/paths.js';
 import { type Caps, caps, makeColors, sectionBox, signal } from '../core/tty.js';
 import { type Gotcha, loadGotchaList } from './evolve.js';
-import { loadRules, type Rule } from './rules.js';
+import { type Rule, loadRules } from './rules.js';
 
 /**
  * awl backlog — 정리 신호(ADK stage 6). awl 은 판단하지 않는다: 무엇을 승격할지, 언제
@@ -99,9 +99,7 @@ function renderBacklog(report: BacklogReport, c: Caps): string {
   const out: string[] = [];
 
   if (report.overThreshold) {
-    out.push(
-      `${signal(c, 'warn')} 3회 반복된 승격 후보가 ${report.candidateCount}건 쌓였습니다.`,
-    );
+    out.push(`${signal(c, 'warn')} 3회 반복된 승격 후보가 ${report.candidateCount}건 쌓였습니다.`);
     out.push(color.dim('누구든 회의를 소집할 수 있습니다.'));
   } else {
     out.push(`3회 반복된 승격 후보 ${report.candidateCount}건.`);
@@ -137,7 +135,9 @@ export function runBacklog(opts: { json?: boolean; reset?: boolean } = {}): void
       process.stdout.write(`${JSON.stringify({ reset: true }, null, 2)}\n`);
       return;
     }
-    process.stdout.write(`\n  ${makeColors(c.color).green('정리 완료')} — 커서를 지금 시각으로 갱신했습니다.\n`);
+    process.stdout.write(
+      `\n  ${makeColors(c.color).green('정리 완료')} — 커서를 지금 시각으로 갱신했습니다.\n`,
+    );
     return;
   }
 

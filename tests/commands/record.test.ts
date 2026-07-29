@@ -103,7 +103,9 @@ describe('resolveEffectiveAuthor — 전역 → 저장소 → local (WI-G13, adk
       path.join(process.env.AWL_HOME, 'config.json'),
       JSON.stringify({ author: 'global@x.com' }),
     );
-    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-record-author-nooverride-')));
+    const root = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'awl-record-author-nooverride-')),
+    );
     fs.mkdirSync(path.join(root, '.awl'), { recursive: true });
     fs.writeFileSync(
       path.join(root, '.awl', 'config.json'),
@@ -886,10 +888,7 @@ describe('review.findings — ruleId 지목 (ADK stage 6, D-15 의 좁은 예외
       path.join(root, '.awl', 'config.json'),
       JSON.stringify({ project: 'p', mainLanguage: 'other', engineVersion: '0.0.0', verify: {} }),
     );
-    fs.writeFileSync(
-      path.join(root, '.awl', 'state.json'),
-      JSON.stringify({ workitem: 'WI-X' }),
-    );
+    fs.writeFileSync(path.join(root, '.awl', 'state.json'), JSON.stringify({ workitem: 'WI-X' }));
     process.chdir(root);
   }
 
@@ -1101,10 +1100,7 @@ describe('readRecords — 레인 접미사 파일에서 읽은 레코드에 lane
 
   it('메인 파일(접미사 없음) 레코드에는 lane 필드가 없다', () => {
     const root = process.env.AWL_HOME as string;
-    appendRecord(
-      buildRecord('spike', { question: 'q', found: 'f' }, DEFAULTS).record ?? {},
-      root,
-    );
+    appendRecord(buildRecord('spike', { question: 'q', found: 'f' }, DEFAULTS).record ?? {}, root);
     const [record] = readRecords(root);
     expect(record).not.toHaveProperty('lane');
   });
@@ -1116,10 +1112,7 @@ describe('readRecords — 레인 접미사 파일에서 읽은 레코드에 lane
       path.join(root, '.awl', 'records-suffix.json'),
       JSON.stringify({ suffix: 'keyboard' }),
     );
-    appendRecord(
-      buildRecord('spike', { question: 'q', found: 'f' }, DEFAULTS).record ?? {},
-      root,
-    );
+    appendRecord(buildRecord('spike', { question: 'q', found: 'f' }, DEFAULTS).record ?? {}, root);
     const [record] = readRecords(root);
     expect(record?.lane).toBe('keyboard');
   });
@@ -1636,7 +1629,10 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
     // 저장된 body(프론트매터 제외)로 직접 재계산 — writeSpecStatus 가 쓰는 것과 같은
     // parseFrontmatter 를 써서 body 추출 방식이 정확히 일치하게 한다.
     const reparsed = parseFrontmatter(fs.readFileSync(specPath, 'utf8'));
-    const expected = crypto.createHash('sha256').update(reparsed?.body ?? '').digest('hex');
+    const expected = crypto
+      .createHash('sha256')
+      .update(reparsed?.body ?? '')
+      .digest('hex');
     expect(revision).toBe(expected);
   });
 
@@ -1667,7 +1663,7 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
     }
   });
 
-  it("gate:4 layer:request hold 를 기록해도 스펙의 status 는 안 바뀐다(일시정지는 상태가 아니다)", async () => {
+  it('gate:4 layer:request hold 를 기록해도 스펙의 status 는 안 바뀐다(일시정지는 상태가 아니다)', async () => {
     const root = project({ workitem: 'WI-9', workitems: {} });
     const specPath = writeSpecFixture(root, 'spec-1', 'active');
 
@@ -1884,7 +1880,9 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
     });
 
     expect(fetchImpl).not.toHaveBeenCalled();
-    expect(fs.existsSync(path.join(process.env.AWL_HOME as string, 'sync-cursor.json'))).toBe(false);
+    expect(fs.existsSync(path.join(process.env.AWL_HOME as string, 'sync-cursor.json'))).toBe(
+      false,
+    );
 
     restore();
   });
@@ -1969,9 +1967,9 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
       json: '{"gate":3,"layer":"ticket","ticket":"ticket-a","decision":"approved","presentedCriteria":["AC-01"]}',
     });
     restoreFail();
-    expect(readTicketStatus(path.join(root, 'docs', 'tickets', '20260101-000000-ticket-a.md'))).toBe(
-      'done',
-    );
+    expect(
+      readTicketStatus(path.join(root, 'docs', 'tickets', '20260101-000000-ticket-a.md')),
+    ).toBe('done');
     expect(readSyncCursor().records?.p?.backoffIndex).toBe(0); // 실패가 커서에 남았다
 
     // 백오프 대기 시간(1분)이 실제로 지날 때까지 테스트를 기다릴 수 없으니,
@@ -1991,7 +1989,10 @@ describe('runRecord — 활성 워크아이템 강제 (WI-R AC-01)', () => {
 
     // 서버가 살아난다. 다른 워크아이템(ticket-b)로 옮겨 완료시키면, ticket-b 의
     // 기록뿐 아니라 ticket-a 전송 실패로 밀렸던 기록도 이번에 함께 나가야 한다.
-    fs.writeFileSync(path.join(root, '.awl', 'state.json'), JSON.stringify({ workitem: 'ticket-b' }));
+    fs.writeFileSync(
+      path.join(root, '.awl', 'state.json'),
+      JSON.stringify({ workitem: 'ticket-b' }),
+    );
     const fetchImpl = okFetch();
     const restoreOk = stubFetch(fetchImpl);
     await runRecord('gate', {

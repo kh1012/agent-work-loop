@@ -95,7 +95,9 @@ export function selectCriteria(
 async function gatherReviewContext(
   cwd: string,
   config: AwlConfig,
-): Promise<Pick<ReviewBundle, 'verify' | 'provenance' | 'rules' | 'additionalRuleIds' | 'localSkills'>> {
+): Promise<
+  Pick<ReviewBundle, 'verify' | 'provenance' | 'rules' | 'additionalRuleIds' | 'localSkills'>
+> {
   const verify = await runVerifyChecks(config.verifications, cwd, { bail: false });
 
   const branch = (await git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd)).trim();
@@ -107,7 +109,9 @@ async function gatherReviewContext(
   // 조용히 숨기지 않는다.
   const { rules } = loadRules();
   const sortedRules = filterRules(rules, { scope: 'review' }).sort((a, b) => b.hits - a.hits);
-  const reviewRules = sortedRules.slice(0, MAX_SHOWN_RULES).map((r) => ({ id: r.id, body: r.body }));
+  const reviewRules = sortedRules
+    .slice(0, MAX_SHOWN_RULES)
+    .map((r) => ({ id: r.id, body: r.body }));
   const additionalRuleIds = sortedRules.slice(MAX_SHOWN_RULES).map((r) => r.id);
 
   const loadedProfile = loadProfile(cwd);
@@ -260,7 +264,9 @@ export async function assembleReviewForTicket(
   // "재료 부족"은 conditionIds 가 있는데 스펙에서 그 id 를 못 찾았을 때만 해당한다.
   const unresolvedIds = criteria.filter((c) => c.text === null).map((c) => c.id);
   if (unresolvedIds.length > 0) {
-    return { missing: `완료 조건 원문(${unresolvedIds.join(', ')}을(를) 스펙에서 찾을 수 없습니다)` };
+    return {
+      missing: `완료 조건 원문(${unresolvedIds.join(', ')}을(를) 스펙에서 찾을 수 없습니다)`,
+    };
   }
 
   const runtime = loadTicketRuntime(cwd, ticketId);
@@ -282,7 +288,8 @@ export async function assembleReviewForTicket(
   const diff = await git(diffArgs, cwd);
   if (diff.trim() === '') {
     return {
-      missing: 'diff(베이스라인 이후 변경이 없습니다 — awl commit --start 를 먼저 실행했는지 확인하세요)',
+      missing:
+        'diff(베이스라인 이후 변경이 없습니다 — awl commit --start 를 먼저 실행했는지 확인하세요)',
     };
   }
 
@@ -331,7 +338,9 @@ function renderReview(bundle: ReviewBundle, title: string, hintCmd: string, c: C
     // 왕복 2회 초과면 사람을 불러야 한다(WI-G24, adk-reference.md) — 여기선 표시만
     // 한다(판단은 스킬/사람 몫). 2회까지는 정보, 3회부터 경고.
     const tag = bundle.roundTrips > 2 ? signal(c, 'warn') : signal(c, 'info');
-    out.push(`왕복         ${bundle.roundTrips}회  ${tag}${bundle.roundTrips > 2 ? '  2회를 넘었습니다 — 사람을 불러야 합니다' : ''}`);
+    out.push(
+      `왕복         ${bundle.roundTrips}회  ${tag}${bundle.roundTrips > 2 ? '  2회를 넘었습니다 — 사람을 불러야 합니다' : ''}`,
+    );
   }
   out.push('');
   out.push('provenance (리뷰어가 교차검증할 위치)');

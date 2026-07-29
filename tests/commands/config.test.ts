@@ -426,9 +426,7 @@ describe('config JSON/source output and local writes', () => {
     });
 
     const loaded = loadConfig(root);
-    expect(loaded.config?.verifications.find((v) => v.name === 'typecheck')?.scope).toBe(
-      'changed',
-    ); // cmd 만 갱신됐어도 기존 scope 는 보존(applyConfigValue 의 기존 동작)되고, 새로 물어보지도 않는다.
+    expect(loaded.config?.verifications.find((v) => v.name === 'typecheck')?.scope).toBe('changed'); // cmd 만 갱신됐어도 기존 scope 는 보존(applyConfigValue 의 기존 동작)되고, 새로 물어보지도 않는다.
   });
 
   it('config --show-origin 은 값별 출처(전역/저장소/개인)를 보여준다', async () => {

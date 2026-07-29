@@ -85,7 +85,7 @@ describe('buildRecordEnvelope — 레코드 봉투 (prototype.md:394 "records �
   });
 });
 
-describe("buildFeedbackEnvelope — 피드백 봉투 (prototype.md:394 \"feedback 은 안 넣는다\")", () => {
+describe('buildFeedbackEnvelope — 피드백 봉투 (prototype.md:394 "feedback 은 안 넣는다")', () => {
   it('author 를 아예 안 넣는다', () => {
     const env = buildFeedbackEnvelope(
       { id: 'fb-1', project: 'p', author: 'hong@midasit.com', area: 'cli' },
@@ -220,7 +220,13 @@ describe('postEnvelope — 전송 (실패해도 절대 throw 하지 않는다)',
 
   it('성공하면 ok:true', async () => {
     const fetchImpl = okFetch();
-    const r = await postEnvelope('http://localhost:9999', '/records', envelope, undefined, fetchImpl);
+    const r = await postEnvelope(
+      'http://localhost:9999',
+      '/records',
+      envelope,
+      undefined,
+      fetchImpl,
+    );
     expect(r.ok).toBe(true);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     const [url, init] = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0] as [
@@ -267,7 +273,13 @@ describe('postEnvelope — 전송 (실패해도 절대 throw 하지 않는다)',
         init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
       });
     }) as unknown as typeof fetch;
-    const r = await postEnvelope('http://localhost:9999', '/records', envelope, undefined, timeoutFetch);
+    const r = await postEnvelope(
+      'http://localhost:9999',
+      '/records',
+      envelope,
+      undefined,
+      timeoutFetch,
+    );
     expect(r.ok).toBe(false);
   });
 });

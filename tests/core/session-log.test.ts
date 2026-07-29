@@ -2,7 +2,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mangleProjectPath, readSessionUsageEvents, sessionLogDir } from '../../src/core/session-log.js';
+import {
+  mangleProjectPath,
+  readSessionUsageEvents,
+  sessionLogDir,
+} from '../../src/core/session-log.js';
 
 describe('mangleProjectPath — 순수 함수', () => {
   it('슬래시를 전부 대시로 바꾼다', () => {
@@ -86,7 +90,14 @@ describe('readSessionUsageEvents', () => {
     const goodLine = JSON.stringify({
       type: 'assistant',
       timestamp: '2026-07-17T04:00:00.000Z',
-      message: { usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } },
+      message: {
+        usage: {
+          input_tokens: 10,
+          output_tokens: 5,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+      },
     });
     writeSessionFile('sess2.jsonl', ['{not valid json', goodLine, '', '   ']);
 
@@ -103,7 +114,14 @@ describe('readSessionUsageEvents', () => {
     const goodLine = JSON.stringify({
       type: 'assistant',
       timestamp: '2026-07-17T05:00:00.000Z',
-      message: { usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } },
+      message: {
+        usage: {
+          input_tokens: 1,
+          output_tokens: 1,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+      },
     });
     fs.writeFileSync(path.join(dir, 'ok.jsonl'), goodLine);
 
@@ -116,7 +134,14 @@ describe('readSessionUsageEvents', () => {
     const line = JSON.stringify({
       type: 'assistant',
       timestamp: '2026-07-17T06:00:00.000Z',
-      message: { usage: { input_tokens: 'oops', output_tokens: null, cache_creation_input_tokens: 5, cache_read_input_tokens: undefined } },
+      message: {
+        usage: {
+          input_tokens: 'oops',
+          output_tokens: null,
+          cache_creation_input_tokens: 5,
+          cache_read_input_tokens: undefined,
+        },
+      },
     });
     writeSessionFile('sess3.jsonl', [line]);
 
@@ -136,12 +161,26 @@ describe('readSessionUsageEvents', () => {
     const later = JSON.stringify({
       type: 'assistant',
       timestamp: '2026-07-17T09:00:00.000Z',
-      message: { usage: { input_tokens: 2, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } },
+      message: {
+        usage: {
+          input_tokens: 2,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+      },
     });
     const earlier = JSON.stringify({
       type: 'assistant',
       timestamp: '2026-07-17T08:00:00.000Z',
-      message: { usage: { input_tokens: 1, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } },
+      message: {
+        usage: {
+          input_tokens: 1,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+      },
     });
     writeSessionFile('b.jsonl', [later]);
     writeSessionFile('a.jsonl', [earlier]);

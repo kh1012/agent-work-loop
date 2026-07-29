@@ -124,10 +124,14 @@ function pct(part: number, whole: number): string {
 export function renderTokensReport(report: TokensReport, c: Caps): string {
   const color = makeColors(c.color);
   if (!report.found) {
-    return sectionBox(`tokens · ${report.ticketId}`, [
-      `${signal(c, 'info')} 이 티켓의 기록이 없습니다.`,
-      color.dim('awl record 로 이 티켓(workitem)에 대한 기록을 먼저 남기세요.'),
-    ], c);
+    return sectionBox(
+      `tokens · ${report.ticketId}`,
+      [
+        `${signal(c, 'info')} 이 티켓의 기록이 없습니다.`,
+        color.dim('awl record 로 이 티켓(workitem)에 대한 기록을 먼저 남기세요.'),
+      ],
+      c,
+    );
   }
   const out: string[] = [];
   out.push(`구간   ${report.windowStart} ~ ${report.windowEnd}`);
@@ -256,10 +260,7 @@ export async function runTokensByLane(opts: { json?: boolean } = {}): Promise<vo
   process.stdout.write(`${renderLaneTokensReport(report, caps())}\n`);
 }
 
-export async function runTokens(
-  ticketId: string,
-  opts: { json?: boolean } = {},
-): Promise<void> {
+export async function runTokens(ticketId: string, opts: { json?: boolean } = {}): Promise<void> {
   const projectRoot = resolveProjectRoot();
   if (!projectRoot) {
     process.stderr.write(

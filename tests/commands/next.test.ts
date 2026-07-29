@@ -255,7 +255,14 @@ describe('computeNextView', () => {
         project: 'p',
         specId,
         scope: '조사',
-        findings: [{ id: 'finding-1', what: '기존 훅이 방향키를 먹는다', where: 'src/a.ts:10', source: 'investigation' }],
+        findings: [
+          {
+            id: 'finding-1',
+            what: '기존 훅이 방향키를 먹는다',
+            where: 'src/a.ts:10',
+            source: 'investigation',
+          },
+        ],
       },
       p,
     );
@@ -571,7 +578,15 @@ describe('토큰 상한 — finding/constraint 대량 누적 스트레스 (WI-I1
     const { specId, ticketId } = await specWithOneTicket(p);
     const findings = Array.from({ length: 5 }, (_, i) => ({ id: `finding-${i + 1}`, what: 'x' }));
     appendRecord(
-      { id: 'rec_small', at: '2026-07-29T00:00:00Z', type: 'audit', project: 'p', specId, scope: 's', findings },
+      {
+        id: 'rec_small',
+        at: '2026-07-29T00:00:00Z',
+        type: 'audit',
+        project: 'p',
+        specId,
+        scope: 's',
+        findings,
+      },
       p,
     );
 

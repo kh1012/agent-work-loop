@@ -20,10 +20,7 @@ const ASCII = { unicode: false, color: false, tty: false };
 function seedRecords(records: Record<string, unknown>[]): void {
   const home = process.env.AWL_HOME as string;
   const proj = fs.mkdtempSync(path.join(os.tmpdir(), 'awl-fb-proj-'));
-  fs.writeFileSync(
-    path.join(home, 'projects.json'),
-    JSON.stringify([{ name: 'p', path: proj }]),
-  );
+  fs.writeFileSync(path.join(home, 'projects.json'), JSON.stringify([{ name: 'p', path: proj }]));
   const dir = path.join(proj, '.awl', 'records');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
@@ -192,11 +189,7 @@ describe('runFeedback — awl feedback "<text>" (WI-G18)', () => {
     const files = fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl'));
     const out: Record<string, unknown>[] = [];
     for (const f of files) {
-      const lines = fs
-        .readFileSync(path.join(dir, f), 'utf8')
-        .trim()
-        .split('\n')
-        .filter(Boolean);
+      const lines = fs.readFileSync(path.join(dir, f), 'utf8').trim().split('\n').filter(Boolean);
       for (const l of lines) {
         out.push(JSON.parse(l));
       }

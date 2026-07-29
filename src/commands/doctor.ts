@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { installedEngineVersion } from '../core/engine.js';
+import { readGlobalAwlConfig } from '../core/global-config.js';
 import {
   findProjectRoot,
   gotchasDir,
@@ -8,7 +9,6 @@ import {
   projectsFile,
   rulesDir,
 } from '../core/paths.js';
-import { readGlobalAwlConfig } from '../core/global-config.js';
 import { CommandNotFoundError, run, tokenize } from '../core/runner.js';
 import { readSyncCursor } from '../core/sync.js';
 import {
@@ -29,8 +29,8 @@ import {
   checkVersions,
 } from '../core/versions.js';
 import { loadConfig } from './config.js';
-import { type SkillSlot, loadProfile } from './profile.js';
 import { codexSkillNames, listRegisteredProjects, stagesMdContent } from './init.js';
+import { type SkillSlot, loadProfile } from './profile.js';
 import { loadProjectName, readRecords } from './record.js';
 import { loadState, readStateLock } from './state.js';
 import { gatherVersionInputs } from './version-check.js';
@@ -546,9 +546,7 @@ function collectGlobal(
     checks.push({ group: 'sync', name: 'endpoint', status: 'ok', value: recordsEndpoint });
     // records 커서는 프로젝트별로 나뉜다(cross-project 간섭 방지, ADK stage 3) —
     // 이 cwd 의 프로젝트 것만 본다. 프로젝트를 못 찾으면(cwd 밖) 상태 행 자체를 생략한다.
-    const stream = currentProjectName
-      ? readSyncCursor().records?.[currentProjectName]
-      : undefined;
+    const stream = currentProjectName ? readSyncCursor().records?.[currentProjectName] : undefined;
     if (stream?.backoffIndex !== undefined) {
       checks.push({
         group: 'sync',

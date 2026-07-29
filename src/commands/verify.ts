@@ -83,7 +83,13 @@ export async function runVerifyChecks(
     }
 
     if (entry.scope === 'changed' && changedFiles.length === 0) {
-      results.push({ name, exitCode: null, durationMs: 0, output: '', skipped: 'no-changed-files' });
+      results.push({
+        name,
+        exitCode: null,
+        durationMs: 0,
+        output: '',
+        skipped: 'no-changed-files',
+      });
       continue; // 변경 파일이 없으면 볼 것도 없다 — 실패가 아니라 건너뜀.
     }
 
@@ -178,19 +184,20 @@ function renderVerify(report: VerifyReport, c: Caps): string {
   const color = makeColors(c.color);
   const out: string[] = [];
   for (const r of report.results) {
-    const mark = r.skipped === 'local'
-      ? `${signal(c, 'warn')} 로컬에서 건너뜀`
-      : r.skipped === 'no-changed-files'
-      ? `${signal(c, 'ok')} 변경 파일 없음(건너뜀)`
-      : r.error === 'command_not_found'
-        ? `${signal(c, 'error')} 명령 없음`
-        : r.error === 'cwd_not_found'
-          ? `${signal(c, 'error')} cwd 없음`
-          : r.error === 'lock_timeout'
-            ? `${signal(c, 'error')} 배타 락 대기 시간 초과`
-            : isCheckPassed(r)
-              ? `${signal(c, 'ok')} 통과`
-              : `${signal(c, 'error')} 실패`;
+    const mark =
+      r.skipped === 'local'
+        ? `${signal(c, 'warn')} 로컬에서 건너뜀`
+        : r.skipped === 'no-changed-files'
+          ? `${signal(c, 'ok')} 변경 파일 없음(건너뜀)`
+          : r.error === 'command_not_found'
+            ? `${signal(c, 'error')} 명령 없음`
+            : r.error === 'cwd_not_found'
+              ? `${signal(c, 'error')} cwd 없음`
+              : r.error === 'lock_timeout'
+                ? `${signal(c, 'error')} 배타 락 대기 시간 초과`
+                : isCheckPassed(r)
+                  ? `${signal(c, 'ok')} 통과`
+                  : `${signal(c, 'error')} 실패`;
     const dur = r.error || r.skipped ? '' : color.dim(`${r.durationMs}ms`);
     out.push(`${r.name.padEnd(10, ' ')}${mark}  ${dur}`);
   }

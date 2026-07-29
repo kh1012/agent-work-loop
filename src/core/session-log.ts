@@ -33,7 +33,12 @@ export function mangleProjectPath(absPath: string): string {
 
 /** `<projectRoot>` 에 대응하는 세션 로그 디렉토리 경로. */
 export function sessionLogDir(projectRoot: string): string {
-  return path.join(os.homedir(), '.claude', 'projects', mangleProjectPath(path.resolve(projectRoot)));
+  return path.join(
+    os.homedir(),
+    '.claude',
+    'projects',
+    mangleProjectPath(path.resolve(projectRoot)),
+  );
 }
 
 function toNumber(v: unknown): number {

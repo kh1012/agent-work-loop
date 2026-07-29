@@ -672,7 +672,9 @@ export async function runDocLint(targetPath?: string): Promise<void> {
   }
 
   for (const v of violations) {
-    const loc = v.line ? `${path.relative(projectRoot, v.file)}:${v.line}` : path.relative(projectRoot, v.file);
+    const loc = v.line
+      ? `${path.relative(projectRoot, v.file)}:${v.line}`
+      : path.relative(projectRoot, v.file);
     process.stderr.write(`  ${loc}: ${v.message}\n`);
   }
   process.stderr.write(`\n  ${signal(c, 'error')} 위반 ${violations.length}건\n`);

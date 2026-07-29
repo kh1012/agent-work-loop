@@ -109,7 +109,12 @@ describe('computeTokensReport — 순수 함수', () => {
 describe('renderTokensReport — 크래시 없이 렌더', () => {
   it('found:false 면 안내 문구만 보여준다', () => {
     const out = renderTokensReport(
-      { ticketId: 'WI-1', found: false, total: { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 }, byStage: [] },
+      {
+        ticketId: 'WI-1',
+        found: false,
+        total: { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 },
+        byStage: [],
+      },
       ASCII,
     );
     expect(out).toContain('기록이 없습니다');
@@ -204,7 +209,10 @@ describe('buildLaneTokensReport — 순수 함수 (WI-G17d, 레인별 합계 + �
 
 describe('renderLaneTokensReport — 크래시 없이 렌더', () => {
   it('레인이 없으면 안내 문구만 보여준다', () => {
-    const out = renderLaneTokensReport({ lanes: [], total: { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 } }, ASCII);
+    const out = renderLaneTokensReport(
+      { lanes: [], total: { input: 0, output: 0, cacheCreation: 0, cacheRead: 0 } },
+      ASCII,
+    );
     expect(out).toContain('못 찾았습니다');
   });
 

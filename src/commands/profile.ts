@@ -100,13 +100,28 @@ function isSkillRef(v: unknown): v is SkillRef {
   if ('name' in o && o.name !== undefined && typeof o.name !== 'string') {
     return false;
   }
-  if (o.type === 'external' && 'version' in o && o.version !== undefined && typeof o.version !== 'string') {
+  if (
+    o.type === 'external' &&
+    'version' in o &&
+    o.version !== undefined &&
+    typeof o.version !== 'string'
+  ) {
     return false;
   }
-  if (o.type === 'external' && 'install' in o && o.install !== undefined && typeof o.install !== 'string') {
+  if (
+    o.type === 'external' &&
+    'install' in o &&
+    o.install !== undefined &&
+    typeof o.install !== 'string'
+  ) {
     return false;
   }
-  if (o.type === 'custom' && 'basedOn' in o && o.basedOn !== undefined && typeof o.basedOn !== 'string') {
+  if (
+    o.type === 'custom' &&
+    'basedOn' in o &&
+    o.basedOn !== undefined &&
+    typeof o.basedOn !== 'string'
+  ) {
     return false;
   }
   return true;
@@ -442,10 +457,14 @@ function renderProfile(profile: AwlProfile, sources: ProfileSources, c: Caps): s
   }
   for (const slot of SKILL_SLOTS) {
     const localMark = sources[slot] === 'local' ? `  ${signal(c, 'info')} 로컬 설정` : '';
-    out.push(`${s.branch} ${slot.padEnd(14, ' ')}${skillRefLabel(profile.skills[slot])}${localMark}`);
+    out.push(
+      `${s.branch} ${slot.padEnd(14, ' ')}${skillRefLabel(profile.skills[slot])}${localMark}`,
+    );
   }
   out.push('');
-  out.push(`${s.lastBranch} ${color.dim('직접 편집: .awl/profile.json (개인 취향은 .awl/profile.local.json)')}`);
+  out.push(
+    `${s.lastBranch} ${color.dim('직접 편집: .awl/profile.json (개인 취향은 .awl/profile.local.json)')}`,
+  );
   return sectionBox(`${profile.name} 프로파일`, out, c);
 }
 
@@ -520,7 +539,9 @@ export async function runProfileInstall(sourcePath: string): Promise<void> {
   const c = caps();
   const out: string[] = [];
   for (const o of result.outcomes) {
-    out.push(`  ${o.slot.padEnd(14, ' ')}${o.name.padEnd(20, ' ')}${skillInstallStatusLabel(c, o.status)}`);
+    out.push(
+      `  ${o.slot.padEnd(14, ' ')}${o.name.padEnd(20, ' ')}${skillInstallStatusLabel(c, o.status)}`,
+    );
     if (o.message) {
       out.push(`    ${o.message}`);
     }

@@ -317,7 +317,10 @@ describe('promptVerifyLocation (WI-B, readline 직접 구동 — D-23 패턴)', 
     rl.close();
     stdoutSpy.mockRestore();
     expect(result.cwd).toBeUndefined();
-    expect(result.verify.find((v) => v.name === 'test')).toEqual({ name: 'test', cmd: 'vitest run' });
+    expect(result.verify.find((v) => v.name === 'test')).toEqual({
+      name: 'test',
+      cmd: 'vitest run',
+    });
   });
 
   it('모노레포이고 루트에 검증 명령이 없으면 패키지를 물어본다 — "1"(루트) 을 고르면 루트를 유지한다', async () => {
@@ -353,7 +356,10 @@ describe('promptVerifyLocation (WI-B, readline 직접 구동 — D-23 패턴)', 
     rl.close();
     stdoutSpy.mockRestore();
     expect(result.cwd).toBe(path.join('packages', 'app'));
-    expect(result.verify.find((v) => v.name === 'test')).toEqual({ name: 'test', cmd: 'vitest run' });
+    expect(result.verify.find((v) => v.name === 'test')).toEqual({
+      name: 'test',
+      cmd: 'vitest run',
+    });
   });
 });
 
@@ -629,7 +635,9 @@ describe('applyInit — 전체 산출물', () => {
     const config = readJson(result.configPath) as Record<string, unknown>;
     expect(config.project).toBe(path.basename(proj));
     expect(config.mainLanguage).toEqual(['typescript']);
-    expect((config.verifications as Array<{ name: string; cmd: string }>).find((v) => v.name === 'lint')).toEqual({
+    expect(
+      (config.verifications as Array<{ name: string; cmd: string }>).find((v) => v.name === 'lint'),
+    ).toEqual({
       name: 'lint',
       cmd: 'eslint .',
     });

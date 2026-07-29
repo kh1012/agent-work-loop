@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
-import { type FlowSession, closeFlow, openFlow, step } from '../core/flow.js';
 import { mergeByName } from '../core/config-merge.js';
+import { type FlowSession, closeFlow, openFlow, step } from '../core/flow.js';
 import { findDotGitPath } from '../core/git-layout.js';
 import { readGlobalAwlConfig } from '../core/global-config.js';
 import { findProjectRoot, globalConfigPath } from '../core/paths.js';
@@ -451,7 +451,12 @@ export function validateLocalConfigOverlay(obj: unknown): string[] {
         ) {
           errors.push(`local config overlay verifications[${i}].env 형식 오류 (객체)`);
         }
-        if ('scope' in vo && vo.scope !== undefined && vo.scope !== 'all' && vo.scope !== 'changed') {
+        if (
+          'scope' in vo &&
+          vo.scope !== undefined &&
+          vo.scope !== 'all' &&
+          vo.scope !== 'changed'
+        ) {
           errors.push(`local config overlay verifications[${i}].scope 형식 오류 ('all'|'changed')`);
         }
         if (
@@ -460,7 +465,9 @@ export function validateLocalConfigOverlay(obj: unknown): string[] {
           vo.level !== 'ticket' &&
           vo.level !== 'request'
         ) {
-          errors.push(`local config overlay verifications[${i}].level 형식 오류 ('ticket'|'request')`);
+          errors.push(
+            `local config overlay verifications[${i}].level 형식 오류 ('ticket'|'request')`,
+          );
         }
         if ('note' in vo && vo.note !== undefined && typeof vo.note !== 'string') {
           errors.push(`local config overlay verifications[${i}].note 형식 오류 (문자열)`);
@@ -1642,7 +1649,11 @@ export async function runConfigSet(
 
   // local 에서 cmd 를 비워 검증을 지우는 건 막는다 — "끈다"는 항상 skip:true 로
   // 남겨야 게이트에 경고로 보인다(reference.md:1177). cmd=null 삭제는 base 에만 있다.
-  if (opts.local === true && parsed.kind === 'verifications.cmd' && parseVerifyValue(value) === null) {
+  if (
+    opts.local === true &&
+    parsed.kind === 'verifications.cmd' &&
+    parseVerifyValue(value) === null
+  ) {
     process.stderr.write(
       `\n  ${signal(caps(), 'error')} local config에서 검증을 끄려면 skip 을 쓰세요: awl config set --local verifications.${parsed.verifyName}.skip true\n`,
     );
@@ -1674,8 +1685,7 @@ export async function runConfigSet(
       try {
         const answer = await new Promise<string>((resolve) => {
           rl.question(
-            `\n  이 검사(${entry.name})를 처음 추가합니다. 기존 코드에서 실패가 많이 나올 수 있습니다.\n` +
-              '  scope: changed 로 시작하면 이번 변경분만 봅니다. (Y/n) ',
+            `\n  이 검사(${entry.name})를 처음 추가합니다. 기존 코드에서 실패가 많이 나올 수 있습니다.\n  scope: changed 로 시작하면 이번 변경분만 봅니다. (Y/n) `,
             resolve,
           );
         });

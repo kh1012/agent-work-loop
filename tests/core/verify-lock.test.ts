@@ -87,7 +87,10 @@ describe('acquireVerifyLockBlocking — 폴링 대기', () => {
   it('바로 안 잡히면 짧게 기다렸다가 풀리면 잡는다', async () => {
     tmpHome();
     tryAcquireVerifyLock('e2e', 'holder');
-    const waiterPromise = acquireVerifyLockBlocking('e2e', 'waiter', { pollMs: 20, timeoutMs: 2000 });
+    const waiterPromise = acquireVerifyLockBlocking('e2e', 'waiter', {
+      pollMs: 20,
+      timeoutMs: 2000,
+    });
     await new Promise((r) => setTimeout(r, 60));
     releaseVerifyLock('e2e', 'holder');
     expect(await waiterPromise).toBe(true);

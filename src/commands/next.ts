@@ -4,7 +4,12 @@ import { type FrontmatterData, parseFrontmatter } from '../core/doc-frontmatter.
 import { findProjectRoot } from '../core/paths.js';
 import { run } from '../core/runner.js';
 import { type Caps, caps, makeColors, makeSymbols, signal } from '../core/tty.js';
-import { type DocType, extractConditionBlocks, extractConstraintBlocks, listDocFiles } from './doc.js';
+import {
+  type DocType,
+  extractConditionBlocks,
+  extractConstraintBlocks,
+  listDocFiles,
+} from './doc.js';
 import { type SkillSlot, loadProfile, skillRefLabel } from './profile.js';
 import { readRecords } from './record.js';
 
@@ -58,9 +63,7 @@ export function resolveCurrentTicketId(projectRoot: string): string | null {
     return implementing.id;
   }
 
-  const doneIds = new Set(
-    parsed.filter((t) => t.status === 'done').map((t) => String(t.id)),
-  );
+  const doneIds = new Set(parsed.filter((t) => t.status === 'done').map((t) => String(t.id)));
   const unblockedPending = parsed.find((t) => {
     if (t.status !== 'pending') {
       return false;
@@ -355,7 +358,9 @@ function renderView(view: NextView, c: Caps): string {
   }
   lines.push('');
   const s = makeSymbols(c);
-  lines.push(`  constraints  ${view.constraints.length === 0 ? '(없음)' : view.constraints.map((cn) => cn.id).join(', ')}`);
+  lines.push(
+    `  constraints  ${view.constraints.length === 0 ? '(없음)' : view.constraints.map((cn) => cn.id).join(', ')}`,
+  );
   for (const cn of view.constraints) {
     lines.push(`    ${s.fold} ${cn.id}`);
     for (const l of cn.text.split('\n')) {
@@ -363,7 +368,9 @@ function renderView(view: NextView, c: Caps): string {
     }
   }
   if (view.constraintsTruncated > 0) {
-    lines.push(`    … ${view.constraintsTruncated}건 더 있음 — awl doc lint 로 스펙 원문을 확인하세요`);
+    lines.push(
+      `    … ${view.constraintsTruncated}건 더 있음 — awl doc lint 로 스펙 원문을 확인하세요`,
+    );
   }
   lines.push('');
   lines.push('  게이트 이력');
@@ -372,7 +379,9 @@ function renderView(view: NextView, c: Caps): string {
   } else {
     for (const g of view.gateHistory) {
       const retryNote = g.retries > 0 ? color.dim(`  (재작업 ${g.retries}회)`) : '';
-      lines.push(`    gate ${g.gate} (${GATE_LABELS[g.gate] ?? '?'})   ${g.decision}   ${g.at}${retryNote}`);
+      lines.push(
+        `    gate ${g.gate} (${GATE_LABELS[g.gate] ?? '?'})   ${g.decision}   ${g.at}${retryNote}`,
+      );
     }
   }
   lines.push('');

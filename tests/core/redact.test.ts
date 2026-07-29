@@ -3,7 +3,11 @@ import { redactAbsolutePaths } from '../../src/core/redact.js';
 
 describe('redactAbsolutePaths — 순수 함수', () => {
   it('프로젝트 루트 경로를 <project> 로 치환한다', () => {
-    const out = redactAbsolutePaths('/Users/x/proj/src/foo.ts 에서 실패', '/Users/x/home', '/Users/x/proj');
+    const out = redactAbsolutePaths(
+      '/Users/x/proj/src/foo.ts 에서 실패',
+      '/Users/x/home',
+      '/Users/x/proj',
+    );
     expect(out).toBe('<project>/src/foo.ts 에서 실패');
   });
 

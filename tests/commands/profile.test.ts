@@ -4,8 +4,8 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   type AwlProfile,
-  type SkillInstaller,
   SKILL_SLOTS,
+  type SkillInstaller,
   defaultProfile,
   emptyProfileSkills,
   ensureProfile,
@@ -65,7 +65,7 @@ describe('validateProfile — 스키마 검증', () => {
     expect(errors.some((e) => e.includes('bogus'))).toBe(true);
   });
 
-  it("external 스킬은 url 이 필수다", () => {
+  it('external 스킬은 url 이 필수다', () => {
     const errors = validateProfile({
       name: 'p',
       skills: { ...emptyProfileSkills(), review: { type: 'external' } },
@@ -73,7 +73,7 @@ describe('validateProfile — 스키마 검증', () => {
     expect(errors.some((e) => e.includes('skills.review'))).toBe(true);
   });
 
-  it("custom 스킬은 path 가 필수다", () => {
+  it('custom 스킬은 path 가 필수다', () => {
     const errors = validateProfile({
       name: 'p',
       skills: { ...emptyProfileSkills(), implement: { type: 'custom' } },
@@ -266,7 +266,9 @@ describe('runProfile — 로컬 오버라이드는 정보 표시다(경고 아�
     expect(stdout).toContain('implement');
     expect(stdout).toContain('로컬 설정');
     // review 는 base 그대로라 로컬 설정 마크가 안 붙어야 한다.
-    const reviewLine = stdout.split('\n').find((l) => l.trim().startsWith('review') || l.includes('review '));
+    const reviewLine = stdout
+      .split('\n')
+      .find((l) => l.trim().startsWith('review') || l.includes('review '));
     expect(reviewLine).not.toContain('로컬 설정');
 
     vi.restoreAllMocks();
@@ -365,7 +367,10 @@ describe('installProfile — 공유 프로파일 받기(ADK stage 4, reference.m
 
   it('잘못된 프로파일 JSON 이면 거부하고 아무것도 안 쓴다', async () => {
     const root = tmpProjectRoot();
-    const sourcePath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'awl-incoming-')), 'bad.json');
+    const sourcePath = path.join(
+      fs.mkdtempSync(path.join(os.tmpdir(), 'awl-incoming-')),
+      'bad.json',
+    );
     fs.writeFileSync(sourcePath, 'not json{{{');
 
     const result = await installProfile(root, sourcePath);

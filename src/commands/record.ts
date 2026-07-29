@@ -8,6 +8,7 @@ import { recordsDir, recordsSuffixPath, rulesDir } from '../core/paths.js';
 import { redactAbsolutePaths } from '../core/redact.js';
 import { run } from '../core/runner.js';
 import {
+  type SyncStreamState,
   buildFeedbackEnvelope,
   buildRecordEnvelope,
   buildSpecEnvelope,
@@ -18,7 +19,6 @@ import {
   recordFailure,
   recordSuccess,
   shouldGiveUp,
-  type SyncStreamState,
   writeSyncCursor,
 } from '../core/sync.js';
 import { type Caps, caps, makeColors, sectionBox, signal } from '../core/tty.js';
@@ -228,8 +228,7 @@ async function suggestGate4Merge(projectRoot: string): Promise<void> {
     return; // 판정 불가하거나(브랜치 못 읽음) 이미 같은 브랜치 — 제안할 게 없다.
   }
   process.stdout.write(
-    `\n  병합 제안: git merge ${laneBranch} → ${baseBranch}\n` +
-      '  (awl 은 실행하지 않습니다 — 레인을 열 때 서 있던 브랜치로 되돌리는 게 목적이면 사람/스킬이 직접 실행하세요.)\n',
+    `\n  병합 제안: git merge ${laneBranch} → ${baseBranch}\n  (awl 은 실행하지 않습니다 — 레인을 열 때 서 있던 브랜치로 되돌리는 게 목적이면 사람/스킬이 직접 실행하세요.)\n`,
   );
 }
 
@@ -388,7 +387,10 @@ async function syncProjectRecords(projectRoot: string, projectName: string): Pro
       envelope.id,
       () => postEnvelope(endpoint as string, '/records', envelope, cfg?.sync?.records?.token),
     );
-    cursor = { ...cursor, records: { ...cursor.records, [projectName]: stream as SyncStreamState } };
+    cursor = {
+      ...cursor,
+      records: { ...cursor.records, [projectName]: stream as SyncStreamState },
+    };
     writeSyncCursor(cursor);
     if (!ok) {
       break;
@@ -400,7 +402,10 @@ async function syncProjectRecords(projectRoot: string, projectName: string): Pro
  * sync.feedback.endpoint 는 records 와 달리 전체 경로를 이미 포함한다
  * (prototype.md:105 "http://localhost:9999/feedback") — 그래서 urlPath 를 안 붙인다.
  * export: core/auto-feedback.ts(ADK stage 6, CLI 미처리 예외 자동기록)도 재사용한다. */
-export async function syncFeedback(projectRoot: string, record: Record<string, unknown>): Promise<void> {
+export async function syncFeedback(
+  projectRoot: string,
+  record: Record<string, unknown>,
+): Promise<void> {
   const cfg = readGlobalAwlConfig();
   const endpoint = cfg?.sync?.feedback?.endpoint;
   if (!endpoint) {
@@ -1571,11 +1576,7 @@ export async function runRecord(type: string, opts: RecordCliOpts): Promise<void
   // gate 1/4(layer:'request') 가 그 스펙의 status 를 전이시킨다(ADK stage 3).
   // gate:4 의 'hold' 는 SPEC_STATUS_TRANSITIONS 에 항목이 없어 nextStatus 가
   // undefined 이므로 아래 가드에서 자연히 전이가 안 일어난다(active 유지).
-  if (
-    specPathForTransition &&
-    typeof data.gate === 'number' &&
-    typeof data.decision === 'string'
-  ) {
+  if (specPathForTransition && typeof data.gate === 'number' && typeof data.decision === 'string') {
     const nextStatus = SPEC_STATUS_TRANSITIONS[data.gate]?.[data.decision];
     if (nextStatus) {
       writeSpecStatus(specPathForTransition, nextStatus);

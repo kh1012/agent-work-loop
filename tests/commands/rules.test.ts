@@ -81,7 +81,7 @@ body`;
 
   it('hits/violations 둘 다 없으면 0', () => {
     const { rule } = parseRuleFile(
-      `---\nid: R-010\napplies: a\ncounter: c\n---\n\nbody`,
+      '---\nid: R-010\napplies: a\ncounter: c\n---\n\nbody',
       'R-010.md',
     );
     expect(rule?.hits).toBe(0);
@@ -97,14 +97,14 @@ describe('writeRuleHitsIntoText — 순수 함수', () => {
   });
 
   it('레거시 violations 줄은 hits 로 옮겨 쓴다(다음 쓰기부터 신규 필드명)', () => {
-    const legacy = `---\nid: R-009\napplies: a\ncounter: c\nviolations: 5\n---\n\nbody`;
+    const legacy = '---\nid: R-009\napplies: a\ncounter: c\nviolations: 5\n---\n\nbody';
     const out = writeRuleHitsIntoText(legacy, 6);
     expect(out).toContain('hits: 6');
     expect(out).not.toContain('violations:');
   });
 
   it('hits/violations 둘 다 없으면 새로 추가한다', () => {
-    const noHits = `---\nid: R-010\napplies: a\ncounter: c\n---\n\nbody`;
+    const noHits = '---\nid: R-010\napplies: a\ncounter: c\n---\n\nbody';
     const out = writeRuleHitsIntoText(noHits, 1);
     expect(out).toContain('hits: 1');
   });

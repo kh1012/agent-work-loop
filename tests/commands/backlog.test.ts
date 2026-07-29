@@ -58,7 +58,13 @@ describe('collectBacklogCandidates — 순수 함수', () => {
 
   it('이미 승격된 gotcha 는 후보에서 뺀다', () => {
     const out = collectBacklogCandidates(
-      [gotcha('G-001', 3, ['2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z', '2026-01-03T00:00:00Z'])],
+      [
+        gotcha('G-001', 3, [
+          '2026-01-01T00:00:00Z',
+          '2026-01-02T00:00:00Z',
+          '2026-01-03T00:00:00Z',
+        ]),
+      ],
       new Set(['G-001']),
       '',
     );
@@ -67,7 +73,13 @@ describe('collectBacklogCandidates — 순수 함수', () => {
 
   it('커서 이후 활동이 없으면(이미 이전 정리 때 봤던 것) 후보에서 뺀다', () => {
     const out = collectBacklogCandidates(
-      [gotcha('G-001', 3, ['2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z', '2026-01-03T00:00:00Z'])],
+      [
+        gotcha('G-001', 3, [
+          '2026-01-01T00:00:00Z',
+          '2026-01-02T00:00:00Z',
+          '2026-01-03T00:00:00Z',
+        ]),
+      ],
       new Set(),
       '2026-01-04T00:00:00Z',
     );
@@ -85,7 +97,11 @@ describe('collectBacklogCandidates — 순수 함수', () => {
   });
 
   it('커서가 없으면(최초 실행) 그동안 전부를 후보로 본다', () => {
-    const g = gotcha('G-001', 3, ['2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z', '2026-01-03T00:00:00Z']);
+    const g = gotcha('G-001', 3, [
+      '2026-01-01T00:00:00Z',
+      '2026-01-02T00:00:00Z',
+      '2026-01-03T00:00:00Z',
+    ]);
     const out = collectBacklogCandidates([g], new Set(), '');
     expect(out).toHaveLength(1);
   });

@@ -183,7 +183,8 @@ function buildGateStatus(
     const hasUnresolved = presentedCriteria.some(
       (item) => item.status !== undefined && item.status !== 'passed',
     );
-    const folded = presentedExclusions.length === 0 && reviewFindings.length === 0 && !hasUnresolved;
+    const folded =
+      presentedExclusions.length === 0 && reviewFindings.length === 0 && !hasUnresolved;
     const auto = typeof rec.auto === 'boolean' ? rec.auto : undefined;
     const requestSummary =
       gate === 4 && auto === true && typeof rec.spec === 'string'
@@ -441,13 +442,18 @@ export function renderStatus(report: StatusReport, c: Caps): string {
       for (const ex of exclusions) {
         const exObj = ex && typeof ex === 'object' ? (ex as Record<string, unknown>) : null;
         const id = exObj && typeof exObj.id === 'string' ? exObj.id : String(ex);
-        const reason = exObj && typeof exObj.reason === 'string' ? `  ${color.dim(exObj.reason)}` : '';
-        out.push(`        ${s.vGuide}   ${s.lastBranch} ${signal(c, 'warn')} 범위 밖: ${id}${reason}`);
+        const reason =
+          exObj && typeof exObj.reason === 'string' ? `  ${color.dim(exObj.reason)}` : '';
+        out.push(
+          `        ${s.vGuide}   ${s.lastBranch} ${signal(c, 'warn')} 범위 밖: ${id}${reason}`,
+        );
       }
       for (const f of findings) {
         const what = typeof f.what === 'string' ? f.what : JSON.stringify(f);
         const evidence = typeof f.evidence === 'string' ? `  ${color.dim(f.evidence)}` : '';
-        out.push(`        ${s.vGuide}   ${s.lastBranch} ${signal(c, 'warn')} 리뷰: ${what}${evidence}`);
+        out.push(
+          `        ${s.vGuide}   ${s.lastBranch} ${signal(c, 'warn')} 리뷰: ${what}${evidence}`,
+        );
       }
     }
     // auto 모드가 게이트4 에서 펼치는 요청 전체 요약(WI-H4, adk-prototype.md:365
