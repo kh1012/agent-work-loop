@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.9.9] - 2026-07-30
+
 ### 수정
 
 - 티켓이 없어도 `awl next` 가 지침을 낸다. 캐묻기 강도와 spec·clarification 자리를
